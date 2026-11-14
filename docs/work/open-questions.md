@@ -31,7 +31,14 @@ in the meantime.
 
 ## Open
 
-None. Every question found so far is answered below.
+### Q29. Does a property bind when its set accessor is not public?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
+| **Question** | By the answer to Q14 the property of a field is "an instance property with get and set". The binding requires the get accessor to be public and accepts any set accessor: private, protected or `init`. So a class with `{ get; private set; }` or `{ get; init; }` binds, and the database sets the value through an accessor the application cannot call. It was so before the epic, and no test states it. Is a set accessor that is not public accepted, which lets an application keep its entity classes closed for writing, or is a public set required? |
+| **Until answered** | Any set accessor binds; the documentation of `ILatticeDatabase.Set<TEntity>()` says "a public get and a set" and does not promise more |
+| **Decides** | The planner, before the contracts of the stage with typed views (S22), whose generator has to know which properties of a class it may use |
 
 ## Answered
 
