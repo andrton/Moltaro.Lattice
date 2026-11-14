@@ -38,7 +38,8 @@ type may name the .NET class that represents it; this is optional.
 A field may also hold more than one value. An owned type (`OwnedTypes`) is a group of
 fields that an entity holds as one nested value; a `List`, a `Map` and a `Set` hold
 elements, and a `Reference` holds the key of another entity, which is not checked. An
-owned type does not contain itself. An index may cover a field inside an owned value: its
+owned type does not contain itself, and a declaration nests at most 32 deep, counted
+through collections and owned types together. An index may cover a field inside an owned value: its
 part is then written as the path of field identities to it, such as `[5, 1]`. Without a
 .NET class such an entity is a `LatticeRecord` that holds `LatticeOwnedValue`s and
 collections; a record copies what is set into it.
