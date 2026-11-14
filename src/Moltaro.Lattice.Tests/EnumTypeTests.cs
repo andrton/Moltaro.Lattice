@@ -124,7 +124,7 @@ public sealed class EnumTypeTests
 
         // An index may cover a field of an enum type.
         Assert.True(job.TryGetIndex("ByStatus", out var byStatus));
-        Assert.Same(status, Assert.Single(byStatus.Fields));
+        Assert.Same(status, Assert.Single(byStatus.Parts).Field);
     }
 
     [Theory]

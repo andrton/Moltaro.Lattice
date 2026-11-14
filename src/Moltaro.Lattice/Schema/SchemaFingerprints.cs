@@ -89,11 +89,11 @@ internal static class SchemaFingerprints
                 encoding.Identity(index.Id);
                 encoding.Mark(index.IsUnique);
 
-                encoding.Count(index.Fields.Count);
-                foreach (var field in index.Fields)
+                encoding.Count(index.Parts.Count);
+                foreach (var part in index.Parts)
                 {
                     encoding.Count(1);
-                    encoding.Identity(field.Id);
+                    encoding.Identity(part.Field.Id);
                 }
             }
         }

@@ -1,8 +1,8 @@
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A field of an entity type, as declared in the schema: its identity, its name and its
-/// declaration.
+/// A field of an entity type or of an owned type, as declared in the schema: its identity, its
+/// name and its declaration.
 /// </summary>
 public sealed class LatticeField
 {
@@ -14,12 +14,12 @@ public sealed class LatticeField
         Ordinal = ordinal;
     }
 
-    /// <summary>The stable identity of the field within its entity type.</summary>
+    /// <summary>The stable identity of the field within its entity type or owned type.</summary>
     public int Id { get; }
 
     /// <summary>
-    /// The field name. Records are accessed by it; a .NET class bound to the entity type
-    /// has a property with the same name.
+    /// The field name. Records and owned values are accessed by it; a .NET class bound to the
+    /// entity type or to the owned type has a property with the same name.
     /// </summary>
     public string Name { get; }
 

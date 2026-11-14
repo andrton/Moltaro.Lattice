@@ -2,8 +2,9 @@ namespace Moltaro.Lattice.Schema;
 
 /// <summary>
 /// A secondary index of an entity type, as declared in the schema: an identity, a name, the
-/// fields it covers, in order, and whether it is unique. Entities are found through it by
-/// the values of those fields.
+/// parts of its key, in order, and whether it is unique. Entities are found through it by the
+/// values of the fields those parts cover: fields of the entity type, or fields inside its
+/// owned values.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,7 +26,10 @@ public sealed class LatticeIndex
     {
         Id = id;
         Name = name;
-        Fields = fields;
+
+        // The present forms of the descriptor and of the saved schema declare a part as one
+        // field of the entity type: a path of one element.
+        Parts = [.. fields.Select(field => new LatticeIndexPart([field]))];
         IsUnique = isUnique;
     }
 
@@ -38,8 +42,12 @@ public sealed class LatticeIndex
     /// <summary>The index name, unique within its entity type.</summary>
     public string Name { get; }
 
-    /// <summary>The indexed fields, in the order that defines the index order.</summary>
-    public IReadOnlyList<LatticeField> Fields { get; }
+    /// <summary>
+    /// The parts of the index key, in the order that defines the index order: each a field of
+    /// the entity type or a field inside an owned value of it, see
+    /// <see cref="LatticeIndexPart"/>.
+    /// </summary>
+    public IReadOnlyList<LatticeIndexPart> Parts { get; }
 
     /// <summary>
     /// Whether the index is unique: at most one entity may have a given complete set of

@@ -36,11 +36,15 @@ public sealed class LatticeRecord
 
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
-    /// <see cref="LatticeValueDeclaration.ValueType"/>; an integer of another width is accepted when it fits.
+    /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for an
+    /// owned value and a collection; an integer of another width is accepted when it fits.
     /// </summary>
     /// <param name="fieldName">The field name declared in the schema.</param>
     /// <exception cref="ArgumentException">
-    /// The entity type has no such field, or the value does not match the field type.
+    /// The entity type has no such field, or the value does not match the declaration of the
+    /// field: it is of another type, an owned value of another owned type, or a collection
+    /// with an element, a key or a value of another type or <see langword="null"/> where its
+    /// declaration does not allow it, or with a key given twice.
     /// </exception>
     public object? this[string fieldName]
     {

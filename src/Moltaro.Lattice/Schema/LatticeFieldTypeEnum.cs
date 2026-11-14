@@ -1,7 +1,8 @@
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// Type of a field declared in the schema. The names are the ones used in the schema descriptor.
+/// Type of a value declared in the schema: of a field, or of the element, the key or the value
+/// of a collection. The names are the ones used in the schema descriptor.
 /// </summary>
 public enum LatticeFieldTypeEnum : byte
 {
@@ -76,4 +77,75 @@ public enum LatticeFieldTypeEnum : byte
     /// the value.
     /// </remarks>
     Enum = 20,
+
+    /// <summary>
+    /// An owned value: a value of an owned type declared in the schema, see
+    /// <see cref="LatticeValueDeclaration.OwnedType"/>, with fields of its own. It has no key
+    /// and is never shared: it belongs to the one entity that holds it and is read and written
+    /// with that entity. A record holds it as a <c>LatticeOwnedValue</c>, and a bound class as
+    /// an object of the class that its owned type names.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Owned values, and is compiled, saved and
+    /// loaded with them, and records and bound classes hold them, but storing them is not
+    /// implemented: every write of an entity type that has an Owned field throws
+    /// <see cref="NotSupportedException"/>.
+    /// </remarks>
+    Owned = 21,
+
+    /// <summary>
+    /// An ordered sequence of values of one declaration, see
+    /// <see cref="LatticeValueDeclaration.Element"/>. It keeps the order and the duplicates of
+    /// the values it was given. An element may be anything a field may be, an owned value and
+    /// another collection included.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Lists, and is compiled, saved and loaded
+    /// with them, and records and bound classes hold them, but storing them is not
+    /// implemented: every write of an entity type that has a List field throws
+    /// <see cref="NotSupportedException"/>.
+    /// </remarks>
+    List = 22,
+
+    /// <summary>
+    /// Values by key: at most one value for each key, see
+    /// <see cref="LatticeValueDeclaration.Key"/> and <see cref="LatticeValueDeclaration.Value"/>.
+    /// Two keys are the same key when the key declaration holds them equal. The order in which
+    /// a Map is enumerated is not guaranteed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Maps, and is compiled, saved and loaded
+    /// with them, and records and bound classes hold them, but storing them is not
+    /// implemented: every write of an entity type that has a Map field throws
+    /// <see cref="NotSupportedException"/>.
+    /// </remarks>
+    Map = 23,
+
+    /// <summary>
+    /// Distinct values of one declaration, see <see cref="LatticeValueDeclaration.Element"/>:
+    /// two members are the same member when the element declaration holds them equal. The
+    /// order in which a Set is enumerated is not guaranteed.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Sets, and is compiled, saved and loaded
+    /// with them, and records and bound classes hold them, but storing them is not
+    /// implemented: every write of an entity type that has a Set field throws
+    /// <see cref="NotSupportedException"/>.
+    /// </remarks>
+    Set = 24,
+
+    /// <summary>
+    /// A reference to an entity of the entity type that the declaration names, see
+    /// <see cref="LatticeValueDeclaration.ReferencedEntityTypeName"/>, held as the primary key
+    /// of the target in the .NET type of that key. A reference does not own its target, and
+    /// nothing checks that the target exists: an entity with that key may be absent, and
+    /// deleting the target does not change the reference.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares references, and is compiled, saved and
+    /// loaded with them, and records and bound classes hold them, but storing them is not
+    /// implemented: every write of an entity type that has a Reference field throws
+    /// <see cref="NotSupportedException"/>.
+    /// </remarks>
+    Reference = 25,
 }

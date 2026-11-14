@@ -70,7 +70,10 @@ public sealed class LatticeEnumType
     /// </summary>
     public bool IsFlags { get; }
 
-    /// <summary>The declared members, in declaration order.</summary>
+    /// <summary>
+    /// The declared members, in declaration order. An enum type declares at least one member:
+    /// one without members is not valid, whether it is a Flags type or not.
+    /// </summary>
     public IReadOnlyList<LatticeEnumMember> Members { get; }
 
     // The declared values, each once however many names it has, in ascending numeric order.

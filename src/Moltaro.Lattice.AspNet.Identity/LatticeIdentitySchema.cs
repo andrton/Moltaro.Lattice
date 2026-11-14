@@ -174,12 +174,12 @@ public static class LatticeIdentitySchema
 
         foreach (var index in required.Indexes)
         {
-            var fields = string.Join(", ", index.Fields.Select(field => field.Name));
+            var fields = string.Join(", ", index.Parts.Select(part => part.Field.Name));
             if (!actual.TryGetIndex(index.Name, out var found))
             {
                 problems.Add($"index '{actual.Name}.{index.Name}' on ({fields}) is missing");
             }
-            else if (!found.Fields.Select(field => field.Name).SequenceEqual(index.Fields.Select(field => field.Name)))
+            else if (!found.Parts.Select(part => part.Field.Name).SequenceEqual(index.Parts.Select(part => part.Field.Name)))
             {
                 problems.Add($"index '{actual.Name}.{index.Name}' must be on ({fields})");
             }

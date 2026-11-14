@@ -87,10 +87,10 @@ internal static class SchemaBinaryFormat
                 writer.Write(index.Id);
                 writer.Write(index.Name);
                 writer.Write(index.IsUnique);
-                writer.Write(index.Fields.Count);
-                foreach (var field in index.Fields)
+                writer.Write(index.Parts.Count);
+                foreach (var part in index.Parts)
                 {
-                    writer.Write(field.Id);
+                    writer.Write(part.Field.Id);
                 }
             }
         }

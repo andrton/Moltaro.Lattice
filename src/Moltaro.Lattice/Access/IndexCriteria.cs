@@ -12,16 +12,16 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        var fields = index.Fields;
-        if (key.Values.Length > fields.Count)
+        var parts = index.Parts;
+        if (key.Values.Length > parts.Count)
         {
-            throw new ArgumentException($"Index '{index.Name}' covers {fields.Count} field(s); the key has {key.Values.Length} values.", nameof(key));
+            throw new ArgumentException($"Index '{index.Name}' covers {parts.Count} field(s); the key has {key.Values.Length} values.", nameof(key));
         }
 
         var equal = new object?[key.Values.Length];
         for (var part = 0; part < equal.Length; part++)
         {
-            var field = fields[part];
+            var field = parts[part].Field;
             var value = key.Values[part];
             if (value is null && !field.Declaration.IsNullable)
             {
@@ -36,12 +36,12 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
             return new IndexCriteria(index, equal, null, null, null);
         }
 
-        if (equal.Length == fields.Count)
+        if (equal.Length == parts.Count)
         {
             throw new ArgumentException($"Index '{index.Name}' has no field left for a range: the key gives a value to every field.", nameof(key));
         }
 
-        var rangeField = fields[equal.Length];
+        var rangeField = parts[equal.Length].Field;
         return new IndexCriteria(index, equal, rangeField, Normalize(rangeField, key.From), Normalize(rangeField, key.To));
 
         static Bound? Normalize(LatticeField field, IndexBound? bound) =>

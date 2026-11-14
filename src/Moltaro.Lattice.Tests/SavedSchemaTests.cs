@@ -146,7 +146,7 @@ public sealed class SavedSchemaTests
 
             foreach (var index in entityType.Indexes)
             {
-                yield return $"  index {index.Id} {index.Name} on ({string.Join(", ", index.Fields.Select(field => field.Id))}), unique {index.IsUnique}";
+                yield return $"  index {index.Id} {index.Name} on ({string.Join(", ", index.Parts.Select(part => part.Field.Id))}), unique {index.IsUnique}";
             }
         }
     }

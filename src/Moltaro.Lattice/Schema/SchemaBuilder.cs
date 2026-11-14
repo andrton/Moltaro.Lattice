@@ -211,7 +211,12 @@ internal static class SchemaBuilder
     // nothing, so it is a mistake in the descriptor rather than something to ignore.
     private static LatticeValueDeclaration BuildDeclaration(ValueDeclarationDraft draft, string place, Dictionary<string, LatticeEnumType> enumTypes)
     {
-        if (!Enum.IsDefined(draft.Type))
+        // The present forms of the descriptor and of the saved schema declare no owned types,
+        // references or collections, so no value can be of one of these types: they stay
+        // unknown types, as they were before they existed. The implementation of these types
+        // replaces this check.
+        var isNotDeclarableYet = draft.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set or LatticeFieldTypeEnum.Reference;
+        if (!Enum.IsDefined(draft.Type) || isNotDeclarableYet)
         {
             throw Invalid($"{place} has an unknown type.");
         }

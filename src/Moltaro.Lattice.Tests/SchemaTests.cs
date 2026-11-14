@@ -37,7 +37,7 @@ public sealed class SchemaTests
         Assert.Equal(["ByEmail", "ByAgeAndName"], user.Indexes.Select(index => index.Name));
 
         Assert.True(user.TryGetIndex("ByAgeAndName", out var byAgeAndName));
-        Assert.Equal(["Age", "Name"], byAgeAndName.Fields.Select(field => field.Name));
+        Assert.Equal(["Age", "Name"], byAgeAndName.Parts.Select(part => part.Field.Name));
         Assert.False(user.TryGetIndex("ByName", out _));
 
         // An entity type does not need indexes.
@@ -170,6 +170,6 @@ public sealed class SchemaTests
         static IEnumerable<string> Describe(LatticeSchema schema) =>
             schema.EntityTypes.SelectMany(entityType => entityType.Fields
                 .Select(field => $"{entityType.Id}:{entityType.Name}:{entityType.ClrTypeName}:{entityType.Key.Name}/{field.Id}:{field.Name}:{field.Declaration.Type}:{field.Declaration.IsNullable}")
-                .Concat(entityType.Indexes.Select(index => $"{entityType.Name}/index {index.Name}({string.Join(",", index.Fields.Select(field => field.Name))})")));
+                .Concat(entityType.Indexes.Select(index => $"{entityType.Name}/index {index.Name}({string.Join(",", index.Parts.Select(part => part.Field.Name))})")));
     }
 }

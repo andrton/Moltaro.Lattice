@@ -52,7 +52,7 @@ public sealed class DescriptorFormTests
 
         var byLogin = Assert.Single(user.Indexes);
         Assert.Equal((1, "ByLogin", true), (byLogin.Id, byLogin.Name, byLogin.IsUnique));
-        Assert.Equal(["Login"], byLogin.Fields.Select(field => field.Name));
+        Assert.Equal(["Login"], byLogin.Parts.Select(part => part.Field.Name));
     }
 
     [Fact]
