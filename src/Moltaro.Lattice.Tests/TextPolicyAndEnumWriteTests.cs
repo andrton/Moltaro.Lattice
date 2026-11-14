@@ -1,10 +1,11 @@
 namespace Moltaro.Lattice.Tests;
 
-// The schema declares text policies and enum types, but storing and comparing values by them
-// is not implemented yet. An entity type that declares a comparison that ignores case, the
-// Dictionary storage or a field of an enum type cannot be written yet: the write is refused,
+// The schema declares text policies, the string encoding and enum types, but storing and
+// comparing values by them is not implemented yet. An entity type that declares a comparison
+// that ignores case, the Dictionary storage or a field of an enum type cannot be written yet,
+// and no entity type of a schema that declares the UTF-16 encoding can: the write is refused,
 // rather than accepted under rules other than the declared ones. An entity type that states
-// only the defaults is written as before.
+// only the defaults, in a schema of the default encoding, is written as before.
 public sealed class TextPolicyAndEnumWriteTests
 {
     private const string Json = """
@@ -75,4 +76,46 @@ public sealed class TextPolicyAndEnumWriteTests
 
         Assert.Equal("Main", notes.Get(1L)!["Text"]);
     }
+
+    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    public async Task Schema_that_declares_the_UTF16_encoding_is_not_writable_yet()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: SchemaWithEncoding("Utf16"));
+        var notes = database.Set("Note");
+        var record = new LatticeRecord(notes.EntityType) { ["Id"] = 1L, ["Text"] = "Main" };
+
+        // The entity type states no policy of its own; the encoding of the schema is enough.
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await notes.InsertAsync(record));
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await notes.UpsertAsync(record));
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await notes.DeleteAsync(1L));
+        Assert.Empty(notes.Enumerate());
+    }
+
+    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    public async Task Schema_that_states_the_default_UTF8_encoding_is_written()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: SchemaWithEncoding("Utf8"));
+        var notes = database.Set("Note");
+
+        await notes.InsertAsync(new LatticeRecord(notes.EntityType) { ["Id"] = 1L, ["Text"] = "Main" });
+
+        Assert.Equal("Main", notes.Get(1L)!["Text"]);
+    }
+
+    // One entity type that states no text policy, in a schema that declares its encoding.
+    private static LatticeSchema SchemaWithEncoding(string encoding) => LatticeSchema.Compile($$"""
+        {
+          "StringEncoding": "{{encoding}}",
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Note",
+              "Fields": [
+                { "Id": 1, "Name": "Id", "Type": "Int64" },
+                { "Id": 2, "Name": "Text", "Type": "String" }
+              ],
+              "PrimaryKey": [1]
+            }
+          ]
+        }
+        """);
 }
