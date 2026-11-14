@@ -58,9 +58,12 @@ The state after the last closed sprint; the coordinator keeps it current.
 
 **In the contract and working in the placeholder.** Opening and closing; master and child;
 MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
-types, fields, indexes and enum types, scalar fields, enum and Flags types, text policies
-and the string encoding; binary save and load; both fingerprints; the optional .NET class,
-with a .NET enum that has to agree with its enum type. Sets by class and by name, for
+types, fields, indexes, enum types and owned types, scalar fields, enum and Flags types,
+text policies and the string encoding, owned values, Lists, Maps, Sets and references,
+index parts that are paths into owned values; binary save and load with a digest; both
+fingerprints; the optional .NET class, bound by one table for every position, with a .NET
+enum that has to agree with its enum type. Records and owned values that hold nested
+values and copy what is set into them. Sets by class and by name, for
 entity types of scalar fields with the default text policies: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
@@ -75,13 +78,13 @@ tests are written and skipped; samples are written.
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
 | Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
+| Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
 and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Owned values, List, Map, Set, references by key | S03, then S18 and S19 |
 | Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |

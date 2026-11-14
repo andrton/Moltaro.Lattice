@@ -55,6 +55,18 @@ replaced by another rule is reworded in `AGENTS.md` and is not recorded here.
 | **Since** | Epic 1, sprint S01, which creates the first of the projects and puts the exception into the text of `AGENTS.md`; the other projects and the two programs come with the sprints that create them |
 | **Until** | Permanent |
 
+### X5. The schema names one type of the access namespace
+
+| | |
+| --- | --- |
+| **Rule** | Inside an assembly folders depend on each other in one direction (principle 11) |
+| **Departure** | `LatticeValueDeclaration` in `Moltaro.Lattice.Schema` names `LatticeOwnedValue` of `Moltaro.Lattice.Access` as the `ValueType` of an Owned position, while the access namespace is built on the schema |
+| **Why** | `ValueType` says what a record holds at a position, and for an owned value that is `LatticeOwnedValue`. A value needs its type, and the type says what holds the value, so one of the two has to name the other. Moving `LatticeOwnedValue` into the schema namespace would take the checking and copying of record values with it and part it from `LatticeRecord`; taking `ValueType` out of the schema would change a public member that the binding, the validation and the documentation of two sprints stand on |
+| **Kept small by** | One reference, a `typeof`, in one place, with a comment. The schema calls no member of the access namespace and holds no object of it |
+| **Approved** | By the owner, 14 November 2026 |
+| **Since** | Epic 1, sprint S03 |
+| **Until** | Permanent, or until `ValueType` leaves the schema for another reason |
+
 ## Approved, not in force yet
 
 ### X4. An internal entry to the engine for its first tests

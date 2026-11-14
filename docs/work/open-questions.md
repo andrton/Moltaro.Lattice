@@ -31,15 +31,6 @@ in the meantime.
 
 ## Open
 
-### Q27. The schema names a type of the access layer
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, implementation of Epic 1, sprint S03 |
-| **Question** | The brief of S03 puts `LatticeOwnedValue` into `Moltaro.Lattice.Access`, beside `LatticeRecord`, and has `LatticeValueDeclaration.ValueType` of an Owned position report it. So a type of `Schema` names a type of `Access`, while `Access` is built on `Schema`: two folders of one level depend on each other, which principle 11 of `AGENTS.md` does not allow. Does `LatticeOwnedValue` belong to the namespace of the schema, or is this one reference an exception to record? |
-| **Until answered** | `LatticeValueDeclaration` names `Access.LatticeOwnedValue` in one place, with a comment; the contract and its tests require it |
-| **Decides** | The owner: it is either a change of the contract of S03 or an exception to a rule of `AGENTS.md`. For S03 |
-
 ### Q28. Limits that the implementation of S03 set by itself
 
 | | |
@@ -284,3 +275,12 @@ in the meantime.
 | **Question** | By the answer to Q22 what a record returns is its own and the same object every time. The brief did not say what a `LatticeOwnedValue` returns, nor what happens to an owned value that was made invalid through a collection it returned |
 | **Answer** | The planner, 14 November 2026, as a consequence of the owner's answer to Q22, confirmed by the owner: a `LatticeOwnedValue` returns as a record does, its own collection, owned value or byte array, the same object every time. An owned value made invalid through a collection it returned is refused with `ArgumentException` and the field named when it is set into a record, into another owned value or into a collection, because setting it copies and checks what it holds |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q27. The schema names a type of the access layer
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S03 |
+| **Question** | The brief of S03 puts `LatticeOwnedValue` into `Moltaro.Lattice.Access` and has `LatticeValueDeclaration.ValueType` of an Owned position report it. So a type of `Schema` names a type of `Access`, while `Access` is built on `Schema`, which principle 11 of `AGENTS.md` does not allow. Does `LatticeOwnedValue` belong to the namespace of the schema, or is this one reference an exception to record? |
+| **Answer** | The owner, 14 November 2026, through the planner's session: the one reference stays and is recorded as an exception; no code and no contract changes. Not chosen: moving `LatticeOwnedValue` into the schema namespace, and taking `ValueType` out of the schema |
+| **Where the rule lives** | Exception X5 in the [exceptions to the rules](exceptions.md) |
