@@ -1530,7 +1530,10 @@ another owned value or into a collection, with `ArgumentException` and the field
 because setting it copies and checks what it holds. The field named is the field of the
 owned value whose value does not match its declaration, as if that field were set by
 itself; the coordinator read this from "as if each of its fields were set again" for the
-tests.
+tests. In the same way, from "a change made through a returned collection is not checked
+when it is made": a value added to a collection that a record or an owned value returned
+is neither copied nor checked at that moment, an owned value added that way included;
+the write validates and copies it.
 
 A record is not the boundary of the database. The boundary is a write — a method of a
 set, or adding to a write batch — and a read. There everything is validated again and
