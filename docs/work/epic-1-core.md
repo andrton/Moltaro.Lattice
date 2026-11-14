@@ -468,6 +468,23 @@ relay between two steps that need no decision; a merge commit for a sprint on th
 track. [Branches and releases](branches.md#who-does-what) has the rule. Shapes every
 sprint from S02 on.
 
+**O15. A .NET enum that does not agree with the schema is refused, as a class is.**
+Decided while S02 was carried out; the question is Q1 of the
+[open questions](open-questions.md). A property of a bound class may be a .NET enum. That
+enum has to agree with the enum type the schema declares for the field: the same
+underlying type, the same members — every name with its value, in both directions — and
+the Flags mark. An enum that does not agree is handled exactly as a class that does not
+agree with its entity type: the binding fails with `BindingFailed` and names the
+property. Nothing is mapped, guessed or tolerated, and a schema that changed without the
+class is found when the class is bound, not when a value is read. *Not chosen:* leaving
+the rule to the implementation; accepting an enum that names a part of the declared
+values. Shapes S02.
+
+**Questions that do not block are written down.** A gap that a sprint finds and that no
+brief, decision or rule answers is entered in the [open questions](open-questions.md),
+with what the code does in the meantime. The coordinator names the new entries when a
+sprint closes, and all of them are gone through with the owner when the epic closes.
+
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
 `AGENTS.md` on 14 November 2026; every brief below follows it.
@@ -919,6 +936,26 @@ that a descriptor or a saved schema that names the type `Enum` is still refused 
 `SchemaBuilder` treat `Enum` as an unknown type in that commit; the implementer replaces
 the check when enum types can be declared. The scope of the identity of an index is its
 entity type, as for a field: two entity types may each have an index with the identity 1.
+
+**Added by decision O15, while the sprint was carried out.** A .NET enum of a bound
+property has to agree with the enum type of its field: the same underlying type, the same
+members with the same values in both directions, and `[Flags]` exactly when the enum type
+is a Flags type. A class whose enum does not agree is refused with `BindingFailed`, with
+the property named, when the class is bound. The sentence of the block about two names
+for one value follows from it: a .NET enum that has two names for one value agrees only
+with an enum type that declares both names, of which one is canonical. The test author
+adds the tests after the implementation commit, skipped; the implementer then makes them
+pass.
+
+**Decided by the coordinator for the tests.** On the placeholder a write is refused with
+`NotSupportedException` for an entity type that declares a comparison that ignores case,
+the Dictionary storage or an enum field, and for every entity type of a schema that
+declares UTF-16: decision O2 has the placeholder refuse a declaration it cannot honor. A
+text policy on a field that is not a String, and an enum type named by a field that is
+not an Enum, are `InvalidSchema`, because the descriptor is closed. For the same reason a
+property that a descriptor gives twice is `InvalidSchema`: one of the two values would be
+taken silently. The implementer added that rule with its test, and the coordinator
+accepted it.
 
 **Types and members of S02.** Namespace `Moltaro.Lattice.Schema`, in the contract assembly.
 

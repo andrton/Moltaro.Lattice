@@ -103,6 +103,13 @@ When the last sprint of an epic closes, the same comparison is made once more ov
 whole design reference, and what the epic delivered moves from its working document into
 the product documentation.
 
+**Questions that do not block.** A sprint can find a gap that no brief, decision record
+or rule answers and that does not stop it. The agent that finds it reports it and does
+not decide it. The coordinator enters it in the [open questions](open-questions.md), with
+what the code does until it is answered, names the new entries in its report when the
+sprint closes, and goes through all of them with the owner when the epic closes. A
+question that does block is not entered there: the coordinator stops and asks.
+
 A test that turns out to be wrong is changed by the test author, or by the coordinator,
 with the reason in the commit message. Never by the implementer on its own.
 

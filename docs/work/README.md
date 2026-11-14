@@ -15,7 +15,9 @@ How an epic is planned, carried out sprint by sprint and reviewed is described i
 [development process](process.md). Where the commits go, what `main` refuses and how a
 version is released is in [branches and releases](branches.md). Every place where the
 project departs from a rule of `AGENTS.md` is recorded, with its reason, in
-[exceptions to the rules](exceptions.md).
+[exceptions to the rules](exceptions.md). A question that a sprint finds and that nothing
+answers yet is written down in the [open questions](open-questions.md), and they are gone
+through with the owner when an epic closes.
 
 ## How an epic document is written
 
