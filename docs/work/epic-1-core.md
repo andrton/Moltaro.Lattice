@@ -54,11 +54,16 @@ specification tests, become a check of the finished engine when Epic 2 runs.
 
 ### Where the contract stands today
 
+The state after the last closed sprint; the coordinator keeps it current.
+
 **In the contract and working in the placeholder.** Opening and closing; master and child;
-MemoryOnly. The compiled schema with scalar fields: JSON descriptor, binary save and load,
-optional .NET class. Sets by class and by name: read, enumerate, insert, replace, upsert,
-delete, expected revisions. Positions and sessions; a write through a child completes when
-that child has applied it; waiting for a position with a timeout.
+MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
+types, fields, indexes and enum types, scalar fields, enum and Flags types, text policies
+and the string encoding; binary save and load; both fingerprints; the optional .NET class,
+with a .NET enum that has to agree with its enum type. Sets by class and by name, for
+entity types of scalar fields with the default text policies: read, enumerate, insert,
+replace, upsert, delete, expected revisions. Positions and sessions; a write through a
+child completes when that child has applied it; waiting for a position with a timeout.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -69,13 +74,13 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
+| Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
 and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Stable identities of indexes, text policies, enums and Flags in the schema | S02 |
 | Owned values, List, Map, Set, references by key | S03, then S18 and S19 |
 | Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
@@ -561,7 +566,10 @@ settles. They are approved with the plan, each by name.
 
 - **The descriptor is closed.** A property the reader does not know is `InvalidSchema`.
   Today such a property is ignored, and a misspelt `Comparison` would silently give the
-  wrong comparison.
+  wrong comparison. By the owner's answers of 14 November 2026 to Q7 and Q8 of the
+  [open questions](open-questions.md), the same holds for a property in a place where it
+  does not apply — a text policy on a field that is not a String, an enum type named by
+  a field that is not an Enum — and for a property given twice.
 - **The string encoding of a database is declared in its schema**, as `StringEncoding`.
   The decision makes it a setting fixed when the database is created and leaves its
   place open; in the schema it is saved, loaded and bound into the fingerprint with
@@ -947,15 +955,18 @@ with an enum type that declares both names, of which one is canonical. The test 
 adds the tests after the implementation commit, skipped; the implementer then makes them
 pass.
 
-**Decided by the coordinator for the tests.** On the placeholder a write is refused with
+**Read from decision O2 for the tests.** On the placeholder a write is refused with
 `NotSupportedException` for an entity type that declares a comparison that ignores case,
 the Dictionary storage or an enum field, and for every entity type of a schema that
-declares UTF-16: decision O2 has the placeholder refuse a declaration it cannot honor. A
-text policy on a field that is not a String, and an enum type named by a field that is
-not an Enum, are `InvalidSchema`, because the descriptor is closed. For the same reason a
-property that a descriptor gives twice is `InvalidSchema`: one of the two values would be
-taken silently. The implementer added that rule with its test, and the coordinator
-accepted it.
+declares UTF-16: decision O2 has the placeholder refuse a declaration it cannot honor.
+
+**Confirmed by the owner on 14 November 2026.** Two rules of the descriptor were not
+given by the approved choice "the descriptor is closed", which spoke of a property the
+reader does not know; they were raised as Q7 and Q8 of the
+[open questions](open-questions.md), and the choice now names them. A text policy on a
+field that is not a String, and an enum type named by a field that is not an Enum, are
+`InvalidSchema`. A property that a descriptor gives twice is `InvalidSchema`; the
+implementer added that rule with its test.
 
 **Types and members of S02.** Namespace `Moltaro.Lattice.Schema`, in the contract assembly.
 

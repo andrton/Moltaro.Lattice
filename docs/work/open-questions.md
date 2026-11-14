@@ -71,6 +71,33 @@ in the meantime.
 | **Until answered** | The behavior is right and tested through sets; only the documentation of the batch members says less than happens |
 | **Decides** | The planner, with the sprint of the write batch (S17), which owns that contract |
 
+### Q9. May an enum type declare no members?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | An enum type with `"Members": []` compiles. An ordinary enum type without members has no valid value, so a field of it that is not nullable can never be written; a Flags type without members accepts zero only. Q03.5 and the brief say nothing |
+| **Until answered** | Such an enum type compiles; no test states either way |
+| **Decides** | The planner, before the sprint that stores enum values (S07) |
+
+### Q10. Which catalog versions are valid?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | `"SchemaVersion": 0` and a negative one compile, as they did before S02. Since S02 the number is the catalog version, which the milestone contract calls monotonically increasing; nothing says where it starts or what a descriptor without it means |
+| **Until answered** | Any `int` is accepted, and a descriptor without the property has version 1, as before |
+| **Decides** | The planner, before the contracts of the stage with schema migration (S37), which compares catalog versions |
+
+### Q11. Should a saved compiled schema carry a digest of itself?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, fixes after the review of Epic 1, sprint S02 |
+| **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
+| **Until answered** | The format has no digest. Every input that is not a well-formed schema is `InvalidSchema`, and a test changes every byte of a saved schema to show that nothing else is ever thrown |
+| **Decides** | The planner, before S42 declares the compiled-schema format final |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -81,3 +108,21 @@ in the meantime.
 | **Question** | The brief of S02 lets a class declare a property as a .NET enum and gives one rule, for two names of one value. It does not say what happens when the .NET enum has a name or a value the schema does not declare, or lacks one the schema declares |
 | **Answer** | The owner, 14 November 2026: it is handled exactly as a schema that does not match. The binding is refused, as it is for a class that does not agree with its entity type; nothing is guessed, mapped or tolerated |
 | **Where the rule lives** | Decision O15 and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+
+### Q7. Is a policy on a field of the wrong type an error of the descriptor?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
+| **Question** | The approved choice "the descriptor is closed" refuses a property the reader does not know. It does not speak of a property the reader knows in the wrong place: `Comparison` or `StringStorage` on a field that is not a String, `Enum` on a field that is not of type Enum |
+| **Answer** | The owner, 14 November 2026: yes. Each is `InvalidSchema` with the field named; a misplaced policy is never ignored |
+| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+
+### Q8. Is a property given twice an error of the descriptor?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S02 |
+| **Question** | JSON lets an object name a property twice, and a reader then takes one of the two values silently. Neither the brief nor a decision says what the schema reader does |
+| **Answer** | The owner, 14 November 2026: yes. It is `InvalidSchema` with the property named, at every level of the descriptor |
+| **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |

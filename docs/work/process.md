@@ -65,7 +65,8 @@ Before any sprint starts:
    the most expensive mistake, and it is the cheapest to catch here.
 2. The owner approves the plan, and with it the contracts of the first stages.
 
-Before a later stage starts, the planner completes the contracts of its sprints, an
+Before a later stage starts, the planner goes through the [open questions](open-questions.md)
+and takes up those the stage touches. It then completes the contracts of its sprints, an
 independent reviewer reviews them as the plan was reviewed, until no P1, P2 or P3 finding
 is left, and the owner approves them. The coordinator does not start the first sprint of
 a stage without that approval.
@@ -188,5 +189,6 @@ goes on.
 ## Where the state lives
 
 In the epic document: the list of sprints with the status of each. The coordinator updates
-it when a sprint closes. There are no separate reports, logs or handoff files; what a later
-agent needs to know is in the brief of its sprint.
+it when a sprint closes. What a later agent needs to know is in the brief of its sprint.
+What nobody has answered yet is in the [open questions](open-questions.md). There are no
+other reports, logs or handoff files.
