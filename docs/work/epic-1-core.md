@@ -1215,7 +1215,12 @@ entity types whose layout fingerprint differs.
   seen through the record either, and neither is a change of a byte array. One owned
   value set into two records gives two independent values. What a record returns is its
   own and the same object every time: a change made through a returned owned value or
-  collection is seen through the record. A record made invalid through a collection it
+  collection is seen through the record. What a `LatticeOwnedValue` returns is its own
+  and the same object every time: a change made through a returned collection or owned
+  value is seen through it. An owned value made invalid through a collection it returned,
+  such as a null added where none is allowed, is refused with `ArgumentException` when it
+  is set into a record, into another owned value or into a collection. A record made
+  invalid through a collection it
   returned, such as a null added where none is allowed, is refused with
   `ValidationFailed` when it is written through a set or added to a write batch. A write
   through a set validates the object or the record before it is refused as not
@@ -1517,7 +1522,12 @@ What a record returns is its own, and the same object every time: the collection
 owned value or the byte array it holds. A change made through it is a change of the
 record, and that is how a value inside a record is edited after it was set:
 `record.Get<LatticeOwnedValue>("Home")["City"] = "Lviv"`. A change made through a
-returned collection is not checked when it is made.
+returned collection is not checked when it is made. A `LatticeOwnedValue` returns in the
+same way: its own collection, owned value or byte array, the same object every time, and
+a change made through it is a change of the owned value. An owned value that was made
+invalid through a collection it returned is refused when it is set into a record, into
+another owned value or into a collection, with `ArgumentException` and the field named,
+because setting it copies and checks what it holds.
 
 A record is not the boundary of the database. The boundary is a write — a method of a
 set, or adding to a write batch — and a read. There everything is validated again and

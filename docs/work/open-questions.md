@@ -31,14 +31,7 @@ in the meantime.
 
 ## Open
 
-### Q26. Does an owned value return its own values, as a record does?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | By the answer to Q22 what a record returns is its own and the same object every time, and a value inside a record is edited through what the record returns. The brief says a `LatticeOwnedValue` treats what is set into it in the same way as a record; it does not say what a `LatticeOwnedValue` returns. Does its indexer return its own collection, owned value or byte array, the same object every time, so that a change through it is a change of the owned value? If so, an owned value can be made invalid through a collection it returned, and the brief's "copied field by field, as if each of its fields were set again, so what it holds is … checked" then refuses it when it is set into a record |
-| **Until answered** | Not tested: neither an edit through a collection an owned value returned, nor the check of an owned value when it is set into a record |
-| **Decides** | The planner, for S03 |
+None. Every question found so far is answered below.
 
 ## Answered
 
@@ -266,3 +259,12 @@ in the meantime.
 | **Question** | The brief said the input of a List, a Map or a Set is copied. It did not say whether collections inside it are copied too, or whether a `LatticeOwnedValue` or a byte array that is set into a record is held as the same object or copied. The question was put on this code: `home["City"] = "Kyiv"; record["Home"] = home; home["City"] = "Lviv";` and then a write |
 | **Answer** | The owner, 14 November 2026, through the planner's session: copied; Kyiv is written. A record copies every value that is set into it, at every depth, owned values and byte arrays included, and holds nothing of the caller's. What a record returns is its own and the same object every time, and a value inside a record is edited through what the record returns. Not chosen: a record that holds an owned value and a byte array as given, and a switch that leaves the choice to the caller. A bound class is not touched: its object holds what the application assigns, and the write copies it |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); what a write and a read copy is asserted in S18, whose brief has the sentence |
+
+### Q26. Does an owned value return its own values, as a record does?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | By the answer to Q22 what a record returns is its own and the same object every time. The brief did not say what a `LatticeOwnedValue` returns, nor what happens to an owned value that was made invalid through a collection it returned |
+| **Answer** | The planner, 14 November 2026, as a consequence of the owner's answer to Q22, and reported to the owner: a `LatticeOwnedValue` returns as a record does, its own collection, owned value or byte array, the same object every time. An owned value made invalid through a collection it returned is refused with `ArgumentException` and the field named when it is set into a record, into another owned value or into a collection, because setting it copies and checks what it holds |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
