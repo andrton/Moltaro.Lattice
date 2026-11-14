@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Moltaro.Lattice.Tests;
@@ -266,6 +268,135 @@ public sealed class DamagedCompiledSchemaTests
         Assert.Equal(42, stream.ReadByte());
     }
 
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public void Form_made_from_the_body_of_a_saved_schema_is_the_saved_schema()
+    {
+        // What the helpers below write is the form that Save writes.
+        var saved = Save();
+
+        Assert.Equal(saved, Form(saved[12..^32]));
+        Assert.Equal(saved, FitLengthAndDigest(saved));
+    }
+
+    [Theory(Skip = NotImplemented.SchemaValues)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void Negative_length_of_the_body_is_refused(int length)
+    {
+        // The same form with its own length loads.
+        var form = FitLengthAndDigest(Save());
+        Load(form);
+
+        BinaryPrimitives.WriteInt32LittleEndian(form.AsSpan(8), length);
+
+        ExpectRefused(form);
+    }
+
+    [Theory(Skip = NotImplemented.SchemaValues)]
+    // Two gigabytes and one gigabyte of body, announced before the few hundred bytes there are.
+    [InlineData(int.MaxValue)]
+    [InlineData(1 << 30)]
+    public void Length_of_the_body_far_beyond_the_data_costs_memory_for_the_data_only(int length)
+    {
+        var form = FitLengthAndDigest(Save());
+        Load(form);
+
+        BinaryPrimitives.WriteInt32LittleEndian(form.AsSpan(8), length);
+
+        ExpectRefusedAllocatingLittle(form);
+    }
+
+    [Theory(Skip = NotImplemented.SchemaValues)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(255)]
+    public void Byte_added_at_the_end_of_the_body_is_refused_also_with_its_length_and_digest_fitted(byte added)
+    {
+        var saved = Save();
+        Load(FitLengthAndDigest(saved));
+
+        // The digest is right for the longer body, which holds a byte after the schema.
+        ExpectRefused(FitLengthAndDigest([.. saved[..^32], added, .. saved[^32..]]));
+    }
+
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public void Last_byte_of_the_body_taken_away_is_refused_also_with_its_length_and_digest_fitted()
+    {
+        var saved = Save();
+        Load(FitLengthAndDigest(saved));
+
+        // The digest is right for the shorter body, which ends before the schema does.
+        ExpectRefused(FitLengthAndDigest([.. saved[..^33], .. saved[^32..]]));
+    }
+
+    [Theory(Skip = NotImplemented.SchemaValues)]
+    // The format of Epic 1, sprint 2, and one that does not exist yet.
+    [InlineData(4)]
+    [InlineData(6)]
+    public void Form_of_another_format_version_is_refused_also_with_its_digest_fitted(int formatVersion)
+    {
+        var form = FitLengthAndDigest(Save());
+        Load(form);
+
+        BinaryPrimitives.WriteInt32LittleEndian(form.AsSpan(4), formatVersion);
+        SHA256.HashData(form.AsSpan(..^32)).CopyTo(form.AsSpan(^32));
+
+        ExpectRefused(form);
+    }
+
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public void Form_with_another_magic_is_refused_also_with_its_digest_fitted()
+    {
+        var form = FitLengthAndDigest(Save());
+        Load(form);
+
+        "MLSD"u8.CopyTo(form);
+        SHA256.HashData(form.AsSpan(..^32)).CopyTo(form.AsSpan(^32));
+
+        ExpectRefused(form);
+    }
+
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public void Change_that_still_reads_as_a_schema_is_refused()
+    {
+        // Without a digest, Account would load as an entity type Bccount.
+        var renamed = Save();
+        var at = renamed.AsSpan().IndexOf(Encoding.UTF8.GetBytes("Account"));
+        Assert.True(at >= 0);
+
+        renamed[at] = (byte)'B';
+
+        ExpectRefused(renamed);
+    }
+
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public void Every_single_byte_change_of_a_saved_schema_is_refused()
+    {
+        var saved = Save();
+        var changed = new byte[saved.Length];
+
+        // The magic, the format version, the length, every byte of the body and of the digest.
+        for (var position = 0; position < saved.Length; position++)
+        {
+            for (var value = 0; value <= byte.MaxValue; value++)
+            {
+                if (value == saved[position])
+                {
+                    continue;
+                }
+
+                saved.CopyTo(changed, 0);
+                changed[position] = (byte)value;
+
+                var exception = Record.Exception(() => LatticeSchema.Load(new MemoryStream(changed)));
+                if (exception is not LatticeException { Error: LatticeErrorEnum.InvalidSchema })
+                {
+                    Assert.Fail($"Byte {position} changed to {value}: {exception?.ToString() ?? "loaded"}");
+                }
+            }
+        }
+    }
+
     private static byte[] Save()
     {
         using var stream = new MemoryStream();
@@ -345,4 +476,24 @@ public sealed class DamagedCompiledSchemaTests
         writer.Write(stringStorage);
         writer.Write((byte)0); // no enum type
     }
+
+    // The form of Epic 1, sprint 3, around the bytes of a body: the magic, format version 5,
+    // the length of the body, the body, and the digest, SHA-256 over every byte before it.
+    private static byte[] Form(byte[] body)
+    {
+        var beforeDigest = Bytes(writer =>
+        {
+            writer.Write("MLSC"u8);
+            writer.Write(5);
+            writer.Write(body.Length);
+            writer.Write(body);
+        });
+
+        return [.. beforeDigest, .. SHA256.HashData(beforeDigest)];
+    }
+
+    // Writes the length and the digest of a form of Epic 1, sprint 3 again, after a test changed
+    // its body: the body is what lies between the 12 bytes of magic, format version and length,
+    // and the 32 bytes of the digest.
+    private static byte[] FitLengthAndDigest(byte[] form) => Form(form[12..^32]);
 }

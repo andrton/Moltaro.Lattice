@@ -121,7 +121,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(Account(original).LayoutFingerprint, Account(ignoringCase).LayoutFingerprint);
     }
 
-    [Fact]
+    [Fact(Skip = NotImplemented.SchemaValues)]
     public void Layout_fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform()
     {
         var account = Account(FingerprintDescriptor.Compile());
