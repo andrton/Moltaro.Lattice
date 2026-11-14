@@ -40,6 +40,15 @@ in the meantime.
 | **Until answered** | Settled by the planner and confirmed by the owner on 14 November 2026: a record rebuilds a collection it is given at every depth, and a write and a read validate and copy at every depth; the brief of S03 has the text. Under discussion with the owner: whether a `LatticeOwnedValue` and a byte array are held as given or copied. No test and no documentation states either |
 | **Decides** | The owner, for S03 |
 
+### Q25. Does validation also come before the refusals of S02?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
+| **Question** | By the answer to Q23 an invalid object or record of an entity type with an owned value, a collection or a reference is `ValidationFailed`, and only a valid one ends in `NotSupportedException`. The same is not said of what S02 has the placeholder refuse: an entity type with a unique index, a comparison that ignores case, Dictionary storage or an enum field, and a schema that declares UTF-16. Does an invalid entity of such a type get `ValidationFailed` first as well? The "Not implemented yet" parts of the documentation say "every write … throws `NotSupportedException`", which Q23 already makes inexact for the new types |
+| **Until answered** | The order is documented for owned values, collections and references only, in the remarks of `ILatticeSet<TEntity>`; for the declarations of S02 the placeholder refuses first, as it did |
+| **Decides** | The planner, for S03 if the answer changes what the placeholder does; otherwise the documentation is made exact in S03 and the rest ends with the placeholder in S12 |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
