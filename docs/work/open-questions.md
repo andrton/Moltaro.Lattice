@@ -22,20 +22,14 @@ in the meantime.
   stage are written, the planner goes through the open entries and takes up those the
   stage touches. When an epic closes, every entry is gone through with the owner: none
   stays open without a decision to carry it into the next epic.
-- **How it ends.** An answer is the owner's. It is entered here with its date, and the
+- **How it ends.** An answer comes from whoever the entry names as deciding. A rule of
+  the public contract that no standing rule gives is the owner's; what follows from a
+  rule that already stands the planner answers and reports to the owner. It is entered
+  here with its date and with who gave it, and the
   rule it gives goes where it belongs: a decision record, the epic document, a brief,
   `AGENTS.md`. The entry then moves to **Answered** and says where the rule now lives.
 
 ## Open
-
-### Q15. What is the element type of a collection of owned values in a bound class?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
-| **Question** | The brief of S03 says a List is a `List<T>` where "T is the `ValueType` of the inner declaration", and that `ValueType` of an Owned position is `LatticeOwnedValue`. It also says that in a bound class an owned value is "the class named by `ClrType` of its owned type". For a `List`, a `Map` value or an array of owned values in a bound class the two sentences give different T: `LatticeOwnedValue`, or the class of the owned type. Which one binds, and what does a class do with an owned type that names no `ClrType`? |
-| **Until answered** | The documentation of `LatticeValueDeclaration.ValueType` repeats both sentences. No test is written for a collection of owned values in a class |
-| **Decides** | The planner, for S03: the tests of the binding cannot be written without it |
 
 ### Q16. May an owned type contain itself?
 
@@ -46,23 +40,6 @@ in the meantime.
 | **Until answered** | Undecided. No test is written for it |
 | **Decides** | The planner, for S03: the compiler either accepts such a declaration or refuses it with `InvalidSchema`, and the fingerprints depend on which |
 
-### Q17. The scope of an owned type's identity, name and class
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
-| **Question** | The brief gives an owned type an `Id`, a `Name` and an optional `ClrType` and does not say in which scope each is unique. Enum types and entity types each have a scope of their own for identities. May an owned type and an entity type have the same identity, the same name, or name the same .NET class? May two owned types name the same class? |
-| **Until answered** | The documentation says an owned type's identity and name are unique "within the schema", as it does for an enum type. No test is written for the cases between kinds |
-| **Decides** | The planner, for S03 |
-
-### Q18. A null key value for an index part behind an absent owned value
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
-| **Question** | The check of a search key refuses null for a part whose field is not nullable. By decision P9 a part that is a path through owned values is null when an owned value on the path is absent, and the entity is found by a search for null, even when the indexed field itself is not nullable. The check does not know this yet |
-| **Until answered** | The check is as before S03: null is refused for a field that is not nullable. Search through an index is not implemented, and a path cannot be declared before the implementation of S03 |
-| **Decides** | The planner, with the sprint that stores owned values and indexes their fields (S18), or earlier if the check of S03 has to say it |
 
 ## Answered
 
@@ -191,3 +168,30 @@ in the meantime.
 | **Question** | Binding a class reports a class that does not agree with its entity type as `BindingFailed`. Two classes escaped that: one with a static property named like a field threw `ArgumentException` from `Set<TEntity>()`, and a derived class that hides a property with one of another type threw `AmbiguousMatchException`; both also from the typed members of a write batch. The code is older than S02. Are both `BindingFailed`, with the property named? |
 | **Answer** | The owner, 14 November 2026, through the planner's session: yes. The property of a field is found as C# finds it by that name, on the most derived class that declares one; it has to be an instance property with get and set and of the type the field needs. A hiding property of that type binds; a static property, and a hiding property of another type, are `BindingFailed` with the property named |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which fixes it with the binding it extends |
+
+### Q15. What is the element type of a collection of owned values in a bound class?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The brief of S03 said a List is a `List<T>` where "T is the `ValueType` of the inner declaration", and that `ValueType` of an Owned position is `LatticeOwnedValue`. It also said that in a bound class an owned value is "the class named by `ClrType` of its owned type". For a collection of owned values in a bound class the two sentences gave different T. Which one binds, and what does a class do with an owned type that names no `ClrType`? |
+| **Answer** | The planner, 14 November 2026, from the sentence of the brief on a bound class, and reported to the owner: `ValueType` says what a record holds. A bound class holds the same data in its own types, by one rule for every position: an owned value is the class of its owned type as a property, an element or a value. An owned type that names no `ClrType` has no form in a class, and neither has `LatticeOwnedValue`: both are `BindingFailed` |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md): the table "In a bound class" |
+
+### Q17. The scope of an owned type's identity, name and class
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The brief gave an owned type an `Id`, a `Name` and an optional `ClrType` and did not say in which scope each is unique. May an owned type and an entity type have the same identity, the same name, or name the same .NET class? May two owned types name the same class? |
+| **Answer** | The planner, 14 November 2026, from the scopes S02 gave enum types and entity types, and reported to the owner: owned types are a scope of their own for identities and for names, so an owned type may have the identity or the name of an entity type or an enum type. A .NET class is named by at most one type of the schema: two owned types, or an owned type and an entity type, that name the same class are `InvalidSchema` |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q18. A null key value for an index part behind an absent owned value
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The check of a search key refuses null for a part whose field is not nullable. By decision P9 a part that is a path through owned values is null when an owned value on the path is absent, even when the indexed field itself is not nullable. Does the check of S03 have to know this, or does it come with S18? |
+| **Answer** | The planner, 14 November 2026, from decision P9 and the rule that a check needing no engine works from the start, and reported to the owner: the check of S03 accepts null for a part whose field is nullable or whose path has a nullable owned step, and refuses it for any other part with `ArgumentException`. That the entity is then found by a search for null stays with S18 |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |

@@ -1176,7 +1176,25 @@ entity types whose layout fingerprint differs.
   and a class whose hiding property has a type the field does not accept, are refused
   with `BindingFailed` and the property named. Neither ends in another exception, from
   `Set<TEntity>()` or from the typed members of a write batch, and the same holds for the
-  classes of owned types that this sprint binds. An index part that is a
+  classes of owned types that this sprint binds. In a bound class an owned value is an
+  object of the class of its owned type at every position: a List of owned values binds
+  as `List<T>` or `T[]` of that class and a Map of them as a `Dictionary` with that class
+  as its value, a .NET enum that agrees binds as an element as it does as a property, and
+  the class of an owned type binds its own owned fields and collections in the same way.
+  A field at any position whose owned type names no `ClrType`, and a property, an element
+  or a value of type `LatticeOwnedValue` in a class, are `BindingFailed` with the
+  property and the owned type named. A record holds a `LatticeOwnedValue` at every
+  position, whether or not the owned type names a class. The identity and the name of an
+  owned type are unique among owned types: a duplicate of either is `InvalidSchema` with
+  the place named, and an owned type may have the identity or the name of an entity type
+  or of an enum type. The identity of a field is unique within its owned type. A .NET
+  class named by two owned types, or by an owned type and an entity type, is
+  `InvalidSchema` with the class named. A search key may give null for a part of an index
+  when the indexed field is nullable or a step of its path is a nullable owned value;
+  null for a part that can never be null is `ArgumentException`. The key is checked
+  before the search is refused as not implemented: a key with a permitted null ends in
+  `NotSupportedException`, one with a null that is not permitted in `ArgumentException`.
+  An index part that is a
   path is accepted when every step but the last is an owned value and the last is a
   field an index may have; a path through a collection, or to a field that does not
   exist, is refused with the place named. The layout fingerprint of an entity type changes when a field is added to an
@@ -1272,8 +1290,9 @@ treat the five as unknown types in that commit; the implementer replaces the che
 contract step also found four gaps in this brief, entered as Q15 to Q18 of the
 [open questions](open-questions.md): the element type of a collection of owned values in
 a bound class, an owned type that contains itself, the scope of an owned type's identity,
-name and class, and a null key for an index part behind an absent owned value. The tests
-of those points wait for their answers.
+name and class, and a null key for an index part behind an absent owned value. Q15, Q17
+and Q18 are answered by the planner and their texts are in this brief; the tests of Q16
+wait for the owner's answer.
 
 **Types and members of S03.** Namespaces `Moltaro.Lattice.Schema` and `Moltaro.Lattice.Access`.
 
@@ -1291,6 +1310,15 @@ The descriptor gains a top array `OwnedTypes` and five field types:
 { "Id": 8, "Name": "Options", "Type": "Map",  "Key": { "Type": "String" }, "Value": { "Type": "String", "Nullable": true } }
 { "Id": 9, "Name": "Rights",  "Type": "Set",  "Element": { "Type": "String", "StringStorage": "Dictionary" } }
 ```
+
+The identity of an owned type is positive and unique among the owned types of the schema.
+Owned types are a scope of their own, as enum types and entity types are: an owned type
+may have the identity that an entity type or an enum type has. The identity of a field is
+unique within its owned type. The name of an owned type is unique among owned types; it
+may be the name of an entity type or of an enum type, because `OwnedType`, `EntityType`
+and `Enum` in a declaration each name a type of one kind. A .NET class is named by at
+most one type of the schema: two owned types that name the same `ClrType`, and an owned
+type and an entity type that do, are `InvalidSchema` with the class named.
 
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
 themselves be a List, a Map or a Set. A Map key and a Set element are a scalar other than
@@ -1405,11 +1433,31 @@ What a record holds at a position, which is also what `ValueType` reports for it
 | `Set` of T | `HashSet<T>` with the comparer of the element declaration | Any `IEnumerable<T>`; copied; equal members keep the first |
 
 T is the `ValueType` of the inner declaration, or `Nullable<>` of it when that position
-is nullable and its type is a value type. In a bound class a List is a property of
-`List<T>` or `T[]`, a Map of `Dictionary<K, V>`, a Set of `HashSet<T>`, an owned value of
-the class named by `ClrType` of its owned type, and a reference of the key type of its
-target; another property type is `BindingFailed` with the property named. Until S18 and
-S19 a write of an entity type that declares one of these fields throws
+is nullable and its type is a value type. That is what a record holds, at every depth: an
+owned value inside a List or a Map of a record is a `LatticeOwnedValue`, whether or not
+its owned type names a class. `ValueType` reports this and nothing about a bound class.
+
+A bound class holds the same data in its own types. One rule gives the type of every
+position, a property as well as an element, a key or a value:
+
+| Declared | In a bound class |
+| --- | --- |
+| A scalar or Binary | Its `ValueType`, or `Nullable<>` of it, as in S02 |
+| `Enum` | The underlying integer type, or a .NET enum that agrees with the enum type, as in S02 |
+| `Owned` | The class named by `ClrType` of the owned type |
+| `Reference` | The key type of the target |
+| `List` of T | `List<T>` or `T[]` |
+| `Map` of K, V | `Dictionary<K, V>` |
+| `Set` of T | `HashSet<T>` |
+
+T, K and V are found by the same table. The class of an owned type is bound as the class
+of an entity type is: a public parameterless constructor and, for every field of the
+owned type, a property found by the rule of Q14; its own owned fields and collections
+follow the table. An owned type that names no `ClrType` has no form in a class: a class
+with a field of such a type at any position is `BindingFailed`, with the property and the
+owned type named, and so is a property, an element or a value of type
+`LatticeOwnedValue`. Any other type is `BindingFailed` with the property named. Until S18
+and S19 a write of an entity type that declares one of these fields throws
 `NotSupportedException`; compiling, saving, loading, records and binding work.
 
 A part of an index may be a field inside an owned value, by decision P9. In the
@@ -1434,6 +1482,10 @@ public IReadOnlyList<LatticeIndexPart> Parts { get; }
 
 Every step of a path but the last is an `Owned` field; a path through a List, a Map or a
 Set is `InvalidSchema`. The fingerprint covers the paths of the parts.
+
+A search key may give null for a part exactly when a value of that part can be null: the
+indexed field is nullable, or a step of its path is a nullable owned value, which is
+absent in such an entity. Null for any other part is `ArgumentException`, as before S03.
 
 From this sprint on the layout fingerprint of an entity type covers everything an entity
 of that type stores. For an Owned field it covers the identity of the owned type and
