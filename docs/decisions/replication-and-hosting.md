@@ -239,6 +239,16 @@ path instead of simply adding all component times. For N simultaneous children
 receiving an uncompressed image S from one master, its aggregate egress is about
 N × S; one fast child does not demonstrate fast horizontal scale-out.
 
+**Decided by the owner on 14 November 2026:** children that start together are loaded
+in parallel. A deployment of 5–10 children must become ready on default settings, which
+a queue of one capture at a time does not allow. The number of simultaneous captures is
+bounded by an option, 10 by default; a child beyond it waits its turn. Each capture is
+fenced and watermarked on its own and ends at its own fixed position. The cost is the
+one named above — aggregate egress of about N × S and N passes over the master's memory
+at once — and it is measured, with its effect on the master's reads and writes, before
+release. The mechanism is in the
+[milestone contract](../design/milestone-1-engine-contract.md#replication-transport-and-initial-loading).
+
 ### Experiment and acceptance boundary
 
 [ReplicaStreamComparison](../../src/Prototypes/ReplicaStreamComparison/README.md) is a
@@ -1168,7 +1178,9 @@ consumers. The child does not require a persistent database volume or a separate
 copy just to host its replica.
 
 Costs: each child process restart requires full network transfer, installation/index
-work and catch-up. Multiple simultaneous starts can load the master heavily. If the
+work and catch-up. Multiple simultaneous starts can load the master heavily; they are
+served in parallel up to a configurable limit, 10 by default, as decided on 14 November
+2026. If the
 master is unavailable, an empty restarted child cannot become readable; other surviving
 initialized children can still read their own intact local state. Bounded waits can
 hide a short initialization interruption where supported by the startup API, but do
@@ -1408,6 +1420,27 @@ concurrent writable masters sharing it are unsupported. This does not introduce 
 Lattice fencing service, ownership-transfer protocol or automatic recovery controller.
 Master/PostgreSQL placement and any external restart policy are environment choices,
 not additional v1 engine features or pending architecture choices.
+
+**Changed by the owner on 14 November 2026: one store has one master at a time, and the
+engine enforces it.** The sentence above made this a precondition the deployment had to
+keep; it no longer is one. Two masters on one store would each publish only their own
+writes and serve diverging data with no error, so the engine does not let it happen. A
+Durable master takes the leadership of its store when it opens and holds it while it is
+open; a second master that opens the same store is refused at once and takes nothing
+over. When the master closes or its process dies, the store is free for another. A
+master that lost its leadership while still running commits nothing more to the store.
+This is exclusion, not election: the engine still appoints no master, promotes no child
+and moves no leadership, and it adds no service of its own. Which process is started as
+the master, and where, stays the environment's choice. The mechanism — a session lock in
+PostgreSQL, a leadership number checked by every transaction that changes the store —
+and its starting interval are in the
+[milestone contract](../design/milestone-1-engine-contract.md#diagnostics-backup-and-deployment-boundary).
+
+**Also decided on 14 November 2026:** a child's open has a finite, configurable
+timeout, 30 seconds by default; an empty child whose master stays unreachable fails
+its open with Unavailable instead of waiting without end. The replication handshake
+authenticates nobody; that the port is reachable only from the nodes of the database
+is a deployment precondition, and the engine adds no shared secret or TLS of its own.
 
 ### Connection and recovery contract
 

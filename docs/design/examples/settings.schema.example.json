@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Tables": [
+  "EntityTypes": [
     {
       "Id": 1,
       "Name": "Setting",
@@ -15,7 +15,7 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByScope", "Kind": "Equality", "Fields": [2] }
+        { "Id": 1, "Name": "ByScope", "Fields": [2] }
       ]
     }
   ]

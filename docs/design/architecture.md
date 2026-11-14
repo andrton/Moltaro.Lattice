@@ -47,7 +47,8 @@ is a read replica.
 - **Bindings:** typed .NET access and runtime access by schema share the same engine.
   A generated domain class is optional.
 - **Evolution:** stable type/field identities and versioned layouts are required.
-  Explicit migration pauses affected data; lazy mixed-format conversion is deferred.
+  Explicit migration pauses all writes, makes the affected entity types unavailable and
+  has every child reload; lazy mixed-format conversion is deferred.
 
 ## Memory and strings
 
@@ -157,6 +158,7 @@ If committed publication fails, the instance stops serving data until reopen/rec
 ## Replica lifecycle
 
 Initial loading and live updates come from master memory over the internal connection.
+Children that start together load in parallel, up to a configurable limit.
 A new child receives the whole database, builds local indexes and catches up through a
 fixed published position before opening reads.
 
@@ -187,7 +189,13 @@ cannot serve data offline.
 ## Operations and milestone scope
 
 The environment supplies one master and its URL. Lattice does not elect a replacement
-or promote a child. An application pod can embed a child. The engine reports ready only
+or promote a child. One store has one master at a time, and the engine enforces it: a
+master takes the leadership of its store when it opens, a second master on the same
+store is refused while the first lives, and a master that lost the leadership commits
+nothing more. The replication port is
+protected by the deployment, not by the engine: it must be reachable only from the
+nodes of the database. An application pod can embed a child; its open has a finite,
+configurable timeout. The engine reports ready only
 when its database state and indexes are complete; how a pod's probes use that is a
 hosting decision.
 

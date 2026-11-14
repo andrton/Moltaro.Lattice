@@ -37,6 +37,7 @@ names are internal and are not public SDK signatures.
 | Admission generation | Monotonic Int64 ID, admission-close time, configured window captured at creation, maximum promised expiry |
 | Operation receipt | Unique `(generation, operation UUID)`; fingerprint; first-admitted UTC; expiry UTC; Admitted/Committed/Rejected state; compact outcome; optional committed position |
 | Mutation journal | Whole transaction boundary, position, versioned effects and integrity information; independent of receipt cleanup |
+| Leadership | A monotonic leadership number in a row of its own; advanced by a master when it takes the store, read under a shared lock by every transaction that changes the store |
 
 There is no durable Executing state: a transaction may roll back after recording
 such a state, making it ambiguous. Executing is an in-process activity attached to
@@ -135,7 +136,9 @@ as usual. Receipt retention is independent of saved-base advancement/log removal
 
 Restore from backup creates new history before serving, so pre-restore tokens cannot
 execute. MemoryOnly uses the same state machine in bounded process memory and a new
-history after restart; it makes no cross-restart result-recovery promise.
+history after restart; it makes no cross-restart result-recovery promise. Its bound is
+an option, by default the smaller of 32 MiB and 10% of the instance budget. When it is
+full, new admissions are refused; an unexpired outcome is never dropped to make room.
 
 ## Capacity and failure invariants
 

@@ -99,6 +99,12 @@ explicit multi-object WriteBatch results. Exact small-object payload sizes, chan
 fields and operation mix must be fixed in the fixture. The users/groups/roles/settings
 dataset is a reference scenario, not the only supported production usage.
 
+**Clarified by the owner on 14 November 2026:** the fixture of the milestone contract is
+that profile. It offers 192 single-entity calls and 4 two-entity batches a second, 200
+changes in all; no separate run of 200 single-entity calls is required. The small-write
+target is judged on the single-entity calls, and the batches are reported as their own
+class, as [accepted measurement conditions](#accepted-measurement-conditions) says.
+
 Reads exercise primary-key and explicitly selected single-field/composite indexes
 with bounded results, without OQL or hidden scan fallback. Final operation weights,
 result sizes, record/string/list distributions, index selectivity, owned versus
@@ -339,6 +345,39 @@ remain hypotheses for isolated memory tests. They do not prove end-to-end Durabl
 latency, recovery or production readiness. Include multiple concurrent write callers
 when defining the production load profiles; a single-producer microbenchmark cannot
 establish that behavior.
+
+### Accepted measurement conditions
+
+**Accepted by the owner on 14 November 2026, with the plan of [Epic 1](../work/epic-1-core.md).**
+The targets above left the conditions of a run to the benchmark owner. These are the
+conditions under which a target is judged as passed or failed.
+
+- **Where.** One reference machine, the owner's workstation. This is enough to close the
+  first milestone; a network-separated run is not required for it. A result on this
+  machine says that the engine meets a target here, not that every deployment does.
+- **Isolation.** The master, every child and PostgreSQL run as separate containers with
+  declared limits of CPU and memory; the load driver stays outside them. The memory of a
+  container is the measurement scope of its node. The manifest records that the
+  containers run under a virtual machine of the workstation, so these results are not
+  compared with the prototype timings taken on the host.
+- **State of the machine.** Before a gate run the measurement program checks that free
+  memory covers the sum of the limits with a margin, that the processor has been quiet
+  for a stated time and that no foreign container runs. When the check fails, the run
+  does not start; a result taken on a busy machine is neither a pass nor a failure.
+- **Concurrency and duration.** Sixteen concurrent write callers. For the ordinary
+  profile 2 minutes of warm-up and 10 minutes of measurement.
+- **Readiness.** Five starts of a new child; every one within the target.
+- **PostgreSQL.** Version 18, the only version tested and stated for the milestone.
+- **What a target is judged on.** The small-read target on reads by identifier and by
+  exact index value; range reads are reported as their own class against the same
+  figure, and a miss there is reported, not hidden in a common percentile. The
+  small-write target on single-entity calls; batches are reported as their own class
+  and inherit no threshold.
+
+The thresholds of the machine check and the limits of every container are written into
+the run manifest, which the owner approves before the first gate run. The manifest must
+also show that the master, PostgreSQL, ten children and the load driver fit into the
+memory of the machine together.
 
 ## Durable and distributed workload context
 

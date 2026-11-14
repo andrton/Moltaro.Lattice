@@ -278,7 +278,9 @@ until close/reopen recovers every committed operation. The host process need not
 
 Each logical root change receives the operation position as its new revision component.
 The opaque revision binds history, type/key and that position; a revision from another
-identity cannot match accidentally. Recreated roots receive a new position. Confirmed
+identity cannot match accidentally. For a caller it stays opaque: two revisions of one
+entity can be compared for equality and nothing else — no order, no conversion to a
+position, no meaning across entities. Recreated roots receive a new position. Confirmed
 collection/absence no-ops retain root revisions but receive a durable result and stream
 position. Full Save always replaces without equality detection; assigning a ready
 scalar value is a mutation even if the value compares equal. No arithmetic commands,
@@ -355,6 +357,11 @@ Use one arena; on failure dispose it after readers drain and report recovery fai
 Use a long-lived full-duplex TCP connection to the configured master URL, with bounded
 binary frames and asynchronous I/O. The host owns network exposure and optional TLS
 termination/configuration; no message broker, service discovery or election dependency.
+The handshake checks compatibility, not identity: it authenticates nobody. That the
+replication port is reachable only from the nodes of this database is a deployment
+precondition, accepted by the owner on 14 November 2026; the engine adds no shared
+secret and no TLS of its own. A child's open has a finite, configurable timeout: when
+it is not Ready in time, the open fails with Unavailable and the instance closes.
 One connection multiplexes replication, write forwarding, status and acknowledgments;
 control frames have priority between bounded data frames. Embedded master reads/writes
 invoke the same engine directly without transport or a mandatory local child.
@@ -397,6 +404,18 @@ until the complete state and local indexes cover R. Live changes after R continu
 through the same ordered application path. The existing bootstrap experiment proves
 this state-selection model; binary/shared-block integration remains a release test.
 
+**Decided by the owner on 14 November 2026:** children that start together are loaded
+in parallel, not one after another. A deployment of 5–10 children has to come up on
+default settings, and a queue of single captures would not let it. Each capture has its
+own S, its own catalog fence, its own watermarks and its own R; all of them read the one
+shared live stream, which is retained from the earliest S still in use. The number of
+captures that run at once is an option, 10 by default. A child beyond the limit, or one
+whose capture cannot reserve its buffers and watermarks within the memory budget, waits
+before its capture is registered; that wait is part of its open timeout. The earlier
+starting value of one capture at a time is withdrawn. The bootstrap experiment covered
+one capture; several at once, and their cost to the master's readers and writers, are a
+release test.
+
 Before a full reload, close readiness, finish protected reads, discard the old arena
 and load one new arena. Requests may wait at the bounded readiness gate, initially
 30 seconds, with request/count limits. No unbounded retained closures or second arena.
@@ -411,7 +430,12 @@ retain the dependency and recheck lifecycle/history. No all-child barrier or sna
 ## Schema identity, migration and facade integration
 
 The JSON/compiler catalog owns stable positive UInt32 type, field and index identities;
-renames preserve IDs, deletion does not recycle IDs. Persist a monotonically increasing
+renames preserve IDs, deletion does not recycle IDs. In the descriptor the top array is
+`EntityTypes`, an index carries its own `Id`, and an index has no kind: one secondary
+structure serves equality and ranges. A part of an index key is a field of the entity type
+or, by the owner's decision of 14 November 2026, a path from such a field through owned
+values to a field inside them; a path never goes through a collection, and an absent
+owned value on it makes that component null. Persist a monotonically increasing
 catalog version plus deterministic layout fingerprints. The builder and JSON reader
 use the same compiler, including persisted Unique index flags in schema fingerprints.
 Bind .NET classes/generated views once per schema version;
@@ -420,15 +444,23 @@ spelling follow the facade project; they do not change these engine guarantees.
 
 Use the accepted type/collection/reference restrictions from
 [schema and types](../decisions/schema-and-types.md), not the scalar-only subset of an
-early facade. Preserve the facade's opaque position and session abstraction. A wire
-position uses a nonzero 64-bit history identity and a positive 64-bit sequence;
-SQL positions stay in the positive Int64 range and refuse overflow. Store stable
+early facade. Preserve the facade's opaque position and session abstraction. A
+position is a nonzero 64-bit history identity and a 64-bit sequence. Sequence zero is
+the initial prefix of a new history, with nothing applied yet; it is a valid position
+in a session and on the wire. Every committed transaction is given a positive sequence,
+starting at one. SQL positions stay in the positive Int64 range and refuse overflow. Store stable
 database identity separately and bind it in connection/open context. History is
 generated on create/explicit restore and preserved on ordinary reopen. Revision,
 position, schema version and operation token remain different types.
 
-Migration is explicit and eager. Pause writes, drain the writer/applier to a fixed
-base position and make affected types unavailable; unaffected local reads may continue.
+Migration is explicit and eager. Pause all writes, also those to unaffected types,
+drain the writer/applier to a fixed base position and make affected types unavailable;
+on the master, reads of unaffected types may continue. The owner confirmed this scope on
+14 November 2026: it fills what Q03 left open, and a migration is planned as a stop of
+writes for the whole database. Migration exists for a Durable master only, by the same
+decision: a MemoryOnly master has no saved roots to convert and loses its data whenever
+it closes, so its schema is changed by opening it with the new one, and a migration call
+on it is refused.
 Persist a migration manifest with source/target catalog, affected types and progress.
 Convert affected saved roots in bounded batches into a shadow **disk** generation;
 do not maintain a second native arena. Source data is untouched until activation.
@@ -437,7 +469,8 @@ Before activation a crash can resume or discard the shadow; after activation reo
 loads the new generation. No row-by-row mixed-layout reads or lazy conversion.
 
 Reload/rebuild affected local data/indexes before restoring readiness. Children see
-a schema-change control boundary and perform a full one-arena reload. Old schema-bound
+a schema-change control boundary and perform a full one-arena reload; during it every
+read on that child waits within the reload readiness bound. Old schema-bound
 inputs fail validation; already admitted unexecuted operations are rejected with a
 stable schema-change result before activation. Same-history committed receipts remain
 resolvable. Migration converter execution is application C# code outside memory gates,
@@ -456,7 +489,9 @@ These are implementation starting settings, **not measured optimal values or new
 Expose public workload limits through options and validate relationships at open;
 allocator details remain internal tuning. Applications must size the instance budget
 explicitly for production. A development default of 256 MiB is permitted; it is not
-the reference workload's deployment budget.
+the reference workload's deployment budget. A timeout or a limit below that an
+application can observe is an option with this starting value as its default, never a
+constant in the code; "configurable" in a row is not the complete list of such options.
 
 | Limit / setting | Starting value |
 | --- | --- |
@@ -467,14 +502,17 @@ the reference workload's deployment budget.
 | Queued write input | 1,024 requests and min(16 MiB, 10% instance budget) |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
 | Session synchronization / reload readiness wait | 10 s / 30 s, configurable; cancellation allowed for read waits |
-| Scan/query temporary memory and execution | 8 MiB / 5 s per request, configurable |
+| Scan/query temporary memory and execution | 8 MiB / 5 s per request, configurable; only time inside the engine counts, not the time a caller spends between two items |
+| Child open | 30 s from the open call to Ready, configurable; then the open fails with Unavailable |
+| Master leadership | Taken at open; a second master on the same store is refused at once. The leadership number is checked in every transaction that changes the store; the leadership session every 5 s, configurable |
+| Retained operation outcomes of a MemoryOnly master | min(32 MiB, 10% instance budget), configurable; new writes are refused when it is full, an unexpired outcome is never dropped |
 | Empty native reserve / compaction headroom | One 4-MiB segment / one 64-KiB move plus metadata |
 | Base application | Up to 256 transactions / 8 MiB effects per batch, 32 MiB working set; <=100 ms idle cadence, immediate continuation when behind |
 | Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; 1 GiB hard cap, configurable |
 | Durable receipt budget | 1 GiB estimated table/index usage; conservative admission reservation and periodic actual-size reconciliation |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
 | Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
-| Slow-peer retention deadline / concurrent captures | 30 s / 1 capture initially; additional new children wait before capture registration |
+| Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
 Max single transaction/root must fit the reassembly, preparation and applier workspaces.
@@ -501,9 +539,36 @@ unverified target. No Lattice backup-launch or force-maintenance endpoint is req
 Deployment-specific backup retention, RPO/RTO and pod resource requests are operational
 inputs, not unresolved engine algorithms or promises of automatic failover.
 
-The host ensures that the former authoritative process and its SQL work have stopped
-before a replacement master opens the same store. This is the accepted single-master
-deployment precondition, not automatic leader election or split-brain recovery.
+**One store has one master at a time, and the engine enforces it.** Decided by the
+owner on 14 November 2026; it replaces the earlier precondition that left this to the
+host.
+
+A Durable master takes the leadership of its store when it opens: a session-level
+PostgreSQL advisory lock, held on a connection of its own for as long as the instance is
+open. While that session lives, the open of any other master on the same store fails at
+once with an error that names the reason. It does not wait, and nothing is taken over
+from the master that holds the store. PostgreSQL releases the lock when the session
+ends, so a master that closed, or whose process died, frees the store without any action
+of the engine.
+
+A master that lost its leadership while its process lives must not change the store
+either. Taking the leadership advances a leadership number kept in a row of its own.
+Every transaction that changes the store — commit, base application, cleanup, receipt
+retirement, migration — reads that row under a shared lock and commits only when the
+number is still its own; the row is separate from the foreground control row, so the
+background applier still does not wait for commits. The master also checks its
+leadership session at a configurable interval. When the session has ended, writes pause
+as during any unavailability of the store, and the master tries to take the leadership
+again within the storage recovery wait. It goes on only when it holds the lock again and
+the leadership number is still its own; otherwise it becomes Faulted and a new instance
+has to be opened. No transaction of a master is committed after another master took the
+store. The activation of a restored store takes the leadership as an open does.
+
+This is exclusion, not election. The engine appoints no master, promotes no child and
+moves no leadership; starting the master, and starting it again elsewhere, stays with
+the host. Two things remain deployment matters: the leadership connection has to be a
+direct session, because a proxy that pools per transaction cannot keep a session lock,
+and how quickly PostgreSQL notices a dead session is a setting of the server.
 
 ## Reproducible first fixture
 
@@ -529,14 +594,21 @@ lookups and 5% leading-key/range lookups with Limit 20. Type mix is 80% User, 10
 Setting, 5% Group and 5% Role. Small reads return owned bounded values; separately
 measure protected views and report their scope duration. Do not mix full enumeration
 into the 1-ms small-read percentile. Reads following a dependency wait start latency
-measurement after that dependency has already been applied, as accepted.
+measurement after that dependency has already been applied, as accepted. The 1-ms
+target is judged on the ID and exact-index reads; the range lookups are reported as
+their own class against the same figure.
 
 One write trace cycle has 40 single-root User partial assignments, eight single-root
 Setting Saves, and one two-root User/Group WriteBatch: 50 logical root changes in
 49 calls. Four cycles/s implement the ordinary 200 changes/s profile; 200 cycles/s
 offer the 10,000 changes/s burst. Values alternate so writes are not predominantly
 no-ops. Include create/delete/recreate, failure and fragmentation in separate bounded
-correctness/churn traces. Report offered, completed and refused work separately.
+correctness/churn traces. Report offered, completed and refused work separately. This
+trace is the ordinary profile: 192 single-root calls and 4 two-root batches a second,
+with no separate run of 200 single-root calls. The 50-ms target is judged on the
+single-root calls; the batches are reported as their own class and inherit no
+threshold. The owner confirmed both judging rules on 14 November 2026; the conditions
+of a gate run are in the [performance requirements](performance-requirements.md#accepted-measurement-conditions).
 
 The managed reference uses compact preallocated managed rows, bounded collections,
 the same declared indexes/comparers and explicit dictionary-string sharing. Reuse

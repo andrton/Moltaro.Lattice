@@ -83,7 +83,9 @@ These hold across the contract, the placeholder and the future engine.
    session. Defaults are the safe choice. An expected outcome, such as an absent key, is a
    result; a failed condition is an error with a code.
 9. **Waiting is finite and outside locks.** No lock is held across I/O or an `await`.
-   Every wait has a timeout and honors cancellation. A type that takes more than one lock
+   Every wait has a timeout and honors cancellation. A timeout or a limit that an
+   application can observe is an option with a default, validated when the instance
+   opens; it is never a constant in the code. A type that takes more than one lock
    documents the order.
 10. **One instance, one database.** Instances are independent; an application may have
     several. No static mutable state, except where a comment says why.
@@ -250,6 +252,9 @@ dotnet run --project Moltaro.Lattice.Samples
 
 - The user's instructions define the task. Among repository documents this file owns the
   global rules. Code and tests show what the code does, not that it is intended.
+- A departure from a rule of this file is recorded in
+  [exceptions to the rules](docs/work/exceptions.md) in the same change: which rule,
+  where, why and until when.
 - Before designing a change to the contract, read the decision record that covers it.
 - Make routine, reversible choices within the task. Ask only when a missing decision
   changes behavior, the contract or the scope. Say what was left out.

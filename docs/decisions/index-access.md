@@ -68,6 +68,13 @@ Those are not prerequisites for this access path. The physical index representat
 remains internal; selecting a declared schema index does not expose tree nodes or
 native addresses to application code.
 
+**Added by the owner on 14 November 2026:** a declared index may name a field inside an
+owned value. A part of the index key is then a path from a field of the entity type
+through owned values to the indexed field. A path never goes through a List, a Map or a
+Set: indexes over the members of a collection stay outside this milestone. When an owned
+value on the path is absent the component is null and follows the accepted rules for a
+null component, including the exemption from a [Unique](unique-indexes.md) index.
+
 ## Not selected for this milestone: automatic index selection
 
 The caller supplies structured field conditions; the engine resolves a compatible
