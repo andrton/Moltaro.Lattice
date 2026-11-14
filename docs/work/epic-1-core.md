@@ -898,6 +898,14 @@ Both sprints work in the contract assembly and need no engine.
   entity type that declares what it cannot honor is refused on write. Collections and
   owned types (S03). Migration between catalog versions (S37–S38).
 
+**Entered by the coordinator in the contract step.** `LatticeFieldTypeEnum.Enum` exists
+from the contract commit, while the reader of that commit cannot declare an enum type. So
+that a descriptor or a saved schema that names the type `Enum` is still refused with
+`InvalidSchema`, as it was before the member existed, the contract author made
+`SchemaBuilder` treat `Enum` as an unknown type in that commit; the implementer replaces
+the check when enum types can be declared. The scope of the identity of an index is its
+entity type, as for a field: two entity types may each have an index with the identity 1.
+
 **Types and members of S02.** Namespace `Moltaro.Lattice.Schema`, in the contract assembly.
 
 The descriptor:
