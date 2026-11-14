@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Sets;
 
 // What a set needs from the database it belongs to. Whether a write is executed here or
 // forwarded to the master is the database's business, not the set's.

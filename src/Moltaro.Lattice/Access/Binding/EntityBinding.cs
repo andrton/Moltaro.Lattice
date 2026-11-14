@@ -2,7 +2,7 @@ using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Binding;
 
 // The link between a .NET class and its entity type. The class is bound once, when the binding
 // is created, by ClassBinder: every schema field gets the property that holds it, a compiled

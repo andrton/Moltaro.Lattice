@@ -1,7 +1,7 @@
 using System.Reflection;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Binding;
 
 // The one place where a .NET enum is compared with an enum type of the schema, once, when a
 // class is bound, for a property and for an element, a key or a value of a collection alike.

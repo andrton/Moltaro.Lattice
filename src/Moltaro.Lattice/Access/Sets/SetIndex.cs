@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Sets;
 
 // One declared index of a set. The same class serves entity classes and records.
 //

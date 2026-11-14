@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // An enum member as read from a descriptor, before validation. IsCanonical is whether the
 // descriptor marks it; SchemaBuilder makes the only name of a value canonical.

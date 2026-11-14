@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // Builds the enum types of a schema from their drafts, for SchemaBuilder: identities and names
 // unique among enum types, an integer underlying type, at least one member, values within the

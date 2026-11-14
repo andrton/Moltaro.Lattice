@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // Builds the secondary indexes of an entity type from their drafts, for SchemaBuilder.
 //

@@ -1,7 +1,7 @@
 using System.Globalization;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Values;
 
 // How a value that a caller gives by itself, a field value, a primary key or a part of a search
 // key, is checked against the schema, and how stored values are kept separate from what a read

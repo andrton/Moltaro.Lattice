@@ -1,7 +1,7 @@
 using System.Reflection;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Binding;
 
 // A field bound to the property of a class that holds it: the property, how to read it from an
 // object of the class, and how a value of it that is not null becomes what a record holds,

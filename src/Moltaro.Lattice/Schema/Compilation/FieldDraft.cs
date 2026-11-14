@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // A field as read from a descriptor, before validation: its identity, its name and what it
 // holds.

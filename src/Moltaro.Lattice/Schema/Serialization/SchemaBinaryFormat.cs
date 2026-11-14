@@ -1,8 +1,9 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Moltaro.Lattice.Schema.Compilation;
 
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Serialization;
 
 // Binary form of a compiled schema, format 5. The frame is fixed from outside, every integer
 // of it little-endian:

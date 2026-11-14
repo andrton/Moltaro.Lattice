@@ -1,7 +1,9 @@
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Batches;
 
 // A write batch under construction: the operations in the order they were added, each
 // already checked against the schema and copied from the caller's object.

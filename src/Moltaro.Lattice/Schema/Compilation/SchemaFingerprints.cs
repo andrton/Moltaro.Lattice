@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // The canonical encodings whose SHA-256 digests are the two fingerprints of a schema.
 //

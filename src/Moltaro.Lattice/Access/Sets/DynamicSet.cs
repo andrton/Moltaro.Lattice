@@ -1,9 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Sets;
 
 // Entities by name, as records.
 internal sealed class DynamicSet : ILatticeSet

@@ -1,9 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Sets;
 
 // Entities as objects of a .NET class.
 internal sealed class TypedSet<TEntity> : ILatticeSet<TEntity>

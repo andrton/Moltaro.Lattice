@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // The order in which SchemaBuilder builds the owned types: every owned type after the owned
 // types it contains, so that the owned type a declaration names is built before it.

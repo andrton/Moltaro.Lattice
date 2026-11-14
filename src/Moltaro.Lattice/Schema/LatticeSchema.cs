@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Moltaro.Lattice.Schema.Serialization;
 
 namespace Moltaro.Lattice.Schema;
 

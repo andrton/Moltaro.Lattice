@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // What a position holds, as read from a descriptor, before validation. A policy the
 // descriptor does not state is null; the enum type, the owned type and the entity type are

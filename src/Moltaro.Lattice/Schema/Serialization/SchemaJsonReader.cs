@@ -1,7 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
+using Moltaro.Lattice.Schema.Compilation;
 
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Serialization;
 
 // Reads the JSON schema descriptor into drafts, which SchemaBuilder validates.
 //

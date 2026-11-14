@@ -1,6 +1,7 @@
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Sets;
 
 // An index key checked against the index it is used with: values for the leading fields
 // in the types of those fields, and an optional range on the field after them. This is

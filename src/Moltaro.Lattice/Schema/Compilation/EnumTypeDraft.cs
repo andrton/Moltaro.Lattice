@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // An enum type as read from a descriptor, before validation.
 internal sealed record EnumTypeDraft(

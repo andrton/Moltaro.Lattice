@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Values;
 
 // What a record and an owned value hold of what they are given, and what a write takes of a
 // record: every value is copied at every depth into the form a record holds, see

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // Builds the declaration of one position from its draft, for SchemaBuilder.
 //

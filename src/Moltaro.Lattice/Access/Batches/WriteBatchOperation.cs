@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Batches;
 
 // One operation of a write batch, as it was captured when it was added. Values is null
 // for a deletion.

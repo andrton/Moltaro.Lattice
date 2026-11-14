@@ -4,7 +4,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Access;
+namespace Moltaro.Lattice.Access.Binding;
 
 // Binds the classes that hold the entities of one entity type, the class of the entity type
 // and the classes of the owned types it holds, by the rule of ILatticeDatabase.Set<TEntity>():

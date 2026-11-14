@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Schema;
+namespace Moltaro.Lattice.Schema.Compilation;
 
 // The single place that validates a schema, whether it comes from JSON or from the binary form.
 // The readers turn what they read into drafts; every rule of the model is checked here and in
