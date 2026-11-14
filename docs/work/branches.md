@@ -24,15 +24,17 @@ as it closes instead of waiting for the whole epic.
 | Branch | Cut from | For | Lives | Merged by |
 | --- | --- | --- | --- | --- |
 | `main` | — | The integrated, green state; the source of every release | Always | — |
-| `epic-<n>/sprint-<nn>-<name>` | `main` | One sprint of an epic, on the full track | Until the sprint closes | Pull request, merge commit |
+| `epic-<n>/sprint-<nn>-<name>` | `main` | One sprint of an epic, on the full track | Until the sprint closes | Pull request, squash |
 | `fix/<name>`, `docs/<name>`, `chore/<name>` | `main` | The light track: a fix, a document, repository upkeep | A day or two | Pull request, squash |
 
 Examples: `epic-1/sprint-03-index-search`, `fix/child-reconnect-timeout`,
 `docs/branching`.
 
-- **A sprint is merged with a merge commit**, not squashed: the series contract, tests,
-  implementation, fixes stays visible in the history, and the merge commit names the
-  sprint. **A light-track change is squashed** into one commit.
+- **Every pull request is squashed** into one commit of `main`, whose subject names the
+  sprint or the change. The commits of a sprint — contract, tests, implementation, fixes —
+  are never squashed on its branch. After the merge the branch is gone and the series is
+  in one place, the pull request on GitHub: that is where "tests first" can be checked. A
+  clone of the repository does not carry it.
 - **One sprint of an epic at a time.** The next sprint branch is cut from `main` after the
   previous one is merged. Light-track branches may exist next to it.
 - **A branch that fell behind `main` is updated by merging `main` into it.** A branch with
@@ -52,6 +54,18 @@ the first such fix is.
 - **The owner** pushes the branch or has it pushed, opens the pull request and merges it.
   Merging is the owner's approval; there is no second reviewer on GitHub. The review
   itself happened in the sprint, before the pull request.
+- **With the owner's standing permission**, the coordinator does the owner's part for a
+  closed sprint. When the sprint is closed and no decision of the owner is open, it
+  pushes the branch, opens the pull request and squashes it into `main` once every job
+  that CI runs for the pull request has passed, also a job that is not a required check.
+  While a decision of the owner is open it does none of the three. The permission is
+  given for an epic and recorded in its document; the closed sprint under it stands for
+  the owner's approval, and the coordinator reports after the merge.
+- **What the permission never covers.** A merge with a failed or missing job: a failed
+  job reopens the sprint, its cause is fixed and reviewed as any finding is, and only
+  then is the pull request merged. A force-push. A release tag. Applying a ruleset or
+  changing a setting of the repository: a sprint that changes a ruleset file is merged
+  like any other, and the coordinator reports that the owner has the ruleset to apply.
 
 ## What `main` refuses
 
@@ -64,7 +78,7 @@ Enforced by the repository ruleset in
 | A pull request whose `build` check has not passed, or whose branch is behind `main` | `main` stays green: what was tested is what gets merged |
 | A pull request with unresolved review conversations | A question asked on the change is answered before it lands |
 | A force-push, or deleting the branch | History of `main` is never rewritten |
-| A rebase-merge | Only the two merge methods above are used |
+| A rebase-merge | It is not a merge method of this repository. The ruleset still admits a merge commit; by the rule above only the squash is used |
 
 No approving review is required, because there is one owner. Nobody is exempt, the
 repository administrator included: agents act with the owner's credentials, so an
