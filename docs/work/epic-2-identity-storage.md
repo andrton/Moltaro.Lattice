@@ -130,7 +130,11 @@ application compiles it. The package does not merge anything into it at run time
 - **The check.** `LatticeIdentitySchema.Validate<TUser, TRole>(schema)` compares a schema
   with the default declaration. The user and the role are found by their classes, the
   other entity types by name. Every field and index of the default must be there, with the
-  same type; a unique index must be unique. More is allowed, less is refused with
+  same type, nullability and string comparison; the string storage of a field and the
+  identities are the application's to choose. That is the owner's answer of 14 November
+  2026 to Q4 of the [open questions](open-questions.md); today the check compares type
+  and nullability, and the comparison is added in this epic. A unique index must be
+  unique. More is allowed, less is refused with
   `InvalidSchema` and the list of what is missing. The stores make the same check when
   they are created, because on a child the schema comes from the master.
 

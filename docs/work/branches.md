@@ -78,7 +78,7 @@ Enforced by the repository ruleset in
 | A pull request whose `build` check has not passed, or whose branch is behind `main` | `main` stays green: what was tested is what gets merged |
 | A pull request with unresolved review conversations | A question asked on the change is answered before it lands |
 | A force-push, or deleting the branch | History of `main` is never rewritten |
-| A rebase-merge | It is not a merge method of this repository. The ruleset still admits a merge commit; by the rule above only the squash is used |
+| A merge commit or a rebase-merge | Every change lands as one squashed commit; the squash is the only merge method of this repository |
 
 No approving review is required, because there is one owner. Nobody is exempt, the
 repository administrator included: agents act with the owner's credentials, so an
@@ -112,8 +112,11 @@ git push origin v0.1.0-alpha.1
 ## Setting it up on GitHub
 
 The rules are files in the repository so that they can be reviewed, but GitHub does not
-read them by itself. They are applied once, after the first push, and again whenever a
-file changes. With the GitHub CLI signed in as the owner, from the repository root:
+read them by itself. The owner applies them: once, after the first push, and again
+whenever a file changes. With the GitHub CLI signed in as the owner, from the repository
+root.
+
+The first time, each file creates its ruleset:
 
 ```bash
 gh api repos/{owner}/{repo}/rulesets --input .github/rulesets/main.json
@@ -124,11 +127,24 @@ gh api repos/{owner}/{repo}/rulesets --input .github/rulesets/release-tags.json
 ```
 
 ```bash
-gh api -X PATCH repos/{owner}/{repo} -F allow_merge_commit=true -F allow_squash_merge=true -F allow_rebase_merge=false -F delete_branch_on_merge=true
+gh api -X PATCH repos/{owner}/{repo} -F allow_merge_commit=false -F allow_squash_merge=true -F allow_rebase_merge=false -F delete_branch_on_merge=true
 ```
 
-The same files can be imported by hand: repository **Settings → Rules → Rulesets → New
-ruleset → Import a ruleset**.
+When a file has changed, the ruleset that exists is replaced, not created again. The
+first command lists the rulesets with their numbers; the second replaces the one whose
+number is given with the content of the file:
+
+```bash
+gh api repos/{owner}/{repo}/rulesets
+```
+
+```bash
+gh api -X PUT repos/{owner}/{repo}/rulesets/RULESET_ID --input .github/rulesets/main.json
+```
+
+The same can be done by hand. A new ruleset: repository **Settings → Rules → Rulesets →
+New ruleset → Import a ruleset**. A changed one: open it there and edit it. The merge
+methods of the repository are under **Settings → General → Pull Requests**.
 
 GitHub enforces rulesets in a public repository on every plan, and in a private
 repository only on a paid plan. While the repository is private on a free plan, the rules

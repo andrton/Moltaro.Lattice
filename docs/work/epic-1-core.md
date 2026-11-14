@@ -1343,6 +1343,13 @@ since S02.
   entries copies no existing entry. Allocation beyond the given budget fails and leaves
   the counters as they were. After a deterministic churn of allocations and frees the
   counters equal an independent tally and nothing is live that the test did not keep.
+  By the owner's answer to Q3 of the [open questions](open-questions.md): a test of
+  `Moltaro.Lattice.Engine.Tests` reads `src/Directory.Packages.props` and states that
+  `Arc.Collections` is declared with the version `[2.2.0]`, brackets included: the exact
+  pin, which a range or a bare version would not be. The test of the resolved version in
+  `DependencyTests` stays as it is. The test finds the file from its own location
+  upwards, with no machine path; it states the invariant of decision O1 and falls under
+  exception X3.
 - **Measured.** Asserted: the actual size of a root entry against the 48 bytes of the
   specification, and of a block header against 32; no managed allocation on allocate and
   free after warm-up.

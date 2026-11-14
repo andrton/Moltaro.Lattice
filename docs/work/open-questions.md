@@ -28,32 +28,7 @@ in the meantime.
 
 ## Open
 
-### Q2. Is the squash enforced or only agreed?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of the change that lets the coordinator merge |
-| **Question** | [Branches and releases](branches.md) says every pull request is squashed, while the ruleset of `main` and the settings of the repository still admit a merge commit. Should the ruleset allow the squash only? |
-| **Until answered** | The coordinator merges with the squash named explicitly. A merge commit made by mistake could not be taken out of `main` |
-| **Decides** | The owner: it is a change of `.github/rulesets/main.json` and of a repository setting, which the owner applies |
-
-### Q3. Nothing guards the exact pin of the index package
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of Epic 1, sprint S01 |
-| **Question** | `Arc.Collections` is pinned as `[2.2.0]`, but the test of the engine's dependencies compares the resolved version, so it stays green when the brackets are dropped and the package could then float for a user of the engine package. Should a test hold the exact pin? |
-| **Until answered** | The pin is held by `src/Directory.Packages.props` and its comment |
-| **Decides** | The planner, with the sprint that makes the engine a package (S12) |
-
-### Q4. What does the Identity package validate in the new descriptor form?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
-| **Question** | The brief of S02 says the Identity package's "descriptor and its validation follow the new form". It does not say whether the validation of an application's schema also compares the comparison and the string storage of a field, or the identities of the indexes, with what the package needs |
-| **Until answered** | The validation compares what it compared before, type and nullability; no test asserts more |
-| **Decides** | The planner of [Epic 2](epic-2-identity-storage.md), which owns that package |
+None. Every question found so far is answered below.
 
 ## Answered
 
@@ -146,3 +121,30 @@ in the meantime.
 | **Question** | The members of `ILatticeWriteBatch` that take an entity class documented `BindingFailed` as "the schema declares no entity type for the class". A batch binds the class as a set does, so a class that lacks a property, or whose .NET enum does not agree with the schema, fails there too |
 | **Answer** | The owner, 14 November 2026, through the planner's session: the documentation is completed now, in the branch of S02, because S02 added a cause of `BindingFailed` and the document that owns a behavior is updated in the same change |
 | **Where the rule lives** | The XML documentation of `ILatticeWriteBatch`, which points to `ILatticeDatabase.Set<TEntity>()`; that member names every cause, since S02 |
+
+### Q3. Nothing guards the exact pin of the index package
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S01 |
+| **Question** | `Arc.Collections` is pinned as `[2.2.0]`, but the test of the engine's dependencies compares the resolved version, so it stays green when the brackets are dropped and the package could then float for a user of the engine package. Should a test hold the exact pin? |
+| **Answer** | The owner, 14 November 2026, through the planner's session: yes, a test holds the declaration itself, brackets included. It is added in S04, the first sprint that puts code into the engine |
+| **Where the rule lives** | The brief of S04 in the [document of Epic 1](epic-1-core.md) |
+
+### Q2. Is the squash enforced or only agreed?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of the change that lets the coordinator merge |
+| **Question** | [Branches and releases](branches.md) says every pull request is squashed, while the ruleset of `main` and the settings of the repository still admitted a merge commit. Should the ruleset allow the squash only? |
+| **Answer** | The owner, 14 November 2026, through the planner's session: yes, the squash is enforced. The ruleset file allows the squash only, and the setting of the repository that admits merge commits is switched off |
+| **Where the rule lives** | `.github/rulesets/main.json` and [branches and releases](branches.md), since S02. The owner applies the ruleset and the setting on GitHub; until then the coordinator keeps naming the squash explicitly |
+
+### Q4. What does the Identity package validate in the new descriptor form?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
+| **Question** | The brief of S02 says the Identity package's "descriptor and its validation follow the new form". It does not say whether the validation of an application's schema also compares the comparison and the string storage of a field, or the identities of the indexes, with what the package needs |
+| **Answer** | The owner, 14 November 2026, through the planner's session: the validation compares, for every field of the default declaration, its type, its nullability and its string comparison. It compares neither the string storage nor an identity. The comparison decides which values are equal, so what an index finds and what a unique index refuses, and Identity tells some of its values apart by case; the storage changes memory and the cost of a write only; identities belong to the application's schema, and the stores address everything by name |
+| **Where the rule lives** | [Epic 2](epic-2-identity-storage.md), "The schema belongs to the application". It is implemented in Epic 2; during Epic 1 the validation keeps comparing type and nullability |
