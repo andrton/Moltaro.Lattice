@@ -16,6 +16,9 @@ internal sealed class MapForm<TKey, TValue> : MapForm
 
     public override Type ValueType => typeof(Dictionary<TKey, TValue>);
 
+    // Unlike an array of integers, an array of key-value pairs passes only as itself: the
+    // runtime takes an array of one struct for an array of another only for integers and
+    // enums, and KeyValuePair<TKey, TValue> is neither.
     public override bool IsInput(object value) => value is IEnumerable<KeyValuePair<TKey, TValue>>;
 
     public override IEnumerable<KeyValuePair<object?, object?>> Entries(object input)

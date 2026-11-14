@@ -152,8 +152,9 @@ internal sealed class DeclarationBuilder
     private LatticeValueDeclaration BuildSet(ValueDeclarationDraft draft, string place)
     {
         var elementPlace = $"the element of {place}";
-        var element = Build(Required(draft.Element, draft, "Element", place), elementPlace);
-        CheckEquality(element, elementPlace, "a Set element");
+        var elementDraft = Required(draft.Element, draft, "Element", place);
+        CheckEquality(elementDraft, elementPlace, "a Set element");
+        var element = Build(elementDraft, elementPlace);
 
         return new LatticeValueDeclaration(draft.Type, draft.IsNullable, element: element);
     }
@@ -164,25 +165,30 @@ internal sealed class DeclarationBuilder
         var valueDraft = Required(draft.Value, draft, "Value", place);
 
         var keyPlace = $"the key of {place}";
+        CheckEquality(keyDraft, keyPlace, "a Map key");
         var key = Build(keyDraft, keyPlace);
         if (key.IsNullable)
         {
             throw SchemaBuilder.Invalid($"{keyPlace} is nullable; a Map key never is.");
         }
 
-        CheckEquality(key, keyPlace, "a Map key");
         var value = Build(valueDraft, $"the value of {place}");
 
         return new LatticeValueDeclaration(draft.Type, draft.IsNullable, key: key, value: value);
     }
 
     // A Map key and a Set element are told apart by their equality, which only some types
-    // have.
-    private static void CheckEquality(LatticeValueDeclaration declaration, string place, string position)
+    // have. The type is checked before the declaration is built: an owned type or a
+    // collection there is refused for what it is, and never resolved. OwnedTypeContainment does
+    // not order owned types by what a key or an element would hold, so an owned type named
+    // there may not be built yet, and resolving it first would report it as undeclared,
+    // depending on the order of the descriptor. An unknown type is left to Build, which says
+    // so.
+    private static void CheckEquality(ValueDeclarationDraft draft, string place, string position)
     {
-        if (!FieldTypes.HasEquality(declaration.Type))
+        if (Enum.IsDefined(draft.Type) && !FieldTypes.HasEquality(draft.Type))
         {
-            throw SchemaBuilder.Invalid($"{place} is {declaration.Type}; {position} is a scalar that is not Binary, an Enum or a Reference.");
+            throw SchemaBuilder.Invalid($"{place} is {draft.Type}; {position} is a scalar that is not Binary, an Enum or a Reference.");
         }
     }
 

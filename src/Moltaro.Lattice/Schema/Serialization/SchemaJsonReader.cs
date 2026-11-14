@@ -19,12 +19,22 @@ internal static class SchemaJsonReader
     private static readonly string[] DeclarationProperties =
         ["Type", "Nullable", "Comparison", "StringStorage", "Enum", "OwnedType", "EntityType", "Element", "Key", "Value"];
 
+    // The text is parsed however deep it nests, with no limit of its own: the parser does not
+    // recurse, CheckText walks the text with a stack of its own, and the one recursion of this
+    // reader, into the declarations inside a collection, stops at the depth a declaration may
+    // have. So a descriptor nested however deep is refused for what it holds, a declaration too
+    // deep with its field named, as in a saved schema. Memory grows with the text; the time the
+    // parser takes grows faster than the depth, about four times for twice as deep at a depth of
+    // tens of thousands, which only text nested far beyond any declaration reaches. Never
+    // changed, so it is shared.
+    private static readonly JsonDocumentOptions Options = new() { MaxDepth = int.MaxValue };
+
     public static LatticeSchema Read(string json)
     {
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(json);
+            document = JsonDocument.Parse(json, Options);
         }
         catch (JsonException exception)
         {
@@ -138,16 +148,23 @@ internal static class SchemaJsonReader
         var id = Identity(element, place);
         var name = OptionalString(element, "Name", place);
 
-        return new FieldDraft(id, name, ReadDeclaration(element, place));
+        return new FieldDraft(id, name, ReadDeclaration(element, place, field: place, nesting: 1));
     }
 
     // What a field holds: everything a field declares except its identity and its name. The
     // element, the key and the value of a collection are declarations of their own, with
-    // these properties and no identity and no name. The recursion here is bounded by the depth
-    // of 64 at which JsonDocument stops reading; how deep a declaration may be is a rule of the
-    // model, which SchemaBuilder checks, see SchemaBuilder.MaximumDepth.
-    private static ValueDeclarationDraft ReadDeclaration(JsonElement element, string place)
+    // these properties and no identity and no name. How deep a declaration may be is a rule of
+    // the model, which SchemaBuilder checks; a declaration nested deeper than that is refused
+    // here already, while it is read, with its field named, as the reader of a saved schema
+    // does: so the recursion of reading is bounded by the rule and not by the text. Nesting
+    // counts only the collections inside one declaration, which is never more than its depth.
+    private static ValueDeclarationDraft ReadDeclaration(JsonElement element, string place, string field, int nesting)
     {
+        if (nesting > SchemaBuilder.MaximumDepth)
+        {
+            throw SchemaBuilder.Invalid($"{field} is nested more than {SchemaBuilder.MaximumDepth} deep; a declaration is at most {SchemaBuilder.MaximumDepth} deep, counted through collections and owned types together.");
+        }
+
         var type = Name<LatticeFieldTypeEnum>(Required(element, "Type", place), "Type", place);
         var isNullable = OptionalBoolean(element, "Nullable", place);
 
@@ -171,12 +188,12 @@ internal static class SchemaJsonReader
             enumTypeName,
             ownedTypeName,
             entityTypeName,
-            ReadInnerDeclaration(element, "Element", $"the element of {place}"),
-            ReadInnerDeclaration(element, "Key", $"the key of {place}"),
-            ReadInnerDeclaration(element, "Value", $"the value of {place}"));
+            ReadInnerDeclaration(element, "Element", $"the element of {place}", field, nesting + 1),
+            ReadInnerDeclaration(element, "Key", $"the key of {place}", field, nesting + 1),
+            ReadInnerDeclaration(element, "Value", $"the value of {place}", field, nesting + 1));
     }
 
-    private static ValueDeclarationDraft? ReadInnerDeclaration(JsonElement element, string property, string place)
+    private static ValueDeclarationDraft? ReadInnerDeclaration(JsonElement element, string property, string place, string field, int nesting)
     {
         if (!element.TryGetProperty(property, out var inner))
         {
@@ -184,7 +201,7 @@ internal static class SchemaJsonReader
         }
 
         CheckProperties(inner, place, DeclarationProperties);
-        return ReadDeclaration(inner, place);
+        return ReadDeclaration(inner, place, field, nesting);
     }
 
     private static IndexDraft ReadIndex(JsonElement element, int position, string? owner)
@@ -225,43 +242,46 @@ internal static class SchemaJsonReader
 
     // JsonDocument accepts an escaped lone surrogate, such as \ud800, and fails only when the
     // text is taken as a .NET string. Every property name and string is taken here once, so
-    // that the rest of the reader works on well-formed text.
+    // that the rest of the reader works on well-formed text. The walk keeps the elements still
+    // to look at in a stack of its own, so that the depth of the text does not reach the call
+    // stack.
     private static void CheckText(JsonElement root)
     {
+        var pending = new Stack<JsonElement>();
+        pending.Push(root);
+
         try
         {
-            TakeText(root);
+            while (pending.TryPop(out var element))
+            {
+                switch (element.ValueKind)
+                {
+                    case JsonValueKind.Object:
+                        foreach (var property in element.EnumerateObject())
+                        {
+                            _ = property.Name;
+                            pending.Push(property.Value);
+                        }
+
+                        break;
+
+                    case JsonValueKind.Array:
+                        foreach (var item in element.EnumerateArray())
+                        {
+                            pending.Push(item);
+                        }
+
+                        break;
+
+                    case JsonValueKind.String:
+                        _ = element.GetString();
+                        break;
+                }
+            }
         }
         catch (InvalidOperationException exception)
         {
             throw SchemaBuilder.Invalid("the JSON descriptor has text that is not well-formed: an escaped surrogate without its pair.", exception);
-        }
-
-        static void TakeText(JsonElement element)
-        {
-            switch (element.ValueKind)
-            {
-                case JsonValueKind.Object:
-                    foreach (var property in element.EnumerateObject())
-                    {
-                        _ = property.Name;
-                        TakeText(property.Value);
-                    }
-
-                    break;
-
-                case JsonValueKind.Array:
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        TakeText(item);
-                    }
-
-                    break;
-
-                case JsonValueKind.String:
-                    _ = element.GetString();
-                    break;
-            }
         }
     }
 

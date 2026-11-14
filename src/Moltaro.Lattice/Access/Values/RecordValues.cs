@@ -56,7 +56,8 @@ internal static class RecordValues
         LatticeFieldTypeEnum.Owned => CopyOwned(declaration.OwnedType!, value, place),
         LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set => CopySequence(declaration, value, place),
         LatticeFieldTypeEnum.Map => CopyMap(declaration, value, place),
-        LatticeFieldTypeEnum.Binary => value is byte[] bytes ? bytes.Clone() : throw place.Fail(NotAccepted(declaration, value)),
+        // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others.
+        LatticeFieldTypeEnum.Binary => value.GetType() == typeof(byte[]) ? ((byte[])value).Clone() : throw place.Fail(NotAccepted(declaration, value)),
         _ => value.GetType() == declaration.ValueType ? value : throw place.Fail(NotAccepted(declaration, value)),
     };
 

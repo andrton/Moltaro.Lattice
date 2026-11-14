@@ -16,7 +16,12 @@ internal sealed class SequenceForm<T> : SequenceForm
 
     public override Type ValueType => _isSet ? typeof(HashSet<T>) : typeof(List<T>);
 
-    public override bool IsInput(object value) => value is IEnumerable<T>;
+    // The runtime takes an array of one integer type for an array of another of the same size,
+    // and an array of an enum for one of its underlying type: a uint[] passes as an
+    // IEnumerable<int>, and its values would be read as other values. So an array is taken
+    // only when its element type is exactly T. Any other sequence of T yields values of T.
+    public override bool IsInput(object value) =>
+        value is IEnumerable<T> && (value is not Array || value.GetType() == typeof(T[]));
 
     public override IEnumerable<object?> Elements(object input)
     {

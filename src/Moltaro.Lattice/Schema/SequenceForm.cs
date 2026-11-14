@@ -13,7 +13,8 @@ internal abstract class SequenceForm
     // List<T> or HashSet<T>.
     public abstract Type ValueType { get; }
 
-    // Whether a value is what a record takes for the position: a sequence of exactly T.
+    // Whether a value is what a record takes for the position: a sequence of exactly T, and an
+    // array only of T itself.
     public abstract bool IsInput(object value);
 
     // The elements of an input that IsInput accepted, in its order.

@@ -104,7 +104,7 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Set => BindSet(type, declaration, place),
         LatticeFieldTypeEnum.Map => BindMap(type, declaration, place),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => static value => ((byte[])value).Clone(),
+        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => OnlyAsDeclared(type, static value => ((byte[])value).Clone(), place),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
         _ when type == declaration.PositionType => static value => value,
         _ => throw place.Mismatch(),
@@ -193,13 +193,28 @@ internal sealed class ClassBinder
     // A List is a List<T> or an array of T.
     private Func<object, object> BindList(Type type, LatticeValueDeclaration declaration, Place place)
     {
-        var elementType = type.IsSZArray ? type.GetElementType() : GenericArgument(type, typeof(List<>));
-        if (elementType is null)
+        if (type.IsSZArray)
         {
-            throw place.Mismatch();
+            return OnlyAsDeclared(type, BindSequence(type.GetElementType()!, declaration, place), place);
         }
 
+        var elementType = GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
+
         return BindSequence(elementType, declaration, place);
+    }
+
+    // A property of an array type may hold an array of another element type at run time: the
+    // runtime takes an array of one integer type for one of another of the same size, and an
+    // array of an enum for one of its underlying type, and its values would be read as other
+    // values. Such an array is refused when it is written, as a record refuses it when it is
+    // set.
+    private Func<object, object> OnlyAsDeclared(Type arrayType, Func<object, object> toRecord, Place place)
+    {
+        var entityTypeName = _entityType.Name;
+
+        return value => value.GetType() == arrayType
+            ? toRecord(value)
+            : throw ValidationFailed(entityTypeName, place.Holds($"a {Place.TypeName(value.GetType())} where {Place.TypeName(arrayType)} is declared"));
     }
 
     private Func<object, object> BindSet(Type type, LatticeValueDeclaration declaration, Place place)
@@ -308,17 +323,25 @@ internal sealed class ClassBinder
             _ => TypeName(declaration.PositionType),
         };
 
-        // A .NET type as C# writes it: Int32?, List<Int64>, Int64[].
-        private static string TypeName(Type type)
+        // A .NET type as C# writes it: Int32?, List<Int64>, Int64[], and Int64[,] for an array
+        // of two dimensions, which is not a List.
+        public static string TypeName(Type type)
         {
             if (Nullable.GetUnderlyingType(type) is { } underlying)
             {
                 return $"{TypeName(underlying)}?";
             }
 
-            if (type.IsArray)
+            if (type.IsSZArray)
             {
                 return $"{TypeName(type.GetElementType()!)}[]";
+            }
+
+            if (type.IsArray)
+            {
+                // An array of one dimension whose lower bound need not be zero is written [*].
+                var dimensions = type.GetArrayRank() == 1 ? "*" : new string(',', type.GetArrayRank() - 1);
+                return $"{TypeName(type.GetElementType()!)}[{dimensions}]";
             }
 
             if (!type.IsGenericType)
