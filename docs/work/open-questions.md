@@ -31,7 +31,14 @@ in the meantime.
 
 ## Open
 
-None. Every question found so far is answered below.
+### Q26. Does an owned value return its own values, as a record does?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | By the answer to Q22 what a record returns is its own and the same object every time, and a value inside a record is edited through what the record returns. The brief says a `LatticeOwnedValue` treats what is set into it in the same way as a record; it does not say what a `LatticeOwnedValue` returns. Does its indexer return its own collection, owned value or byte array, the same object every time, so that a change through it is a change of the owned value? If so, an owned value can be made invalid through a collection it returned, and the brief's "copied field by field, as if each of its fields were set again, so what it holds is … checked" then refuses it when it is set into a record |
+| **Until answered** | Not tested: neither an edit through a collection an owned value returned, nor the check of an owned value when it is set into a record |
+| **Decides** | The planner, for S03 |
 
 ## Answered
 
