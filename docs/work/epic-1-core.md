@@ -1167,7 +1167,16 @@ entity types whose layout fingerprint differs.
   equal to the one that was saved, with the same fingerprints. A record and an object are validated against the declaration when they are
   built or bound: wrong element type, null where it is not allowed, a duplicate Map key
   in bulk input. A Set built from input keeps the first representation of equal members.
-  A class with inherited properties binds as before. An index part that is a
+  A class with inherited properties binds as before. By the owner's answer to Q14 the
+  property of a field is found as C# finds it by that name on the class: the public
+  property of the most derived class that declares one. It has to be an instance property
+  with get and set and of the type the field needs. So a derived class that hides a
+  property of its base with one of the type the field needs binds, and the field is read
+  from and written to the hiding property; a class whose property of that name is static,
+  and a class whose hiding property has a type the field does not accept, are refused
+  with `BindingFailed` and the property named. Neither ends in another exception, from
+  `Set<TEntity>()` or from the typed members of a write batch, and the same holds for the
+  classes of owned types that this sprint binds. An index part that is a
   path is accepted when every step but the last is an owned value and the last is a
   field an index may have; a path through a collection, or to a field that does not
   exist, is refused with the place named. The layout fingerprint of an entity type changes when a field is added to an

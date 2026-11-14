@@ -28,14 +28,7 @@ in the meantime.
 
 ## Open
 
-### Q14. A class can fail to bind with an exception that is not a `LatticeException`
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
-| **Question** | Binding a class reports a class that does not agree with its entity type as `BindingFailed`. Two classes escape that: one with a static property named like a field throws `ArgumentException` from `Set<TEntity>()`, and a derived class that hides a property with one of another type throws `AmbiguousMatchException`; both also from the typed members of a write batch. The code is older than S02. Are both `BindingFailed`, with the property named? |
-| **Until answered** | The two exceptions escape as they are. The documentation of `ILatticeDatabase.Set<TEntity>()` names every cause that is reported as `BindingFailed`, and these two are not among them |
-| **Decides** | The planner, for S03, which extends the binding of classes and states that "a class with inherited properties binds as before" |
+None. Every question found so far is answered below.
 
 ## Answered
 
@@ -155,3 +148,12 @@ in the meantime.
 | **Question** | The brief of S02 says the Identity package's "descriptor and its validation follow the new form". It does not say whether the validation of an application's schema also compares the comparison and the string storage of a field, or the identities of the indexes, with what the package needs |
 | **Answer** | The owner, 14 November 2026, through the planner's session: the validation compares, for every field of the default declaration, its type, its nullability and its string comparison. It compares neither the string storage nor an identity. The comparison decides which values are equal, so what an index finds and what a unique index refuses, and Identity tells some of its values apart by case; the storage changes memory and the cost of a write only; identities belong to the application's schema, and the stores address everything by name |
 | **Where the rule lives** | [Epic 2](epic-2-identity-storage.md), "The schema belongs to the application". It is implemented in Epic 2; during Epic 1 the validation keeps comparing type and nullability |
+
+### Q14. A class can fail to bind with an exception that is not a `LatticeException`
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | Binding a class reports a class that does not agree with its entity type as `BindingFailed`. Two classes escaped that: one with a static property named like a field threw `ArgumentException` from `Set<TEntity>()`, and a derived class that hides a property with one of another type threw `AmbiguousMatchException`; both also from the typed members of a write batch. The code is older than S02. Are both `BindingFailed`, with the property named? |
+| **Answer** | The owner, 14 November 2026, through the planner's session: yes. The property of a field is found as C# finds it by that name, on the most derived class that declares one; it has to be an instance property with get and set and of the type the field needs. A hiding property of that type binds; a static property, and a hiding property of another type, are `BindingFailed` with the property named |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which fixes it with the binding it extends |
