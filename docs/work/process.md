@@ -90,7 +90,7 @@ stops and has the plan corrected before the next sprint.
 5. **Review.** The coordinator reviews, and an independent reviewer reviews.
 6. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
    only what changed and what was still open. Review and fixes repeat until an
-   independent review ends with no P1, P2 or P3 finding.
+   independent review ends with no P1, P2 or P3 finding that is still open.
 7. **Documents.** The coordinator compares `README.md`, the
    [architecture](../design/architecture.md) and the documents they point to with what
    the sprint delivered: what exists and what is planned, names, limits, described
@@ -98,9 +98,9 @@ stops and has the plan corrected before the next sprint.
    disagreement between the code and an accepted decision is not corrected in the text;
    it goes to the owner.
 8. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
-   the sprint done in the epic document. A finding is no longer open when its fix was
-   reviewed, or when the owner accepted it or moved it to a named sprint, as
-   [Review](#review) describes. The next sprint starts, with another implementer.
+   the sprint done in the epic document. A finding is no longer open when an independent
+   review found its fix sufficient, or when the owner accepted it or moved it to a named
+   sprint, as [Review](#review) describes. The next sprint starts, with another implementer.
 
 **Small changes during a sprint.** A change that comes up while a sprint is open and is
 small — an answer of the owner that touches a rule, a document, a file of the

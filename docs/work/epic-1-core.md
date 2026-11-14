@@ -495,10 +495,14 @@ answer that caused it, and it is reviewed with the sprint like everything else o
 branch. The light track stays for a change that is made while no sprint is open, or that
 cannot wait for the open one. *Not chosen:* a branch, a pull request and a review round
 of their own for every such change, which cost the owner a merge each and bought nothing.
-Shapes every sprint from S02 on; S02 carries, besides its own work, the register of open
-questions, the rule on review rounds, the squash in the ruleset of `main`, and the
-texts that the owner's answers added to the briefs of S03, S04 and S37 and to the
-document of Epic 2.
+Shapes every sprint from S02 on; S02 carries, besides its own work: the register of open
+questions with its rule in the development process; the rule that review rounds are not
+limited by a number, and this rule on small changes, both decided by the owner while the
+sprint was open and named here; the squash in the ruleset of `main` (Q2); the sentences
+"Not implemented yet" in the documentation of unique indexes (Q12) and the completed
+documentation of the write batch and of `Set<TEntity>()` (Q6); and the texts that the
+owner's answers added to the briefs of S03, S04 and S37 and to the document of Epic 2
+(Q3, Q4, Q5, Q9, Q10, Q11).
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
@@ -742,7 +746,7 @@ Why this order:
 | Sprint | Result | Track | Status |
 | --- | --- | --- | --- |
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
-| S02 | Schema: identities, text policies, enums | Full | Not started |
+| S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Not started |
 | S04 | Arena | Full | Not started |
 | S05 | Root layout and values | Full | Not started |
@@ -1213,9 +1217,11 @@ entity types whose layout fingerprint differs.
   the body, the digest — and one that writes the length and the digest of a form again
   after a test changed its body. The new tests of the sprint use them and are skipped; no
   existing test is touched in that commit. In the implementation commit the implementer
-  moves every hand-written form of the class onto those helpers, so that each is a whole
-  form of this sprint whose length and digest are right and whose one fault is the fault
-  its test names:
+  moves every hand-written form of the class onto those helpers, so that each is a form
+  of this sprint whose length and digest are right: the reader gets past the digest and
+  refuses the form for the fault its test names, which is the first fault it meets in the
+  body. What a body holds after that fault is not changed; some bodies end right after
+  it, as they do today:
 
   - `WriteHeader`, `Bytes`, `Compiled` and `Field`, with the body as `Save` now writes
     it, and through them the forms of `Mark_that_is_neither_0_nor_1_is_refused`,
