@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Tests;
 
-// Bound to the entity type "User" by "ClrType" in the schema below.
+// Bound to the entity type "User" by "ClrType" in the schema of TestData.
 internal sealed class User
 {
     public long Id { get; set; }

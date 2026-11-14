@@ -19,6 +19,9 @@ public sealed class OwnedValueBindingTests
     private const string MapOfNotes = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Map', 'Key': { 'Type': 'Int32' }, 'Value': { 'Type': 'Owned', 'OwnedType': 'Note' } }";
     private const string OwnedEnvelope = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Owned', 'OwnedType': 'Envelope' }";
     private const string OwnedBadge = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Owned', 'OwnedType': 'Badge' }";
+    private const string OwnedInsignia = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Owned', 'OwnedType': 'Insignia' }";
+    private const string ListOfInsignia = "{ 'Id': 2, 'Name': 'Value', 'Type': 'List', 'Element': { 'Type': 'Owned', 'OwnedType': 'Insignia' } }";
+    private const string MapOfInsignia = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Owned', 'OwnedType': 'Insignia' } }";
 
     [Fact]
     public async Task Owned_value_binds_as_the_class_of_its_owned_type_with_its_own_owned_values_and_collections()
@@ -48,10 +51,15 @@ public sealed class OwnedValueBindingTests
     [Fact]
     public async Task LatticeOwnedValue_in_a_class_is_refused_with_the_property_and_the_owned_type_named()
     {
-        // As a property, as an element and as a value.
-        await BindingSchema.ExpectNotBoundAsync<BindingSchema.Holder<LatticeOwnedValue>>(OwnedAddress, "Value", "Address");
-        await BindingSchema.ExpectNotBoundAsync<BindingSchema.Holder<List<LatticeOwnedValue>>>(ListOfAddresses, "Value", "Address");
-        await BindingSchema.ExpectNotBoundAsync<BindingSchema.Holder<Dictionary<string, LatticeOwnedValue>>>(MapOfAddresses, "Value", "Address");
+        // As a property, as an element and as a value. The owned type Insignia names the class
+        // Emblem, so that a message that names only the class does not name the owned type.
+        await ExpectHolderNotBoundAsync<BindingSchema.Holder<LatticeOwnedValue>>(InsigniaSchema<BindingSchema.Holder<LatticeOwnedValue>>(OwnedInsignia), "Value", "Insignia");
+        await ExpectHolderNotBoundAsync<BindingSchema.Holder<List<LatticeOwnedValue>>>(InsigniaSchema<BindingSchema.Holder<List<LatticeOwnedValue>>>(ListOfInsignia), "Value", "Insignia");
+        await ExpectHolderNotBoundAsync<BindingSchema.Holder<Dictionary<string, LatticeOwnedValue>>>(InsigniaSchema<BindingSchema.Holder<Dictionary<string, LatticeOwnedValue>>>(MapOfInsignia), "Value", "Insignia");
+
+        // The class it names binds.
+        await using var database = await TestData.OpenMasterAsync(schema: InsigniaSchema<BindingSchema.Holder<Emblem>>(OwnedInsignia));
+        Assert.Equal("Holder", database.Set<BindingSchema.Holder<Emblem>>().EntityType.Name);
     }
 
     [Fact]
@@ -93,20 +101,27 @@ public sealed class OwnedValueBindingTests
     public async Task Class_of_an_owned_type_that_does_not_agree_with_it_is_refused_with_the_property_named()
     {
         // No property for a field, a property of another type, a property without set.
-        await ExpectBadgeNotBoundAsync<BadgeWithoutLevel>("Level");
-        await ExpectBadgeNotBoundAsync<BadgeWithTextAsNumber>("Text");
-        await ExpectBadgeNotBoundAsync<BadgeWithReadOnlyText>("Text");
+        await ExpectBadgeNotBoundAsync<IncompleteBadge>("Level");
+        await ExpectBadgeNotBoundAsync<MistypedBadge>("Text");
+        await ExpectBadgeNotBoundAsync<GetOnlyBadge>("Text");
 
         // By the rule of how a property is found: a static one, and a hiding one of another
         // type than the field needs.
-        await ExpectBadgeNotBoundAsync<BadgeWithStaticText>("Text");
-        await ExpectBadgeNotBoundAsync<HidingTextWithNumberBadge>("Text");
+        await ExpectBadgeNotBoundAsync<StaticBadge>("Text");
+        await ExpectBadgeNotBoundAsync<MistypedHidingBadge>("Text");
+    }
+
+    [Fact]
+    public async Task Class_of_an_owned_type_with_an_indexer_or_a_property_without_a_public_get_is_refused_with_the_property_named()
+    {
+        await ExpectBadgeNotBoundAsync<IndexerBadge>("Text");
+        await ExpectBadgeNotBoundAsync<PrivateGetBadge>("Text");
     }
 
     [Fact]
     public async Task Class_of_an_owned_type_without_a_public_parameterless_constructor_is_refused()
     {
-        await ExpectBadgeNotBoundAsync<BadgeWithoutParameterlessConstructor>();
+        await ExpectBadgeNotBoundAsync<BadgeWithoutParameterlessConstructor>(nameof(BadgeWithoutParameterlessConstructor));
     }
 
     // The owned type Badge, bound to TBadge, held by the field Value of Holder.
@@ -137,15 +152,38 @@ public sealed class OwnedValueBindingTests
 
     // The holder is refused, from a set and from the typed members of a write batch, because
     // of the class of its owned value, with the given names in the message.
-    private static async Task ExpectBadgeNotBoundAsync<TBadge>(params string[] named)
+    private static Task ExpectBadgeNotBoundAsync<TBadge>(params string[] named) =>
+        ExpectHolderNotBoundAsync<BindingSchema.Holder<TBadge>>(BadgeSchema<TBadge>(), named);
+
+    // The owned type Insignia, bound to the class Emblem, held by the given field of Holder,
+    // which is bound to THolder.
+    private static LatticeSchema InsigniaSchema<THolder>(string field) => LatticeSchema.Compile($$"""
+        {
+          "OwnedTypes": [
+            { "Id": 1, "Name": "Insignia", "ClrType": "{{typeof(Emblem).FullName}}", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] }
+          ],
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Holder", "ClrType": "{{typeof(THolder).FullName}}",
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, {{field.Replace('\'', '"')}} ],
+              "PrimaryKey": [1]
+            }
+          ]
+        }
+        """);
+
+    // The holder is refused, from a set and from the typed members of a write batch, with the
+    // given names in the message.
+    private static async Task ExpectHolderNotBoundAsync<THolder>(LatticeSchema schema, params string[] named)
+        where THolder : class, new()
     {
-        await using var database = await TestData.OpenMasterAsync(schema: BadgeSchema<TBadge>());
+        await using var database = await TestData.OpenMasterAsync(schema: schema);
         var batch = database.CreateWriteBatch();
 
-        ExpectBindingFailed(() => database.Set<BindingSchema.Holder<TBadge>>());
-        ExpectBindingFailed(() => batch.Insert(new BindingSchema.Holder<TBadge> { Id = 1 }));
-        ExpectBindingFailed(() => batch.Upsert(new BindingSchema.Holder<TBadge> { Id = 1 }));
-        ExpectBindingFailed(() => batch.Delete<BindingSchema.Holder<TBadge>>(1L));
+        ExpectBindingFailed(() => database.Set<THolder>());
+        ExpectBindingFailed(() => batch.Insert(new THolder()));
+        ExpectBindingFailed(() => batch.Upsert(new THolder()));
+        ExpectBindingFailed(() => batch.Delete<THolder>(1L));
         Assert.Equal(0, batch.Count);
 
         void ExpectBindingFailed(Action bind)
@@ -182,31 +220,31 @@ public sealed class OwnedValueBindingTests
         public new string Text { get; set; } = "";
     }
 
-    private sealed class HidingTextWithNumberBadge : BadgeBase
+    private sealed class MistypedHidingBadge : BadgeBase
     {
         public new int Text { get; set; }
     }
 
-    private sealed class BadgeWithStaticText
+    private sealed class StaticBadge
     {
         public static string Text { get; set; } = "";
 
         public int Level { get; set; }
     }
 
-    private sealed class BadgeWithoutLevel
+    private sealed class IncompleteBadge
     {
         public string Text { get; set; } = "";
     }
 
-    private sealed class BadgeWithTextAsNumber
+    private sealed class MistypedBadge
     {
         public int Text { get; set; }
 
         public int Level { get; set; }
     }
 
-    private sealed class BadgeWithReadOnlyText
+    private sealed class GetOnlyBadge
     {
         public string Text { get; } = "";
 
@@ -218,5 +256,32 @@ public sealed class OwnedValueBindingTests
         public string Text { get; set; } = text;
 
         public int Level { get; set; }
+    }
+
+    // Not one of the following has the name of a field of Badge in its own name, so that a
+    // message that names only the class does not name the property.
+    private sealed class IndexerBadge
+    {
+        [System.Runtime.CompilerServices.IndexerName("Text")]
+        public string this[int index]
+        {
+            get => "";
+            set { }
+        }
+
+        public int Level { get; set; }
+    }
+
+    private sealed class PrivateGetBadge
+    {
+        public string Text { private get; set; } = "";
+
+        public int Level { get; set; }
+    }
+
+    // The class of the owned type Insignia, whose name it does not repeat.
+    private sealed class Emblem
+    {
+        public string Text { get; set; } = "";
     }
 }

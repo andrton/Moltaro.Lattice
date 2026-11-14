@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Samples;
 // position by position. A record holds them by name; a class holds them in its own types. An
 // index may cover a field inside an owned value.
 //
-// This shows the intended use. Storing such entities comes in a later sprint, so the sample
-// compiles, builds, binds, saves and loads, and writes nothing.
+// This shows the intended use. Storing such entities is not implemented yet: the write at the
+// end throws NotSupportedException, which Program.cs reports.
 internal static class NestedValuesSample
 {
     private static readonly string SchemaJson = $$"""
@@ -96,16 +96,6 @@ internal static class NestedValuesSample
             Rights = ["read", "write"],
         };
 
-        await using (var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
-        {
-            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            Schema = schema,
-        }))
-        {
-            var people = database.Set<Person>();
-            Console.WriteLine($"Object: {ada.Home!.City}, bound to entity type {people.EntityType.Name}");
-        }
-
         // Both fingerprints cover the nested declarations, and a saved schema keeps them all.
         using var stream = new MemoryStream();
         schema.Save(stream);
@@ -114,6 +104,20 @@ internal static class NestedValuesSample
         Console.WriteLine($"Schema fingerprint {schema.Fingerprint}");
         Console.WriteLine($"Layout fingerprint of Person {person.LayoutFingerprint}");
         Console.WriteLine($"Loaded from {stream.Length} bytes: same fingerprint {loaded.Fingerprint == schema.Fingerprint}");
+
+        await using var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = loaded,
+        });
+        var people = database.Set<Person>();
+        Console.WriteLine($"Object: {ada.Home!.City}, bound to entity type {people.EntityType.Name}");
+
+        // The object is written like any other entity and read back, here by name, as an owned
+        // copy with its nested values.
+        await people.InsertAsync(ada);
+        var stored = database.Set("Person").Get(1L)!;
+        Console.WriteLine($"Written as an object, read as a record: lives in {stored.Get<LatticeOwnedValue>("Home")!["City"]}");
 
         Console.WriteLine();
     }

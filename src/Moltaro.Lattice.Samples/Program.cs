@@ -2,7 +2,6 @@ using Moltaro.Lattice.Samples;
 
 var schema = SchemaSample.Run();
 SchemaDeclarationsSample.Run();
-await NestedValuesSample.RunAsync();
 
 await BasicCrudSample.RunAsync(schema);
 await DynamicAccessSample.RunAsync(schema);
@@ -11,6 +10,7 @@ await DependencyInjectionSample.RunAsync(schema);
 
 // What follows is in the contract but not implemented yet. Each sample shows the intended
 // use and runs to the end once its feature exists.
+await RunPlannedAsync(NestedValuesSample.RunAsync, nameof(NestedValuesSample));
 await RunPlannedAsync(() => IndexSample.RunAsync(schema), nameof(IndexSample));
 await RunPlannedAsync(UniqueIndexSample.RunAsync, nameof(UniqueIndexSample));
 await RunPlannedAsync(() => WriteBatchSample.RunAsync(schema), nameof(WriteBatchSample));

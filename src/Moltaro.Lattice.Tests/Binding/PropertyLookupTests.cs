@@ -51,13 +51,13 @@ public sealed class PropertyLookupTests
     public async Task Hiding_property_of_a_type_the_field_does_not_accept_is_refused_with_the_property_named()
     {
         // The base has a String Text, as the field needs; the most derived class has an Int32.
-        await ExpectNotBoundAsync(new HidingTextWithNumberNote { Id = 1 });
+        await ExpectNotBoundAsync(new MistypedHidingNote { Id = 1 });
     }
 
     [Fact]
     public async Task Static_property_is_refused_with_the_property_named()
     {
-        await ExpectNotBoundAsync(new StaticTextNote { Id = 1 });
+        await ExpectNotBoundAsync(new StaticNote { Id = 1 });
     }
 
     [Fact]
@@ -66,9 +66,40 @@ public sealed class PropertyLookupTests
         await ExpectNotBoundAsync(new StaticHidingNote { Id = 1 });
     }
 
+    [Fact]
+    public async Task Class_without_a_property_for_a_field_is_refused_with_the_property_named()
+    {
+        await ExpectNotBoundAsync(new IncompleteNote { Id = 1 });
+    }
+
+    [Fact]
+    public async Task Indexer_named_like_a_field_is_refused_with_the_property_named()
+    {
+        // An indexer is a property of that name to reflection, and holds no field.
+        await ExpectNotBoundAsync(new IndexerNote { Id = 1 });
+    }
+
+    [Fact]
+    public async Task Property_without_a_public_get_is_refused_with_the_property_named()
+    {
+        await ExpectNotBoundAsync(new PrivateGetNote { Id = 1 });
+    }
+
+    [Fact]
+    public async Task Property_without_a_set_is_refused_with_the_property_named()
+    {
+        await ExpectNotBoundAsync(new GetOnlyNote { Id = 1 });
+    }
+
+    [Fact]
+    public async Task Class_without_a_public_parameterless_constructor_is_refused_with_the_class_named()
+    {
+        await ExpectNotBoundAsync(new NoteWithoutDefaultConstructor("made by the test") { Id = 1 }, nameof(NoteWithoutDefaultConstructor));
+    }
+
     // The class is refused through a set and through every typed member of a batch, each time
-    // with BindingFailed and the property named.
-    private static async Task ExpectNotBoundAsync<TNote>(TNote note)
+    // with BindingFailed and, unless another name is given, the property named.
+    private static async Task ExpectNotBoundAsync<TNote>(TNote note, string named = "Text")
         where TNote : class
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<TNote>());
@@ -81,11 +112,11 @@ public sealed class PropertyLookupTests
         ExpectBindingFailed(() => batch.Delete<TNote>(1L));
         Assert.Equal(0, batch.Count);
 
-        static void ExpectBindingFailed(Action bind)
+        void ExpectBindingFailed(Action bind)
         {
             var exception = Assert.Throws<LatticeException>(bind);
             Assert.Equal(LatticeErrorEnum.BindingFailed, exception.Error);
-            Assert.Contains("Text", exception.Message);
+            Assert.Contains(named, exception.Message);
         }
     }
 
@@ -115,7 +146,7 @@ public sealed class PropertyLookupTests
         public new string Text { get; set; } = "";
     }
 
-    private sealed class HidingTextWithNumberNote : NoteBase
+    private sealed class MistypedHidingNote : NoteBase
     {
         public new int Text { get; set; }
     }
@@ -137,10 +168,50 @@ public sealed class PropertyLookupTests
         public new string Text { get; set; } = "";
     }
 
-    private sealed class StaticTextNote
+    private sealed class StaticNote
     {
         public long Id { get; set; }
 
         public static string Text { get; set; } = "";
+    }
+
+    // Not one of the following has the name of the field in its own name, so that a message
+    // that names only the class does not name the property.
+    private sealed class IncompleteNote
+    {
+        public long Id { get; set; }
+    }
+
+    private sealed class IndexerNote
+    {
+        public long Id { get; set; }
+
+        [System.Runtime.CompilerServices.IndexerName("Text")]
+        public string this[int index]
+        {
+            get => "";
+            set { }
+        }
+    }
+
+    private sealed class PrivateGetNote
+    {
+        public long Id { get; set; }
+
+        public string Text { private get; set; } = "";
+    }
+
+    private sealed class GetOnlyNote
+    {
+        public long Id { get; set; }
+
+        public string Text { get; } = "";
+    }
+
+    private sealed class NoteWithoutDefaultConstructor(string text)
+    {
+        public long Id { get; set; }
+
+        public string Text { get; set; } = text;
     }
 }

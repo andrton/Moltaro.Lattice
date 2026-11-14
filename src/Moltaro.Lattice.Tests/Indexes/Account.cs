@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Tests.Indexes;
 
-// Bound to the entity type "Account" by "ClrType" in the schema below.
+// Bound to the entity type "Account" by "ClrType" in the schema of UniqueIndexTests.
 internal sealed class Account
 {
     public long Id { get; set; }

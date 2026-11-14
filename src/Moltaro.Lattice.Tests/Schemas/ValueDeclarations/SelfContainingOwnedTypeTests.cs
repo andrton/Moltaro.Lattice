@@ -59,7 +59,7 @@ public sealed class SelfContainingOwnedTypeTests
     {
         var exception = Descriptor.ExpectRefused(Json, part, replacement);
 
-        Assert.Contains("Node", exception.Message);
+        ExpectContainsItself(exception, "Node");
     }
 
     [Theory]
@@ -73,8 +73,7 @@ public sealed class SelfContainingOwnedTypeTests
     {
         var exception = Descriptor.ExpectRefused(Json, "{ 'Id': 2, 'Name': 'Extra', 'Type': 'Int32' }", extra);
 
-        Assert.Contains("Node", exception.Message);
-        Assert.Contains("Leaf", exception.Message);
+        ExpectContainsItself(exception, "Node", "Leaf");
     }
 
     [Fact]
@@ -86,9 +85,7 @@ public sealed class SelfContainingOwnedTypeTests
 
         var exception = Descriptor.ExpectRefused(json, "{ 'Id': 1, 'Name': 'Bud', 'Type': 'Int32' }", "{ 'Id': 1, 'Name': 'Bud', 'Type': 'Owned', 'OwnedType': 'Node', 'Nullable': true }");
 
-        Assert.Contains("Node", exception.Message);
-        Assert.Contains("Leaf", exception.Message);
-        Assert.Contains("Twig", exception.Message);
+        ExpectContainsItself(exception, "Node", "Leaf", "Twig");
     }
 
     [Fact]
@@ -119,5 +116,13 @@ public sealed class SelfContainingOwnedTypeTests
         Assert.True(leaf.TryGetField("Extra", out var extra));
         Assert.Equal("Tree", extra.Declaration.ReferencedEntityTypeName);
         Assert.Equal(typeof(long), extra.Declaration.ValueType);
+    }
+
+    // Refused because the owned type contains itself, with the owned types on the way named; a
+    // refusal for another reason may name the same types.
+    private static void ExpectContainsItself(LatticeException exception, params string[] ownedTypes)
+    {
+        Assert.Contains("contains itself", exception.Message);
+        Assert.All(ownedTypes, name => Assert.Contains(name, exception.Message));
     }
 }
