@@ -55,15 +55,6 @@ in the meantime.
 | **Until answered** | The validation compares what it compared before, type and nullability; no test asserts more |
 | **Decides** | The planner of [Epic 2](epic-2-identity-storage.md), which owns that package |
 
-### Q6. The write batch does not document every way a class can fail to bind
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, implementation of Epic 1, sprint S02 |
-| **Question** | The members of `ILatticeWriteBatch` that take an entity class document `BindingFailed` as "the schema declares no entity type for the class". A batch binds the class as a set does, so a class that lacks a property, or whose .NET enum does not agree with the schema, fails there too. The text was incomplete before S02 and is outside its scope |
-| **Until answered** | The behavior is right and tested through sets; only the documentation of the batch members says less than happens |
-| **Decides** | The planner, with the sprint of the write batch (S17), which owns that contract |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -146,3 +137,12 @@ in the meantime.
 | **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
 | **Answer** | The owner, 14 November 2026, through the planner's session: yes. The binary form of a compiled schema ends with SHA-256 over every byte before it, and a load refuses a difference with `InvalidSchema` before it uses anything it decoded. It comes in S03 with the format version that sprint changes anyway; S02 delivers the form without a digest |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q6. The write batch does not document every way a class can fail to bind
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S02 |
+| **Question** | The members of `ILatticeWriteBatch` that take an entity class documented `BindingFailed` as "the schema declares no entity type for the class". A batch binds the class as a set does, so a class that lacks a property, or whose .NET enum does not agree with the schema, fails there too |
+| **Answer** | The owner, 14 November 2026, through the planner's session: the documentation is completed now, in the branch of S02, because S02 added a cause of `BindingFailed` and the document that owns a behavior is updated in the same change |
+| **Where the rule lives** | The XML documentation of `ILatticeWriteBatch`, which points to `ILatticeDatabase.Set<TEntity>()`; that member names every cause, since S02 |
