@@ -15,7 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice.AspNet.Identity\Moltaro.Lattice.AspNet.Identity.csproj" />
-    <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Update="app.schema.json" CopyToOutputDirectory="PreserveNewest" />

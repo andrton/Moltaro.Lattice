@@ -9,6 +9,5 @@
     <InternalsVisibleTo Include="Moltaro.Lattice.Tests" />
     <InternalsVisibleTo Include="Moltaro.Lattice.DependencyInjection.Tests" />
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
-    <InternalsVisibleTo Include="Moltaro.Lattice.AspNet.Identity.Tests" />
   </ItemGroup>
 </Project>

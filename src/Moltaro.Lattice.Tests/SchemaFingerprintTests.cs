@@ -10,10 +10,12 @@ namespace Moltaro.Lattice.Tests;
 // the order of the descriptor are not part of it.
 public sealed class SchemaFingerprintTests
 {
-    // The fingerprint of FingerprintDescriptor.Json. The test author records it from the first
-    // implementation, and it is never changed afterwards: this test runs on Windows and on
-    // Linux, and passing on both shows that the fingerprint does not depend on the platform.
-    private const string RecordedFingerprint = "not recorded yet: the test author records it from the first implementation";
+    // The fingerprint of FingerprintDescriptor.Json, recorded from the implementation of
+    // Epic 1, sprint 2. The same test runs on Linux and on Windows in CI, so passing on both
+    // shows that the fingerprint does not depend on the platform. It is recorded again only
+    // when a later sprint extends what the fingerprint encodes, such as owned types and
+    // collections; for any other change of the code a different value is a defect.
+    private const string RecordedFingerprint = "e4d0cb436f115b6f6ca79cbc3f49fcaa69263671068d81435c530f7b3958f97c";
 
     [Fact]
     public void Same_declarations_give_the_same_fingerprint()
@@ -131,7 +133,7 @@ public sealed class SchemaFingerprintTests
         Assert.Equal(FingerprintDescriptor.Compile().Fingerprint, LatticeSchema.Compile(compact).Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform()
     {
         var schema = FingerprintDescriptor.Compile();

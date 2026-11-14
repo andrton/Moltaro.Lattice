@@ -6,11 +6,13 @@ namespace Moltaro.Lattice.Tests;
 // are not part of it. A migration converts the entity types whose layout fingerprint differs.
 public sealed class LayoutFingerprintTests
 {
-    // The layout fingerprint of Account in FingerprintDescriptor.Json. The test author records
-    // it from the first implementation, and it is never changed afterwards: this test runs on
-    // Windows and on Linux, and passing on both shows that the fingerprint does not depend on
-    // the platform.
-    private const string RecordedAccountLayoutFingerprint = "not recorded yet: the test author records it from the first implementation";
+    // The layout fingerprint of Account in FingerprintDescriptor.Json, recorded from the
+    // implementation of Epic 1, sprint 2. The same test runs on Linux and on Windows in CI, so
+    // passing on both shows that the fingerprint does not depend on the platform. It is
+    // recorded again only when a later sprint extends what the layout fingerprint encodes,
+    // such as owned types and collections; for any other change of the code a different value
+    // is a defect.
+    private const string RecordedAccountLayoutFingerprint = "7f875ab65f4c95cb0eb65ef52e4773c26f2ab480c701571f5d0c995dcc35609d";
 
     [Theory]
     // The string encoding.
@@ -109,7 +111,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(Account(original).LayoutFingerprint, Account(ignoringCase).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Layout_fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform()
     {
         var account = Account(FingerprintDescriptor.Compile());
