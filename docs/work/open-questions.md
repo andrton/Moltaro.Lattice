@@ -98,6 +98,15 @@ in the meantime.
 | **Until answered** | The format has no digest. Every input that is not a well-formed schema is `InvalidSchema`, and a test changes every byte of a saved schema to show that nothing else is ever thrown |
 | **Decides** | The planner, before S42 declares the compiled-schema format final |
 
+### Q12. The documentation of unique indexes states the intended behavior as present
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | `LatticeIndex.IsUnique`, `LatticeErrorEnum.UniqueConstraintViolation` and the remarks of `ILatticeSet<TEntity>` describe a unique index as enforced. Until S16 every write of an entity type that declares one is refused with `NotSupportedException`, and no XML text says so; `ILatticeIndex` does say "Not implemented yet" for search. S02 gave the declarations it added that sentence; these are older and outside its scope |
+| **Until answered** | `README.md` and the samples say it; the XML documentation does not |
+| **Decides** | The planner, with the sprint of unique indexes (S16): either the sentence is added before, as a light-track change, or S16 makes it unnecessary |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
