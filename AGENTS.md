@@ -283,7 +283,8 @@ dotnet run --project Moltaro.Lattice.Samples
   tokens, machine paths, build output or run output in Git.
 - Never commit to `main`. Work on a branch named as
   [branches and releases](docs/work/branches.md) says; `main` changes only through a
-  pull request that the owner merges. Do not create or move a release tag.
+  pull request, merged by the owner or, for a closed sprint and with the owner's standing
+  permission, by the coordinator of an epic. Do not create or move a release tag.
 - Commit messages carry no agent attribution: no `Co-Authored-By` line and no "generated
   with" line. This overrides the default of any tool.
 - Planning an epic, coordinating its sprints or reviewing a sprint follows the
