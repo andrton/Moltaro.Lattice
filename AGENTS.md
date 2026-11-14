@@ -24,10 +24,11 @@ This repository is going to be public. Nothing specific to a private product goe
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
 | `src/Moltaro.Lattice` | The core library. No package dependencies |
+| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; no code yet |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
-| `src/*.Tests` | Tests, one project per library |
+| `src/*.Tests` | Tests, one project per library. `Moltaro.Lattice.Engine.Tests` may also test internal mechanisms of the engine |
 | `docs` | Product documentation; `docs/work` holds the epics in progress |
 | `docs/design`, `docs/decisions` | Durable engine design reference, accepted decisions, evidence and planning input |
 | `src/Prototypes` | Isolated synthetic experiments; not part of the product solution or shipped packages. A prototype may pin its own package versions |
@@ -89,10 +90,13 @@ These hold across the contract, the placeholder and the future engine.
    documents the order.
 10. **One instance, one database.** Instances are independent; an application may have
     several. No static mutable state, except where a comment says why.
-11. **Dependencies point one way.** Folders are namespaces, and each is one
-    responsibility: `Schema`, then `Storage`, then `Access` and `Replication`, then
-    `Engine`; the root namespace holds the entry point, options and errors. The core
-    depends on nothing outside .NET. An integration is its own thin assembly, named for
+11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
+    the public contract, depends on nothing outside .NET. `Moltaro.Lattice.Engine` depends
+    on the contract and owns the index package. `Moltaro.Lattice.PostgreSql` depends on
+    the engine and owns the PostgreSQL driver. No other shipped assembly references those
+    two packages.
+    Inside an assembly a folder is a namespace and one responsibility, and folders depend
+    on each other in one direction. An integration is its own thin assembly, named for
     what it is for.
 12. **Performance is a design goal, proven by measurement.** Avoid needless copies and
     allocations on read paths, but justify added complexity with a number. The
@@ -204,8 +208,16 @@ Writing code:
 
 - A public behavior has a scenario test that reads like its use. A test name is a
   sentence stating the behavior.
-- Tests use the public API. The one exception is the internal switch that holds back a
-  child's replication, so that waiting can be tested deterministically.
+- Tests use the public API, with two exceptions. The internal switch that holds back a
+  child's replication, so that waiting can be tested deterministically. And the three
+  test projects of the engine — `Moltaro.Lattice.Engine.Tests`,
+  `Moltaro.Lattice.PostgreSql.Tests` and `Moltaro.Lattice.Cluster.Tests` — which test
+  mechanisms that have no public surface: layout, allocation, ownership, what the provider
+  stores, failures injected into the engine or into a connection. Each such test states
+  an invariant written in a decision record or in the engine contract, never how the code
+  happens to be built. Two programs that are never shipped, the node program of the
+  cluster tests and the measurement program, have the same access under the same
+  condition.
 - A child may lag. A test waits through a session or a position; it does not assume, and
   it does not sleep where a deterministic way exists.
 - A feature that is not implemented has its tests written and marked

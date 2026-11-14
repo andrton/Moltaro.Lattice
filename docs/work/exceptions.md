@@ -43,8 +43,6 @@ replaced by another rule is reworded in `AGENTS.md` and is not recorded here.
 | **Since** | The transfer of the design reference, 14 November 2026 |
 | **Until** | Permanent |
 
-## Approved, not in force yet
-
 ### X3. Tests of engine mechanisms
 
 | | |
@@ -56,6 +54,8 @@ replaced by another rule is reworded in `AGENTS.md` and is not recorded here.
 | **Approved** | By the owner, 14 November 2026, with the plan of [Epic 1](epic-1-core.md) |
 | **Since** | Epic 1, sprint S01, which creates the first of the projects and puts the exception into the text of `AGENTS.md`; the other projects and the two programs come with the sprints that create them |
 | **Until** | Permanent |
+
+## Approved, not in force yet
 
 ### X4. An internal entry to the engine for its first tests
 

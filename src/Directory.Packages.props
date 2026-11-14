@@ -3,6 +3,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Exactly the version the evidence of the index structures was measured on. The brackets
+         keep it from floating to another version, also in the dependency of the engine package. -->
+    <PackageVersion Include="Arc.Collections" Version="[2.2.0]" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Identity.Stores" Version="10.0.15" />

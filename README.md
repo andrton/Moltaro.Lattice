@@ -326,6 +326,8 @@ replication status. A query language is not planned for the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests and samples |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the core library |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. Empty so far: the placeholder in the core library still stands behind the contract |
+| `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity: the contract; the stores are not implemented yet |

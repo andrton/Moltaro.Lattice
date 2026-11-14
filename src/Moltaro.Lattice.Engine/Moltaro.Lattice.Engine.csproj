@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The engine's types live in the namespaces of the contract: Storage, Replication and
+         Engine, and Moltaro.Lattice itself for LatticeDatabase, which moves here in S12 and
+         keeps its namespace. A folder is a namespace, so the root is Moltaro.Lattice, not the
+         name of the assembly. -->
+    <RootNamespace>Moltaro.Lattice</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>The engine of Moltaro.Lattice: compact native storage, indexes, master-coordinated writes and replication to local read replicas.</Description>
+    <PackageTags>database;in-memory;object-database;replication</PackageTags>
+    <!-- No code yet. Make the project packable in Epic 1, sprint S12, when the entry point moves here. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The selected index structures, see docs/decisions/index-structures.md. The engine owns
+         this package: no other shipped project references it. -->
+    <PackageReference Include="Arc.Collections" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The tests of engine mechanisms reach inside the engine; see exception X3 in docs/work/exceptions.md. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
+  </ItemGroup>
+</Project>
