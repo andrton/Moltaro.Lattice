@@ -62,6 +62,15 @@ in the meantime.
 | **Until answered** | No test asserts either way; the code follows the list as written, so neither is covered |
 | **Decides** | The planner, before the contracts of the stage with schema migration (S37), which is what the layout fingerprint is for |
 
+### Q6. The write batch does not document every way a class can fail to bind
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S02 |
+| **Question** | The members of `ILatticeWriteBatch` that take an entity class document `BindingFailed` as "the schema declares no entity type for the class". A batch binds the class as a set does, so a class that lacks a property, or whose .NET enum does not agree with the schema, fails there too. The text was incomplete before S02 and is outside its scope |
+| **Until answered** | The behavior is right and tested through sets; only the documentation of the batch members says less than happens |
+| **Decides** | The planner, with the sprint of the write batch (S17), which owns that contract |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
