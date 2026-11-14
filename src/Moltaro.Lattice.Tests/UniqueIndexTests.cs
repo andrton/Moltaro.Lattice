@@ -255,7 +255,7 @@ public sealed class UniqueIndexTests
     [Fact(Skip = UniqueNotImplemented)]
     public async Task Write_through_a_child_is_held_to_the_same_rule()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address, Schema);
         await using var child = await TestData.OpenChildAsync(address);
         await master.Set<Account>().InsertAsync(Ada());

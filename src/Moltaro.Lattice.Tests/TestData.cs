@@ -98,8 +98,6 @@ internal static class TestData
             },
             cancellationToken);
 
-    public static Uri NewAddress() => new($"lattice://test/{Guid.NewGuid():N}");
-
     public static ILatticeSet<User> Users(this ILatticeDatabase database) => database.Set<User>();
 
     public static async Task<LatticeException> ExpectErrorAsync(LatticeErrorEnum expected, Func<ValueTask<LatticeWriteResult>> write)
@@ -113,15 +111,5 @@ internal static class TestData
     {
         var exception = Assert.Throws<LatticeException>(action);
         Assert.Equal(expected, exception.Error);
-    }
-
-    // A child may lag behind its master, so tests wait for a change to arrive.
-    public static async Task EventuallyAsync(Func<bool> condition)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (!condition())
-        {
-            await Task.Delay(5, timeout.Token);
-        }
     }
 }

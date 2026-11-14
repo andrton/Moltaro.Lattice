@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
+    <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Moltaro.Lattice.TestSupport" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

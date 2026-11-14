@@ -99,7 +99,7 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task Master_application_and_child_application_work_in_one_process()
     {
-        var address = TestApp.NewAddress();
+        var address = MasterAndChild.NewAddress();
         using var masterApp = TestApp.BuildApp(TestApp.MasterOptions(address));
         using var childApp = TestApp.BuildApp(TestApp.ChildOptions(address));
         await masterApp.StartAsync();
@@ -113,7 +113,7 @@ public sealed class DependencyInjectionTests
         await childDirectory.AddAsync(2, "written in the child application");
 
         Assert.Equal("written in the child application", masterDirectory.NameOf(2));
-        await TestApp.EventuallyAsync(() => childDirectory.NameOf(1) is not null && childDirectory.NameOf(2) is not null);
+        await MasterAndChild.EventuallyAsync(() => childDirectory.NameOf(1) is not null && childDirectory.NameOf(2) is not null);
 
         await childApp.StopAsync();
         await masterApp.StopAsync();
@@ -177,8 +177,8 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task Application_can_have_several_replicas_of_different_masters()
     {
-        var usersAddress = TestApp.NewAddress();
-        var settingsAddress = TestApp.NewAddress();
+        var usersAddress = MasterAndChild.NewAddress();
+        var settingsAddress = MasterAndChild.NewAddress();
         using var masters = BuildApp(services =>
         {
             services.AddLattice("users", TestApp.MasterOptions(usersAddress));
@@ -198,7 +198,7 @@ public sealed class DependencyInjectionTests
 
         // A service gets each replica by name through its constructor.
         var replicas = client.Services.GetRequiredService<TwoReplicas>();
-        await TestApp.EventuallyAsync(() => replicas.Users.Set<User>().Get(1) is not null && replicas.Settings.Set<User>().Get(1) is not null);
+        await MasterAndChild.EventuallyAsync(() => replicas.Users.Set<User>().Get(1) is not null && replicas.Settings.Set<User>().Get(1) is not null);
         Assert.Equal("from users", replicas.Users.Set<User>().Get(1)?.Name);
         Assert.Equal("from settings", replicas.Settings.Set<User>().Get(1)?.Name);
 

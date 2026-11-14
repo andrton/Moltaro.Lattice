@@ -4,6 +4,9 @@
   <Project Path="Moltaro.Lattice.AspNet.Identity/Moltaro.Lattice.AspNet.Identity.csproj" />
   <Project Path="Moltaro.Lattice.DependencyInjection.Tests/Moltaro.Lattice.DependencyInjection.Tests.csproj" />
   <Project Path="Moltaro.Lattice.DependencyInjection/Moltaro.Lattice.DependencyInjection.csproj" />
+  <Project Path="Moltaro.Lattice.Engine.Tests/Moltaro.Lattice.Engine.Tests.csproj" />
+  <Project Path="Moltaro.Lattice.Engine/Moltaro.Lattice.Engine.csproj" />
   <Project Path="Moltaro.Lattice.Samples/Moltaro.Lattice.Samples.csproj" />
+  <Project Path="Moltaro.Lattice.TestSupport/Moltaro.Lattice.TestSupport.csproj" />
   <Project Path="Moltaro.Lattice.Tests/Moltaro.Lattice.Tests.csproj" />
 </Solution>

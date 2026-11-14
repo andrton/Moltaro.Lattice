@@ -24,4 +24,16 @@ jobs:
         with:
           global-json-file: src/global.json
       - run: dotnet build --configuration Release
+      - run: dotnet format --verify-no-changes
+      - run: dotnet test --configuration Release --no-build
+
+  # The same default lane on Windows. Only "build" is a required check of main.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: src/global.json
+      - run: dotnet build --configuration Release
       - run: dotnet test --configuration Release --no-build

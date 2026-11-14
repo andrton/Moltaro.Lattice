@@ -6,7 +6,7 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_starts_with_everything_the_master_has()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
         await master.Users().InsertAsync(new User { Id = 2, Name = "Grace" });
@@ -20,40 +20,40 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_receives_later_changes_of_the_master()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var masterUsers = master.Users();
         var childUsers = child.Users();
 
         await masterUsers.InsertAsync(new User { Id = 1, Name = "Ada" });
-        await TestData.EventuallyAsync(() => childUsers.TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => childUsers.TryGet(1, out _));
 
         await masterUsers.ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
-        await TestData.EventuallyAsync(() => childUsers.TryGet(1, out var user) && user.Name == "Ada Lovelace");
+        await MasterAndChild.EventuallyAsync(() => childUsers.TryGet(1, out var user) && user.Name == "Ada Lovelace");
 
         await masterUsers.DeleteAsync(1);
-        await TestData.EventuallyAsync(() => !childUsers.TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => !childUsers.TryGet(1, out _));
     }
 
     [Fact]
     public async Task Several_children_follow_one_master()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var firstChild = await TestData.OpenChildAsync(address);
         await using var secondChild = await TestData.OpenChildAsync(address);
 
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 
-        await TestData.EventuallyAsync(() => firstChild.Users().TryGet(1, out _));
-        await TestData.EventuallyAsync(() => secondChild.Users().TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => firstChild.Users().TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => secondChild.Users().TryGet(1, out _));
     }
 
     [Fact]
     public async Task The_same_code_works_with_a_master_and_with_a_child()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
 
@@ -73,10 +73,10 @@ public sealed class MasterAndChildTests
 
         await master.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" });
         await child.Set<User>().InsertAsync(new User { Id = 2, Name = "Grace" });
-        await TestData.EventuallyAsync(() => child.Set<User>().Get(1) is not null && child.Set<User>().Get(2) is not null);
+        await MasterAndChild.EventuallyAsync(() => child.Set<User>().Get(1) is not null && child.Set<User>().Get(2) is not null);
 
         Assert.True(await RenameAsync(master, 2, "Grace Hopper"));
-        await TestData.EventuallyAsync(() => child.Set<User>().Get(2)?.Name == "Grace Hopper");
+        await MasterAndChild.EventuallyAsync(() => child.Set<User>().Get(2)?.Name == "Grace Hopper");
         Assert.True(await RenameAsync(child, 1, "Ada Lovelace"));
 
         Assert.Equal("Ada Lovelace", master.Set<User>().Get(1)?.Name);
@@ -86,7 +86,7 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Write_through_a_child_is_executed_by_the_master()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childUsers = child.Users();
@@ -95,7 +95,7 @@ public sealed class MasterAndChildTests
 
         // The write is complete on the master; the child itself sees it a moment later.
         Assert.True(master.Users().TryGet(1, out _));
-        await TestData.EventuallyAsync(() => childUsers.TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => childUsers.TryGet(1, out _));
 
         // The master's rules apply to writes that come through a child.
         await TestData.ExpectErrorAsync(
@@ -106,7 +106,7 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Revision_read_from_a_child_is_valid_on_the_master()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
         await using var child = await TestData.OpenChildAsync(address);
@@ -122,7 +122,7 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_keeps_serving_reads_after_the_master_closes()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         var master = await TestData.OpenMasterAsync(address);
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
         await using var child = await TestData.OpenChildAsync(address);
@@ -143,7 +143,7 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_opened_before_its_master_waits_for_it()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
 
         var opening = TestData.OpenChildAsync(address).AsTask();
         await Task.Delay(50);
@@ -153,7 +153,7 @@ public sealed class MasterAndChildTests
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 
         await using var child = await opening;
-        await TestData.EventuallyAsync(() => child.Users().TryGet(1, out _));
+        await MasterAndChild.EventuallyAsync(() => child.Users().TryGet(1, out _));
     }
 
     [Fact]
@@ -162,13 +162,13 @@ public sealed class MasterAndChildTests
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await TestData.OpenChildAsync(TestData.NewAddress(), cancellation.Token));
+            async () => await TestData.OpenChildAsync(MasterAndChild.NewAddress(), cancellation.Token));
     }
 
     [Fact]
     public async Task Only_one_master_listens_at_an_address()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
 
         var exception = await Assert.ThrowsAsync<LatticeException>(

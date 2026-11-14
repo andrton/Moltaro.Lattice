@@ -156,7 +156,7 @@ public sealed class DynamicSetTests
     [Fact]
     public async Task Child_serves_records_by_name_with_the_schema_of_its_master()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         var masterSettings = master.Set("Setting");
         await masterSettings.InsertAsync(new LatticeRecord(masterSettings.EntityType) { ["Name"] = "theme", ["Value"] = "dark", ["Priority"] = 1 });

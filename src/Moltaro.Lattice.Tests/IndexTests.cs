@@ -214,7 +214,7 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Search_with_a_session_waits_until_the_child_has_caught_up()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childByEmail = child.Set<User>().Index("ByEmail");
@@ -257,7 +257,7 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Search_that_cannot_catch_up_in_time_fails_instead_of_using_an_old_index()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var session = new LatticeSession { SynchronizationTimeout = TimeSpan.FromMilliseconds(100) };
@@ -274,7 +274,7 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_for_a_position_once_makes_the_following_reads_current()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
 
@@ -300,7 +300,7 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Waiting_for_a_position_once_makes_the_following_index_searches_current()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childByEmail = child.Set<User>().Index("ByEmail");
@@ -325,7 +325,7 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_for_a_position_ends_by_timeout_or_cancellation_and_rejects_another_history()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         await using var other = await TestData.OpenMasterAsync();
@@ -353,7 +353,7 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_with_a_session_uses_its_position_and_timeout()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
 

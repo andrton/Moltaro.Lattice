@@ -58,15 +58,4 @@ internal static class TestApp
         configure?.Invoke(builder.Services);
         return builder.Build();
     }
-
-    public static Uri NewAddress() => new($"lattice://test/{Guid.NewGuid():N}");
-
-    public static async Task EventuallyAsync(Func<bool> condition)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (!condition())
-        {
-            await Task.Delay(5, timeout.Token);
-        }
-    }
 }

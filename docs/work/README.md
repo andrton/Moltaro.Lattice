@@ -5,7 +5,7 @@ delivered over several sprints.
 
 | Epic | Result | Status |
 | --- | --- | --- |
-| [1. Core](epic-1-core.md) | The database engine behind the existing public contract, as the first production milestone | Planned from the accepted [engine design](../design/planning-handoff.md): 42 sprints with briefs. The owner answered its questions on 14 November 2026, and those of the first independent review; the owner answered those of the later reviews as well, and seven independent reviews followed; the last found nothing that blocks. The owner approves the plan by merging it; no sprint has started |
+| [1. Core](epic-1-core.md) | The database engine behind the existing public contract, as the first production milestone | Planned from the accepted [engine design](../design/planning-handoff.md): 42 sprints with briefs. The owner answered its questions on 14 November 2026, and those of the first independent review; the owner answered those of the later reviews as well, and seven independent reviews followed; the last found nothing that blocks. The owner approved the plan by merging it. In progress: the epic document has the status of every sprint |
 | [2. Storage for ASP.NET Core Identity](epic-2-identity-storage.md) | A package that keeps the users and roles of a standard ASP.NET Core Identity application in a Lattice database | The contract of the package and its tests exist; the stores wait for Epic 1 |
 
 Epic 2 comes after Epic 1. It is the first real consumer of the database and adapts to it:

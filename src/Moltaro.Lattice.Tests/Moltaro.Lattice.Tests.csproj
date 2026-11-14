@@ -10,10 +10,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+    <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Moltaro.Lattice.Access" />
     <Using Include="Moltaro.Lattice.Schema" />
+    <Using Include="Moltaro.Lattice.TestSupport" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

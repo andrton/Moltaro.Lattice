@@ -59,7 +59,7 @@ public sealed class OpeningAndClosingTests
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            MasterUri = TestData.NewAddress(),
+            MasterUri = MasterAndChild.NewAddress(),
         });
 
         var opening = child.OpenAsync().AsTask();
