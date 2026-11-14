@@ -108,8 +108,10 @@ the product documentation.
 or rule answers and that does not stop it. The agent that finds it reports it and does
 not decide it. The coordinator enters it in the [open questions](open-questions.md), with
 what the code does until it is answered, names the new entries in its report when the
-sprint closes, and goes through all of them with the owner when the epic closes. A
-question that does block is not entered there: the coordinator stops and asks.
+sprint closes, and goes through all of them with the owner when the epic closes. An entry
+that names a sprint as its limit is read when that sprint is prepared: the sprint does
+not start before the entry is answered or moved to a later one. A question that does
+block is not entered there: the coordinator stops and asks.
 
 A test that turns out to be wrong is changed by the test author, or by the coordinator,
 with the reason in the commit message. Never by the implementer on its own.

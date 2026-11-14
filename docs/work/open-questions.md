@@ -16,10 +16,12 @@ in the meantime.
 - **What an entry says.** Where the question was found, the question itself, what the
   code or the tests do until it is answered, and who has to answer it.
 - **When it is looked at.** When a sprint closes, the coordinator names the entries the
-  sprint added in its report to the owner. Before the contracts of a stage are written,
-  the planner goes through the open entries and takes up those the stage touches. When an
-  epic closes, every entry is gone through with the owner: none stays open without a
-  decision to carry it into the next epic.
+  sprint added in its report to the owner. When the coordinator prepares a sprint, it
+  reads the open entries that name that sprint and does not start it before each of them
+  is answered or moved to a later sprint by whoever decides it. Before the contracts of a
+  stage are written, the planner goes through the open entries and takes up those the
+  stage touches. When an epic closes, every entry is gone through with the owner: none
+  stays open without a decision to carry it into the next epic.
 - **How it ends.** An answer is the owner's. It is entered here with its date, and the
   rule it gives goes where it belongs: a decision record, the epic document, a brief,
   `AGENTS.md`. The entry then moves to **Answered** and says where the rule now lives.
@@ -53,15 +55,6 @@ in the meantime.
 | **Until answered** | The validation compares what it compared before, type and nullability; no test asserts more |
 | **Decides** | The planner of [Epic 2](epic-2-identity-storage.md), which owns that package |
 
-### Q5. Does a layout fingerprint cover the identity of its entity type and its primary key?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
-| **Question** | The brief of S02 lists what the layout fingerprint of an entity type covers — the string encoding and, for every field, identity, type, nullability, string storage and the underlying type of an enum — and what it does not. The identity of the entity type and its primary key are in neither list |
-| **Until answered** | No test asserts either way; the code follows the list as written, so neither is covered |
-| **Decides** | The planner, before the contracts of the stage with schema migration (S37), which is what the layout fingerprint is for |
-
 ### Q6. The write batch does not document every way a class can fail to bind
 
 | | |
@@ -70,42 +63,6 @@ in the meantime.
 | **Question** | The members of `ILatticeWriteBatch` that take an entity class document `BindingFailed` as "the schema declares no entity type for the class". A batch binds the class as a set does, so a class that lacks a property, or whose .NET enum does not agree with the schema, fails there too. The text was incomplete before S02 and is outside its scope |
 | **Until answered** | The behavior is right and tested through sets; only the documentation of the batch members says less than happens |
 | **Decides** | The planner, with the sprint of the write batch (S17), which owns that contract |
-
-### Q9. May an enum type declare no members?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
-| **Question** | An enum type with `"Members": []` compiles. An ordinary enum type without members has no valid value, so a field of it that is not nullable can never be written; a Flags type without members accepts zero only. Q03.5 and the brief say nothing |
-| **Until answered** | Such an enum type compiles; no test states either way |
-| **Decides** | The planner, before the sprint that stores enum values (S07) |
-
-### Q10. Which catalog versions are valid?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
-| **Question** | `"SchemaVersion": 0` and a negative one compile, as they did before S02. Since S02 the number is the catalog version, which the milestone contract calls monotonically increasing; nothing says where it starts or what a descriptor without it means |
-| **Until answered** | Any `int` is accepted, and a descriptor without the property has version 1, as before |
-| **Decides** | The planner, before the contracts of the stage with schema migration (S37), which compares catalog versions |
-
-### Q11. Should a saved compiled schema carry a digest of itself?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, fixes after the review of Epic 1, sprint S02 |
-| **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
-| **Until answered** | The format has no digest. Every input that is not a well-formed schema is `InvalidSchema`, and a test changes every byte of a saved schema to show that nothing else is ever thrown |
-| **Decides** | The planner, before S42 declares the compiled-schema format final |
-
-### Q12. The documentation of unique indexes states the intended behavior as present
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
-| **Question** | `LatticeIndex.IsUnique`, `LatticeErrorEnum.UniqueConstraintViolation` and the remarks of `ILatticeSet<TEntity>` describe a unique index as enforced. Until S16 every write of an entity type that declares one is refused with `NotSupportedException`, and no XML text says so; `ILatticeIndex` does say "Not implemented yet" for search. S02 gave the declarations it added that sentence; these are older and outside its scope |
-| **Until answered** | `README.md` and the samples say it; the XML documentation does not |
-| **Decides** | The planner, with the sprint of unique indexes (S16): either the sentence is added before, as a light-track change, or S16 makes it unnecessary |
 
 ## Answered
 
@@ -118,6 +75,15 @@ in the meantime.
 | **Answer** | The owner, 14 November 2026: it is handled exactly as a schema that does not match. The binding is refused, as it is for a class that does not agree with its entity type; nothing is guessed, mapped or tolerated |
 | **Where the rule lives** | Decision O15 and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
 
+### Q5. Does a layout fingerprint cover the identity of its entity type and its primary key?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
+| **Question** | The brief of S02 lists what the layout fingerprint of an entity type covers — the string encoding and, for every field, identity, type, nullability, string storage and the underlying type of an enum — and what it does not. The identity of the entity type and its primary key are in neither list |
+| **Answer** | The owner, 14 November 2026, through the planner's session: the primary key is covered, the identity of the entity type is not. Which field is the key decides how an entity is found in the saved base, so a change of the key field has to be seen by a migration; the fingerprints of one entity type are compared across two versions of a schema, where its identity is the same, so two entity types with the same fields and key have the same layout fingerprint. The fingerprint of the schema does not change: it covers both already |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which extends the layout fingerprint anyway. S02 delivers the fingerprint without the key, as its brief lists it; the recorded values of its tests change in S03 |
+
 ### Q7. Is a policy on a field of the wrong type an error of the descriptor?
 
 | | |
@@ -127,6 +93,15 @@ in the meantime.
 | **Answer** | The owner, 14 November 2026: yes. Each is `InvalidSchema` with the field named; a misplaced policy is never ignored |
 | **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
 
+### Q12. The documentation of unique indexes states the intended behavior as present
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | `LatticeIndex.IsUnique`, `LatticeErrorEnum.UniqueConstraintViolation` and the remarks of `ILatticeSet<TEntity>` describe a unique index as enforced. Until S16 every write of an entity type that declares one is refused with `NotSupportedException`, and no XML text said so; `ILatticeIndex` does say "Not implemented yet" for search |
+| **Answer** | The owner, 14 November 2026, through the planner's session and then directly: yes, the sentence is added, and in the branch of S02 instead of a change of its own |
+| **Where the rule lives** | The XML documentation of the three members, since S02. S16 removes the sentences when it implements unique indexes: remark 8 for the coordinator in the [document of Epic 1](epic-1-core.md) |
+
 ### Q8. Is a property given twice an error of the descriptor?
 
 | | |
@@ -135,3 +110,39 @@ in the meantime.
 | **Question** | JSON lets an object name a property twice, and a reader then takes one of the two values silently. Neither the brief nor a decision says what the schema reader does |
 | **Answer** | The owner, 14 November 2026: yes. It is `InvalidSchema` with the property named, at every level of the descriptor |
 | **Where the rule lives** | "Choices made in the contracts of S02 to S12" and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+
+### Q13. Where does a saved compiled schema end?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | The fix that made the reader of a saved schema strict also decided two things nobody had asked for. `LatticeSchema.Load(path)` refuses a file that has data after the schema; before, such a file loaded. `LatticeSchema.Load(stream)` reads one schema and leaves the stream right after it, so the same bytes load through a stream. Are these the rules? |
+| **Answer** | The owner, 14 November 2026: yes, a file with data after the schema is refused. Data after a schema in its own file means damage or two files joined, and it is not passed off as a success. A stream is the caller's: one schema is read from it and what follows is left to the caller |
+| **Where the rule lives** | The documentation of `LatticeSchema.Load(string)` and `LatticeSchema.Load(Stream)`, the tests of `DamagedCompiledSchemaTests`, and the brief of S02 in the [document of Epic 1](epic-1-core.md) |
+
+### Q9. May an enum type declare no members?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | An enum type with `"Members": []` compiles. An ordinary enum type without members has no valid value, so a field of it that is not nullable can never be written; a Flags type without members accepts zero only. Q03.5 and the brief say nothing |
+| **Answer** | The owner, 14 November 2026, through the planner's session: no. An enum type declares at least one member, a Flags type like an ordinary one; `"Members": []` is `InvalidSchema` with the enum type named. A Flags type whose only member is zero stays valid. The check is made in S03; S02 delivers enum types as its brief has them, and an empty list compiles until then |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q10. Which catalog versions are valid?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | `"SchemaVersion": 0` and a negative one compile, as they did before S02. Since S02 the number is the catalog version, which the milestone contract calls monotonically increasing; nothing says where it starts or what a descriptor without it means |
+| **Answer** | The owner, 14 November 2026, through the planner's session: a catalog version is a whole number from 1; zero or below is `InvalidSchema` with the property named. A descriptor without `SchemaVersion` has version 1, as before, and the property stays optional. "Monotonically increasing" means that the target schema of a migration has a greater version than the stored one |
+| **Where the rule lives** | The range and the default: the brief of S03 in the [document of Epic 1](epic-1-core.md), which makes the check and words the documentation of `LatticeSchema.Version`. The rule that a version grows: the contract of S37, which the planner writes before that stage |
+
+### Q11. Should a saved compiled schema carry a digest of itself?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, fixes after the review of Epic 1, sprint S02 |
+| **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
+| **Answer** | The owner, 14 November 2026, through the planner's session: yes. The binary form of a compiled schema ends with SHA-256 over every byte before it, and a load refuses a difference with `InvalidSchema` before it uses anything it decoded. It comes in S03 with the format version that sprint changes anyway; S02 delivers the form without a digest |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
