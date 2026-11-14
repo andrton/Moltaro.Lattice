@@ -109,48 +109,48 @@ public sealed class DotNetEnumAgreementTests
         Assert.Equal("Car", database.Set<CarWithIntegers>().EntityType.Name);
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_with_a_name_the_schema_does_not_declare_does_not_bind()
     {
         // Black = 8.
         await ExpectNotBoundAsync<CarWithBlack>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_without_a_name_the_schema_declares_does_not_bind()
     {
         // No Blue.
         await ExpectNotBoundAsync<CarWithoutBlue>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_that_gives_a_name_another_value_does_not_bind()
     {
         // Blue = 8, where the schema declares Blue = 4.
         await ExpectNotBoundAsync<CarWithBlueAtEight>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_with_an_alias_the_schema_declares_under_one_name_only_does_not_bind()
     {
         // Green and Lime name 2; the schema names 2 Green only.
         await ExpectNotBoundAsync<CarWithLime>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_with_one_name_for_a_value_the_schema_declares_twice_does_not_bind()
     {
         // Red alone names 1; the schema names 1 Red and Crimson.
         await ExpectNotBoundAsync<CarWithoutCrimson>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_flags_enum_for_an_enum_type_that_is_not_flags_does_not_bind()
     {
         await ExpectNotBoundAsync<CarWithFlagsColor>("Tint");
     }
 
-    [Fact(Skip = NotImplemented.DotNetEnumAgreement)]
+    [Fact]
     public async Task Dotnet_enum_without_flags_for_a_flags_enum_type_does_not_bind()
     {
         await ExpectNotBoundAsync<CarWithAccessNotFlags>("Rights");

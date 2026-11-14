@@ -63,7 +63,7 @@ internal sealed class EntityBinding<TEntity>
             if (property is null || (property.PropertyType != stored && dotNetEnum is null) || property.GetGetMethod() is null || property.SetMethod is null)
             {
                 var nullable = declaration.IsNullable ? "nullable " : "";
-                var orEnum = declaration.EnumType is null ? "" : $", or a {nullable}.NET enum of that underlying type,";
+                var orEnum = declaration.EnumType is null ? "" : $", or a {nullable}.NET enum that agrees with enum type '{declaration.EnumType.Name}',";
                 throw BindingFailed($"{type.Name} needs a public {nullable}{declaration.ValueType.Name} property '{field.Name}'{orEnum} with get and set, as entity type '{entityType.Name}' declares.");
             }
 
@@ -133,41 +133,65 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // The one place where a .NET enum is compared with the enum type the schema declares for
-    // the field, once, when the class is bound. It is stored as the same integer type, or its
-    // values would be read as another one. A .NET enum with two names for one value binds only
-    // when the schema declares that value: the schema then names it canonically, and nothing
-    // has to choose between the names of the .NET enum.
+    // the field, once, when the class is bound. They agree as a class agrees with its entity
+    // type, or the class does not bind: the same underlying type, [Flags] exactly when the enum
+    // type is a Flags type, and the same members, every name with its value, in both
+    // directions. Nothing is mapped or guessed, so a schema that changed without the class is
+    // found here and not when a value is read. A value with two names therefore has both names
+    // in the schema, and the schema says which of them is canonical.
     private static void CheckDotNetEnum(Type type, LatticeField field, Type dotNetEnum)
     {
         var enumType = field.Declaration.EnumType!;
+        var stored = field.Declaration.ValueType;
+        var differences = new List<string>();
+
+        // Values of another integer type would be read as other values, so the members are
+        // not compared then.
         var underlyingType = Enum.GetUnderlyingType(dotNetEnum);
-        if (underlyingType != field.Declaration.ValueType)
+        if (underlyingType != stored)
+        {
+            differences.Add($"its underlying type is {underlyingType.Name}, and the enum type is stored as {stored.Name}");
+        }
+        else
+        {
+            var declaredValues = enumType.Members.ToDictionary(member => member.Name, member => member.Value, StringComparer.Ordinal);
+            var namesOfDotNetEnum = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var member in dotNetEnum.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                var value = Int128Of(member.GetRawConstantValue()!);
+                namesOfDotNetEnum.Add(member.Name);
+
+                if (!declaredValues.TryGetValue(member.Name, out var declaredValue))
+                {
+                    differences.Add($"it names {member.Name} = {value}, which the enum type does not declare");
+                }
+                else if (declaredValue != value)
+                {
+                    differences.Add($"it names {member.Name} = {value}, which the enum type declares as {declaredValue}");
+                }
+            }
+
+            foreach (var member in enumType.Members)
+            {
+                if (!namesOfDotNetEnum.Contains(member.Name))
+                {
+                    differences.Add($"it has no {member.Name}, which the enum type declares as {member.Value}");
+                }
+            }
+        }
+
+        var isFlags = dotNetEnum.IsDefined(typeof(FlagsAttribute), inherit: false);
+        if (isFlags != enumType.IsFlags)
+        {
+            differences.Add(enumType.IsFlags
+                ? "it has no [Flags], and the enum type is a Flags type"
+                : "it has [Flags], and the enum type is not a Flags type");
+        }
+
+        if (differences.Count > 0)
         {
             throw BindingFailed(
-                $"{type.Name}.{field.Name} is the .NET enum {dotNetEnum.Name}, of the underlying type {underlyingType.Name}; enum type '{enumType.Name}' is stored as {field.Declaration.ValueType.Name}.");
-        }
-
-        var namesOfValue = new Dictionary<Int128, List<string>>();
-
-        foreach (var member in dotNetEnum.GetFields(BindingFlags.Public | BindingFlags.Static))
-        {
-            var value = Int128Of(member.GetRawConstantValue()!);
-            if (!namesOfValue.TryGetValue(value, out var names))
-            {
-                names = [];
-                namesOfValue.Add(value, names);
-            }
-
-            names.Add(member.Name);
-        }
-
-        foreach (var (value, names) in namesOfValue)
-        {
-            if (names.Count > 1 && !enumType.Members.Any(member => member.Value == value))
-            {
-                throw BindingFailed(
-                    $"{type.Name}.{field.Name} is the .NET enum {dotNetEnum.Name}, which names {value} {string.Join(" and ", names)}; enum type '{enumType.Name}' does not declare {value}, so it has no canonical name for it.");
-            }
+                $"Property '{field.Name}' of {type.Name} is the .NET enum {dotNetEnum.Name}, which does not agree with enum type '{enumType.Name}' of the schema: {string.Join("; ", differences)}. Change the enum or the schema so that they agree.");
         }
     }
 
