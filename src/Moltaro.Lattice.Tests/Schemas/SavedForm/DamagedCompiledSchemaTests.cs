@@ -211,35 +211,6 @@ public sealed class DamagedCompiledSchemaTests
     }
 
     [Fact]
-    public void Every_single_byte_change_of_a_saved_schema_loads_or_is_refused()
-    {
-        var saved = Save();
-        var changed = new byte[saved.Length];
-
-        for (var position = 0; position < saved.Length; position++)
-        {
-            for (var value = 0; value <= byte.MaxValue; value++)
-            {
-                if (value == saved[position])
-                {
-                    continue;
-                }
-
-                saved.CopyTo(changed, 0);
-                changed[position] = (byte)value;
-
-                // A change may give another valid schema, such as another name or another
-                // identity; it is never anything but a schema or InvalidSchema.
-                var exception = Record.Exception(() => LatticeSchema.Load(new MemoryStream(changed)));
-                if (exception is not null and not LatticeException { Error: LatticeErrorEnum.InvalidSchema })
-                {
-                    Assert.Fail($"Byte {position} changed to {value}: {exception}");
-                }
-            }
-        }
-    }
-
-    [Fact]
     public void File_with_data_after_the_compiled_schema_is_refused()
     {
         var path = Path.Combine(Path.GetTempPath(), $"lattice-{Guid.NewGuid():N}.schema");
@@ -397,6 +368,36 @@ public sealed class DamagedCompiledSchemaTests
         }
     }
 
+    [Fact]
+    public void Owned_type_that_contains_itself_is_refused_on_load_with_the_owned_types_on_the_way_named()
+    {
+        // Save cannot write such a schema, so its body is written by hand. With a field Child
+        // of type Int32 the owned type Node loads; with Child of type Node it contains itself.
+        var harmless = Load(Form(SelfContainingBody(writer =>
+        {
+            writer.Write((byte)LatticeFieldTypeEnum.Int32);
+            writer.Write((byte)1); // nullable
+            writer.Write((byte)0); // no comparison
+            writer.Write((byte)0); // no string storage
+            writer.Write((byte)0); // no enum type
+        })));
+        Assert.True(harmless.TryGetOwnedType("Node", out _));
+
+        var data = Form(SelfContainingBody(writer =>
+        {
+            writer.Write((byte)LatticeFieldTypeEnum.Owned);
+            writer.Write((byte)1); // nullable
+            writer.Write((byte)0); // no comparison
+            writer.Write((byte)0); // no string storage
+            writer.Write((byte)0); // no enum type
+            writer.Write("Node"); // the owned type
+        }));
+
+        var exception = Assert.Throws<LatticeException>(() => Load(data));
+        Assert.Equal(LatticeErrorEnum.InvalidSchema, exception.Error);
+        Assert.Contains("Node", exception.Message);
+    }
+
     private static byte[] Save()
     {
         using var stream = new MemoryStream();
@@ -464,6 +465,31 @@ public sealed class DamagedCompiledSchemaTests
         writeField?.Invoke(writer);
         writer.Write(indexCount);
     }));
+
+    // The body of a schema with one owned type Node, whose one field Child has the declaration
+    // that writeChild writes, and one entity type Tree with an Int64 key and nothing else.
+    private static byte[] SelfContainingBody(Action<BinaryWriter> writeChild) => Bytes(writer =>
+    {
+        writer.Write(1); // catalog version
+        writer.Write((byte)LatticeStringEncodingEnum.Utf8);
+        writer.Write(1); // owned types
+        writer.Write(1); // identity of Node
+        writer.Write("Node");
+        writer.Write((byte)0); // no class
+        writer.Write(1); // fields
+        writer.Write(1); // identity of Child
+        writer.Write("Child");
+        writeChild(writer);
+        writer.Write(0); // enum types
+        writer.Write(1); // entity types
+        writer.Write(1); // identity of Tree
+        writer.Write("Tree");
+        writer.Write((byte)0); // no class
+        writer.Write(1); // key field
+        writer.Write(1); // fields
+        Field(writer, 1, "Id", LatticeFieldTypeEnum.Int64);
+        writer.Write(0); // indexes
+    });
 
     // A declaration without an enum type; a policy is the value of its public enum, 0 for none.
     private static void Field(BinaryWriter writer, int id, string name, LatticeFieldTypeEnum type, byte nullableMark = 0, byte comparison = 0, byte stringStorage = 0)

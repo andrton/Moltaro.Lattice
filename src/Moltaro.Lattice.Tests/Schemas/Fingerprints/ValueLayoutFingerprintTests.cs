@@ -63,10 +63,9 @@ public sealed class ValueLayoutFingerprintTests
     [InlineData("'Fields': [ [2, 1] ]", "'Fields': [ [3, 1] ]")]
     [InlineData("{ 'Id': 1, 'Name': 'ByHomeCity', 'Fields': [ [2, 1] ] },", "")]
     [InlineData("{ 'Id': 2, 'Name': 'ByBadge', 'Fields': [9] }", "{ 'Id': 2, 'Name': 'ByBadge', 'Fields': [9] }, { 'Id': 3, 'Name': 'ByWorkZip', 'Fields': [ [3, 2] ] }")]
-    // The .NET class of an owned type, and the identity of the entity type itself.
+    // The .NET class of an owned type.
     [InlineData("'ClrType': 'Example.Address',", "'ClrType': 'Other.Location',")]
     [InlineData("'Name': 'Address', 'ClrType': 'Example.Address',", "'Name': 'Address',")]
-    [InlineData("'Id': 1, 'Name': 'Person',", "'Id': 7, 'Name': 'Person',")]
     // An enum type in a way that does not change how its values are stored.
     [InlineData("'Element': { 'Type': 'Enum', 'Enum': 'Color' }", "'Element': { 'Type': 'Enum', 'Enum': 'Shade' }")]
     [InlineData("{ 'Name': 'Green', 'Value': 1 }", "{ 'Name': 'Green', 'Value': 1 }, { 'Name': 'Blue', 'Value': 2 }")]
@@ -80,6 +79,23 @@ public sealed class ValueLayoutFingerprintTests
         var changed = ValueFingerprintDescriptor.Person(ValueFingerprintDescriptor.CompileWith(part, replacement));
 
         Assert.Equal(original.LayoutFingerprint, changed.LayoutFingerprint);
+    }
+
+    [Fact]
+    public void Layout_fingerprint_does_not_change_with_the_identity_of_the_entity_type()
+    {
+        // Person is found by its name here: the variant gives it another identity, which the
+        // other tests use to find it.
+        var original = ValueFingerprintDescriptor.Compile();
+        var renumbered = ValueFingerprintDescriptor.CompileWith("'Id': 1, 'Name': 'Person',", "'Id': 7, 'Name': 'Person',");
+
+        Assert.True(original.TryGetEntityType("Person", out var person));
+        Assert.True(renumbered.TryGetEntityType("Person", out var renumberedPerson));
+        Assert.Equal(7, renumberedPerson.Id);
+        Assert.Equal(person.LayoutFingerprint, renumberedPerson.LayoutFingerprint);
+
+        // The fingerprint of the schema covers the identity.
+        Assert.NotEqual(original.Fingerprint, renumbered.Fingerprint);
     }
 
     [Theory]
