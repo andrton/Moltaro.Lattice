@@ -45,6 +45,12 @@ public sealed class LatticeIndex
     /// Whether the index is unique: at most one entity may have a given complete set of
     /// values of the indexed fields.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares unique indexes, and is compiled, saved
+    /// and loaded with them, but keeping them is not implemented: every write of an entity
+    /// type that declares a unique index, an insert, a replace, an upsert or a delete,
+    /// throws <see cref="NotSupportedException"/>.
+    /// </remarks>
     public bool IsUnique { get; }
 
     /// <summary>Returns the index name.</summary>

@@ -69,5 +69,9 @@ public enum LatticeErrorEnum
     /// written; a write batch is refused as a whole. <see cref="LatticeException.IndexName"/>
     /// names the index.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does
+    /// until they are is stated at <see cref="Schema.LatticeIndex.IsUnique"/>.
+    /// </remarks>
     UniqueConstraintViolation = 13,
 }
