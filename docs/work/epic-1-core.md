@@ -1527,7 +1527,10 @@ same way: its own collection, owned value or byte array, the same object every t
 a change made through it is a change of the owned value. An owned value that was made
 invalid through a collection it returned is refused when it is set into a record, into
 another owned value or into a collection, with `ArgumentException` and the field named,
-because setting it copies and checks what it holds.
+because setting it copies and checks what it holds. The field named is the field of the
+owned value whose value does not match its declaration, as if that field were set by
+itself; the coordinator read this from "as if each of its fields were set again" for the
+tests.
 
 A record is not the boundary of the database. The boundary is a write — a method of a
 set, or adding to a write batch — and a read. There everything is validated again and
