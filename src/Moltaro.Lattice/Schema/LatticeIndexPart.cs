@@ -29,8 +29,12 @@ namespace Moltaro.Lattice.Schema;
 /// </para>
 /// <para>
 /// When an owned value on the path is absent, the component has no value: it is
-/// <see langword="null"/>, with the rules of a component without a value. A search for
-/// <see langword="null"/> finds the entity, and a unique index does not compare it.
+/// <see langword="null"/>, with the rules of a component without a value: a search for
+/// <see langword="null"/> will find the entity, and a unique index will not compare it.
+/// </para>
+/// <para>
+/// <b>Not implemented yet.</b> Neither finding an entity by a search nor the comparison of
+/// keys by a unique index is implemented, see <see cref="LatticeIndex"/>.
 /// </para>
 /// </remarks>
 public sealed class LatticeIndexPart

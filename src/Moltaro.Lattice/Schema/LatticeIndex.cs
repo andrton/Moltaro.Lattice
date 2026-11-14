@@ -19,6 +19,13 @@ namespace Moltaro.Lattice.Schema;
 /// second one. A set of values in which any field has no value is not complete, and is not
 /// compared: any number of entities may have it.
 /// </para>
+/// <para>
+/// <b>Not implemented yet.</b> An index is declared, compiled, saved and loaded, but finding
+/// entities through it is not implemented, as <c>ILatticeIndex&lt;TEntity&gt;</c> states, and
+/// neither is keeping a unique index, as <see cref="IsUnique"/> states. What this
+/// documentation and that of <see cref="LatticeIndexPart"/> say of a search and of the
+/// comparison of a unique index describes how they will work.
+/// </para>
 /// </remarks>
 public sealed class LatticeIndex
 {

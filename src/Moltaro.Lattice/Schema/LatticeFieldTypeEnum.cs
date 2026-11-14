@@ -82,8 +82,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <summary>
     /// An owned value: a value of an owned type declared in the schema, see
     /// <see cref="LatticeValueDeclaration.OwnedType"/>, with fields of its own. It has no key
-    /// and is never shared: it belongs to the one entity that holds it and is read and written
-    /// with that entity. At every position a record holds it as a <c>LatticeOwnedValue</c>,
+    /// and is never shared: it belongs to the one entity that holds it, and once owned values
+    /// are stored it is written and read with that entity, as the remarks say. At every
+    /// position a record holds it as a <c>LatticeOwnedValue</c>,
     /// see <see cref="LatticeValueDeclaration.ValueType"/>, and a bound class as an object of
     /// the class that its owned type names, see <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </summary>

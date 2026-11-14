@@ -9,8 +9,9 @@ namespace Moltaro.Lattice.Schema;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A value of an owned type has no key and no identity of its own. It belongs to one entity,
-/// is read and written with that entity, and is never shared with another one. It can be held
+/// A value of an owned type has no key and no identity of its own. It belongs to one entity
+/// and is never shared with another one; once owned values are stored, it is written and read
+/// with that entity, as the part below says. It can be held
 /// by a field of an entity type or of another owned type, by an element of a List and by a
 /// value of a Map; never by a Map key or a Set element.
 /// </para>

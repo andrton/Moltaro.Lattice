@@ -71,11 +71,13 @@ namespace Moltaro.Lattice.Access;
 /// A write checks its arguments, such as the type of a key, which is an
 /// <see cref="ArgumentException"/>, and validates the entity against the schema at every
 /// depth: a field without the value it requires, a <see langword="null"/> where none is
-/// allowed in a collection or an owned value, or two Map keys that the key declaration holds
-/// equal, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Both come before
-/// a write is refused as not implemented, for every entity type whose writes are refused
-/// until a feature of its schema is implemented, such as a unique index, an enum field or
-/// an owned value: only a write that passes them ends in
+/// allowed in a collection or an owned value, two Map keys that the key declaration holds
+/// equal, or an array whose element type is not exactly the declared one, at any depth, which
+/// the runtime lets stand where an array of the declared type is expected, such as a
+/// <c>uint[]</c> in an <c>int[]</c> property, is <see cref="LatticeErrorEnum.ValidationFailed"/>.
+/// Both come before a write is refused as not implemented, for every entity type whose
+/// writes are refused until a feature of its schema is implemented, such as a unique index,
+/// an enum field or an owned value: only a write that passes them ends in
 /// <see cref="NotSupportedException"/>. A check that belongs to what is not implemented is
 /// not made yet: whether an integer is a declared value of its enum type, and whether a
 /// unique index already holds the key.

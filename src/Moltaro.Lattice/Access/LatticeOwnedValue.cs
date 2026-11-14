@@ -28,9 +28,10 @@ namespace Moltaro.Lattice.Access;
 /// refused when it is set, see <see cref="this[string]"/>.
 /// </para>
 /// <para>
-/// Reading returns new owned values with the record, and changing one changes nothing in
-/// the database until the record that holds it is submitted by a write. An owned value is
-/// not safe to change from several threads.
+/// Changing an owned value changes nothing in the database until the record that holds it
+/// is submitted by a write. Once owned values are stored, a read will return new ones with
+/// the record; until then none is stored, as the part below says. An owned value is not safe
+/// to change from several threads.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Records hold owned values, but storing them is not
