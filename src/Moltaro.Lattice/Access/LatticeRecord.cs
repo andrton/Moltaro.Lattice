@@ -28,9 +28,11 @@ namespace Moltaro.Lattice.Access;
 /// the owned value or the byte array it holds. A change made through it is a change of the
 /// record, and that is how a value inside a record is edited after it was set:
 /// <c>record.Get&lt;LatticeOwnedValue&gt;("Home")["City"] = "Lviv"</c>. A change made
-/// through a returned collection is not checked when it is made. A record made invalid that
-/// way, such as by a <see langword="null"/> added where none is allowed, is refused with
-/// <see cref="LatticeErrorEnum.ValidationFailed"/> when it is written.
+/// through a returned collection is not checked when it is made: a value added to it, an
+/// owned value included, is neither copied nor checked then, and the write validates and
+/// copies it. A record made invalid that way, such as by a <see langword="null"/> added
+/// where none is allowed, is refused with <see cref="LatticeErrorEnum.ValidationFailed"/>
+/// when it is written.
 /// </para>
 /// <para>
 /// <b>A record is not the boundary of the database.</b> The boundary is a write, through a

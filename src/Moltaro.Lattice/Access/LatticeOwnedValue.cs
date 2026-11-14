@@ -16,9 +16,11 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="ILatticeDatabase.Set{TEntity}"/>.
 /// </para>
 /// <para>
-/// Setting an owned value into a record, into another owned value or into a collection
-/// copies it, as the remarks of <see cref="LatticeRecord"/> say: a change made to it
-/// afterwards is not seen through the record. An owned value treats what is set into it in
+/// Setting an owned value into a record or into another owned value, by itself or inside a
+/// collection that is set, copies it, as the remarks of <see cref="LatticeRecord"/> say: a
+/// change made to it afterwards is not seen through the record. An owned value added to a
+/// collection that a record or an owned value returned is not copied then; the write
+/// validates and copies it. An owned value treats what is set into it in
 /// the same way as a record, copying every value at every depth, and returns in the same
 /// way: its own collection, owned value or byte array, the same object every time, and a
 /// change made through it is a change of the owned value. A change made through a returned
