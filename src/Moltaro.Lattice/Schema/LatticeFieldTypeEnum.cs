@@ -66,7 +66,8 @@ public enum LatticeFieldTypeEnum : byte
     /// A value of an enum type declared in the schema, see
     /// <see cref="LatticeValueDeclaration.EnumType"/>. It is stored as its underlying integer,
     /// and its .NET type is that integer; a bound class may declare the property as a .NET
-    /// enum with the same underlying type.
+    /// enum that agrees with the enum type, as <see cref="LatticeValueDeclaration.ValueType"/>
+    /// states.
     /// </summary>
     Enum = 20,
 }

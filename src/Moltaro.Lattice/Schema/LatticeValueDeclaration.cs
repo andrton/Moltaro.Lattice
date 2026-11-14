@@ -58,10 +58,22 @@ public sealed class LatticeValueDeclaration
     /// value is nullable and the type is a value type.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// For an <see cref="LatticeFieldTypeEnum.Enum"/> it is the .NET type of the underlying
-    /// integer: a record holds that integer. A bound class may declare the property as a .NET
-    /// enum with the same underlying type instead. A .NET enum that has two names for one
-    /// value binds only when the schema declares that value with a canonical name.
+    /// integer: a record holds that integer. A bound class may declare the property as that
+    /// integer too; it then holds the value as it is stored and is not compared with the
+    /// members of the enum type.
+    /// </para>
+    /// <para>
+    /// A bound class may instead declare the property as a .NET enum, as
+    /// <see cref="Nullable{T}"/> of it when the value is nullable. That enum has to agree with
+    /// the enum type of the field: the same underlying type, the same members, every name
+    /// with its value in both directions, and <see cref="FlagsAttribute"/> exactly when the
+    /// enum type is a Flags type. A .NET enum with two names for one value therefore agrees
+    /// only with an enum type that declares both names. Nothing is mapped or guessed: a class
+    /// whose enum does not agree is refused with <see cref="LatticeErrorEnum.BindingFailed"/>,
+    /// with the property named, when the class is bound, and not later when a value is read.
+    /// </para>
     /// </remarks>
     public Type ValueType { get; }
 }
