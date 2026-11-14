@@ -1208,12 +1208,14 @@ entity types whose layout fingerprint differs.
   `OrdinalIgnoreCase` treats keys that differ only in case as one: such a duplicate Map
   key is refused, and such a Set keeps the first. When the comparison of the target's key
   changes, the layout fingerprint of the entity type that holds the collection does not
-  change and the fingerprint of the schema does. A record rebuilds a collection it is
-  given, at every depth: a change of the caller's collection, or of a collection inside
-  it, after it was set is not seen through the record. (Under discussion with the owner,
-  not to be tested yet: a `LatticeOwnedValue` is held as given: a change made to it after
-  it was set into a record, or into a collection of a record, is seen through the
-  record.) A record made invalid through a collection it
+  change and the fingerprint of the schema does. A record copies what is set into it, at
+  every depth. A change of the caller's collection, or of a collection inside it, after
+  it was set is not seen through the record. A change of a `LatticeOwnedValue` after it
+  was set into a record, into another owned value or into a collection of a record is not
+  seen through the record either, and neither is a change of a byte array. One owned
+  value set into two records gives two independent values. What a record returns is its
+  own and the same object every time: a change made through a returned owned value or
+  collection is seen through the record. A record made invalid through a collection it
   returned, such as a null added where none is allowed, is refused with
   `ValidationFailed` when it is written through a set or added to a write batch. A write
   through a set validates the object or the record before it is refused as not
@@ -1501,25 +1503,26 @@ ignores case too. Nothing is added to a fingerprint for it. The layout fingerpri
 covers a comparison, and the fingerprint of the schema already covers the comparison of
 the target's key and the identity of the target.
 
-*One point of this paragraph is under discussion with the owner and binds nobody yet:
-whether a `LatticeOwnedValue` and a byte array are held as they are given, as written
-below, or copied. No test and no documentation states either until the answer is entered
-here. The rest stands.*
+What a record holds of what it is given. A record copies every value that is set into it,
+at every depth, and holds nothing of the caller's. A collection is rebuilt as the
+record's own `List`, `Dictionary` or `HashSet` with the comparers of the schema, and so
+are the collections inside it. A `LatticeOwnedValue` is copied field by field, as if each
+of its fields were set again, so what it holds is copied and checked in the same way. A
+byte array is copied. A change made afterwards to the value that was given — to the
+collection, to the owned value, to the array — is not seen through the record, and one
+`LatticeOwnedValue` set into two records, or twice into one collection, gives independent
+copies. A `LatticeOwnedValue` treats what is set into it in the same way.
 
-What a record holds of what it is given. A collection is rebuilt: the record never holds
-the caller's collection object, and the collections inside it are rebuilt in the same
-way, at every depth, as the record's own `List`, `Dictionary` and `HashSet` with the
-comparers of the schema. A `LatticeOwnedValue` and a byte array are held as they are
-given, at any position, as an object of a class holds what is assigned to it: a change
-made to them afterwards is seen through the record. A `LatticeOwnedValue` treats what is
-set into it in the same way. What a record returns is its own: a collection it returns
-can be changed, and that changes the record without a check.
+What a record returns is its own, and the same object every time: the collection, the
+owned value or the byte array it holds. A change made through it is a change of the
+record, and that is how a value inside a record is edited after it was set:
+`record.Get<LatticeOwnedValue>("Home")["City"] = "Lviv"`. A change made through a
+returned collection is not checked when it is made.
 
 A record is not the boundary of the database. The boundary is a write — a method of a
 set, or adding to a write batch — and a read. There everything is validated again and
-copied at every depth, owned values and byte arrays included: nothing changed afterwards
-reaches what was submitted, and what a read returns shares nothing with the database or
-with another read.
+copied at every depth: nothing changed afterwards reaches what was submitted, and what a
+read returns shares nothing with the database or with another read.
 
 A bound class holds the same data in its own types. One rule gives the type of every
 position, a property as well as an element, a key or a value:

@@ -31,14 +31,7 @@ in the meantime.
 
 ## Open
 
-### Q22. Does a record hold an owned value it is given, or a copy of it?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | The brief says the input of a List, a Map or a Set is copied. It did not say whether collections inside it are copied too, or whether a `LatticeOwnedValue` or a byte array that is set into a record is held as the same object or copied |
-| **Until answered** | Settled by the planner and confirmed by the owner on 14 November 2026: a record rebuilds a collection it is given at every depth, and a write and a read validate and copy at every depth; the brief of S03 has the text. Under discussion with the owner: whether a `LatticeOwnedValue` and a byte array are held as given or copied. No test and no documentation states either |
-| **Decides** | The owner, for S03 |
+None. Every question found so far is answered below.
 
 ## Answered
 
@@ -257,3 +250,12 @@ in the meantime.
 | **Question** | By the answer to Q23 an invalid object or record of an entity type with an owned value, a collection or a reference is `ValidationFailed`, and only a valid one ends in `NotSupportedException`. Is the same true of what S02 has the placeholder refuse: a unique index, a comparison that ignores case, Dictionary storage, an enum field, a schema in UTF-16? |
 | **Answer** | The planner, 14 November 2026, from what the code already does: yes, for every entity type. A write first checks its arguments and validates the entity against the schema, and only a write that passes ends in `NotSupportedException`. A check that belongs to what is not implemented is not made: whether an integer is a declared value of its enum type, and whether a unique index already holds the key |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), with the sentence for the "Not implemented yet" parts of the public documentation |
+
+### Q22. Does a record hold an owned value it is given, or a copy of it?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | The brief said the input of a List, a Map or a Set is copied. It did not say whether collections inside it are copied too, or whether a `LatticeOwnedValue` or a byte array that is set into a record is held as the same object or copied. The question was put on this code: `home["City"] = "Kyiv"; record["Home"] = home; home["City"] = "Lviv";` and then a write |
+| **Answer** | The owner, 14 November 2026, through the planner's session: copied; Kyiv is written. A record copies every value that is set into it, at every depth, owned values and byte arrays included, and holds nothing of the caller's. What a record returns is its own and the same object every time, and a value inside a record is edited through what the record returns. Not chosen: a record that holds an owned value and a byte array as given, and a switch that leaves the choice to the caller. A bound class is not touched: its object holds what the application assigns, and the write copies it |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); what a write and a read copy is asserted in S18, whose brief has the sentence |
