@@ -134,11 +134,7 @@ public sealed class LatticeSchema
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the file is not a compiled schema of a
     /// supported format.
     /// </exception>
-    public static LatticeSchema Load(string path)
-    {
-        using var stream = File.OpenRead(path);
-        return Load(stream);
-    }
+    public static LatticeSchema Load(string path) => SchemaBinaryFormat.ReadFile(path);
 
     /// <summary>Writes the compiled schema in its binary form.</summary>
     /// <param name="stream">The stream to write to. It stays open.</param>

@@ -6,24 +6,38 @@ namespace Moltaro.Lattice.Schema;
 //   "MLSC", format version, catalog version, string encoding (byte),
 //   enum type count, per enum type: id, name, underlying type (byte), Flags mark,
 //     member count, per member: name, value (low 64 bits, then high 64 bits), canonical mark,
-//   entity type count, per entity type: id, name, has-class flag [, class name], key field id,
+//   entity type count, per entity type: id, name, has-class mark [, class name], key field id,
 //     field count, per field: id, name, declaration,
-//     index count, per index: id, name, unique flag, field count, field ids.
-//   A declaration: type (byte), nullable flag, comparison (byte, 0 when the type has none),
-//     string storage (byte, 0 when the type has none), has-enum flag [, enum type name].
+//     index count, per index: id, name, unique mark, field count, field ids.
+//   A declaration: type (byte), nullable mark, comparison (byte, 0 when the type has none),
+//     string storage (byte, 0 when the type has none), has-enum mark [, enum type name].
+//   A count and an id are 32-bit integers, a mark is one byte 0 or 1, a text is its length in
+//   bytes as a 7-bit encoded integer followed by that many bytes of well-formed UTF-8.
 //
-// What is loaded is validated again by SchemaBuilder, as a descriptor is. Format 3, which
-// came before index identities and enum types, is refused like any other unknown format:
-// nothing was released, so such a schema is compiled again.
+// Format 3, which came before index identities and enum types, is refused like any other
+// unknown format: nothing was released, so such a schema is compiled again.
+//
+// Loaded bytes may be damaged, and every damage ends in InvalidSchema. The reader is strict
+// where it reads: a mark that is not 0 or 1, a negative count or length, text that is not
+// well-formed UTF-8 and policies that do not fit the type are refused here; every other
+// rule of the model is checked by SchemaBuilder, as for a descriptor. Nothing is allocated
+// by a count or a length before the bytes it announces have been read, so a damaged count
+// ends at the end of the data. What can fail while reading is known: the end of the data
+// (EndOfStreamException), a 7-bit length of more than five bytes (FormatException) and text
+// that is not UTF-8 (DecoderFallbackException), each turned into InvalidSchema. A failure of
+// the stream itself is not damage and is not turned into one.
 internal static class SchemaBinaryFormat
 {
     private const uint Magic = 0x43534C4D; // "MLSC" in little-endian byte order
     private const int FormatVersion = 4;
-    private const int MaximumCount = 100_000;
+
+    // Refuses bytes that are not UTF-8 instead of replacing them, so that a damaged name is not
+    // loaded as another name. Immutable, so it is shared.
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     public static void Write(LatticeSchema schema, Stream stream)
     {
-        using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        using var writer = new BinaryWriter(stream, StrictUtf8, leaveOpen: true);
         writer.Write(Magic);
         writer.Write(FormatVersion);
         writer.Write(schema.Version);
@@ -82,11 +96,13 @@ internal static class SchemaBinaryFormat
         }
     }
 
+    // Reads one compiled schema and leaves the stream right after it: what follows belongs to
+    // the caller.
     public static LatticeSchema Read(Stream stream)
     {
         try
         {
-            using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+            using var reader = new BinaryReader(stream, StrictUtf8, leaveOpen: true);
             if (reader.ReadUInt32() != Magic)
             {
                 throw SchemaBuilder.Invalid("the data is not a compiled schema.");
@@ -100,25 +116,29 @@ internal static class SchemaBinaryFormat
 
             var version = reader.ReadInt32();
             var stringEncoding = (LatticeStringEncodingEnum)reader.ReadByte();
-
-            var enumTypes = new EnumTypeDraft[ReadCount(reader)];
-            for (var index = 0; index < enumTypes.Length; index++)
-            {
-                enumTypes[index] = ReadEnumType(reader);
-            }
-
-            var entityTypes = new EntityTypeDraft[ReadCount(reader)];
-            for (var index = 0; index < entityTypes.Length; index++)
-            {
-                entityTypes[index] = ReadEntityType(reader);
-            }
+            var enumTypes = ReadList(reader, ReadEnumType);
+            var entityTypes = ReadList(reader, ReadEntityType);
 
             return SchemaBuilder.BuildSchema(version, stringEncoding, enumTypes, entityTypes);
         }
         catch (Exception exception) when (exception is EndOfStreamException or FormatException or DecoderFallbackException)
         {
-            throw SchemaBuilder.Invalid("the compiled schema is truncated or damaged.", exception);
+            throw Damaged(exception);
         }
+    }
+
+    // A file holds one compiled schema and nothing after it, as Save(string) writes it; data
+    // after the schema means the file is not what was saved.
+    public static LatticeSchema ReadFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var schema = Read(stream);
+        if (stream.Position != stream.Length)
+        {
+            throw SchemaBuilder.Invalid("the file has data after the compiled schema.");
+        }
+
+        return schema;
     }
 
     private static void WriteDeclaration(BinaryWriter writer, LatticeValueDeclaration declaration)
@@ -137,60 +157,71 @@ internal static class SchemaBinaryFormat
     private static EnumTypeDraft ReadEnumType(BinaryReader reader)
     {
         var id = reader.ReadInt32();
-        var name = reader.ReadString();
+        var name = ReadText(reader);
         var underlyingType = (LatticeFieldTypeEnum)reader.ReadByte();
-        var isFlags = reader.ReadBoolean();
-
-        var members = new EnumMemberDraft[ReadCount(reader)];
-        for (var index = 0; index < members.Length; index++)
-        {
-            var memberName = reader.ReadString();
-            var lower = reader.ReadUInt64();
-            var upper = reader.ReadUInt64();
-            members[index] = new EnumMemberDraft(memberName, new Int128(upper, lower), reader.ReadBoolean());
-        }
+        var isFlags = ReadMark(reader);
+        var members = ReadList(reader, ReadEnumMember);
 
         return new EnumTypeDraft(id, name, underlyingType, isFlags, members);
+    }
+
+    private static EnumMemberDraft ReadEnumMember(BinaryReader reader)
+    {
+        var name = ReadText(reader);
+        var lower = reader.ReadUInt64();
+        var upper = reader.ReadUInt64();
+        var isCanonical = ReadMark(reader);
+
+        return new EnumMemberDraft(name, new Int128(upper, lower), isCanonical);
     }
 
     private static EntityTypeDraft ReadEntityType(BinaryReader reader)
     {
         var id = reader.ReadInt32();
-        var name = reader.ReadString();
-        var clrTypeName = reader.ReadBoolean() ? reader.ReadString() : null;
+        var name = ReadText(reader);
+        var clrTypeName = ReadMark(reader) ? ReadText(reader) : null;
         var keyFieldId = reader.ReadInt32();
-
-        var fields = new FieldDraft[ReadCount(reader)];
-        for (var index = 0; index < fields.Length; index++)
-        {
-            fields[index] = new FieldDraft(reader.ReadInt32(), reader.ReadString(), ReadDeclaration(reader));
-        }
-
-        var indexes = new IndexDraft[ReadCount(reader)];
-        for (var index = 0; index < indexes.Length; index++)
-        {
-            var indexId = reader.ReadInt32();
-            var indexName = reader.ReadString();
-            var isUnique = reader.ReadBoolean();
-            var fieldIds = new int[ReadCount(reader)];
-            for (var part = 0; part < fieldIds.Length; part++)
-            {
-                fieldIds[part] = reader.ReadInt32();
-            }
-
-            indexes[index] = new IndexDraft(indexId, indexName, fieldIds, isUnique);
-        }
+        var fields = ReadList(reader, ReadField);
+        var indexes = ReadList(reader, ReadIndex);
 
         return new EntityTypeDraft(id, name, clrTypeName, fields, keyFieldId, indexes);
     }
 
+    private static FieldDraft ReadField(BinaryReader reader)
+    {
+        var id = reader.ReadInt32();
+        var name = ReadText(reader);
+
+        return new FieldDraft(id, name, ReadDeclaration(reader));
+    }
+
+    private static IndexDraft ReadIndex(BinaryReader reader)
+    {
+        var id = reader.ReadInt32();
+        var name = ReadText(reader);
+        var isUnique = ReadMark(reader);
+        var fieldIds = ReadList(reader, fieldReader => fieldReader.ReadInt32());
+
+        return new IndexDraft(id, name, fieldIds, isUnique);
+    }
+
+    // The writer gives a String both of its policies and every other type neither, so a
+    // declaration that has them otherwise is damaged. Read as a descriptor, a missing policy
+    // would quietly become its default.
     private static ValueDeclarationDraft ReadDeclaration(BinaryReader reader)
     {
         var type = (LatticeFieldTypeEnum)reader.ReadByte();
-        var isNullable = reader.ReadBoolean();
+        var isNullable = ReadMark(reader);
         var comparison = reader.ReadByte();
         var stringStorage = reader.ReadByte();
-        var enumTypeName = reader.ReadBoolean() ? reader.ReadString() : null;
+        var enumTypeName = ReadMark(reader) ? ReadText(reader) : null;
+
+        var hasPolicies = comparison != 0 && stringStorage != 0;
+        var hasNoPolicy = comparison == 0 && stringStorage == 0;
+        if (type == LatticeFieldTypeEnum.String ? !hasPolicies : !hasNoPolicy)
+        {
+            throw Damaged();
+        }
 
         return new ValueDeclarationDraft(
             type,
@@ -200,11 +231,57 @@ internal static class SchemaBinaryFormat
             enumTypeName);
     }
 
-    private static int ReadCount(BinaryReader reader)
+    // The items are added as they are read, so a damaged count allocates nothing in advance.
+    private static List<T> ReadList<T>(BinaryReader reader, Func<BinaryReader, T> read)
     {
         var count = reader.ReadInt32();
-        return count is >= 0 and <= MaximumCount
-            ? count
-            : throw SchemaBuilder.Invalid("the compiled schema is truncated or damaged.");
+        if (count < 0)
+        {
+            throw Damaged();
+        }
+
+        var items = new List<T>();
+        for (var index = 0; index < count; index++)
+        {
+            items.Add(read(reader));
+        }
+
+        return items;
     }
+
+    private static bool ReadMark(BinaryReader reader) => reader.ReadByte() switch
+    {
+        0 => false,
+        1 => true,
+        _ => throw Damaged(),
+    };
+
+    // A text as BinaryWriter writes it. BinaryReader.ReadString is not used: it reports a
+    // negative length as an IOException, which is not damage of the stream.
+    private static string ReadText(BinaryReader reader)
+    {
+        var length = reader.Read7BitEncodedInt();
+        if (length < 0)
+        {
+            throw Damaged();
+        }
+
+        // Read in pieces, so that what is allocated grows with the bytes that are there and
+        // not with a length that may be damaged.
+        using var bytes = new MemoryStream();
+        Span<byte> piece = stackalloc byte[256];
+        var remaining = length;
+        while (remaining > 0)
+        {
+            var part = piece[..Math.Min(remaining, piece.Length)];
+            reader.BaseStream.ReadExactly(part);
+            bytes.Write(part);
+            remaining -= part.Length;
+        }
+
+        return StrictUtf8.GetString(bytes.GetBuffer(), 0, length);
+    }
+
+    private static LatticeException Damaged(Exception? innerException = null) =>
+        SchemaBuilder.Invalid("the compiled schema is truncated or damaged.", innerException);
 }

@@ -24,10 +24,16 @@ internal static class SchemaJsonReader
         {
             throw SchemaBuilder.Invalid("the JSON descriptor cannot be read.", exception);
         }
+        catch (ArgumentException exception)
+        {
+            // The text has a lone surrogate, which no encoding can hold.
+            throw SchemaBuilder.Invalid("the JSON descriptor is not well-formed text.", exception);
+        }
 
         using (document)
         {
             var root = document.RootElement;
+            CheckText(root);
             CheckProperties(root, Descriptor, "SchemaVersion", "StringEncoding", "Enums", "EntityTypes");
 
             var version = root.TryGetProperty("SchemaVersion", out var versionElement)
@@ -160,6 +166,48 @@ internal static class SchemaJsonReader
         return owner is null ? $"{kind} '{name}'" : $"{kind} '{owner}.{name}'";
     }
 
+    // JsonDocument accepts an escaped lone surrogate, such as \ud800, and fails only when the
+    // text is taken as a .NET string. Every property name and string is taken here once, so
+    // that the rest of the reader works on well-formed text.
+    private static void CheckText(JsonElement root)
+    {
+        try
+        {
+            TakeText(root);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw SchemaBuilder.Invalid("the JSON descriptor has text that is not well-formed: an escaped surrogate without its pair.", exception);
+        }
+
+        static void TakeText(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        _ = property.Name;
+                        TakeText(property.Value);
+                    }
+
+                    break;
+
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        TakeText(item);
+                    }
+
+                    break;
+
+                case JsonValueKind.String:
+                    _ = element.GetString();
+                    break;
+            }
+        }
+    }
+
     // The declaration is an object with properties of its form only, each at most once: of a
     // property given twice, one value would be taken without a word about the other.
     private static void CheckProperties(JsonElement element, string place, params ReadOnlySpan<string> properties)
@@ -201,10 +249,21 @@ internal static class SchemaJsonReader
     // The value of an enum member, read exactly from its text, so that every value of the
     // eight integer types is held without rounding and a value outside their range is seen as
     // such.
-    private static Int128 Integer(JsonElement value, string property, string place) =>
-        value.ValueKind == JsonValueKind.Number && Int128.TryParse(value.GetRawText(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var number)
-            ? number
-            : throw SchemaBuilder.Invalid($"the {property} of {place} is not an integer.");
+    private static Int128 Integer(JsonElement value, string property, string place)
+    {
+        var text = value.ValueKind == JsonValueKind.Number ? value.GetRawText() : null;
+        if (text is not null && Int128.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var number))
+        {
+            return number;
+        }
+
+        // A JSON number of digits alone, with no fraction and no exponent, is an integer: one
+        // that is beyond Int128 is beyond every integer type an enum type can have.
+        var isInteger = text is not null && text.TrimStart('-').All(char.IsAsciiDigit);
+        throw SchemaBuilder.Invalid(isInteger
+            ? $"{place} has the {property} {text}, outside the range of every integer type."
+            : $"the {property} of {place} is not an integer.");
+    }
 
     private static string? OptionalString(JsonElement element, string property, string place)
     {
