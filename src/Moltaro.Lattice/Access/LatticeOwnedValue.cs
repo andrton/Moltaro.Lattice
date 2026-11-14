@@ -15,16 +15,25 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="ILatticeDatabase.Set{TEntity}"/>.
 /// </para>
 /// <para>
-/// An owned value keeps what is set into it in the same way as a record, see
-/// <see cref="LatticeRecord"/>: a collection is rebuilt at every depth. Reading returns new
-/// ones with the record, and changing one changes nothing in the database until the record
-/// that holds it is submitted by a write. An owned value is not safe to change from several
-/// threads.
+/// Setting an owned value into a record, into another owned value or into a collection
+/// copies it, as the remarks of <see cref="LatticeRecord"/> say: a change made to it
+/// afterwards is not seen through the record. An owned value treats what is set into it in
+/// the same way as a record, copying every value at every depth, and returns in the same
+/// way: its own collection, owned value or byte array, the same object every time, and a
+/// change made through it is a change of the owned value. A change made through a returned
+/// collection is not checked when it is made; an owned value made invalid that way is
+/// refused when it is set, see <see cref="this[string]"/>.
+/// </para>
+/// <para>
+/// Reading returns new owned values with the record, and changing one changes nothing in
+/// the database until the record that holds it is submitted by a write. An owned value is
+/// not safe to change from several threads.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Records hold owned values, but storing them is not
-/// implemented: every write of an entity type that has an Owned field throws
-/// <see cref="NotSupportedException"/>.
+/// implemented. Until then no write of an entity type that has an Owned field is carried
+/// out: after the checks every write makes of its arguments and of the entity against the
+/// schema, it throws <see cref="NotSupportedException"/>.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedValue
@@ -48,12 +57,14 @@ public sealed class LatticeOwnedValue
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for
     /// an owned value and a collection. An integer of another width is accepted when it fits,
     /// and the types inside a collection are exact, as for a field of a
-    /// <see cref="LatticeRecord"/>.
+    /// <see cref="LatticeRecord"/>. Getting returns what the owned value holds, the same object
+    /// every time; setting stores a copy of the value.
     /// </summary>
     /// <param name="fieldName">The field name declared in the owned type.</param>
     /// <exception cref="ArgumentException">
     /// The owned type has no such field, or the value does not match the declaration of the
-    /// field, as for a field of a <see cref="LatticeRecord"/>.
+    /// field, as for a field of a <see cref="LatticeRecord"/>: an owned value set here that
+    /// was made invalid through a collection it returned is refused, with its field named.
     /// </exception>
     public object? this[string fieldName]
     {
@@ -63,7 +74,8 @@ public sealed class LatticeOwnedValue
 
     /// <summary>
     /// Gets the value of a field as <typeparamref name="T"/>; the default value when the
-    /// field is <see langword="null"/>.
+    /// field is <see langword="null"/>. It returns what the indexer returns: a collection, an
+    /// owned value or a byte array is the object the owned value holds, the same every time.
     /// </summary>
     /// <typeparam name="T">The .NET type of the field value.</typeparam>
     /// <param name="fieldName">The field name declared in the owned type.</param>

@@ -58,9 +58,10 @@ public sealed class LatticeIndex
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares unique indexes, and is compiled, saved
-    /// and loaded with them, but keeping them is not implemented: every write of an entity
-    /// type that declares a unique index, an insert, a replace, an upsert or a delete,
-    /// throws <see cref="NotSupportedException"/>.
+    /// and loaded with them, but keeping them is not implemented. Until then no write of an
+    /// entity type that declares a unique index, an insert, a replace, an upsert or a
+    /// delete, is carried out: after the checks every write makes of its arguments and of
+    /// the entity against the schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     public bool IsUnique { get; }
 

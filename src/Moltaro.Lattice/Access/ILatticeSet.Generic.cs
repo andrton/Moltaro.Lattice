@@ -68,13 +68,17 @@ namespace Moltaro.Lattice.Access;
 /// several threads.
 /// </para>
 /// <para>
-/// A write validates the entity at every depth: a <see langword="null"/> where none is
-/// allowed, or two Map keys that the key declaration holds equal, in a collection or an owned
-/// value as in a field, is <see cref="LatticeErrorEnum.ValidationFailed"/>. This comes before
-/// a write is refused as not implemented: for an entity type whose owned values, collections
-/// or references cannot be stored yet, an invalid entity is
-/// <see cref="LatticeErrorEnum.ValidationFailed"/>, and only a valid one ends in
-/// <see cref="NotSupportedException"/>.
+/// A write checks its arguments, such as the type of a key, which is an
+/// <see cref="ArgumentException"/>, and validates the entity against the schema at every
+/// depth: a field without the value it requires, a <see langword="null"/> where none is
+/// allowed in a collection or an owned value, or two Map keys that the key declaration holds
+/// equal, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Both come before
+/// a write is refused as not implemented, for every entity type whose writes are refused
+/// until a feature of its schema is implemented, such as a unique index, an enum field or
+/// an owned value: only a write that passes them ends in
+/// <see cref="NotSupportedException"/>. A check that belongs to what is not implemented is
+/// not made yet: whether an integer is a declared value of its enum type, and whether a
+/// unique index already holds the key.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until

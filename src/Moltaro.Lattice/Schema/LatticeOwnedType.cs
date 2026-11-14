@@ -27,8 +27,9 @@ namespace Moltaro.Lattice.Schema;
 /// <para>
 /// <b>Not implemented yet.</b> An owned type is declared, compiled, saved and loaded, records
 /// hold its values as <c>LatticeOwnedValue</c> and its class is bound against it, but storing
-/// its values is not implemented: every write of an entity type that has an Owned field throws
-/// <see cref="NotSupportedException"/>.
+/// its values is not implemented. Until then no write of an entity type that has an Owned
+/// field is carried out: after the checks every write makes of its arguments and of the
+/// entity against the schema, it throws <see cref="NotSupportedException"/>.
 /// </para>
 /// </remarks>
 public sealed class LatticeOwnedType

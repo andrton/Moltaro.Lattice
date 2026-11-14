@@ -72,9 +72,10 @@ public enum LatticeFieldTypeEnum : byte
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Enum fields, and is compiled, saved and
-    /// loaded with them, but storing their values is not implemented: every write of an
-    /// entity type that has an Enum field throws <see cref="NotSupportedException"/>, whatever
-    /// the value.
+    /// loaded with them, but storing their values is not implemented. Until then no write of
+    /// an entity type that has an Enum field is carried out: after the checks every write
+    /// makes of its arguments and of the entity against the schema, it throws
+    /// <see cref="NotSupportedException"/>, whatever the value.
     /// </remarks>
     Enum = 20,
 
@@ -89,8 +90,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Owned values, and is compiled, saved and
     /// loaded with them, and records and bound classes hold them, but storing them is not
-    /// implemented: every write of an entity type that has an Owned field throws
-    /// <see cref="NotSupportedException"/>.
+    /// implemented. Until then no write of an entity type that has an Owned field is carried
+    /// out: after the checks every write makes of its arguments and of the entity against the
+    /// schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     Owned = 21,
 
@@ -103,8 +105,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Lists, and is compiled, saved and loaded
     /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented: every write of an entity type that has a List field throws
-    /// <see cref="NotSupportedException"/>.
+    /// implemented. Until then no write of an entity type that has a List field is carried
+    /// out: after the checks every write makes of its arguments and of the entity against the
+    /// schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     List = 22,
 
@@ -117,8 +120,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Maps, and is compiled, saved and loaded
     /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented: every write of an entity type that has a Map field throws
-    /// <see cref="NotSupportedException"/>.
+    /// implemented. Until then no write of an entity type that has a Map field is carried
+    /// out: after the checks every write makes of its arguments and of the entity against the
+    /// schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     Map = 23,
 
@@ -130,8 +134,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Sets, and is compiled, saved and loaded
     /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented: every write of an entity type that has a Set field throws
-    /// <see cref="NotSupportedException"/>.
+    /// implemented. Until then no write of an entity type that has a Set field is carried
+    /// out: after the checks every write makes of its arguments and of the entity against the
+    /// schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     Set = 24,
 
@@ -145,8 +150,9 @@ public enum LatticeFieldTypeEnum : byte
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares references, and is compiled, saved and
     /// loaded with them, and records and bound classes hold them, but storing them is not
-    /// implemented: every write of an entity type that has a Reference field throws
-    /// <see cref="NotSupportedException"/>.
+    /// implemented. Until then no write of an entity type that has a Reference field is
+    /// carried out: after the checks every write makes of its arguments and of the entity
+    /// against the schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     Reference = 25,
 }

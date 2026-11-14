@@ -12,16 +12,23 @@ namespace Moltaro.Lattice.Access;
 /// A record is not safe to change from several threads.
 /// </para>
 /// <para>
-/// <b>What a record keeps of what it is given.</b> A collection is rebuilt: the record never
-/// holds the caller's collection object, and the collections inside it are rebuilt in the
-/// same way, at every depth, as the record's own <see cref="List{T}"/>,
-/// <see cref="Dictionary{TKey, TValue}"/> and <see cref="HashSet{T}"/> with the comparers of
-/// the schema. A later change of the caller's collection is not seen through the record.
+/// <b>What a record keeps of what it is given.</b> A record copies every value that is set
+/// into it, at every depth, and holds nothing of the caller's. A collection is rebuilt as the
+/// record's own <see cref="List{T}"/>, <see cref="Dictionary{TKey, TValue}"/> or
+/// <see cref="HashSet{T}"/> with the comparers of the schema, and so are the collections
+/// inside it. A <see cref="LatticeOwnedValue"/> is copied field by field, as if each of its
+/// fields were set again, so what it holds is copied and checked in the same way. A byte
+/// array is copied. A change made afterwards to the value that was given, to the
+/// collection, the owned value or the array, is not seen through the record, and one owned
+/// value set into two records, or twice into one collection, gives independent copies.
 /// </para>
 /// <para>
-/// <b>What a record returns is its own.</b> A collection it returns can be changed, and that
-/// changes the record without a check. A record made invalid that way, such as by a
-/// <see langword="null"/> added where none is allowed, is refused with
+/// <b>What a record returns is its own, and the same object every time:</b> the collection,
+/// the owned value or the byte array it holds. A change made through it is a change of the
+/// record, and that is how a value inside a record is edited after it was set:
+/// <c>record.Get&lt;LatticeOwnedValue&gt;("Home")["City"] = "Lviv"</c>. A change made
+/// through a returned collection is not checked when it is made. A record made invalid that
+/// way, such as by a <see langword="null"/> added where none is allowed, is refused with
 /// <see cref="LatticeErrorEnum.ValidationFailed"/> when it is written.
 /// </para>
 /// <para>
@@ -59,7 +66,8 @@ public sealed class LatticeRecord
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for an
-    /// owned value and a collection.
+    /// owned value and a collection. Getting returns what the record holds, the same object
+    /// every time; setting stores a copy of the value, as the remarks of the class say.
     /// </summary>
     /// <remarks>
     /// An integer of another width is accepted when it fits only where a value is given by
@@ -74,7 +82,10 @@ public sealed class LatticeRecord
     /// field: it is of another type, an owned value of another owned type, or a collection
     /// whose element, key or value type is not exactly the declared one, that holds
     /// <see langword="null"/> where its declaration does not allow it, or that gives a Map key
-    /// twice. The message names the field.
+    /// twice. An owned value is checked as if each of its fields were set again, so one made
+    /// invalid through a collection it returned is refused here. The message names the field
+    /// whose value does not match its declaration: for an owned value, the field of the owned
+    /// value, as if that field were set by itself.
     /// </exception>
     public object? this[string fieldName]
     {
@@ -88,7 +99,8 @@ public sealed class LatticeRecord
 
     /// <summary>
     /// Gets the value of a field as <typeparamref name="T"/>; the default value when the
-    /// field is <see langword="null"/>.
+    /// field is <see langword="null"/>. It returns what the indexer returns: a collection, an
+    /// owned value or a byte array is the object the record holds, the same every time.
     /// </summary>
     /// <typeparam name="T">The .NET type of the field value.</typeparam>
     /// <param name="fieldName">The field name declared in the schema.</param>
