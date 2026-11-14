@@ -2,8 +2,9 @@
 
 **Status:** planned and reviewed · 14 November 2026. The owner's answers to the questions
 of the plan and of its reviews are recorded below. Seven independent reviews followed one
-another until the last found nothing that blocks. The owner approves the plan by merging
-this change into `main`. No sprint has started.
+another until the last found nothing that blocks. The owner approved the plan by merging
+it into `main`. The sprints are being carried out; [Status](#status) says where each one
+stands.
 
 ## Goal
 
@@ -686,7 +687,7 @@ Why this order:
 
 | Sprint | Result | Track | Status |
 | --- | --- | --- | --- |
-| S01 | Assemblies, package ownership, the default lane | Light | Not started |
+| S01 | Assemblies, package ownership, the default lane | Light | Done |
 | S02 | Schema: identities, text policies, enums | Full | Not started |
 | S03 | Schema and values: owned types, collections, references | Full | Not started |
 | S04 | Arena | Full | Not started |
@@ -762,6 +763,10 @@ way, when its sprint is prepared.
 6. The brief of S12 has the test author change "the address helpers of the two test
    projects". Since decision O13 there is one, in `Moltaro.Lattice.TestSupport`, and that
    one is changed.
+7. `Moltaro.Lattice.TestSupport` holds two unrelated types at its root, which is fine for
+   two files. The sprint that next adds shared code to it — S22 or S27 at the latest —
+   gives the project folders by responsibility, as `AGENTS.md` asks of every assembly;
+   its brief says so.
 
 ### Stage 0. Ground
 
