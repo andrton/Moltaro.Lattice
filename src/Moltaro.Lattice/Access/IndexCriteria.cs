@@ -23,7 +23,7 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
         {
             var field = fields[part];
             var value = key.Values[part];
-            if (value is null && !field.IsNullable)
+            if (value is null && !field.Declaration.IsNullable)
             {
                 throw new ArgumentException($"Index '{index.Name}': field '{field.Name}' is never null.", nameof(key));
             }

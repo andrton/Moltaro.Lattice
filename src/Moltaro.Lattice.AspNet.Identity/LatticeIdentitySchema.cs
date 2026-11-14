@@ -165,10 +165,10 @@ public static class LatticeIdentitySchema
             {
                 problems.Add($"field '{actual.Name}.{field.Name}' is missing");
             }
-            else if (found.Type != field.Type || found.IsNullable != field.IsNullable)
+            else if (found.Declaration.Type != field.Declaration.Type || found.Declaration.IsNullable != field.Declaration.IsNullable)
             {
-                var nullable = field.IsNullable ? "nullable " : "";
-                problems.Add($"field '{actual.Name}.{field.Name}' must be a {nullable}{field.Type}");
+                var nullable = field.Declaration.IsNullable ? "nullable " : "";
+                problems.Add($"field '{actual.Name}.{field.Name}' must be a {nullable}{field.Declaration.Type}");
             }
         }
 

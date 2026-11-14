@@ -49,15 +49,15 @@ internal sealed class EntityBinding<TEntity>
 
         foreach (var field in entityType.Fields)
         {
-            var expected = field.IsNullable && field.ValueType.IsValueType
-                ? typeof(Nullable<>).MakeGenericType(field.ValueType)
-                : field.ValueType;
+            var expected = field.Declaration.IsNullable && field.Declaration.ValueType.IsValueType
+                ? typeof(Nullable<>).MakeGenericType(field.Declaration.ValueType)
+                : field.Declaration.ValueType;
 
             var property = type.GetProperty(field.Name);
             if (property is null || property.PropertyType != expected || property.GetGetMethod() is null || property.SetMethod is null)
             {
-                var nullable = field.IsNullable ? "nullable " : "";
-                throw BindingFailed($"{type.Name} needs a public {nullable}{field.ValueType.Name} property '{field.Name}' with get and set, as entity type '{entityType.Name}' declares.");
+                var nullable = field.Declaration.IsNullable ? "nullable " : "";
+                throw BindingFailed($"{type.Name} needs a public {nullable}{field.Declaration.ValueType.Name} property '{field.Name}' with get and set, as entity type '{entityType.Name}' declares.");
             }
 
             var member = Expression.Property(entity, property);

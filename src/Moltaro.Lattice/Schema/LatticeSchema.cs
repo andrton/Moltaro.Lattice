@@ -3,9 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A compiled schema: the validated entity types of one database with everything resolved
-/// that the database needs to serve them: names, fields, primary keys and the optional
-/// .NET classes.
+/// A compiled schema: the validated entity types and enum types of one database with
+/// everything resolved that the database needs to serve them: identities, names, fields,
+/// primary keys, indexes, the string encoding and the optional .NET classes.
 /// </summary>
 /// <remarks>
 /// Compile a JSON descriptor once with <see cref="Compile"/>, then either use the result
@@ -27,11 +27,48 @@ public sealed class LatticeSchema
             .ToDictionary(entityType => entityType.ClrTypeName!, StringComparer.Ordinal);
     }
 
-    /// <summary>The version number declared by the descriptor.</summary>
+    /// <summary>
+    /// The catalog version: the version number declared by the descriptor. It is not part of
+    /// <see cref="Fingerprint"/>.
+    /// </summary>
     public int Version { get; }
+
+    /// <summary>
+    /// How the text of the database is encoded in storage: one encoding for every field.
+    /// <see cref="LatticeStringEncodingEnum.Utf8"/> when the descriptor does not name one.
+    /// </summary>
+    public LatticeStringEncodingEnum StringEncoding =>
+        throw new NotSupportedException("The string encoding of a schema is not implemented yet.");
 
     /// <summary>All entity types in declaration order.</summary>
     public IReadOnlyList<LatticeEntityType> EntityTypes { get; }
+
+    /// <summary>All enum types in declaration order; empty when the descriptor declares none.</summary>
+    public IReadOnlyList<LatticeEnumType> EnumTypes =>
+        throw new NotSupportedException("Enum types are not implemented yet.");
+
+    /// <summary>
+    /// The fingerprint of everything in the schema that decides how data is laid out,
+    /// compared and constrained.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It covers the string encoding; for every enum type its identity, underlying type,
+    /// Flags mark and the set of its values; for every entity type its identity and its
+    /// primary key, and for every field the identity, type, nullability, comparison, string
+    /// storage and enum type; for every index its identity, its fields in order and whether
+    /// it is unique.
+    /// </para>
+    /// <para>
+    /// Names, the .NET classes, the catalog version and the order in which the descriptor
+    /// lists things are not part of it: a rename does not change it. Two schemas with the
+    /// same fingerprint agree on everything that decides how the data of a database is
+    /// stored, compared and kept unique. <see cref="LatticeEntityType.LayoutFingerprint"/>
+    /// covers only how the entities of one type are stored.
+    /// </para>
+    /// </remarks>
+    public LatticeFingerprint Fingerprint =>
+        throw new NotSupportedException("The fingerprint of a schema is not implemented yet.");
 
     /// <summary>Finds an entity type by name.</summary>
     /// <param name="name">The entity type name.</param>
@@ -50,6 +87,13 @@ public sealed class LatticeSchema
         entityType = null;
         return clrType.FullName is { } fullName && _byClrTypeName.TryGetValue(fullName, out entityType);
     }
+
+    /// <summary>Finds an enum type by name.</summary>
+    /// <param name="name">The enum type name.</param>
+    /// <param name="enumType">The enum type, when found.</param>
+    /// <returns><see langword="true"/> when the schema declares the enum type.</returns>
+    public bool TryGetEnumType(string name, [NotNullWhen(true)] out LatticeEnumType? enumType) =>
+        throw new NotSupportedException("Enum types are not implemented yet.");
 
     /// <summary>
     /// Compiles a JSON schema descriptor: parses it, validates it and resolves its entity

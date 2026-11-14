@@ -1,9 +1,9 @@
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A secondary index of an entity type, as declared in the schema: a name, the fields it
-/// covers, in order, and whether it is unique. Entities are found through it by the
-/// values of those fields.
+/// A secondary index of an entity type, as declared in the schema: an identity, a name, the
+/// fields it covers, in order, and whether it is unique. Entities are found through it by
+/// the values of those fields.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,6 +27,12 @@ public sealed class LatticeIndex
         Fields = fields;
         IsUnique = isUnique;
     }
+
+    /// <summary>
+    /// The stable identity of the index within its entity type. It is declared in the
+    /// descriptor, and a rename of the index keeps it.
+    /// </summary>
+    public int Id => throw new NotSupportedException("The identity of an index is not implemented yet.");
 
     /// <summary>The index name, unique within its entity type.</summary>
     public string Name { get; }

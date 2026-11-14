@@ -14,13 +14,13 @@ public sealed class SchemaTests
         Assert.True(schema.TryGetEntityType("User", out var user));
         Assert.Equal("Moltaro.Lattice.Tests.User", user.ClrTypeName);
         Assert.Equal("Id", user.Key.Name);
-        Assert.Equal(LatticeFieldTypeEnum.Int64, user.Key.Type);
+        Assert.Equal(LatticeFieldTypeEnum.Int64, user.Key.Declaration.Type);
         Assert.Equal(["Id", "Name", "Email", "Age", "Enabled"], user.Fields.Select(field => field.Name));
 
         Assert.True(user.TryGetField("Age", out var age));
-        Assert.Equal(LatticeFieldTypeEnum.Int32, age.Type);
-        Assert.Equal(typeof(int), age.ValueType);
-        Assert.True(age.IsNullable);
+        Assert.Equal(LatticeFieldTypeEnum.Int32, age.Declaration.Type);
+        Assert.Equal(typeof(int), age.Declaration.ValueType);
+        Assert.True(age.Declaration.IsNullable);
 
         // A .NET class is optional.
         Assert.True(schema.TryGetEntityType("Setting", out var setting));
@@ -169,7 +169,7 @@ public sealed class SchemaTests
 
         static IEnumerable<string> Describe(LatticeSchema schema) =>
             schema.EntityTypes.SelectMany(entityType => entityType.Fields
-                .Select(field => $"{entityType.Id}:{entityType.Name}:{entityType.ClrTypeName}:{entityType.Key.Name}/{field.Id}:{field.Name}:{field.Type}:{field.IsNullable}")
+                .Select(field => $"{entityType.Id}:{entityType.Name}:{entityType.ClrTypeName}:{entityType.Key.Name}/{field.Id}:{field.Name}:{field.Declaration.Type}:{field.Declaration.IsNullable}")
                 .Concat(entityType.Indexes.Select(index => $"{entityType.Name}/index {index.Name}({string.Join(",", index.Fields.Select(field => field.Name))})")));
     }
 }

@@ -37,8 +37,8 @@ internal static class SchemaBinaryFormat
             {
                 writer.Write(field.Id);
                 writer.Write(field.Name);
-                writer.Write((byte)field.Type);
-                writer.Write(field.IsNullable);
+                writer.Write((byte)field.Declaration.Type);
+                writer.Write(field.Declaration.IsNullable);
             }
 
             writer.Write(entityType.Indexes.Count);

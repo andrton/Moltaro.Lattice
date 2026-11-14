@@ -1,16 +1,16 @@
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A field of an entity type, as declared in the schema.
+/// A field of an entity type, as declared in the schema: its identity, its name and its
+/// declaration.
 /// </summary>
 public sealed class LatticeField
 {
-    internal LatticeField(int id, string name, LatticeFieldTypeEnum type, bool isNullable, int ordinal)
+    internal LatticeField(int id, string name, LatticeValueDeclaration declaration, int ordinal)
     {
         Id = id;
         Name = name;
-        Type = type;
-        IsNullable = isNullable;
+        Declaration = declaration;
         Ordinal = ordinal;
     }
 
@@ -23,14 +23,12 @@ public sealed class LatticeField
     /// </summary>
     public string Name { get; }
 
-    /// <summary>The declared type.</summary>
-    public LatticeFieldTypeEnum Type { get; }
-
-    /// <summary>Whether the field accepts <see langword="null"/>.</summary>
-    public bool IsNullable { get; }
-
-    /// <summary>The .NET type of a non-null value of the field.</summary>
-    public Type ValueType => FieldTypes.ValueType(Type);
+    /// <summary>
+    /// What the field holds: its type, whether it accepts <see langword="null"/>, the
+    /// comparison and storage of a String and the enum type of an Enum, and the .NET type
+    /// of its values.
+    /// </summary>
+    public LatticeValueDeclaration Declaration { get; }
 
     // Position of the field's value inside a stored record.
     internal int Ordinal { get; }

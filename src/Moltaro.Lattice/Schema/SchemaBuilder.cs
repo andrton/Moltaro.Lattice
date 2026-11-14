@@ -28,7 +28,9 @@ internal static class SchemaBuilder
                 throw Invalid($"field {draft.Id} of entity type '{name}' has no name.");
             }
 
-            if (!Enum.IsDefined(draft.Type))
+            // The present descriptor form declares no enum types, so no field can be of type
+            // Enum; it stays an unknown type, as it was before that type existed.
+            if (!Enum.IsDefined(draft.Type) || draft.Type == LatticeFieldTypeEnum.Enum)
             {
                 throw Invalid($"field '{name}.{draft.Name}' has an unknown type.");
             }
@@ -38,7 +40,17 @@ internal static class SchemaBuilder
                 throw Invalid($"field '{name}.{draft.Name}' (id {draft.Id}) is declared twice.");
             }
 
-            fields[ordinal] = new LatticeField(draft.Id, draft.Name, draft.Type, draft.IsNullable, ordinal);
+            // The present descriptor form declares no text policies: a String field has the
+            // default comparison and storage.
+            var isString = draft.Type == LatticeFieldTypeEnum.String;
+            var declaration = new LatticeValueDeclaration(
+                draft.Type,
+                draft.IsNullable,
+                isString ? LatticeStringComparisonEnum.Ordinal : null,
+                isString ? LatticeStringStorageEnum.Plain : null,
+                enumType: null);
+
+            fields[ordinal] = new LatticeField(draft.Id, draft.Name, declaration, ordinal);
             if (draft.Id == keyFieldId)
             {
                 key = fields[ordinal];
@@ -50,7 +62,7 @@ internal static class SchemaBuilder
             throw Invalid($"entity type '{name}' has no field with the primary key id {keyFieldId}.");
         }
 
-        if (key.IsNullable || !FieldTypes.CanBeKey(key.Type))
+        if (key.Declaration.IsNullable || !FieldTypes.CanBeKey(key.Declaration.Type))
         {
             throw Invalid($"primary key '{name}.{key.Name}' must be a non-nullable integer, String or Guid field.");
         }
@@ -87,7 +99,7 @@ internal static class SchemaBuilder
                 var field = Array.Find(fields, candidate => candidate.Id == draft.FieldIds[part])
                     ?? throw Invalid($"index '{entityName}.{draft.Name}' refers to the field id {draft.FieldIds[part]}, which the entity type does not have.");
 
-                if (field.Type == LatticeFieldTypeEnum.Binary)
+                if (field.Declaration.Type == LatticeFieldTypeEnum.Binary)
                 {
                     throw Invalid($"index '{entityName}.{draft.Name}' covers the Binary field '{field.Name}'; binary fields cannot be indexed.");
                 }
