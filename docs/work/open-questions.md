@@ -31,7 +31,23 @@ in the meantime.
 
 ## Open
 
-None. Every question found so far is answered below.
+### Q27. The schema names a type of the access layer
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S03 |
+| **Question** | The brief of S03 puts `LatticeOwnedValue` into `Moltaro.Lattice.Access`, beside `LatticeRecord`, and has `LatticeValueDeclaration.ValueType` of an Owned position report it. So a type of `Schema` names a type of `Access`, while `Access` is built on `Schema`: two folders of one level depend on each other, which principle 11 of `AGENTS.md` does not allow. Does `LatticeOwnedValue` belong to the namespace of the schema, or is this one reference an exception to record? |
+| **Until answered** | `LatticeValueDeclaration` names `Access.LatticeOwnedValue` in one place, with a comment; the contract and its tests require it |
+| **Decides** | The owner: it is either a change of the contract of S03 or an exception to a rule of `AGENTS.md`. For S03 |
+
+### Q28. Limits that the implementation of S03 set by itself
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, implementation of Epic 1, sprint S03 |
+| **Question** | Three bounds are in the code and in no brief. Declarations nest at most 64 deep — a List of Lists and so on — in a descriptor and in a saved form, so that a deep form cannot overflow the stack; a deeper one is `InvalidSchema`. A saved form whose length of the body is above what an array can hold is refused as damage. And nothing bounds a chain of owned types that each hold the next: compiling, loading and the fingerprints do not recurse, but the walk over a value and the binding of a class go as deep as the chain. Principle 9 of `AGENTS.md` makes a limit an application can observe an option, not a constant. Are these limits of the model, with these values, and is the depth of owned types bounded too? |
+| **Until answered** | The two bounds are constants in the code, tested by the implementer; the depth of owned types is not bounded |
+| **Decides** | The owner, for S03: the first is a rule of the public descriptor |
 
 ## Answered
 
