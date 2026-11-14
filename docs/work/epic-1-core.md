@@ -454,6 +454,19 @@ same code again. *Not chosen:* creating the project when a third copy appears; a
 duplicate that is not removed when it is seen stays. `AGENTS.md` gets the approved rule
 in S01. Shapes S01.
 
+**O14. The coordinator pushes and merges closed sprints.** Decided after S01. The owner
+gave the coordinator of this epic a standing permission: when a sprint is closed and no
+decision of the owner is open, the coordinator pushes its branch, opens the pull request,
+squashes it into `main` once every job of CI has passed, and goes on to the next sprint;
+it reports after the merge. Every pull request is squashed, also that of a sprint on the
+full track: the series contract, tests, implementation, fixes stays on the branch and in
+the pull request. What the coordinator stops for is unchanged and is listed in the
+[development process](process.md#when-to-stop-and-ask-the-owner). A release tag stays the
+owner's. *Not chosen:* the owner merging every sprint by hand, which made the owner a
+relay between two steps that need no decision; a merge commit for a sprint on the full
+track. [Branches and releases](branches.md#who-does-what) has the rule. Shapes every
+sprint from S02 on.
+
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
 `AGENTS.md` on 14 November 2026; every brief below follows it.

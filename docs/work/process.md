@@ -22,9 +22,9 @@ One agent holds one role in a sprint. The separation is the point: nobody checks
 
 | Role | Does | Does not |
 | --- | --- | --- |
-| **Owner** (a person) | Approves the epic plan and every change of the contract; decides escalations; pushes | — |
+| **Owner** (a person) | Approves the epic plan and every change of the contract; decides escalations; pushes and merges, or gives the coordinator a standing permission to | — |
 | **Planner** | Writes the epic document: goal, scope, requirements, the sprints, and the contract of every sprint, stage by stage | Implement |
-| **Coordinator** | Runs an approved epic sprint by sprint: assigns agents, runs the checks, reviews, decides disputes, keeps the epic document current | Write production code or tests |
+| **Coordinator** | Runs an approved epic sprint by sprint: assigns agents, runs the checks, reviews, decides disputes, keeps the epic document current; with the owner's standing permission, pushes and merges a closed sprint | Write production code or tests |
 | **Contract author** | Puts the contract of a sprint into code: the public types and members the brief names, with their documentation, refusing until they are implemented | Design the contract: a name or a signature the brief does not give goes back to the planner. Write the tests of that sprint or implement it |
 | **Test author** | Writes the tests of a sprint from its brief and contract, before the implementation | Implement that sprint |
 | **Implementer** | Makes the tests of the sprint pass | Change what the tests assert; change the contract |
@@ -156,10 +156,12 @@ goes on.
 ## Commits
 
 - A sprint is a short series of commits in this order: contract, tests, implementation,
-  fixes. They are not squashed, so that "tests first" stays visible in the history.
+  fixes. On the branch they are not squashed, so that "tests first" stays visible in the
+  pull request; the merge squashes them into one commit of `main`.
 - The subject names the epic and the sprint: `Epic 2, sprint 3: tests for finding a user by email`.
 - No agent attribution lines, as `AGENTS.md` says.
-- Commits stay local. Nothing is pushed without the owner's instruction.
+- Commits stay local. Nothing is pushed without the owner's instruction or standing
+  permission.
 - One branch per sprint, cut from `main` and merged back through a pull request when the
   sprint closes. [Branches and releases](branches.md) has the names, the merge rules and
   what `main` refuses.
@@ -171,7 +173,9 @@ goes on.
 - Three review rounds did not close the findings.
 - A dispute the coordinator cannot settle.
 - Anything destructive, or anything that leaves this repository: a push, a pull request,
-  a merge, a release tag.
+  a merge, a release tag. A standing permission of the owner, as
+  [branches and releases](branches.md#who-does-what) describes it, covers the push, the
+  pull request and the merge of a closed sprint; nothing covers a release tag.
 
 ## Where the state lives
 
