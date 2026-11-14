@@ -2,8 +2,9 @@ namespace Moltaro.Lattice.Tests;
 
 // A field of an enum type holds the underlying integer: a record holds that integer, and a
 // property of a bound class is either that integer or a .NET enum with the same underlying
-// type. A .NET enum that has two names for one value binds only when the schema declares that
-// value, with its canonical name.
+// type. The .NET enum agrees with the enum type in its members and its Flags mark as well, see
+// DotNetEnumAgreementTests: one that has two names for one value binds only when the schema
+// declares both names, one of them canonical.
 public sealed class EnumBindingTests
 {
     private enum JobStateEnum : byte
