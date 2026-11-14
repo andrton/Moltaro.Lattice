@@ -222,6 +222,10 @@ Writing code:
 - Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
   and is not copied between them. That project is never shipped and contains no tests.
   What only one test project uses stays in that project.
+- A test project is organized like a library: a folder is a namespace and one area of
+  behavior, and the tests of an area sit together with the schemas and helpers that only
+  they use. The root of a test project holds what the whole project shares, never a list
+  of every test class.
 - A child may lag. A test waits through a session or a position; it does not assume, and
   it does not sleep where a deterministic way exists.
 - A feature that is not implemented has its tests written and marked
