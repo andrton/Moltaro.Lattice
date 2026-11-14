@@ -514,7 +514,10 @@ sprint closes, and all of them are gone through with the owner when the epic clo
 
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
-`AGENTS.md` on 14 November 2026; every brief below follows it.
+`AGENTS.md` on 14 November 2026; every brief below follows it. By the owner's answer to
+Q28 of the [open questions](open-questions.md) it speaks of a running instance: a rule of
+the schema language, such as the depth of a declaration, is fixed and the same in every
+process, and principle 9 says so since S03.
 
 **The exceptions register.** A departure from a rule of `AGENTS.md` is recorded in
 [exceptions to the rules](exceptions.md) with its reason: entered when the owner approves

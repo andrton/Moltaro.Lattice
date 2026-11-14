@@ -87,8 +87,10 @@ These hold across the contract, the placeholder and the future engine.
 9. **Waiting is finite and outside locks.** No lock is held across I/O or an `await`.
    Every wait has a timeout and honors cancellation. A timeout or a limit that an
    application can observe is an option with a default, validated when the instance
-   opens; it is never a constant in the code. A type that takes more than one lock
-   documents the order.
+   opens; it is never a constant in the code. This speaks of a running instance. What a
+   schema may declare is a rule of the schema language: it is fixed, stated in the
+   contract and the same in every process, because a schema has to mean the same on every
+   node. A type that takes more than one lock documents the order.
 10. **One instance, one database.** Instances are independent; an application may have
     several. No static mutable state, except where a comment says why.
 11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
