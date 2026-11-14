@@ -1210,9 +1210,10 @@ entity types whose layout fingerprint differs.
   changes, the layout fingerprint of the entity type that holds the collection does not
   change and the fingerprint of the schema does. A record rebuilds a collection it is
   given, at every depth: a change of the caller's collection, or of a collection inside
-  it, after it was set is not seen through the record. A `LatticeOwnedValue` is held as
-  given: a change made to it after it was set into a record, or into a collection of a
-  record, is seen through the record. A record made invalid through a collection it
+  it, after it was set is not seen through the record. (Under discussion with the owner,
+  not to be tested yet: a `LatticeOwnedValue` is held as given: a change made to it after
+  it was set into a record, or into a collection of a record, is seen through the
+  record.) A record made invalid through a collection it
   returned, such as a null added where none is allowed, is refused with
   `ValidationFailed` when it is written through a set or added to a write batch. A write
   through a set validates the object or the record before it is refused as not
@@ -1495,6 +1496,11 @@ of its target: when that key is a String compared without case, the Map or the S
 ignores case too. Nothing is added to a fingerprint for it. The layout fingerprint never
 covers a comparison, and the fingerprint of the schema already covers the comparison of
 the target's key and the identity of the target.
+
+*One point of this paragraph is under discussion with the owner and binds nobody yet:
+whether a `LatticeOwnedValue` and a byte array are held as they are given, as written
+below, or copied. No test and no documentation states either until the answer is entered
+here. The rest stands.*
 
 What a record holds of what it is given. A collection is rebuilt: the record never holds
 the caller's collection object, and the collections inside it are rebuilt in the same
