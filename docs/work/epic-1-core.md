@@ -1350,9 +1350,14 @@ of order, both made in this branch:
 - The folder `Schema` of the contract assembly holds three layers after this sprint: the
   public model, the compilation of drafts into it, and the encodings of a schema. After
   the implementation commit the implementer moves the internal types into
-  `Schema/Compilation` (drafts, builders and their checks) and `Schema/Encoding` (the
-  reader of the descriptor, the binary form, the canonical encoding of the fingerprints),
-  in a commit of its own that changes places and `namespace` lines only. The public types
+  `Schema/Compilation` (drafts, builders and their checks, and the canonical encoding of
+  the fingerprints, which the builder computes) and `Schema/Serialization` (the reader of
+  the descriptor and the binary form, which both produce drafts and call the builder), in
+  a commit of its own that changes places and `namespace` lines only. So the two
+  sub-folders depend in one direction, `Serialization` on `Compilation`; the first
+  wording of this item had the fingerprints with the readers, which would have made the
+  two depend on each other. The folder `Access` is looked at in the same way in that
+  commit. The public types
   stay in `Moltaro.Lattice.Schema`, which is their namespace by the contract, with the
   internal types the model itself holds. Principle 11 of `AGENTS.md` says how a folder
   and its sub-folders depend on each other.
