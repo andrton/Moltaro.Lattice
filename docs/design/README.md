@@ -63,7 +63,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Historical MemoryOnly proposal](first-prototype.md) | Isolated experiment scope; superseded as the production milestone plan |
 | [Storage and maintenance](storage-and-maintenance.md) | Lifecycle and operational requirements; owns the diagnostics scope (Q18). Its open-choice notes predate the milestone contract |
 | [Technical references](references.md) | Public sources supporting the design |
-| [Example schema](examples/settings.schema.example.json) | Illustrative descriptor, not a supported format |
+| [Example schema](examples/settings.schema.example.json) | Illustrative descriptor in the form decided on 14 November 2026 (`EntityTypes`, an `Id` on every index); the contract adopts that form in Epic 1, sprint S02, and until then the code reads `Tables` |
 | [Public distribution](public-distribution.md) | Public source boundary, excluded private material and experiment prerequisites |
 
 Decision records own product contracts; the register owns their status. The architecture

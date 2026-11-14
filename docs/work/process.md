@@ -9,9 +9,12 @@ whoever plans an epic, coordinates its sprints or reviews a sprint.
 | Track | For | How |
 | --- | --- | --- |
 | **Full** | Changes to the core library and to the public contract | Everything below |
-| **Light** | Documentation, samples, build files, small fixes that change no behavior | One agent, its own review, the usual checks |
+| **Light** | Documentation, samples, build files, small fixes that change no behavior | One agent, the usual checks, and an independent review |
 
 The coordinator picks the track for each sprint and the plan records it. When in doubt, full.
+
+Every sprint, on either track, is reviewed by an independent reviewer, and the review
+repeats after the fixes until it finds nothing that blocks; see [Review](#review).
 
 ## Roles
 
@@ -20,8 +23,9 @@ One agent holds one role in a sprint. The separation is the point: nobody checks
 | Role | Does | Does not |
 | --- | --- | --- |
 | **Owner** (a person) | Approves the epic plan and every change of the contract; decides escalations; pushes | — |
-| **Planner** | Writes the epic document: goal, scope, requirements, the contract, the sprints | Implement |
+| **Planner** | Writes the epic document: goal, scope, requirements, the sprints, and the contract of every sprint, stage by stage | Implement |
 | **Coordinator** | Runs an approved epic sprint by sprint: assigns agents, runs the checks, reviews, decides disputes, keeps the epic document current | Write production code or tests |
+| **Contract author** | Puts the contract of a sprint into code: the public types and members the brief names, with their documentation, refusing until they are implemented | Design the contract: a name or a signature the brief does not give goes back to the planner. Write the tests of that sprint or implement it |
 | **Test author** | Writes the tests of a sprint from its brief and contract, before the implementation | Implement that sprint |
 | **Implementer** | Makes the tests of the sprint pass | Change what the tests assert; change the contract |
 | **Independent reviewer** | Reviews the result against the brief, with no part in producing it | Fix what it finds |
@@ -39,19 +43,41 @@ with one brief per sprint. A brief has to be enough for an agent that knows noth
 - **Out of scope** — what the sprint deliberately leaves alone.
 - **Track** — full or light.
 
+**The contract is written stage by stage.** An epic of many sprints is divided into
+stages, and every sprint has its brief from the start. For the sprints of the first
+stages, which the plan names, the brief gives the types and members exactly, with their
+signatures. For a later stage
+it says what the contract has to be able to do, and the planner writes the types and
+members into those briefs before the stage begins, with what the earlier stages have
+taught. The owner approves the contract of each stage before its first sprint starts. A
+sprint never starts from a brief whose contract is not written out and approved: an
+interface designed twenty sprints ahead would be changed anyway, and every change of a
+contract goes through the owner.
+
+For a sprint on an engine mechanism that has no public surface, the contract is the
+internal types its tests address; they are named in the brief and put into code in the
+same way.
+
 Before any sprint starts:
 
-1. An independent reviewer reviews the plan the way a sprint is reviewed. A wrong plan is
+1. An independent reviewer reviews the plan the way a sprint is reviewed, and reviews it
+   again after the corrections, until no P1, P2 or P3 finding is left. A wrong plan is
    the most expensive mistake, and it is the cheapest to catch here.
-2. The owner approves the plan.
+2. The owner approves the plan, and with it the contracts of the first stages.
+
+Before a later stage starts, the planner completes the contracts of its sprints, an
+independent reviewer reviews them as the plan was reviewed, until no P1, P2 or P3 finding
+is left, and the owner approves them. The coordinator does not start the first sprint of
+a stage without that approval.
 
 If a decision record the plan depends on changes while the epic runs, the coordinator
 stops and has the plan corrected before the next sprint.
 
 ## A sprint on the full track
 
-1. **Contract.** The public types of the sprint are added with their documentation; what
-   is not implemented throws `NotSupportedException`. The build is green. One commit.
+1. **Contract.** The contract author adds the public types of the sprint with their
+   documentation, exactly as the brief names them; what is not implemented throws
+   `NotSupportedException`. The build is green. One commit.
 2. **Tests.** The test author writes the tests against the contract and marks those that
    cannot pass yet as skipped, with one shared reason. The sample of intended use is
    written too. The build is green and nothing fails. One commit.
@@ -62,7 +88,8 @@ stops and has the plan corrected before the next sprint.
    samples. An agent's report that the checks passed is not a check.
 5. **Review.** The coordinator reviews, and an independent reviewer reviews.
 6. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
-   only what changed and what was still open.
+   only what changed and what was still open. Review and fixes repeat until an
+   independent review ends with no P1, P2 or P3 finding.
 7. **Documents.** The coordinator compares `README.md`, the
    [architecture](../design/architecture.md) and the documents they point to with what
    the sprint delivered: what exists and what is planned, names, limits, described
@@ -78,6 +105,17 @@ the product documentation.
 
 A test that turns out to be wrong is changed by the test author, or by the coordinator,
 with the reason in the commit message. Never by the implementer on its own.
+
+**Edits that state nothing new.** A sprint can force edits on what already exists: a
+member that was renamed is used under its new name, a descriptor is written in a new
+form, a helper names another class. Such an edit is made by whoever makes the commit that
+would otherwise break the build or a test — the contract author, the test author or the
+implementer — in that same commit, in tests and samples as well, so that the build stays
+green after every step. When the commit of the contract removes a member in favour of
+another, the new one works at once for what already exists, so that the tests that read
+it still pass; this is the one case in which a member of a contract commit does more
+than refuse. Such an edit never changes what a test asserts. The brief names each such
+edit, and the reviewers check that nothing else was changed under this rule.
 
 ## Review
 
@@ -109,8 +147,11 @@ A finding that names no rule and no failure is P4. A reviewer does not widen the
 **Disputes.** The implementer may contest a finding, with its reason. The coordinator
 decides. What the coordinator cannot decide goes to the owner.
 
-**Limit.** Three rounds of review and fixes. If P1, P2 or P3 findings are still open after
-the third, the coordinator stops and escalates.
+**Rounds.** Review and fixes repeat for as long as an independent review finds a P1, P2
+or P3. A sprint or a plan is never closed on its author's word that a finding was fixed:
+the fix is reviewed. After the third round with such findings still open, the coordinator
+stops and reports to the owner what keeps coming back; the owner decides how the cycle
+goes on.
 
 ## Commits
 

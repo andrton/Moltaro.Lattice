@@ -44,3 +44,4 @@ Working documents:
 - [Current work and epics](work/README.md)
 - [Development process](work/process.md): roles, sprints, review and severity of findings
 - [Branches and releases](work/branches.md): where work is committed, what `main` refuses, how a version is released
+- [Exceptions to the rules](work/exceptions.md): every place where the project departs from a rule of `AGENTS.md`, and why

@@ -34,6 +34,15 @@ and writes to that dataset. Do not require online mixed-layout compatibility in
 the first version. The exact scope of affected types within the database still needs
 definition; this does not promise an independent upgrade for each field or child.
 
+**Scope confirmed by the owner on 14 November 2026:** as the
+[milestone contract](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration)
+specifies. On the master all writes pause, also those to unaffected types, because the
+journal has to be drained to one fixed position; reads of unaffected types continue
+there. Every child reloads fully, and its reads wait within the reload bound. A
+migration is planned as a stop of writes for the whole database. Migration is for a
+Durable master only: a MemoryOnly master has nothing saved to convert, and its schema is
+changed by opening it with the new one.
+
 Temporary dataset unavailability does not require terminating the host process.
 A maintenance state can stop admission to affected data and drain active readers
 before conversion. This is not a reader/writer lock held during disk or network

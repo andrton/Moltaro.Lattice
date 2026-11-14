@@ -311,7 +311,9 @@ code. This decision adds no instantaneous global invalidation or synchronized sn
 The old master must be stopped/prevented from competing before replacement activation,
 as required by the accepted restore destination. A new history ID identifies state;
 it does not select or elect a master. Q15 uses a configured URL and environment-owned
-master lifecycle, without a fencing or takeover subsystem. A restored older branch
+master lifecycle, without a takeover subsystem; since 14 November 2026 the engine itself
+lets only one master work with a store, by a leadership taken at open, and the
+activation of a restored store takes that leadership too. A restored older branch
 must not merge discarded writes from a child.
 
 - **Reads:** ordinary local reads keep their current path. Each affected child has

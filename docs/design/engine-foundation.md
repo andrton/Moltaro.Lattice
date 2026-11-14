@@ -388,7 +388,7 @@ open-mechanism notes in this overview must be read against that subsequent speci
 | Writes | Root reservations, concurrent preparation, ordered commit/publication, full WriteBatch boundaries and concrete operation-result protocol; verify all failure transitions |
 | Persistence | Independent binary roots in 256-byte units, transactional base/cursor/journal, receipt retirement and offline recovery; integrated crash tests remain required |
 | Replication | Framed TCP, fenced capture/remapping, ordered applied ACK, bounded tail/full reload and session dependencies; real multi-process tests remain required |
-| Schema | Stable IDs/layouts, typed/dynamic binding and explicit disk-shadow migration with paused affected access; implement compatibility/recovery checks |
+| Schema | Stable IDs/layouts, typed/dynamic binding and explicit disk-shadow migration with all writes paused and affected types unavailable; implement compatibility/recovery checks |
 | Operations | Diagnostic-only API, infrastructure backups and explicit restore activation; deployment/resource tests remain required |
 
 The architecture specification enables planning; no consumer blocker remains.
