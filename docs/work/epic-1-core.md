@@ -443,6 +443,16 @@ instance budget; when it is full new writes are refused, and an unexpired outcom
 never dropped. The time limit of a traversal counts only time inside the engine, not the
 time the caller spends between two items. Shapes S26, S08.
 
+**O13. Code shared by the test projects has a project of its own.** Decided while S01 was
+reviewed. `Moltaro.Lattice.TestSupport` is a library that is never shipped and holds no
+tests; a test project references it for code that two or more test projects need, and
+such code is not copied between them. The review of S01 found a helper of the dependency
+tests in two test projects; two more helpers were already copied between the tests of the
+core and those of dependency injection; and the tests of S22, S27 and S35 will need the
+same code again. *Not chosen:* creating the project when a third copy appears; a
+duplicate that is not removed when it is seen stays. `AGENTS.md` gets the approved rule
+in S01. Shapes S01.
+
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
 `AGENTS.md` on 14 November 2026; every brief below follows it.
@@ -749,6 +759,9 @@ way, when its sprint is prepared.
    implementation commit of S12 the implementer makes the engine project packable and
    corrects the sentence of `README.md` that names the published packages. The brief of
    S12 does not list this edit; the coordinator enters it there when S12 is prepared.
+6. The brief of S12 has the test author change "the address helpers of the two test
+   projects". Since decision O13 there is one, in `Moltaro.Lattice.TestSupport`, and that
+   one is changed.
 
 ### Stage 0. Ground
 
@@ -800,6 +813,27 @@ Text approved for the first rule of "Tests And Samples":
 > how the code happens to be built. Two programs that are never shipped, the node program
 > of the cluster tests and the measurement program, have the same access under the same
 > condition.
+
+**Added by decision O13, while the sprint was reviewed.** New project
+`Moltaro.Lattice.TestSupport`, in the solution: a library that is not packed, holds no
+tests and is referenced by the test projects that need it. It takes the helpers of the
+dependency tests of this sprint, and the two helpers that `TestData` of
+`Moltaro.Lattice.Tests` and `TestApp` of `Moltaro.Lattice.DependencyInjection.Tests`
+both had: the new address and the wait for a condition. Their uses move to the shared
+code by the rule on edits that state nothing new, P10, and no assertion changes: in
+`Moltaro.Lattice.Tests` the classes `ConsistencyTests`, `DynamicSetTests`, `IndexTests`,
+`MasterAndChildTests`, `OpeningAndClosingTests`, `UniqueIndexTests`, `WriteBatchTests`
+and `TestData`; in `Moltaro.Lattice.DependencyInjection.Tests` the classes
+`DependencyInjectionTests` and `TestApp`. A use the build finds outside this list is
+reported to the coordinator, who enters it here, and is then edited in the same way. The
+layout tables of `AGENTS.md` and `README.md` name the project, and "Tests And Samples"
+of `AGENTS.md` gets the text below, word for word, after the rule on the public API.
+
+Text approved by the owner on 14 November 2026:
+
+> Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
+> and is not copied between them. That project is never shipped and contains no tests.
+> What only one test project uses stays in that project.
 
 ### Stage 1. Schema
 
