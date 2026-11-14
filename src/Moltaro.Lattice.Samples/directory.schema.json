@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Tables": [
+  "EntityTypes": [
     {
       "Id": 1,
       "Name": "User",
@@ -14,8 +14,8 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByEmail", "Fields": [5] },
-        { "Name": "ByDepartmentAndName", "Fields": [3, 2] }
+        { "Id": 1, "Name": "ByEmail", "Fields": [5] },
+        { "Id": 2, "Name": "ByDepartmentAndName", "Fields": [3, 2] }
       ]
     },
     {
@@ -30,7 +30,7 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "BySectionAndName", "Fields": [2, 3] }
+        { "Id": 1, "Name": "BySectionAndName", "Fields": [2, 3] }
       ]
     }
   ]

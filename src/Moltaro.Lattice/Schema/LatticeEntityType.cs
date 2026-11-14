@@ -11,7 +11,7 @@ public sealed class LatticeEntityType
     private readonly Dictionary<string, LatticeField> _fieldsByName;
     private readonly Dictionary<string, LatticeIndex> _indexesByName;
 
-    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes)
+    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes, LatticeFingerprint layoutFingerprint)
     {
         Id = id;
         Name = name;
@@ -19,6 +19,7 @@ public sealed class LatticeEntityType
         Fields = fields;
         Key = key;
         Indexes = indexes;
+        LayoutFingerprint = layoutFingerprint;
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
         _indexesByName = indexes.ToDictionary(index => index.Name, StringComparer.Ordinal);
     }
@@ -57,8 +58,7 @@ public sealed class LatticeEntityType
     /// alike; when it differs, the entities of that type have to be converted.
     /// <see cref="LatticeSchema.Fingerprint"/> covers more.
     /// </remarks>
-    public LatticeFingerprint LayoutFingerprint =>
-        throw new NotSupportedException("The layout fingerprint of an entity type is not implemented yet.");
+    public LatticeFingerprint LayoutFingerprint { get; }
 
     /// <summary>Finds a field by name.</summary>
     /// <param name="name">The field name.</param>

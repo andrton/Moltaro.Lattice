@@ -21,8 +21,9 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeIndex
 {
-    internal LatticeIndex(string name, IReadOnlyList<LatticeField> fields, bool isUnique)
+    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeField> fields, bool isUnique)
     {
+        Id = id;
         Name = name;
         Fields = fields;
         IsUnique = isUnique;
@@ -32,7 +33,7 @@ public sealed class LatticeIndex
     /// The stable identity of the index within its entity type. It is declared in the
     /// descriptor, and a rename of the index keeps it.
     /// </summary>
-    public int Id => throw new NotSupportedException("The identity of an index is not implemented yet.");
+    public int Id { get; }
 
     /// <summary>The index name, unique within its entity type.</summary>
     public string Name { get; }

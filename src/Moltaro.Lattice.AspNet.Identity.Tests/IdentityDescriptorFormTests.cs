@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.AspNet.Identity.Tests;
 // types and index identities, and the check of a schema compiled from it.
 public sealed class IdentityDescriptorFormTests
 {
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Default_descriptor_lists_entity_types_and_gives_every_index_an_identity()
     {
         var json = LatticeIdentitySchema.CreateDescriptor<IdentityUser, IdentityRole>();
@@ -44,7 +44,7 @@ public sealed class IdentityDescriptorFormTests
         LatticeIdentitySchema.Validate<IdentityUser, IdentityRole>(schema);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Default_descriptor_has_the_same_fingerprints_whatever_classes_it_is_bound_to()
     {
         var standard = LatticeSchema.Compile(LatticeIdentitySchema.CreateDescriptor<IdentityUser, IdentityRole>());

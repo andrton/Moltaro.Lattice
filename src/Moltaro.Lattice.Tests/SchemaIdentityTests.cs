@@ -41,7 +41,7 @@ public sealed class SchemaIdentityTests
         }
         """;
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Identities_are_unique_within_their_scope_only()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -63,7 +63,7 @@ public sealed class SchemaIdentityTests
         Assert.Equal(int.MaxValue, line.Id);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // An entity type: zero, negative, missing, the identity of another entity type.
     [InlineData("'Id': 1, 'Name': 'Car',", "'Id': 0, 'Name': 'Car',", "Car")]
     [InlineData("'Id': 1, 'Name': 'Car',", "'Id': -1, 'Name': 'Car',", "Car")]
@@ -94,7 +94,7 @@ public sealed class SchemaIdentityTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // Larger than an int holds.
     [InlineData("{ 'Id': 4, 'Name': 'Seats',", "{ 'Id': 2147483648, 'Name': 'Seats',")]
     [InlineData("{ 'Id': 2, 'Name': 'ByPaint',", "{ 'Id': 4294967296, 'Name': 'ByPaint',")]

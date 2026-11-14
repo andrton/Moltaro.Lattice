@@ -12,7 +12,7 @@ public sealed class LayoutFingerprintTests
     // the platform.
     private const string RecordedAccountLayoutFingerprint = "not recorded yet: the test author records it from the first implementation";
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // The string encoding.
     [InlineData("'StringEncoding': 'Utf8',", "'StringEncoding': 'Utf16',")]
     // A field: its identity, type, nullability, string storage.
@@ -35,7 +35,7 @@ public sealed class LayoutFingerprintTests
         Assert.NotEqual(original.LayoutFingerprint, changed.LayoutFingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // A comparison.
     [InlineData("'Comparison': 'Ordinal',", "'Comparison': 'OrdinalIgnoreCase',")]
     // An index: added, removed, its identity, its fields, its Unique mark.
@@ -67,7 +67,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(original.LayoutFingerprint, changed.LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Change_of_an_enum_type_reaches_the_layout_of_the_entity_types_that_store_it_only()
     {
         var original = FingerprintDescriptor.Compile();
@@ -78,7 +78,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(Note(original).LayoutFingerprint, Note(changed).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Change_of_one_entity_type_leaves_the_layout_of_the_others()
     {
         var original = FingerprintDescriptor.Compile();
@@ -88,7 +88,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(Note(original).LayoutFingerprint, Note(changed).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Order_in_which_the_descriptor_lists_declarations_does_not_change_the_layout_fingerprint()
     {
         var original = FingerprintDescriptor.Compile();
@@ -98,7 +98,7 @@ public sealed class LayoutFingerprintTests
         Assert.Equal(Note(original).LayoutFingerprint, Note(reversed).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Comparison_changes_the_schema_fingerprint_and_not_the_layout_fingerprint()
     {
         // A comparison changes what the schema compares, not how an account is stored.

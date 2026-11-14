@@ -9,7 +9,7 @@ public sealed class FlagsEnumTests
 {
     private const string Access = "{ 'Name': 'Read', 'Value': 1 }, { 'Name': 'Write', 'Value': 2 }, { 'Name': 'Export', 'Value': 4 }, { 'Name': 'ReadWrite', 'Value': 3 }";
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData(0, true)]
     [InlineData(1, true)]
     [InlineData(2, true)]
@@ -33,7 +33,7 @@ public sealed class FlagsEnumTests
         Assert.Equal(isValid, access.IsValid(value));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Flags_type_may_name_the_empty_set_a_combination_and_a_flag_twice()
     {
         var access = EnumSchema.Flags(
@@ -49,7 +49,7 @@ public sealed class FlagsEnumTests
         Assert.False(access.IsValid(4));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // A combination with a bit that no flag declares.
     [InlineData("UInt8", "{ 'Name': 'Read', 'Value': 1 }, { 'Name': 'ReadAndExport', 'Value': 5 }")]
     // Several bits and no flag of its own.
@@ -67,7 +67,7 @@ public sealed class FlagsEnumTests
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Compile(json));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Combination_of_every_bit_of_a_signed_type_may_be_named_when_every_bit_is_declared()
     {
         var bits = EnumSchema.Flags(
@@ -85,7 +85,7 @@ public sealed class FlagsEnumTests
         Assert.False(bits.IsValid(128));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // The sign bit, and the number with the same bits in the width that the type cannot hold.
     [InlineData("Int8", "-128", "128")]
     [InlineData("Int16", "-32768", "32768")]
@@ -112,7 +112,7 @@ public sealed class FlagsEnumTests
         Assert.False(flags.IsValid(outside + 1));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // The high bit, the negative number with the same bits in the width, and the first number
     // beyond the width.
     [InlineData("UInt8", "128", "-128", "256")]
@@ -137,7 +137,7 @@ public sealed class FlagsEnumTests
         Assert.False(flags.IsValid(EnumSchema.Value(beyond) + high));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Enum_type_is_flags_only_when_the_descriptor_says_so()
     {
         // Values that are powers of two do not make an enum type a set of flags.

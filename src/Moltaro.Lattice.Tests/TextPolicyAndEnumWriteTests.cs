@@ -50,7 +50,7 @@ public sealed class TextPolicyAndEnumWriteTests
         }
         """;
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Handle", "Text", "ada")]
     [InlineData("Region", "Text", "north")]
     [InlineData("Alarm", "Level", (byte)1)]
@@ -66,7 +66,7 @@ public sealed class TextPolicyAndEnumWriteTests
         Assert.Empty(set.Enumerate());
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Entity_type_that_states_only_the_default_text_policies_is_written()
     {
         await using var database = await TestData.OpenMasterAsync(schema: LatticeSchema.Compile(Json));
@@ -77,7 +77,7 @@ public sealed class TextPolicyAndEnumWriteTests
         Assert.Equal("Main", notes.Get(1L)!["Text"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Schema_that_declares_the_UTF16_encoding_is_not_writable_yet()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaWithEncoding("Utf16"));
@@ -91,7 +91,7 @@ public sealed class TextPolicyAndEnumWriteTests
         Assert.Empty(notes.Enumerate());
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Schema_that_states_the_default_UTF8_encoding_is_written()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaWithEncoding("Utf8"));

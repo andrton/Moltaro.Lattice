@@ -69,7 +69,7 @@ public sealed class SavedSchemaTests
     //     "PrimaryKey": [1], "Indexes": [ { "Name": "ByText", "Fields": [2] } ] } ] }
     private const string SavedBeforeIdentities = "TUxTQwMAAAABAAAAAQAAAAEAAAAETm90ZQABAAAAAgAAAAEAAAACSWQIAAIAAAAEVGV4dA0AAQAAAAZCeVRleHQAAQAAAAIAAAA=";
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Saving_and_loading_keeps_every_declaration()
     {
         var compiled = LatticeSchema.Compile(Json);
@@ -96,7 +96,7 @@ public sealed class SavedSchemaTests
         Assert.Same(access, accessField.Declaration.EnumType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Loaded_schema_has_the_fingerprints_of_the_compiled_one()
     {
         var compiled = LatticeSchema.Compile(Json);
@@ -112,7 +112,7 @@ public sealed class SavedSchemaTests
             loaded.EntityTypes.Select(entityType => entityType.LayoutFingerprint));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Schema_saved_in_the_form_before_index_identities_does_not_load()
     {
         // It has no identities for its indexes. Nothing is released, so there is nothing to

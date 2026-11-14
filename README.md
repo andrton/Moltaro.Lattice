@@ -29,7 +29,7 @@ type may name the .NET class that represents it; this is optional.
 ```json
 {
   "SchemaVersion": 1,
-  "Tables": [
+  "EntityTypes": [
     {
       "Id": 1,
       "Name": "User",
@@ -112,8 +112,8 @@ secondary indexes in the schema, each with a name and the fields it covers, in o
 
 ```json
 "Indexes": [
-  { "Name": "ByEmail", "Fields": [5] },
-  { "Name": "BySectionAndName", "Fields": [2, 3] }
+  { "Id": 1, "Name": "ByEmail", "Fields": [5] },
+  { "Id": 2, "Name": "BySectionAndName", "Fields": [2, 3] }
 ]
 ```
 
@@ -142,7 +142,7 @@ not implemented yet, so an entity type that declares a unique index cannot be wr
 Several entities can have the same indexed values unless the index says otherwise:
 
 ```json
-{ "Name": "ByEmail", "Fields": [5], "Unique": true }
+{ "Id": 1, "Name": "ByEmail", "Fields": [5], "Unique": true }
 ```
 
 The master then refuses a write that would give a value a second owner, with

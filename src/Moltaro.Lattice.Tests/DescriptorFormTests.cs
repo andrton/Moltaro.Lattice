@@ -34,7 +34,7 @@ public sealed class DescriptorFormTests
         }
         """;
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Descriptor_declares_enum_types_and_entity_types_with_their_identities()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -55,7 +55,7 @@ public sealed class DescriptorFormTests
         Assert.Equal(["Login"], byLogin.Fields.Select(field => field.Name));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Entity_types_are_no_longer_read_from_Tables()
     {
         var json = """{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""";
@@ -65,14 +65,14 @@ public sealed class DescriptorFormTests
         Descriptor.ExpectRefused(json, "'EntityTypes'", "'Tables'");
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Index_has_no_kind()
     {
         // One index serves equality and ranges; there is nothing to choose.
         Descriptor.ExpectRefused(Json, "'Fields': [2], 'Unique': true", "'Fields': [2], 'Unique': true, 'Kind': 'Range'");
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // At the top.
     [InlineData("'SchemaVersion': 2,", "'SchemaVersion': 2, 'Comment': 'not part of the form',")]
     // In an enum type.

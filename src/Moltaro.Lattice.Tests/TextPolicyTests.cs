@@ -31,7 +31,7 @@ public sealed class TextPolicyTests
         }
         """;
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Policies_and_nullability_have_their_defaults_when_the_descriptor_states_none()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -57,7 +57,7 @@ public sealed class TextPolicyTests
         Assert.Null(value.Declaration.EnumType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void String_field_declares_how_it_is_compared_and_how_its_text_is_stored()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -78,7 +78,7 @@ public sealed class TextPolicyTests
         Assert.Equal(LatticeStringComparisonEnum.OrdinalIgnoreCase, tag.Key.Declaration.Comparison);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Utf8", LatticeStringEncodingEnum.Utf8)]
     [InlineData("Utf16", LatticeStringEncodingEnum.Utf16)]
     public void Schema_declares_one_string_encoding_for_the_database(string declared, LatticeStringEncodingEnum expected)
@@ -90,7 +90,7 @@ public sealed class TextPolicyTests
         Assert.Equal(expected, schema.StringEncoding);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // Language-aware comparisons are not part of the model.
     [InlineData("'Comparison': 'OrdinalIgnoreCase', 'StringStorage': 'Dictionary'", "'Comparison': 'InvariantCultureIgnoreCase', 'StringStorage': 'Dictionary'")]
     [InlineData("'Comparison': 'OrdinalIgnoreCase', 'StringStorage': 'Dictionary'", "'Comparison': 'CurrentCulture', 'StringStorage': 'Dictionary'")]
@@ -104,7 +104,7 @@ public sealed class TextPolicyTests
         Descriptor.ExpectRefused(Json, part, replacement);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("{ 'Id': 5, 'Name': 'Priority', 'Type': 'UInt8' }", "{ 'Id': 5, 'Name': 'Priority', 'Type': 'UInt8', 'Comparison': 'OrdinalIgnoreCase' }")]
     [InlineData("{ 'Id': 5, 'Name': 'Priority', 'Type': 'UInt8' }", "{ 'Id': 5, 'Name': 'Priority', 'Type': 'UInt8', 'StringStorage': 'Dictionary' }")]
     public void Text_policy_of_a_field_that_is_not_a_string_is_refused(string part, string replacement)

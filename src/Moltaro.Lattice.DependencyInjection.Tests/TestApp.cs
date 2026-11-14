@@ -20,7 +20,7 @@ internal static class TestApp
     public static readonly LatticeSchema Schema = LatticeSchema.Compile("""
         {
           "SchemaVersion": 1,
-          "Tables": [
+          "EntityTypes": [
             {
               "Id": 1,
               "Name": "User",

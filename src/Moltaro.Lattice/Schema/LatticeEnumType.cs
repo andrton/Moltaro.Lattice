@@ -20,6 +20,13 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeEnumType
 {
+    private readonly IntegerRange _range;
+
+    // The bits a Flags value may have: those of its members. SchemaBuilder has checked that a
+    // member with several bits has only bits of members with one, so these are the declared
+    // flags.
+    private readonly UInt128 _flagBits;
+
     internal LatticeEnumType(int id, string name, LatticeFieldTypeEnum underlyingType, bool isFlags, IReadOnlyList<LatticeEnumMember> members)
     {
         Id = id;
@@ -27,6 +34,13 @@ public sealed class LatticeEnumType
         UnderlyingType = underlyingType;
         IsFlags = isFlags;
         Members = members;
+        _range = IntegerRange.Of(underlyingType);
+        Values = [.. members.Select(member => member.Value).Distinct().Order()];
+
+        foreach (var member in members)
+        {
+            _flagBits |= _range.BitsOf(member.Value);
+        }
     }
 
     /// <summary>The stable identity of the enum type within the schema.</summary>
@@ -53,6 +67,9 @@ public sealed class LatticeEnumType
     /// <summary>The declared members, in declaration order.</summary>
     public IReadOnlyList<LatticeEnumMember> Members { get; }
 
+    // The declared values, each once however many names it has, in ascending numeric order.
+    internal Int128[] Values { get; }
+
     /// <summary>
     /// Whether a value may be stored in a field of this enum type. For an ordinary enum type
     /// it is a declared value. For a Flags enum type it is zero, the empty set, or any
@@ -62,6 +79,17 @@ public sealed class LatticeEnumType
     /// </summary>
     /// <param name="value">The value, as an integer of any width.</param>
     /// <returns><see langword="true"/> when the value is valid.</returns>
-    public bool IsValid(Int128 value) =>
-        throw new NotSupportedException("Validating an enum value is not implemented yet.");
+    public bool IsValid(Int128 value)
+    {
+        // Checked before the bits are taken, so that a value outside the range is never cut
+        // to the width and accepted for the bits that remain.
+        if (!_range.Contains(value))
+        {
+            return false;
+        }
+
+        return IsFlags
+            ? (_range.BitsOf(value) & ~_flagBits) == UInt128.Zero
+            : Array.BinarySearch(Values, value) >= 0;
+    }
 }

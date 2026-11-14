@@ -240,16 +240,7 @@ internal sealed class InMemoryDatabase : ILatticeDatabase, IEntityOperations, IR
     // it to its master and then waits until it has applied the write itself.
     async ValueTask<LatticeWriteResult> IEntityOperations.WriteAsync(WriteKindEnum kind, LatticeEntityType entityType, object key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
-        // The placeholder does not maintain indexes, so it cannot keep a unique one. It
-        // refuses the write rather than accept an entity the declared rule might forbid.
-        foreach (var index in entityType.Indexes)
-        {
-            if (index.IsUnique)
-            {
-                throw new NotSupportedException(
-                    $"Unique indexes are not implemented yet: '{entityType.Name}' declares the unique index '{index.Name}', so it cannot be written.");
-            }
-        }
+        EnsureWritable(entityType);
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -290,6 +281,54 @@ internal sealed class InMemoryDatabase : ILatticeDatabase, IEntityOperations, IR
 
         session?.Advance(outcome.Position);
         return new LatticeWriteResult(outcome.Position, outcome.Changed);
+    }
+
+    // The placeholder keeps values as .NET objects, compares them as .NET does by default and
+    // maintains no index. An entity type that declares what it cannot honor is not written at
+    // all, rather than accepted under other rules than the declared ones: a unique index; a
+    // comparison that ignores case and Dictionary storage, which it would not apply; a field
+    // of an enum type, whose values it would not check; any entity type of a schema that
+    // declares the UTF-16 encoding.
+    private void EnsureWritable(LatticeEntityType entityType)
+    {
+        foreach (var index in entityType.Indexes)
+        {
+            if (index.IsUnique)
+            {
+                throw new NotSupportedException(
+                    $"Unique indexes are not implemented yet: '{entityType.Name}' declares the unique index '{index.Name}', so it cannot be written.");
+            }
+        }
+
+        foreach (var field in entityType.Fields)
+        {
+            var declaration = field.Declaration;
+            if (declaration.Comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase)
+            {
+                throw new NotSupportedException(
+                    $"Comparisons that ignore case are not implemented yet: '{entityType.Name}.{field.Name}' declares OrdinalIgnoreCase, so '{entityType.Name}' cannot be written.");
+            }
+
+            if (declaration.StringStorage == LatticeStringStorageEnum.Dictionary)
+            {
+                throw new NotSupportedException(
+                    $"Dictionary string storage is not implemented yet: '{entityType.Name}.{field.Name}' declares it, so '{entityType.Name}' cannot be written.");
+            }
+
+            if (declaration.Type == LatticeFieldTypeEnum.Enum)
+            {
+                throw new NotSupportedException(
+                    $"Enum fields are not implemented yet: '{entityType.Name}.{field.Name}' is of enum type '{declaration.EnumType!.Name}', so '{entityType.Name}' cannot be written.");
+            }
+        }
+
+        // _schema is set before the database becomes Ready and never changes afterwards, and a
+        // set, through which every write comes, is created only from a Ready database.
+        if (_schema!.StringEncoding != LatticeStringEncodingEnum.Utf8)
+        {
+            throw new NotSupportedException(
+                $"The {_schema.StringEncoding} string encoding is not implemented yet: the schema declares it, so '{entityType.Name}' cannot be written.");
+        }
     }
 
     // --- Positions ---

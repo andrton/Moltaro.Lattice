@@ -17,7 +17,7 @@ internal static class AppSchema
     public static LatticeSchema CompileWith(Action<JsonArray> change)
     {
         var descriptor = JsonNode.Parse(Json)!;
-        change(descriptor["Tables"]!.AsArray());
+        change(descriptor["EntityTypes"]!.AsArray());
         return LatticeSchema.Compile(descriptor.ToJsonString());
     }
 

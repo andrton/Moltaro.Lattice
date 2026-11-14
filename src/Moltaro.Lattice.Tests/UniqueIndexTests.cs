@@ -28,7 +28,7 @@ public sealed class UniqueIndexTests
     private const string SchemaJson = """
         {
           "SchemaVersion": 1,
-          "Tables": [
+          "EntityTypes": [
             {
               "Id": 1,
               "Name": "Account",
@@ -41,9 +41,9 @@ public sealed class UniqueIndexTests
               ],
               "PrimaryKey": [1],
               "Indexes": [
-                { "Name": "ByLogin", "Fields": [2], "Unique": true },
-                { "Name": "ByTenantAndEmail", "Fields": [3, 4], "Unique": true },
-                { "Name": "ByTenant", "Fields": [3] }
+                { "Id": 1, "Name": "ByLogin", "Fields": [2], "Unique": true },
+                { "Id": 2, "Name": "ByTenantAndEmail", "Fields": [3, 4], "Unique": true },
+                { "Id": 3, "Name": "ByTenant", "Fields": [3] }
               ]
             }
           ]

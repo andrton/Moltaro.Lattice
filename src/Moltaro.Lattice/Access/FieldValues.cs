@@ -8,16 +8,19 @@ namespace Moltaro.Lattice.Access;
 internal static class FieldValues
 {
     // Returns the value in the field's exact .NET type. An integer of another width is
-    // accepted when it fits, so that a literal such as 1 works for an Int64 field.
+    // accepted when it fits, so that a literal such as 1 works for an Int64 field, and for an
+    // Enum field, which holds the integer of its enum type.
     public static object Normalize(LatticeField field, object value, string parameterName)
     {
-        var expected = field.Declaration.ValueType;
+        var declaration = field.Declaration;
+        var expected = declaration.ValueType;
         if (value.GetType() == expected)
         {
             return value;
         }
 
-        if (FieldTypes.IsInteger(field.Declaration.Type) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
+        var integerType = declaration.EnumType?.UnderlyingType ?? declaration.Type;
+        if (FieldTypes.IsInteger(integerType) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
         {
             try
             {

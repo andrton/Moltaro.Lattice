@@ -73,7 +73,7 @@ public static class LatticeIdentitySchema
         where TRole : IdentityRole<string>
     {
         var descriptor = JsonNode.Parse(DefaultDescriptor)!;
-        foreach (var table in descriptor["Tables"]!.AsArray())
+        foreach (var table in descriptor["EntityTypes"]!.AsArray())
         {
             var name = table!["Name"]!.GetValue<string>();
             if (name == UserEntityName)

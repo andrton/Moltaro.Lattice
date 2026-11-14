@@ -45,7 +45,7 @@ public sealed class EnumBindingTests
         Halted = Paused,
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Property_of_a_dotnet_enum_binds_to_a_field_of_an_enum_type()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<Job, Account>());
@@ -57,7 +57,7 @@ public sealed class EnumBindingTests
         Assert.Equal(typeof(byte), state.Declaration.ValueType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Property_of_the_underlying_integer_binds_to_a_field_of_an_enum_type()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<JobWithIntegers, Account>());
@@ -65,7 +65,7 @@ public sealed class EnumBindingTests
         Assert.Equal("Job", database.Set<JobWithIntegers>().EntityType.Name);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Dotnet_enum_with_another_underlying_type_does_not_bind()
     {
         await using var wide = await TestData.OpenMasterAsync(schema: SchemaFor<JobWithWideEnum, Account>());
@@ -77,7 +77,7 @@ public sealed class EnumBindingTests
         TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => signed.Set<JobWithSignedEnum>());
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Dotnet_enum_with_two_names_for_one_value_binds_when_the_schema_declares_that_value()
     {
         // The schema declares 1 as Active, its canonical name, and Enabled.
@@ -86,7 +86,7 @@ public sealed class EnumBindingTests
         Assert.Equal("Account", database.Set<Account>().EntityType.Name);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public async Task Dotnet_enum_with_two_names_for_a_value_the_schema_does_not_declare_does_not_bind()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<Job, PausableAccount>());
@@ -95,7 +95,7 @@ public sealed class EnumBindingTests
         TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => database.Set<PausableAccount>());
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Record_holds_the_underlying_integer_of_a_field_of_an_enum_type()
     {
         var schema = SchemaFor<Job, Account>();

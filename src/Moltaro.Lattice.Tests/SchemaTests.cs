@@ -47,22 +47,22 @@ public sealed class SchemaTests
 
     [Theory]
     // A field the entity type does not have.
-    [InlineData("""{ "Name": "ByMissing", "Fields": [99] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByMissing", "Fields": [99] }""")]
     // No fields.
-    [InlineData("""{ "Name": "Empty", "Fields": [] }""")]
+    [InlineData("""{ "Id": 1, "Name": "Empty", "Fields": [] }""")]
     // The same field twice.
-    [InlineData("""{ "Name": "Twice", "Fields": [2, 2] }""")]
+    [InlineData("""{ "Id": 1, "Name": "Twice", "Fields": [2, 2] }""")]
     // No name.
-    [InlineData("""{ "Name": "", "Fields": [2] }""")]
+    [InlineData("""{ "Id": 1, "Name": "", "Fields": [2] }""")]
     // A binary field.
-    [InlineData("""{ "Name": "ByPayload", "Fields": [3] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByPayload", "Fields": [3] }""")]
     // The same index name twice.
-    [InlineData("""{ "Name": "ByName", "Fields": [2] }, { "Name": "ByName", "Fields": [1] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByName", "Fields": [2] }, { "Id": 2, "Name": "ByName", "Fields": [1] }""")]
     public void Invalid_index_declaration_does_not_compile(string indexes)
     {
         var json = $$"""
             {
-              "Tables": [
+              "EntityTypes": [
                 {
                   "Id": 1,
                   "Name": "File",
@@ -134,17 +134,17 @@ public sealed class SchemaTests
     [InlineData("not json")]
     [InlineData("{}")]
     // No field with the primary key id.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [], "PrimaryKey": [1] } ] }""")]
     // Unknown field type.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Text" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Text" } ], "PrimaryKey": [1] } ] }""")]
     // A floating-point field cannot be a primary key.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Float64" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Float64" } ], "PrimaryKey": [1] } ] }""")]
     // A nullable field cannot be a primary key.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64", "Nullable": true } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64", "Nullable": true } ], "PrimaryKey": [1] } ] }""")]
     // The same field name twice.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Id", "Type": "String" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Id", "Type": "String" } ], "PrimaryKey": [1] } ] }""")]
     // The same entity type name twice.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }, { "Id": 2, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }, { "Id": 2, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""")]
     public void Invalid_descriptor_does_not_compile(string json)
     {
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Compile(json));

@@ -8,8 +8,7 @@ namespace Moltaro.Lattice.Samples;
 // decides how the data is stored, compared and kept unique, and one per entity type of how
 // its entities are stored.
 //
-// This shows the intended use. The reader of the descriptor does not read this form yet, so
-// Program.cs does not run this sample yet.
+// This shows the intended use.
 internal static class SchemaDeclarationsSample
 {
     private const string SchemaJson = """

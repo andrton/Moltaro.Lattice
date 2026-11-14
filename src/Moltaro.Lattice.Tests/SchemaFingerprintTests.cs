@@ -15,7 +15,7 @@ public sealed class SchemaFingerprintTests
     // Linux, and passing on both shows that the fingerprint does not depend on the platform.
     private const string RecordedFingerprint = "not recorded yet: the test author records it from the first implementation";
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Same_declarations_give_the_same_fingerprint()
     {
         var first = FingerprintDescriptor.Compile().Fingerprint;
@@ -37,7 +37,7 @@ public sealed class SchemaFingerprintTests
         Assert.Matches("^[0-9a-f]{64}$", first.ToString());
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // The string encoding.
     [InlineData("'StringEncoding': 'Utf8',", "'StringEncoding': 'Utf16',")]
     // An enum type: its identity, its underlying type, its Flags mark, its values.
@@ -76,7 +76,7 @@ public sealed class SchemaFingerprintTests
         Assert.NotEqual(original.Fingerprint, changed.Fingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // A rename of an entity type, a field, an index or an enum member.
     [InlineData("'Name': 'Account',", "'Name': 'Customer',")]
     [InlineData("'Name': 'Login',", "'Name': 'UserName',")]
@@ -107,7 +107,7 @@ public sealed class SchemaFingerprintTests
         Assert.Equal(original.Fingerprint, changed.Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Renaming_an_enum_type_does_not_change_the_fingerprint()
     {
         // The enum type and the field that names it.
@@ -117,13 +117,13 @@ public sealed class SchemaFingerprintTests
         Assert.Equal(FingerprintDescriptor.Compile().Fingerprint, LatticeSchema.Compile(renamed).Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Order_in_which_the_descriptor_lists_declarations_does_not_change_the_fingerprint()
     {
         Assert.Equal(FingerprintDescriptor.Compile().Fingerprint, FingerprintDescriptor.CompileReversed().Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Formatting_of_the_descriptor_does_not_change_the_fingerprint()
     {
         var compact = JsonNode.Parse(FingerprintDescriptor.Json)!.ToJsonString();

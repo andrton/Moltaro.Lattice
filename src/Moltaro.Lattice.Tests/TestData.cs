@@ -32,7 +32,7 @@ internal static class TestData
     public const string SchemaJson = """
         {
           "SchemaVersion": 3,
-          "Tables": [
+          "EntityTypes": [
             {
               "Id": 1,
               "Name": "User",
@@ -46,8 +46,8 @@ internal static class TestData
               ],
               "PrimaryKey": [1],
               "Indexes": [
-                { "Name": "ByEmail", "Fields": [3] },
-                { "Name": "ByAgeAndName", "Fields": [4, 2] }
+                { "Id": 1, "Name": "ByEmail", "Fields": [3] },
+                { "Id": 2, "Name": "ByAgeAndName", "Fields": [4, 2] }
               ]
             },
             {
@@ -71,7 +71,7 @@ internal static class TestData
               ],
               "PrimaryKey": [1],
               "Indexes": [
-                { "Name": "ByPriority", "Fields": [3] }
+                { "Id": 1, "Name": "ByPriority", "Fields": [3] }
               ]
             }
           ]

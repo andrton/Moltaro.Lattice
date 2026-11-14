@@ -41,7 +41,7 @@ public sealed class EnumTypeTests
         }
         """;
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Enum_type_declares_its_underlying_type_and_its_members_in_declaration_order()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -60,7 +60,7 @@ public sealed class EnumTypeTests
             jobState.Members.Select(member => (member.Name, member.Value)));
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Enum_type_is_Int32_and_not_flags_unless_the_descriptor_says_otherwise()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -70,7 +70,7 @@ public sealed class EnumTypeTests
         Assert.False(state.IsFlags);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Every_value_has_exactly_one_canonical_name()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -88,7 +88,7 @@ public sealed class EnumTypeTests
         Assert.True(jobState.Members[0].IsCanonical);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // No canonical name among several.
     [InlineData("{ 'Name': 'Active', 'Value': 1, 'Canonical': true },", "{ 'Name': 'Active', 'Value': 1 },")]
     // Two canonical names for one value.
@@ -98,7 +98,7 @@ public sealed class EnumTypeTests
         Descriptor.ExpectRefused(Json, part, replacement);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Field_of_an_enum_type_holds_its_values_as_its_underlying_integer()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -127,7 +127,7 @@ public sealed class EnumTypeTests
         Assert.Same(status, Assert.Single(byStatus.Fields));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Int8", typeof(sbyte))]
     [InlineData("UInt8", typeof(byte))]
     [InlineData("Int16", typeof(short))]
@@ -149,7 +149,7 @@ public sealed class EnumTypeTests
         Assert.Equal(valueType, status.Declaration.ValueType);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Boolean")]
     [InlineData("Float64")]
     [InlineData("Decimal")]
@@ -163,7 +163,7 @@ public sealed class EnumTypeTests
         Descriptor.ExpectRefused(Json, "'UnderlyingType': 'UInt8'", $"'UnderlyingType': '{underlyingType}'");
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Int8", "-128", "127")]
     [InlineData("UInt8", "0", "255")]
     [InlineData("Int16", "-32768", "32767")]
@@ -181,7 +181,7 @@ public sealed class EnumTypeTests
         Assert.True(code.IsValid(EnumSchema.Value(maximum)));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     [InlineData("Int8", "128")]
     [InlineData("Int8", "-129")]
     [InlineData("UInt8", "256")]
@@ -210,7 +210,7 @@ public sealed class EnumTypeTests
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Compile(json));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // Two members with one name.
     [InlineData("{ 'Name': 'Done', 'Value': 20 }", "{ 'Name': 'New', 'Value': 20 }")]
     // A member without a name, or with an empty one.
@@ -225,7 +225,7 @@ public sealed class EnumTypeTests
         Descriptor.ExpectRefused(Json, part, replacement);
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // A field of type Enum that names no enum type.
     [InlineData("{ 'Id': 4, 'Name': 'Owner', 'Type': 'Enum', 'Enum': 'State' }", "{ 'Id': 4, 'Name': 'Owner', 'Type': 'Enum' }")]
     // An enum type the schema does not declare.
@@ -239,7 +239,7 @@ public sealed class EnumTypeTests
         Descriptor.ExpectRefused(Json, part, replacement);
     }
 
-    [Fact(Skip = NotImplemented.SchemaDeclarations)]
+    [Fact]
     public void Ordinary_enum_type_accepts_only_its_declared_values()
     {
         var schema = LatticeSchema.Compile(Json);
@@ -262,7 +262,7 @@ public sealed class EnumTypeTests
         Assert.False(state.IsValid(2));
     }
 
-    [Theory(Skip = NotImplemented.SchemaDeclarations)]
+    [Theory]
     // The declared value, and a value outside the range of the underlying type with the same
     // bits in its width.
     [InlineData("Int8", "-1", "255")]

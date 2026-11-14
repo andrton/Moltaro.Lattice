@@ -16,15 +16,25 @@ public sealed class LatticeSchema
 {
     private readonly Dictionary<string, LatticeEntityType> _byName;
     private readonly Dictionary<string, LatticeEntityType> _byClrTypeName;
+    private readonly Dictionary<string, LatticeEnumType> _enumTypesByName;
 
-    internal LatticeSchema(int version, IReadOnlyList<LatticeEntityType> entityTypes)
+    internal LatticeSchema(
+        int version,
+        LatticeStringEncodingEnum stringEncoding,
+        IReadOnlyList<LatticeEnumType> enumTypes,
+        IReadOnlyList<LatticeEntityType> entityTypes,
+        LatticeFingerprint fingerprint)
     {
         Version = version;
+        StringEncoding = stringEncoding;
+        EnumTypes = enumTypes;
         EntityTypes = entityTypes;
+        Fingerprint = fingerprint;
         _byName = entityTypes.ToDictionary(entityType => entityType.Name, StringComparer.Ordinal);
         _byClrTypeName = entityTypes
             .Where(entityType => entityType.ClrTypeName is not null)
             .ToDictionary(entityType => entityType.ClrTypeName!, StringComparer.Ordinal);
+        _enumTypesByName = enumTypes.ToDictionary(enumType => enumType.Name, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -37,15 +47,13 @@ public sealed class LatticeSchema
     /// How the text of the database is encoded in storage: one encoding for every field.
     /// <see cref="LatticeStringEncodingEnum.Utf8"/> when the descriptor does not name one.
     /// </summary>
-    public LatticeStringEncodingEnum StringEncoding =>
-        throw new NotSupportedException("The string encoding of a schema is not implemented yet.");
+    public LatticeStringEncodingEnum StringEncoding { get; }
 
     /// <summary>All entity types in declaration order.</summary>
     public IReadOnlyList<LatticeEntityType> EntityTypes { get; }
 
     /// <summary>All enum types in declaration order; empty when the descriptor declares none.</summary>
-    public IReadOnlyList<LatticeEnumType> EnumTypes =>
-        throw new NotSupportedException("Enum types are not implemented yet.");
+    public IReadOnlyList<LatticeEnumType> EnumTypes { get; }
 
     /// <summary>
     /// The fingerprint of everything in the schema that decides how data is laid out,
@@ -67,8 +75,7 @@ public sealed class LatticeSchema
     /// covers only how the entities of one type are stored.
     /// </para>
     /// </remarks>
-    public LatticeFingerprint Fingerprint =>
-        throw new NotSupportedException("The fingerprint of a schema is not implemented yet.");
+    public LatticeFingerprint Fingerprint { get; }
 
     /// <summary>Finds an entity type by name.</summary>
     /// <param name="name">The entity type name.</param>
@@ -93,7 +100,7 @@ public sealed class LatticeSchema
     /// <param name="enumType">The enum type, when found.</param>
     /// <returns><see langword="true"/> when the schema declares the enum type.</returns>
     public bool TryGetEnumType(string name, [NotNullWhen(true)] out LatticeEnumType? enumType) =>
-        throw new NotSupportedException("Enum types are not implemented yet.");
+        _enumTypesByName.TryGetValue(name, out enumType);
 
     /// <summary>
     /// Compiles a JSON schema descriptor: parses it, validates it and resolves its entity
