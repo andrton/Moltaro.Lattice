@@ -1,30 +1,5 @@
 namespace Moltaro.Lattice.Tests;
 
-// Bound to the entity type "User" by "ClrType" in the schema below.
-internal sealed class User
-{
-    public long Id { get; set; }
-
-    public string Name { get; set; } = "";
-
-    public string? Email { get; set; }
-
-    public int? Age { get; set; }
-
-    public bool Enabled { get; set; }
-
-    // Not declared in the schema, so it is not stored.
-    public string? Note { get; set; }
-}
-
-// Bound to the entity type "Tag"; its primary key is a string.
-internal sealed class Tag
-{
-    public string Name { get; set; } = "";
-
-    public string Color { get; set; } = "";
-}
-
 internal static class TestData
 {
     // User and Tag have .NET classes. Setting has none and is used only by name.
