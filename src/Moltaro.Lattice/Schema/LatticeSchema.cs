@@ -103,12 +103,14 @@ public sealed class LatticeSchema
         _enumTypesByName.TryGetValue(name, out enumType);
 
     /// <summary>
-    /// Compiles a JSON schema descriptor: parses it, validates it and resolves its entity
-    /// types, fields and primary keys.
+    /// Compiles a JSON schema descriptor: parses it, validates it and resolves its enum
+    /// types, entity types, fields, primary keys and indexes.
     /// </summary>
     /// <param name="json">The JSON descriptor.</param>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the descriptor is not valid.
+    /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the descriptor is not valid. That
+    /// includes text that is not well-formed: a surrogate without its pair, whether written
+    /// as it is or escaped, such as <c>\ud800</c>, is refused and never replaced.
     /// </exception>
     public static LatticeSchema Compile(string json)
     {
@@ -116,11 +118,19 @@ public sealed class LatticeSchema
         return SchemaJsonReader.Read(json);
     }
 
-    /// <summary>Loads a compiled schema written by <see cref="Save(Stream)"/>.</summary>
+    /// <summary>
+    /// Loads a compiled schema written by <see cref="Save(Stream)"/>. It reads one schema from
+    /// the current position and leaves the stream right after it: what follows belongs to the
+    /// caller.
+    /// </summary>
     /// <param name="stream">The stream to read from. It stays open.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the data is not a compiled schema of a
-    /// supported format.
+    /// supported format, or it is truncated or damaged. Text in it that is not well-formed
+    /// UTF-8 is damage: it is refused and never replaced by other text. No damage ends in
+    /// another exception; only a failure of the stream itself is reported as the stream
+    /// reports it. The compiled form has no checksum: a change that still reads as a valid
+    /// schema, such as another name, is loaded as that schema.
     /// </exception>
     public static LatticeSchema Load(Stream stream)
     {
@@ -128,11 +138,16 @@ public sealed class LatticeSchema
         return SchemaBinaryFormat.Read(stream);
     }
 
-    /// <summary>Loads a compiled schema from a file written by <see cref="Save(string)"/>.</summary>
+    /// <summary>
+    /// Loads a compiled schema from a file written by <see cref="Save(string)"/>. The file
+    /// holds one compiled schema and nothing after it.
+    /// </summary>
     /// <param name="path">The file path.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the file is not a compiled schema of a
-    /// supported format.
+    /// supported format, it is truncated or damaged, as for <see cref="Load(Stream)"/>, or it
+    /// has data after the schema. Only a failure to open or read the file is reported as the
+    /// file system reports it.
     /// </exception>
     public static LatticeSchema Load(string path) => SchemaBinaryFormat.ReadFile(path);
 

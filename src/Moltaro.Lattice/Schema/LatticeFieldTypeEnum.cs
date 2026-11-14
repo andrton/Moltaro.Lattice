@@ -69,5 +69,11 @@ public enum LatticeFieldTypeEnum : byte
     /// enum that agrees with the enum type, as <see cref="LatticeValueDeclaration.ValueType"/>
     /// states.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Enum fields, and is compiled, saved and
+    /// loaded with them, but storing their values is not implemented: every write of an
+    /// entity type that has an Enum field throws <see cref="NotSupportedException"/>, whatever
+    /// the value.
+    /// </remarks>
     Enum = 20,
 }

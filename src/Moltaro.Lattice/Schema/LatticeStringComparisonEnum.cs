@@ -24,5 +24,10 @@ public enum LatticeStringComparisonEnum : byte
     /// so a unique index refuses the second. It is not language-aware, and it does not
     /// remove accents, trim whitespace or normalize the text.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded
+    /// with it, but storing by it is not implemented: every write of an entity type that has
+    /// a field with this comparison throws <see cref="NotSupportedException"/>.
+    /// </remarks>
     OrdinalIgnoreCase = 2,
 }

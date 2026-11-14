@@ -17,6 +17,12 @@ namespace Moltaro.Lattice.Schema;
 /// names nor the order of declaration decide the order. A Flags value compares as its whole
 /// mask.
 /// </para>
+/// <para>
+/// <b>Not implemented yet.</b> An enum type is declared, compiled, saved and loaded,
+/// <see cref="IsValid"/> answers, and a class with a .NET enum is bound against it, but
+/// storing its values is not implemented: every write of an entity type that has a field of
+/// an enum type throws <see cref="NotSupportedException"/>, whatever the value.
+/// </para>
 /// </remarks>
 public sealed class LatticeEnumType
 {

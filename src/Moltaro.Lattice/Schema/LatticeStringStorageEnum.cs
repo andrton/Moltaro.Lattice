@@ -23,5 +23,10 @@ public enum LatticeStringStorageEnum : byte
     /// <see cref="LatticeStringComparisonEnum.OrdinalIgnoreCase"/> field <c>North</c> and
     /// <c>north</c> are still stored as two spellings.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded
+    /// with it, but storing by it is not implemented: every write of an entity type that has
+    /// a field with this storage throws <see cref="NotSupportedException"/>.
+    /// </remarks>
     Dictionary = 2,
 }
