@@ -23,11 +23,11 @@ Product guidance, durable design references and active work are kept apart.
 
 Start here:
 
-- [Planning handoff](design/planning-handoff.md): the brief for planning the first production milestone and technical sprints.
-- [Milestone 1 engine contract](design/milestone-1-engine-contract.md): physical mechanisms, component responsibilities, initial settings and verification gates.
 - [Architecture](design/architecture.md): what the database is, on one page. The same
   text with diagrams is [design/index.html](design/index.html); open it from a checkout,
   because GitHub shows an HTML file as source.
+- [Planning handoff](design/planning-handoff.md): the brief for planning the first production milestone and technical sprints.
+- [Milestone 1 engine contract](design/milestone-1-engine-contract.md): physical mechanisms, component responsibilities, initial settings and verification gates.
 - [Decision register](design/questions.md) and [decision records](decisions/README.md): current status and the reasoning behind it.
 - [Performance requirements](design/performance-requirements.md) and [prototype evidence](design/prototype-evidence.md): targets versus measurements.
 - [Synthetic prototype sources](../src/Prototypes/README.md): reproducible experiments and their limitations, outside the product solution.
@@ -43,3 +43,4 @@ Working documents:
 
 - [Current work and epics](work/README.md)
 - [Development process](work/process.md): roles, sprints, review and severity of findings
+- [Branches and releases](work/branches.md): where work is committed, what `main` refuses, how a version is released

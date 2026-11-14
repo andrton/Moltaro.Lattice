@@ -1,5 +1,7 @@
 # Q13: Remaining mutation details
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 Q13 is partially accepted. Its [decision record](../../decisions/mutation-commands.md#q13-how-can-a-document-be-updated)
 owns the complete mutation contract and alternatives.
 

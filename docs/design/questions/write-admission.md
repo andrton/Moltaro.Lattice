@@ -1,5 +1,7 @@
 # Q14: Remaining resource-pressure and write-admission questions
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Partially accepted on 13 November 2026:** new Durable write calls may wait for
 PostgreSQL recovery within time, request-count and retained-memory limits. Expired
 waiting calls fail explicitly; requests that never started are removed and cannot

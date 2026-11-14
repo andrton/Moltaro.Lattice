@@ -1,5 +1,12 @@
 # Replica startup and hosting
 
+**Current implementation baseline:** the [milestone 1 contract](../design/milestone-1-engine-contract.md)
+now specifies the mechanisms and starting values described as open, partially accepted or
+illustrative below, and the [decision register](../design/questions.md) owns the current
+status. The earlier notes are kept as the decision's history; they do not reopen what was
+specified. "v1" below is wider than the first production milestone, whose scope is in
+the [planning handoff](../design/planning-handoff.md).
+
 Accepted Moltaro.Lattice decisions, rationale and alternatives. Decision IDs are
 retained from the original discussion. Acceptance applies to the stated contract;
 explicitly unresolved details are not silently approved.

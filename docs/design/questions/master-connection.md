@@ -1,5 +1,7 @@
 # Q15: Configured master and child connection
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Scope clarified on 13 November 2026:** a child connects to its
 configured master URL. V1 includes no fault-tolerance orchestration, master election,
 child promotion or automatic standby takeover. The environment runs one authoritative

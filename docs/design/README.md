@@ -41,10 +41,10 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | --- | --- |
 | [Milestone 1 implementation contract](milestone-1-engine-contract.md) | Selected mechanisms, starting limits, deterministic fixture, consumer compatibility and release checks |
 | [Operation retry protocol](operation-retry-protocol.md) | Concrete admission/result/retirement state machine, with bounded PostgreSQL evidence |
-| [Engine foundation](engine-foundation.md) | Current requirements, connected physical design proposal and architecture completion criteria |
+| [Engine foundation](engine-foundation.md) | Fixed requirements and the ownership overview. Its physical proposal is the earlier text; the milestone contract fixes the mechanisms it leaves open |
 | [Arena protocol](arena-protocol.md) | Concrete bounded-experiment protocol for root/text protection, preparation, deletion, relocation and reclamation; production integration limits |
 | [Architecture](index.html) | Illustrated design; generated from [Markdown](architecture.md) |
-| [Decision register](questions.md) | Settled contracts, remaining topics and engineering work |
+| [Decision register](questions.md) | Settled contracts and the specified engineering areas; nothing in it awaits a decision |
 | [Decision records](../decisions/README.md) | Detailed rationale and alternatives, grouped by responsibility |
 | [Database scope](../decisions/database-scope.md) | Accepted one database per instance, its own schema/state and full replicas; no partition abstraction |
 | [Persisted base layout](questions/persisted-base-layout.md) | Accepted independent binary base and arena reconstruction; rationale and remaining encoding work |
@@ -61,7 +61,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Prototype evidence](prototype-evidence.md) | Historical synthetic measurements and their limitations |
 | [Experiments](../../src/Prototypes/README.md) | Actual runnable projects and commands |
 | [Historical MemoryOnly proposal](first-prototype.md) | Isolated experiment scope; superseded as the production milestone plan |
-| [Storage and maintenance](storage-and-maintenance.md) | Lifecycle and operational requirements |
+| [Storage and maintenance](storage-and-maintenance.md) | Lifecycle and operational requirements; owns the diagnostics scope (Q18). Its open-choice notes predate the milestone contract |
 | [Technical references](references.md) | Public sources supporting the design |
 | [Example schema](examples/settings.schema.example.json) | Illustrative descriptor, not a supported format |
 | [Public distribution](public-distribution.md) | Public source boundary, excluded private material and experiment prerequisites |

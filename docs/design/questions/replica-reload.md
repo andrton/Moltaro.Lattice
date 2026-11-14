@@ -1,5 +1,7 @@
 # Q08.1.3: Read availability during full reload
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026, including bounded read waiting.** Full reload
 replaces the affected storage using one arena after safely draining its users. A second
 full arena is explicitly excluded. New reads may wait within configured time, request-

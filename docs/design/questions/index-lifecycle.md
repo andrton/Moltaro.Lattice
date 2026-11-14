@@ -1,5 +1,7 @@
 # Q19: Physical index lifecycle
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** keep index definitions in the schema; each
 node builds its own physical primary/secondary indexes during data loading/recovery,
 before readiness. V1 neither persists nor transfers physical Lattice index images.

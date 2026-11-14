@@ -1,5 +1,7 @@
 # Q17: Memory compaction
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Automatic incremental compaction
 runs as bounded background maintenance inside each node, coordinated with its local
 writer/applier. Region occupancy/retention counters and expected useful reclamation

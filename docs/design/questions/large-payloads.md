@@ -1,5 +1,7 @@
 # Q16: Large payload representation
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Small payloads stay contiguous;
 large strings and collection storage use bounded chunks, including bounded directory
 metadata. Thresholds and chunk sizes will be selected from measurements.

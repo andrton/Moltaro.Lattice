@@ -342,6 +342,12 @@ establish that behavior.
 
 ## Durable and distributed workload context
 
+**Historical context from here to the end of the document.** The sections below record
+the measurements and open points that led to the storage decisions. The accepted targets
+above, the [milestone 1 contract](milestone-1-engine-contract.md) and the
+[decision register](questions.md) are current; where a trial value or an "open" note
+below differs from them, they prevail.
+
 **Workload requirement recorded on 12 November 2026:** small changes can arrive at
 thousands of logical mutations per second. Measurements must establish
 their effect on reads and whether SQL streaming can improve state loading. These

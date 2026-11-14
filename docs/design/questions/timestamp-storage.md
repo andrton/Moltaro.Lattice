@@ -1,5 +1,7 @@
 # Q03.4.1: Temporal types and timestamp representation
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A for instants, plus explicit support
 for DateOnly, TimeOnly and TimeSpan. All four types use numeric value storage.
 

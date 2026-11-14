@@ -1,5 +1,7 @@
 # Q03.4.2: Types inside List, Map and Set
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. List elements and Map values allow
 supported scalars, enum/Flags, typed key references, schema-defined owned structures
 and nested collections. Map keys and Set elements allow scalars except Binary,

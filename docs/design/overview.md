@@ -79,8 +79,8 @@ Its hypotheses are useful for focused checks, not a production release plan.
 - [Arena protocol](arena-protocol.md): ownership, protection, publication and reclamation, with a bounded integrated experiment.
 - [Database scope](../decisions/database-scope.md): ownership, identity and replica boundary.
 - [Historical experiment](first-prototype.md): synthetic workload and measurement hypotheses.
-- [Architecture](index.html): the broader design, illustrated with animated SVGs.
-- [Decision register](questions.md): settled contracts and parked questions.
+- [Architecture](architecture.md): the short description; [index.html](index.html) is the same text with animated diagrams.
+- [Decision register](questions.md): settled contracts and the engineering areas the milestone contract specifies.
 - [Design decisions](../decisions/README.md): rationale and alternatives by topic.
 - [Experiments](../../src/Prototypes/README.md): runnable standalone benchmarks and limitations.
 - [Measurement evidence](prototype-evidence.md): historical synthetic results.

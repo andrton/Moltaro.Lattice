@@ -1,5 +1,12 @@
 # Backup and restore
 
+**Current implementation baseline:** the [milestone 1 contract](../design/milestone-1-engine-contract.md)
+now specifies the mechanisms and starting values described as open, partially accepted or
+illustrative below, and the [decision register](../design/questions.md) owns the current
+status. The earlier notes are kept as the decision's history; they do not reopen what was
+specified. "v1" below is wider than the first production milestone, whose scope is in
+the [planning handoff](../design/planning-handoff.md).
+
 Accepted Moltaro.Lattice contracts, rationale and alternatives. No backup service,
 restore tool or recovery experiment is implemented by this record.
 

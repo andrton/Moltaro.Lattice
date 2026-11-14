@@ -5,13 +5,18 @@ records own the accepted contracts, rationale, rejected alternatives and explici
 unresolved implementation details. The [architecture](../design/index.html) summarizes
 how those contracts fit together, without reproducing the decision history.
 
+The summaries below were written as each decision was taken. Where one ends with
+"open" or "remain work", read it through the [milestone 1 contract](../design/milestone-1-engine-contract.md),
+which specifies those mechanisms and starting values; the [register](../design/questions.md)
+reports no decision still awaited.
+
 | Topic | Records |
 | --- | --- |
 | [Diagnostics and maintenance](../design/storage-and-maintenance.md#accepted-administrative-scope) | Q18 (first-release scope settled: DI diagnostics and host-mounted HTTP module for local/master status; automatic maintenance remains; manual maintenance commands, backup/restore launch commands and CLI/GUI are deferred/excluded from v1; implementation remains work) |
 | [Document model and consistency](document-model.md) | Q01 (per-root baseline and bounded atomic database WriteBatch across entity types; complete-object batch saves use Upsert with one transaction boundary; no shared multi-call read snapshot), Q02, Q02.1, Q02.2 |
 | [Session consistency](session-consistency.md) | Q08.1.2/Q08.1.3: child-facing write success includes local application; related reads/writes carry a minimum history/position with bounded waiting on any pod; separate local position wait before indexed access, with the dependency retained across lifecycle checks; no snapshot, all-replica barrier or mandatory sticky routing. Facade context is distinct from object revisions and operation IDs |
 | [Unique secondary indexes](unique-indexes.md) | Q07.4: explicit Unique on single/composite keys in milestone 1; any-null keys exempt; master validates final state and rejects the entire conflicting operation/WriteBatch before effects commit |
-| [Mutation commands](mutation-commands.md) | Q13 (mutation capabilities/outcomes, explicit initialization, Insert/Replace/Upsert, ordinary Delete results, optional revision checks, immutable keys, numeric assignments, full Save, separate partial updates without automatic tracking and with pre-commit rejection of repeated scalar targets, stable inputs until completion, operation tokens/retained results with a configurable 15-minute default window, one operation per type/key in explicit WriteBatch with pre-commit rejection of duplicates, and cancellation before dispatch with engine-owned completion afterward accepted; remaining semantics and token/expiry protocols open) |
+| [Mutation commands](mutation-commands.md) | Q13 (mutation capabilities/outcomes, explicit initialization, Insert/Replace/Upsert, ordinary Delete results, optional revision checks, immutable keys, numeric assignments, full Save, separate partial updates without automatic tracking and with pre-commit rejection of repeated scalar targets, stable inputs until completion, operation tokens/retained results with a configurable 15-minute default window, one operation per type/key in explicit WriteBatch with pre-commit rejection of duplicates, and cancellation before dispatch with engine-owned completion afterward accepted; the token, admission, result and expiry protocol is specified in the [operation retry protocol](../design/operation-retry-protocol.md)) |
 | [Schema and types](schema-and-types.md) | Q03, Q03.1, Q03.2, Q03.3, Q03.4.1 (complete scalar/key catalog, including UInt32/UInt64/Float32), Q03.5, Q03.6, Q03.7, Q03.8, Q03.9; Q03.4.2 (collection type positions and complete input rules accepted) |
 | [String representation and lifetime](strings.md) | Q04, Q04.1, Q04.2, Q04.3, Q04.4, Q04.5 (well-formed Unicode in both encodings; reject malformed text before commit without replacement) |
 | [Memory ownership and .NET access](memory-and-access.md) | Q05, Q06, Q06.1, Q06.2, Q06.3 |

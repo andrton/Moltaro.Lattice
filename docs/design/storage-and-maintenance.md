@@ -1,5 +1,10 @@
 # Physical storage and maintenance
 
+**Current implementation baseline:** the [milestone 1 contract](milestone-1-engine-contract.md)
+now specifies the allocation, compaction, reconnect and backup mechanisms listed as open
+choices below. This document still owns the diagnostics and maintenance scope (Q18);
+its other open-choice notes are kept as history and do not reopen what was specified.
+
 **Requirements recorded on 12 November 2026.** The design requires an explicit
 physical-storage design, bounded memory growth over a long process lifetime,
 a fragmentation/reclamation policy, and useful administration/maintenance facilities.

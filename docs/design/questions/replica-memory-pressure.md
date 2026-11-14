@@ -1,5 +1,7 @@
 # Q14: Child replica memory pressure
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. An initialized child that cannot
 prepare its next change within budget pauses application, releases partial preparation
 and keeps intact local state readable under ordinary limits. Expose pressure and lag;

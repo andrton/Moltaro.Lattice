@@ -1,5 +1,7 @@
 # Q03.4.1: Numeric catalog completion
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Add UInt32, UInt64 and Float32.
 UInt32 and UInt64 also support primary/reference keys and enum/Flags backing, with
 unsigned ranges and ordering. Float32 is an ordinary field type, not a key or enum

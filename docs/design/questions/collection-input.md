@@ -1,5 +1,7 @@
 # Q03.4.2: Collection input rules
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A in full. Q03.4.2 is closed.
 
 The [decision record](../../decisions/schema-and-types.md#collection-input-contract)

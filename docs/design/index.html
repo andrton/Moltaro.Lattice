@@ -89,7 +89,8 @@ concurrently. Independent preparation overlaps; short bounded groups commit and
 publish in order. Children forward writes and apply the master's confirmed changes.</p>
 <p><strong>Local reads.</strong> A ready child reads its own arena. PostgreSQL belongs to the Durable
 master; children never connect to it. An embedded MemoryOnly master also works without
-PostgreSQL or a child connection. Persistence mode is fixed when opening the instance.</p>
+PostgreSQL or a child connection. Persistence mode is fixed when opening the instance:
+Durable is the default for a master, and a child is always MemoryOnly.</p>
 <p><a id="document-and-schema-model"></a></p>
 <h2 id="objects-and-schema">Objects and schema</h2>
 <p>Each entity type has a declared schema and one immutable primary key. A root owns its
@@ -101,8 +102,10 @@ is a read replica.</p>
 <ul>
 <li><strong>Types:</strong> fixed-width numbers, Decimal, Boolean, String, Guid, temporal values,
 Binary and numeric enum/Flags. Null is allowed only where declared.</li>
+<li><strong>Keys:</strong> a primary key is an integer, a String or a Guid, never null.</li>
 <li><strong>Collections:</strong> List preserves order and duplicates. Map and Set enforce uniqueness
-without ordering guarantees. Owned complex values belong in List and Map values.</li>
+without ordering guarantees. Owned complex values belong in List and Map values; Map
+keys and Set elements are simple values, not structures or collections.</li>
 <li><strong>Bindings:</strong> typed .NET access and runtime access by schema share the same engine.
 A generated domain class is optional.</li>
 <li><strong>Evolution:</strong> stable type/field identities and versioned layouts are required.
@@ -158,7 +161,7 @@ Unicode; malformed input is rejected before commit.</li>
 <li><strong>Plain by default.</strong> Fields explicitly marked Dictionary share equal original text
 through one dictionary per database. There is no automatic policy switching.</li>
 <li><strong>Stable text references.</strong> Indexes share protected text instead of copying it.
-Saved, prepared and index references are counted; reclamation waits for active users.</li>
+Stored, prepared and index references are counted; reclamation waits for active users.</li>
 <li><strong>Schema-owned comparison.</strong> Ordinal is the default; individual fields may use
 OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.</li>
 </ul>
@@ -175,7 +178,8 @@ The PostgreSQL <strong>256-byte saved unit is separate from native allocation si
 <h2 id="reads-and-indexes">Reads and indexes</h2>
 <p><strong>Ordinary reads return owned copies.</strong> Later updates cannot change a value already
 returned to application code. A separate short, synchronous protected read offers a
-read-only arena view; it cannot escape, await, perform I/O or make nested database calls.</p>
+read-only arena view; it cannot escape, await, perform I/O or make nested database calls.
+Keeping it short is the caller's obligation: while it is held, publication can be delayed.</p>
 <p>One logical gate protects a root and all its owned blocks. A read is coherent for that
 entity. Several reads, an enumeration or a graph walk do not create a shared snapshot.</p>
 <table>
@@ -202,7 +206,9 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </table>
 <p>The caller names the index. Equality, leading-key/range access and Limit/Offset are
 supported; a named-index lookup never silently becomes a full scan. Every node builds
-its indexes locally before readiness and maintains them with entity changes.</p>
+its indexes locally before readiness and maintains them with entity changes. Indexes
+over the members of a collection, automatic index choice and keyset continuation are
+not in this milestone.</p>
 <p><strong>Unique is explicit.</strong> The master validates the final state before effects commit.
 A conflict rejects the whole operation or WriteBatch. Keys with any null component
 are exempt. A batch may swap unique values or delete and reclaim one atomically.</p>
@@ -211,9 +217,12 @@ are exempt. A batch may swap unique values or delete and reclaim one atomically.
 <p>Applications edit their own copies, then submit changes. Save sends the whole entity
 without automatic diff; partial updates are explicit. Expected revisions protect
 against conflicting changes. Borrowed views never mutate database memory directly.</p>
-<p>In the public contract a Save is <code>Upsert</code>: create the entity when its key is absent,
-otherwise replace it as a whole. <code>Insert</code> and <code>Replace</code> are the same complete write with
-a condition: the key must be absent, or must exist.</p>
+<p>The public contract has no operation called Save. It names a complete write by its
+condition: <code>Insert</code> requires an absent key, <code>Replace</code> an existing one, <code>Upsert</code> accepts
+both. Saving several entities together in a WriteBatch ordinarily uses <code>Upsert</code>.</p>
+<p>A write can also be refused before it executes, or wait a bounded time: when the master
+cannot reserve memory within its budget, when the journal has reached its hard limit, or
+while PostgreSQL is unavailable.</p>
 <figure class="diagram" aria-labelledby="write-caption">
   <figcaption class="diagram-head" id="write-caption"><span class="diagram-title">When a child-facing write succeeds</span><span class="diagram-label">Durable path</span></figcaption>
   <div class="diagram-grid">
@@ -247,7 +256,8 @@ a condition: the key must be absent, or must exist.</p>
 
 <h3 id="a-writebatch-is-one-transaction">A WriteBatch is one transaction</h3>
 <p>A bounded batch may change different entity types in the same database. It contains
-at most one operation per type/key. Validation, durable effects and publication preserve
+at most one operation per type/key. The starting limits are 128 entities and 8 MiB per
+batch, and 1 MiB per entity; they are configurable. Validation, durable effects and publication preserve
 its all-or-nothing boundary; children preserve that same boundary during replay.</p>
 <p>It is a transaction of the database, not one the application works inside: a batch
 cannot read, and there is no interactive read/write transaction.</p>
@@ -256,7 +266,7 @@ briefly closes access while the complete batch becomes visible. Internal groupin
 independent writes for PostgreSQL efficiency does not make those calls a shared transaction.</p>
 <h3 id="the-saved-base-advances-in-the-background">The saved base advances in the background</h3>
 <p>Foreground writes append compact logical changes. A worker <strong>inside the master process</strong>
-coalesces a bounded committed prefix into the saved base and commits its applied position
+coalesces a bounded committed prefix into the saved base and commits its base cursor
 with those updates. Foreground success does not wait for this maintenance step.</p>
 <p>Recovery loads the independent binary base, replays the remaining journal and builds
 indexes. Native compaction does not relocate persisted units. Journal size/age triggers,
@@ -304,7 +314,9 @@ fixed published position before opening reads.</p>
 <h3 id="a-position-carries-the-dependency-between-requests">A position carries the dependency between requests</h3>
 <p>Save through a child waits until that child has applied the committed operation.
 The next request carries its history and position to any child. That child waits for
-at least the supplied position, with a timeout, then executes the request.</p>
+at least the supplied position, with a timeout, then executes the request. If the
+child does not apply a committed write in time, the caller gets a timeout that carries
+the committed position: the write is not rolled back and must not be sent again.</p>
 <figure class="diagram" aria-labelledby="session-caption">
   <figcaption class="diagram-head" id="session-caption"><span class="diagram-title">The next request can use another pod</span><span class="diagram-label">Same history H</span></figcaption>
   <div class="session-grid">
@@ -322,14 +334,16 @@ at least the supplied position, with a timeout, then executes the request.</p>
 may already be visible. Unconstrained reads can use intact local state during lag or
 disconnection; status reports the observed progress and whether it is current or unknown.</p>
 <p>The master retains a bounded shared delivery tail only while recipients need it.
-Acknowledged payloads are released. Missing history requires a full reload with one
-arena and bounded read waiting; an empty restarted child cannot serve data offline.</p>
+Acknowledged payloads are released. A child that needs changes the master no longer
+retains reloads fully, with one arena and bounded read waiting; an empty restarted child
+cannot serve data offline.</p>
 <p><a id="deployment"></a>
 <a id="control-and-maintenance"></a></p>
 <h2 id="operations-and-milestone-scope">Operations and milestone scope</h2>
 <p>The environment supplies one master and its URL. Lattice does not elect a replacement
-or promote a child. In Kubernetes, an application pod can embed a child; readiness stays
-closed until its database state and indexes are ready.</p>
+or promote a child. An application pod can embed a child. The engine reports ready only
+when its database state and indexes are complete; how a pod's probes use that is a
+hosting decision.</p>
 <ul>
 <li><strong>Diagnostics:</strong> DI services and host-mounted HTTP endpoints expose local status
 and can forward master-status requests through a child.</li>
@@ -337,8 +351,10 @@ and can forward master-status requests through a child.</li>
 separate target, verify it, then activate a new history; children reload fully.</li>
 <li><strong>Automatic maintenance:</strong> bounded compaction, string reclamation, collection shrink
 and saved-base application are part of the engine.</li>
-<li><strong>Deferred:</strong> OQL, joins, external transactions, cross-call graph snapshots, automatic
-failover, lazy schema conversion, manual maintenance commands and a management UI.</li>
+<li><strong>Deferred:</strong> OQL, joins, external transactions, cross-call graph snapshots, lazy
+schema conversion, manual maintenance commands and a management UI.</li>
+<li><strong>Not part of the design:</strong> a partition layer, and election or promotion of a master.
+These were removed, not postponed.</li>
 </ul>
 <p>Declared indexes, Unique indexes, collections, PostgreSQL durability and atomic
 multi-type WriteBatch remain first-milestone requirements. Consumer integrations adapt

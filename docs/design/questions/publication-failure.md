@@ -1,5 +1,7 @@
 # Recovery scope after a committed publication failure
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted on 13 November 2026 under Q09.2:** if a confirmed durable mutation
 or WriteBatch cannot be coherently published in memory, put the affected Lattice
 instance into a recovery-required state. Refuse new local reads/writes and recover

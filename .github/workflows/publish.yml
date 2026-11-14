@@ -1,7 +1,8 @@
 name: Publish
 
 # Pushing a tag such as v0.1.0 or v0.2.0-alpha.1 builds, tests and publishes that version
-# of the package to the GitHub Packages feed of the repository owner.
+# of the packages to the GitHub Packages feed of the repository owner. A release is cut
+# from main only; see docs/work/branches.md.
 on:
   push:
     tags: ['v*']
@@ -19,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The whole history, to tell whether the tagged commit is on main.
+          fetch-depth: 0
+      - name: Refuse a tag that is not on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: src/global.json

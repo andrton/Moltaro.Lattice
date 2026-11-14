@@ -1,5 +1,7 @@
 # Explicit atomic write batch within one database
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** a bounded atomic WriteBatch in one database.
 Application-side construction takes no engine locks. Readers remain available during
 preparation and storage I/O; the database closes access for the complete batch's

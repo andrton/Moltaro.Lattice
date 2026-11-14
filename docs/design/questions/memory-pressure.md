@@ -1,5 +1,7 @@
 # Q14: Master writes under memory pressure
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Enforce an instance memory budget
 and reject a new master mutation before Durable journal submission or MemoryOnly
 publication when its preparation/publication capacity cannot be reserved. Release

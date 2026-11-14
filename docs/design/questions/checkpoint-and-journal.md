@@ -1,5 +1,7 @@
 # Q09.2: Base maintenance and background journal application
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Method accepted for v1:** background application of the committed journal with
 coalescing. The [decision record](../../decisions/checkpoint-and-journal.md#q09.2-postgresql-base-and-compact-journal)
 owns this contract, the compact journal/base representation, automatic size/age

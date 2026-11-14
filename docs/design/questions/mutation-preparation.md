@@ -1,5 +1,7 @@
 # Mutation preparation and physical publication
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted on 13 November 2026 under Q16:** prepare bounded changes before
 durable commit; publish small fixed-field assignments in place under root protection,
 and install prepared replacement blocks where variable payload changes require them.

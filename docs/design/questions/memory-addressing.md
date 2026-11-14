@@ -1,5 +1,7 @@
 # Q16: Addressing movable blocks
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Use relative segment/offset
 locations for roots and owned payloads. When a block moves, safely update its owning
 descriptor and every structure retaining its physical location, including relevant

@@ -1,5 +1,7 @@
 # Q09.4: Restore destination
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Restore into an isolated replacement
 PostgreSQL target, preserve the former target until verification and switch the sole
 Lattice writer using one full arena at a time.

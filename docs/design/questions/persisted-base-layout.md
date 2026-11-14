@@ -1,5 +1,7 @@
 # Persisted base layout and live-arena locations
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted on 13 November 2026 for Q16/E06:** encode the PostgreSQL base as
 versioned binary records and owned payloads in provider-addressed saved units,
 independent of live native segment/offset locations. Reconstruct the arena on load.

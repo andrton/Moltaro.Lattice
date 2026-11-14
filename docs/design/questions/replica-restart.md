@@ -1,5 +1,7 @@
 # Q08.1.3: Child state after process restart
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** client replicas operate in MemoryOnly and
 fully load their database state from the master after process restart, including
 index preparation and catch-up before reads. The Durable master's persistence remains

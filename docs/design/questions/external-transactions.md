@@ -1,5 +1,7 @@
 # External transaction integration
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1:** no participation in external transactions. The
 [decision record](../../decisions/external-transactions.md#q09.3-transactions-spanning-lattice-and-application-sql)
 owns the contract, alternatives and costs. Internal durable commits are unchanged;

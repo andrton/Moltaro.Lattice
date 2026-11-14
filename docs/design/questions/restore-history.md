@@ -1,5 +1,7 @@
 # Q09.4: Replica history after restore
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. A restored Durable master activates
 with a new Lattice history identity. Children detecting that identity fully reload
 the database, using the accepted one-arena path and bounded read waiting.

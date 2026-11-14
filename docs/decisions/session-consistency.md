@@ -94,11 +94,10 @@ payload does not invalidate a position that a compatible replica has already pas
 ## Explicit local position wait
 
 **Facade clarification accepted on 14 November 2026:** provide a separate asynchronous
-wait for a supplied position, illustrated as `WaitForPositionAsync`. An application
+wait for a supplied position, declared in the public contract as `WaitForPositionAsync`. An application
 can admit a request by waiting once, then perform local ID/index reads using the same
 request consistency context. This exposes the existing minimum-position mechanism;
 it does not introduce another synchronization protocol or change write completion.
-The name and exact signatures remain illustrative.
 
 - Capture a valid history/position target once. Complete only when this instance is
   ready and its coherently applied prefix covers that target, including all affected

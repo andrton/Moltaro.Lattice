@@ -1,5 +1,7 @@
 # Root lookup during relocation
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted on 13 November 2026 under Q16:** use one stable control entry
 per root object lifetime. It stores the current relative location and the state
 needed to coordinate protected access and lifetime. Root data and owned blocks may

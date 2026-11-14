@@ -119,7 +119,9 @@ the third, the coordinator stops and escalates.
 - The subject names the epic and the sprint: `Epic 2, sprint 3: tests for finding a user by email`.
 - No agent attribution lines, as `AGENTS.md` says.
 - Commits stay local. Nothing is pushed without the owner's instruction.
-- One branch per epic.
+- One branch per sprint, cut from `main` and merged back through a pull request when the
+  sprint closes. [Branches and releases](branches.md) has the names, the merge rules and
+  what `main` refuses.
 
 ## When to stop and ask the owner
 
@@ -127,7 +129,8 @@ the third, the coordinator stops and escalates.
 - A decision record contradicts the brief, or has changed.
 - Three review rounds did not close the findings.
 - A dispute the coordinator cannot settle.
-- Anything destructive, or anything that leaves this repository.
+- Anything destructive, or anything that leaves this repository: a push, a pull request,
+  a merge, a release tag.
 
 ## Where the state lives
 

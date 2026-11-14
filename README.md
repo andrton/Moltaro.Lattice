@@ -370,8 +370,10 @@ Two NuGet packages are published to the GitHub Packages feed of the repository o
 `Moltaro.Lattice`, the core with no dependencies, and
 `Moltaro.Lattice.DependencyInjection`, the dependency injection support.
 
-**Releasing a version.** Push a tag; the version is the tag without the leading `v`.
-The [Publish](.github/workflows/publish.yml) workflow builds, tests and publishes it.
+**Releasing a version.** Tag a commit of `main` and push the tag; the version is the tag
+without the leading `v`. The [Publish](.github/workflows/publish.yml) workflow builds,
+tests and publishes it. [Branches and releases](docs/work/branches.md) describes how
+work reaches `main` and what a release requires.
 
 ```bash
 git tag v0.1.0-alpha.1

@@ -376,8 +376,8 @@ The [milestone implementation contract](milestone-1-engine-contract.md) resolves
 placement, lifetime, allocation/index preparation, write scheduling, persistence,
 transport, schema evolution and initial bounded settings. Its
 [consumer compatibility check](milestone-1-engine-contract.md#consumer-compatibility-check)
-is the authority for any still-blocking consumer requirement. Earlier open-mechanism
-notes in this overview must be read against that subsequent specification.
+is historical context: no consumer requirement blocks or narrows the engine. Earlier
+open-mechanism notes in this overview must be read against that subsequent specification.
 
 | Area | Fixed baseline / remaining evidence |
 | --- | --- |
@@ -391,6 +391,6 @@ notes in this overview must be read against that subsequent specification.
 | Schema | Stable IDs/layouts, typed/dynamic binding and explicit disk-shadow migration with paused affected access; implement compatibility/recovery checks |
 | Operations | Diagnostic-only API, infrastructure backups and explicit restore activation; deployment/resource tests remain required |
 
-Architecture specification enables planning once consumer blockers are resolved.
+The architecture specification enables planning; no consumer blocker remains.
 It does not establish production readiness. Implementation must pass the accepted
 concurrency, durability, resource, recovery and performance gates before release.

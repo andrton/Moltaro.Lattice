@@ -1,5 +1,7 @@
 # Q17: Empty-segment retention and release
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Keep a bounded reserve of completely
 empty native segments for reuse; release excess eligible segments in background work.
 The reserve is accounted across the database instance within its memory budget.

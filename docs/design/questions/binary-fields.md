@@ -1,5 +1,7 @@
 # Q03.4.1: Binary fields
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Binary is a distinct schema type
 for an opaque ordered byte sequence, replaced as a whole value through Save or
 explicit field assignment. Its bytes belong to the containing root document.

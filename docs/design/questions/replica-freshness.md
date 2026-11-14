@@ -1,9 +1,13 @@
 # Q08.1.2: Freshness and disconnected reads
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026.** An initialized child continues reading its
 intact, coherently installed local state during lag or disconnection. Replication
-status is available separately. There is no immediate-freshness/read-your-write
-guarantee, automatic stale-age cutoff or ordinary per-read master coordination.
+status is available separately. An unconstrained read has no immediate-freshness or
+read-your-write guarantee, automatic stale-age cutoff or ordinary per-read master
+coordination. A read that carries a position does: the later
+[session consistency](../../decisions/session-consistency.md) decision adds it.
 
 The contract also requires an explicit status query comparing master progress with the
 replica's applied progress in the same database history. It reports caught up

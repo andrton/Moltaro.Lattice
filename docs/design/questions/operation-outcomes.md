@@ -1,5 +1,7 @@
 # Operation identity and unknown commit results
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted on 13 November 2026 under Q13:** give every submitted write and
 explicit WriteBatch an operation token; persist a compact outcome receipt atomically
 with its PostgreSQL journal transaction. Allow authoritative result lookup and safe

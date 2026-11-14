@@ -16,7 +16,8 @@ handle bound to that definition. Submit structured key values and bounds directl
 The engine knows which physical index to use; it does not parse OQL or optimize an
 arbitrary predicate. Both typed objects and dynamic records use the same contract.
 
-Illustrative syntax only; these methods/types are not an implemented SDK contract:
+The public contract declares this access as `ILatticeIndex`, `IndexKey`, `IndexBound` and
+`LatticeFindOptions`; the search behind it is not implemented yet. The calls below show the shape:
 
 ```csharp
 await users.Index("ByEmail").FindAsync(
@@ -95,6 +96,6 @@ Deferring OQL removes language parsing/planning work, not the dominant memory co
 of the required indexes or their write/rebuild cost. No memory or speed multiplier
 has been measured for this facade choice.
 
-The selection policy is settled. Exact signatures, typed/dynamic bindings and result
-wrappers must be reconciled with the separately developed facade during implementation.
-The illustrative calls above are not implemented SDK methods or an implementation plan.
+The selection policy is settled. The signatures, typed/dynamic bindings and result
+wrappers are those of the public contract in this repository; the engine implements them.
+The calls above are not an implementation plan.

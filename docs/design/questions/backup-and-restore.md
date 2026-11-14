@@ -1,5 +1,7 @@
 # Q09.4: Durable backup responsibility
 
+> Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
+
 **Accepted for v1 on 13 November 2026:** option A. Durable-master backups use
 PostgreSQL/deployment-native mechanisms, without a Lattice-owned backup archive.
 Lattice validates and opens restored storage: load saved state, replay the required

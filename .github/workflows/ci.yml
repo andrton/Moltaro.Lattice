@@ -1,11 +1,12 @@
 name: CI
 
+# Runs for every pull request and for every push to main, also when only documents
+# changed: the "build" check is required before a merge, and a required check that does
+# not run would block the pull request. See docs/work/branches.md.
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**']
   pull_request:
-    paths-ignore: ['docs/**']
 
 permissions:
   contents: read
