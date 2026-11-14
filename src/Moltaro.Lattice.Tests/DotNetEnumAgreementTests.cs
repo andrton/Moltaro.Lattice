@@ -163,6 +163,20 @@ public sealed class DotNetEnumAgreementTests
         await ExpectNotBoundAsync<CarWithLongColor>("Tint");
     }
 
+    [Fact]
+    public async Task Nullable_dotnet_enum_for_a_field_that_is_not_nullable_does_not_bind()
+    {
+        // Tint is not nullable; the property could hold a null the field cannot.
+        await ExpectNotBoundAsync<CarWithOptionalColor>("Tint");
+    }
+
+    [Fact]
+    public async Task Dotnet_enum_that_is_not_nullable_for_a_nullable_field_does_not_bind()
+    {
+        // Rights is nullable; the property could not hold a null the field has.
+        await ExpectNotBoundAsync<CarWithRequiredAccess>("Rights");
+    }
+
     // The class does not bind, and the error names the property whose enum does not agree.
     private static async Task ExpectNotBoundAsync<TCar>(string propertyName)
         where TCar : class
@@ -299,5 +313,23 @@ public sealed class DotNetEnumAgreementTests
         public LongColorEnum Tint { get; set; }
 
         public AccessEnum? Rights { get; set; }
+    }
+
+    private sealed class CarWithOptionalColor
+    {
+        public long Id { get; set; }
+
+        public ColorEnum? Tint { get; set; }
+
+        public AccessEnum? Rights { get; set; }
+    }
+
+    private sealed class CarWithRequiredAccess
+    {
+        public long Id { get; set; }
+
+        public ColorEnum Tint { get; set; }
+
+        public AccessEnum Rights { get; set; }
     }
 }

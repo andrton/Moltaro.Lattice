@@ -60,6 +60,30 @@ internal static class FingerprintDescriptor
         }
         """;
 
+    // A schema in which an identity can change alone: one enum type, which no field names;
+    // one entity type; a field that is not the key, that no index covers and that stays the
+    // last when its identity grows; one index. A new identity of any of them changes no order
+    // and no reference, so only the identity itself can make the fingerprints differ.
+    public const string SingleIdentitiesJson = """
+        {
+          "Enums": [
+            { "Id": 1, "Name": "Spare", "Members": [ { "Name": "Zero", "Value": 0 } ] }
+          ],
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Item",
+              "Fields": [
+                { "Id": 1, "Name": "Id", "Type": "Int64" },
+                { "Id": 2, "Name": "Label", "Type": "String" },
+                { "Id": 3, "Name": "Note", "Type": "String", "Nullable": true }
+              ],
+              "PrimaryKey": [1],
+              "Indexes": [ { "Id": 1, "Name": "ByLabel", "Fields": [2] } ]
+            }
+          ]
+        }
+        """;
+
     public static LatticeSchema Compile() => LatticeSchema.Compile(Json);
 
     // The descriptor with one part written differently, see Descriptor.With.

@@ -70,6 +70,16 @@ public sealed class LayoutFingerprintTests
     }
 
     [Fact]
+    public void Layout_fingerprint_changes_when_the_identity_of_a_field_changes_and_nothing_else()
+    {
+        // In this schema the new identity of Note keeps its place among the fields.
+        var original = Assert.Single(LatticeSchema.Compile(FingerprintDescriptor.SingleIdentitiesJson).EntityTypes);
+        var changed = Assert.Single(LatticeSchema.Compile(Descriptor.With(FingerprintDescriptor.SingleIdentitiesJson, "{ 'Id': 3, 'Name': 'Note',", "{ 'Id': 4, 'Name': 'Note',")).EntityTypes);
+
+        Assert.NotEqual(original.LayoutFingerprint, changed.LayoutFingerprint);
+    }
+
+    [Fact]
     public void Change_of_an_enum_type_reaches_the_layout_of_the_entity_types_that_store_it_only()
     {
         var original = FingerprintDescriptor.Compile();

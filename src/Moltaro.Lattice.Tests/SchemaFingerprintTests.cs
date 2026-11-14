@@ -109,6 +109,21 @@ public sealed class SchemaFingerprintTests
         Assert.Equal(original.Fingerprint, changed.Fingerprint);
     }
 
+    [Theory]
+    // The enum type, the entity type, the field, the index.
+    [InlineData("{ 'Id': 1, 'Name': 'Spare',", "{ 'Id': 2, 'Name': 'Spare',")]
+    [InlineData("'Id': 1, 'Name': 'Item',", "'Id': 2, 'Name': 'Item',")]
+    [InlineData("{ 'Id': 3, 'Name': 'Note',", "{ 'Id': 4, 'Name': 'Note',")]
+    [InlineData("{ 'Id': 1, 'Name': 'ByLabel',", "{ 'Id': 2, 'Name': 'ByLabel',")]
+    public void Fingerprint_changes_when_an_identity_changes_and_nothing_else(string part, string replacement)
+    {
+        // In this schema a new identity moves nothing and is named by nothing.
+        var original = LatticeSchema.Compile(FingerprintDescriptor.SingleIdentitiesJson);
+        var changed = LatticeSchema.Compile(Descriptor.With(FingerprintDescriptor.SingleIdentitiesJson, part, replacement));
+
+        Assert.NotEqual(original.Fingerprint, changed.Fingerprint);
+    }
+
     [Fact]
     public void Renaming_an_enum_type_does_not_change_the_fingerprint()
     {
