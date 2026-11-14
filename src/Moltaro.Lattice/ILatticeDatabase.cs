@@ -111,9 +111,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <typeparam name="TEntity">A .NET class named by a <c>ClrType</c> in the schema.</typeparam>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for
-    /// the class, the class does not have the properties the entity type declares, or a
-    /// property is a .NET enum that does not agree with the enum type of its field, see
-    /// <see cref="LatticeValueDeclaration.ValueType"/>.
+    /// the class, the class has no public parameterless constructor, the class does not have
+    /// the properties the entity type declares, or a property is a .NET enum that does not
+    /// agree with the enum type of its field, see <see cref="LatticeValueDeclaration.ValueType"/>.
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
     /// </exception>
     ILatticeSet<TEntity> Set<TEntity>()
