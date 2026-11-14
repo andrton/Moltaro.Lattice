@@ -47,10 +47,16 @@ public sealed class LatticeOwnedValue
     {
         ArgumentNullException.ThrowIfNull(ownedType);
         OwnedType = ownedType;
+        Values = new object?[ownedType.Fields.Count];
     }
 
     /// <summary>The owned type the value belongs to.</summary>
     public LatticeOwnedType OwnedType { get; }
+
+    // One value per field of the owned type, by the ordinal of the field, in the form a record
+    // holds; null for a field without a value. RecordValues and ClassBinder fill it when they
+    // make the copy that a record holds.
+    internal object?[] Values { get; }
 
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
@@ -68,8 +74,12 @@ public sealed class LatticeOwnedValue
     /// </exception>
     public object? this[string fieldName]
     {
-        get => throw new NotSupportedException("Owned values are not implemented yet.");
-        set => throw new NotSupportedException("Owned values are not implemented yet.");
+        get => Values[Field(fieldName).Ordinal];
+        set
+        {
+            var field = Field(fieldName);
+            Values[field.Ordinal] = value is null ? null : RecordValues.Accept(field, OwnedType.Name, value);
+        }
     }
 
     /// <summary>
@@ -81,6 +91,13 @@ public sealed class LatticeOwnedValue
     /// <param name="fieldName">The field name declared in the owned type.</param>
     /// <exception cref="ArgumentException">The owned type has no such field.</exception>
     /// <exception cref="InvalidCastException">The field value is not a <typeparamref name="T"/>.</exception>
-    public T? Get<T>(string fieldName) =>
-        throw new NotSupportedException("Owned values are not implemented yet.");
+    public T? Get<T>(string fieldName) => this[fieldName] is { } value ? (T)value : default;
+
+    private LatticeField Field(string fieldName)
+    {
+        ArgumentNullException.ThrowIfNull(fieldName);
+        return OwnedType.TryGetField(fieldName, out var field)
+            ? field
+            : throw new ArgumentException($"Owned type '{OwnedType.Name}' has no field '{fieldName}'.", nameof(fieldName));
+    }
 }

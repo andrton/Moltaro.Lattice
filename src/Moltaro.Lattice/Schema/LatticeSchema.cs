@@ -17,17 +17,20 @@ public sealed class LatticeSchema
     private readonly Dictionary<string, LatticeEntityType> _byName;
     private readonly Dictionary<string, LatticeEntityType> _byClrTypeName;
     private readonly Dictionary<string, LatticeEnumType> _enumTypesByName;
+    private readonly Dictionary<string, LatticeOwnedType> _ownedTypesByName;
 
     internal LatticeSchema(
         int version,
         LatticeStringEncodingEnum stringEncoding,
         IReadOnlyList<LatticeEnumType> enumTypes,
+        IReadOnlyList<LatticeOwnedType> ownedTypes,
         IReadOnlyList<LatticeEntityType> entityTypes,
         LatticeFingerprint fingerprint)
     {
         Version = version;
         StringEncoding = stringEncoding;
         EnumTypes = enumTypes;
+        OwnedTypes = ownedTypes;
         EntityTypes = entityTypes;
         Fingerprint = fingerprint;
         _byName = entityTypes.ToDictionary(entityType => entityType.Name, StringComparer.Ordinal);
@@ -35,6 +38,7 @@ public sealed class LatticeSchema
             .Where(entityType => entityType.ClrTypeName is not null)
             .ToDictionary(entityType => entityType.ClrTypeName!, StringComparer.Ordinal);
         _enumTypesByName = enumTypes.ToDictionary(enumType => enumType.Name, StringComparer.Ordinal);
+        _ownedTypesByName = ownedTypes.ToDictionary(ownedType => ownedType.Name, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -57,8 +61,7 @@ public sealed class LatticeSchema
     public IReadOnlyList<LatticeEnumType> EnumTypes { get; }
 
     /// <summary>All owned types in declaration order; empty when the descriptor declares none.</summary>
-    public IReadOnlyList<LatticeOwnedType> OwnedTypes =>
-        throw new NotSupportedException("Owned types are not implemented yet.");
+    public IReadOnlyList<LatticeOwnedType> OwnedTypes { get; }
 
     /// <summary>
     /// The fingerprint of everything in the schema that decides how data is laid out,
@@ -116,7 +119,7 @@ public sealed class LatticeSchema
     /// <param name="ownedType">The owned type, when found.</param>
     /// <returns><see langword="true"/> when the schema declares the owned type.</returns>
     public bool TryGetOwnedType(string name, [NotNullWhen(true)] out LatticeOwnedType? ownedType) =>
-        throw new NotSupportedException("Owned types are not implemented yet.");
+        _ownedTypesByName.TryGetValue(name, out ownedType);
 
     /// <summary>
     /// Compiles a JSON schema descriptor: parses it, validates it and resolves its enum

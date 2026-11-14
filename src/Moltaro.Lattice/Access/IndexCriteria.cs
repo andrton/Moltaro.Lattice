@@ -21,9 +21,11 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
         var equal = new object?[key.Values.Length];
         for (var part = 0; part < equal.Length; part++)
         {
+            // A part can be null when its field is nullable or when an owned value on its path
+            // is, which is then absent. A Reference is given as the key of its target.
             var field = parts[part].Field;
             var value = key.Values[part];
-            if (value is null && !field.Declaration.IsNullable)
+            if (value is null && !parts[part].CanBeNull)
             {
                 throw new ArgumentException($"Index '{index.Name}': field '{field.Name}' is never null.", nameof(key));
             }

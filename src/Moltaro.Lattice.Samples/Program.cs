@@ -2,6 +2,7 @@ using Moltaro.Lattice.Samples;
 
 var schema = SchemaSample.Run();
 SchemaDeclarationsSample.Run();
+await NestedValuesSample.RunAsync();
 
 await BasicCrudSample.RunAsync(schema);
 await DynamicAccessSample.RunAsync(schema);

@@ -45,7 +45,7 @@ public sealed class SelfContainingOwnedTypeTests
         }
         """;
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A field of its own type, nullable or not.
     [InlineData("{ 'Id': 2, 'Name': 'Child', 'Type': 'Owned', 'OwnedType': 'Leaf', 'Nullable': true }", "{ 'Id': 2, 'Name': 'Child', 'Type': 'Owned', 'OwnedType': 'Node', 'Nullable': true }")]
     [InlineData("{ 'Id': 2, 'Name': 'Child', 'Type': 'Owned', 'OwnedType': 'Leaf', 'Nullable': true }", "{ 'Id': 2, 'Name': 'Child', 'Type': 'Owned', 'OwnedType': 'Node' }")]
@@ -62,7 +62,7 @@ public sealed class SelfContainingOwnedTypeTests
         Assert.Contains("Node", exception.Message);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // Leaf, which Node holds, holds a Node: as a field, nullable or not, as a List element, as
     // a Map value.
     [InlineData("{ 'Id': 2, 'Name': 'Extra', 'Type': 'Owned', 'OwnedType': 'Node', 'Nullable': true }")]
@@ -77,7 +77,7 @@ public sealed class SelfContainingOwnedTypeTests
         Assert.Contains("Leaf", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_type_that_contains_itself_through_two_other_owned_types_is_refused_with_all_three_named()
     {
         // Node holds a Leaf, Leaf a List of Twigs, and Twig a Node.
@@ -91,7 +91,7 @@ public sealed class SelfContainingOwnedTypeTests
         Assert.Contains("Twig", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_type_held_twice_on_different_ways_does_not_contain_itself()
     {
         // Node holds Leaf as a field and in a List, and Tree holds Node and Leaf: Leaf is
@@ -107,7 +107,7 @@ public sealed class SelfContainingOwnedTypeTests
         Assert.Same(leaf, child.Declaration.OwnedType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_type_with_a_reference_to_the_entity_type_that_holds_it_compiles()
     {
         // A reference is a key, not a value that is owned.

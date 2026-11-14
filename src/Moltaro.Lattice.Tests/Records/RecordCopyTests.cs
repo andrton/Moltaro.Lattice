@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Tests.Records;
 // made.
 public sealed class RecordCopyTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collections_inside_a_collection_are_rebuilt_and_a_later_change_of_them_is_not_seen()
     {
         var record = NewBox();
@@ -31,7 +31,7 @@ public sealed class RecordCopyTests
         Assert.Equal(["inner"], heldNested["outer"].Keys);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collections_inside_a_collection_are_rebuilt_with_the_comparers_of_the_schema()
     {
         var record = NewBox();
@@ -45,7 +45,7 @@ public sealed class RecordCopyTests
         Assert.Contains("READ", Assert.Single(Assert.IsType<List<HashSet<string>>>(record["Groups"])));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_set_into_a_record_is_copied_and_a_later_change_of_it_is_not_seen()
     {
         var schema = Schema();
@@ -63,7 +63,7 @@ public sealed class RecordCopyTests
         Assert.Equal("Oslo", record.Get<Dictionary<int, LatticeOwnedValue>>("Sites")![1]["City"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void One_owned_value_set_into_two_records_or_twice_into_one_collection_gives_independent_copies()
     {
         var schema = Schema();
@@ -81,7 +81,7 @@ public sealed class RecordCopyTests
         Assert.Equal("Oslo", oslo["City"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_copies_what_is_set_into_it_at_every_depth()
     {
         var schema = Schema();
@@ -105,7 +105,7 @@ public sealed class RecordCopyTests
         Assert.Equal(59.9, oslo.Get<LatticeOwnedValue>("Location")!["Lat"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Byte_array_set_into_a_record_is_copied_also_inside_a_collection()
     {
         var record = NewBox();
@@ -122,7 +122,7 @@ public sealed class RecordCopyTests
         Assert.Equal(new byte[] { 4, 5 }, Assert.Single(record.Get<List<byte[]>>("Blobs")!));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Byte_array_set_into_a_record_of_a_writable_entity_type_is_copied()
     {
         // Setting, of the schema of Epic 1, sprint 2, has a Binary field and can be written.
@@ -150,7 +150,7 @@ public sealed class RecordCopyTests
         Assert.Equal(new byte[] { 99, 2, 3 }, record.Get<byte[]>("Payload"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Record_returns_its_own_values_the_same_every_time_and_a_change_through_them_is_a_change_of_the_record()
     {
         var schema = Schema();
@@ -175,7 +175,7 @@ public sealed class RecordCopyTests
         Assert.Equal(new byte[] { 9 }, record.Get<byte[]>("Photo"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Change_through_a_returned_collection_is_not_checked_when_it_is_made()
     {
         var record = NewBox();

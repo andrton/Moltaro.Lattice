@@ -12,7 +12,7 @@ public sealed class OwnedValueTests
         Assert.Throws<ArgumentNullException>(() => new LatticeOwnedValue(null!));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_holds_the_fields_of_its_owned_type()
     {
         var address = ValueSchema.OwnedType(ValueSchema.Compile(), "Address");
@@ -33,7 +33,7 @@ public sealed class OwnedValueTests
         Assert.Throws<ArgumentException>(() => value["Floor"] = 40_000);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_refuses_a_field_its_owned_type_does_not_have_and_a_value_that_does_not_fit()
     {
         var schema = ValueSchema.Compile();
@@ -58,7 +58,7 @@ public sealed class OwnedValueTests
         Assert.Throws<InvalidCastException>(() => value.Get<int>("Lines"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Record_holds_an_owned_value_of_the_owned_type_of_its_field()
     {
         var schema = ValueSchema.Compile();
@@ -84,7 +84,7 @@ public sealed class OwnedValueTests
         Assert.Null(record["Home"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Record_refuses_an_owned_value_of_another_owned_type_and_any_other_value()
     {
         var schema = ValueSchema.Compile();
@@ -96,7 +96,7 @@ public sealed class OwnedValueTests
         Assert.Throws<ArgumentException>(() => record["Spot"] = new LatticeOwnedValue(ValueSchema.OwnedType(schema, "Address")));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Record_holds_owned_values_inside_lists_and_maps_as_owned_values()
     {
         var schema = ValueSchema.Compile();

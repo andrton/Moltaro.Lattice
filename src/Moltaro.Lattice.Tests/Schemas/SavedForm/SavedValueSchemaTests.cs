@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Tests.Schemas.SavedForm;
 // loaded schema has the fingerprints of the saved one.
 public sealed class SavedValueSchemaTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Saving_to_a_stream_and_loading_keeps_every_declaration_and_both_fingerprints()
     {
         var compiled = ValueSchema.Compile();
@@ -18,7 +18,7 @@ public sealed class SavedValueSchemaTests
         AssertSameSchema(compiled, loaded);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Saving_to_a_file_and_loading_keeps_every_declaration_and_both_fingerprints()
     {
         var compiled = ValueSchema.Compile();
@@ -36,7 +36,7 @@ public sealed class SavedValueSchemaTests
         }
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Loaded_schema_refers_to_its_own_owned_types()
     {
         using var stream = new MemoryStream();

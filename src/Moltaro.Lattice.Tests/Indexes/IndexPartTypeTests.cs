@@ -11,7 +11,7 @@ public sealed class IndexPartTypeTests
 {
     private const string LastIndex = "{ 'Id': 7, 'Name': 'ByLogin', 'Fields': [10] }";
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Index_part_may_end_at_a_scalar_an_Enum_or_a_Reference_plain_or_inside_an_owned_value()
     {
         var person = Assert.Single(PartSchema().EntityTypes);
@@ -25,7 +25,7 @@ public sealed class IndexPartTypeTests
         Assert.Equal(LatticeFieldTypeEnum.Int16, PartField(person, "ByWorkFloor").Declaration.Type);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned value, plain, as a list of one identity, and at the end of a path.
     [InlineData("[2]", "Home")]
     [InlineData("[3]", "Work")]
@@ -46,7 +46,7 @@ public sealed class IndexPartTypeTests
         Assert.Contains(field, exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Search_key_gives_a_reference_as_the_key_of_its_target()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());
@@ -70,7 +70,7 @@ public sealed class IndexPartTypeTests
         ExpectAccepted(database.Set("Person").Index("ByWorkOwner"), IndexKey.Equal(7L));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Search_key_gives_an_Enum_part_as_its_underlying_integer()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());
@@ -80,7 +80,7 @@ public sealed class IndexPartTypeTests
         ExpectRefused(database.Set("Person").Index("ByWorkRank"), IndexKey.Equal("High"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Part_of_a_search_key_accepts_an_integer_of_another_width_when_it_fits()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());

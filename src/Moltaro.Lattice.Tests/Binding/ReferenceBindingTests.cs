@@ -10,7 +10,7 @@ public sealed class ReferenceBindingTests
     private const string ToNullableGroup = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Reference', 'EntityType': 'Group', 'Nullable': true }";
     private const string ToNullableHolder = "{ 'Id': 2, 'Name': 'Value', 'Type': 'Reference', 'EntityType': 'Holder', 'Nullable': true }";
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Reference_binds_as_the_key_type_of_its_target()
     {
         await BindingSchema.ExpectBoundAsync<BindingSchema.Holder<Guid>>(ToGroup);
@@ -18,7 +18,7 @@ public sealed class ReferenceBindingTests
         await BindingSchema.ExpectBoundAsync<BindingSchema.Holder<long?>>(ToNullableHolder);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Reference_as_another_type_is_refused_with_the_property_named()
     {
         // Another key type, the class of the target, nullability that does not fit.

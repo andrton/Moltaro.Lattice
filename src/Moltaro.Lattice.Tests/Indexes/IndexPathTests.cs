@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // field is nullable, or an owned value on its path is.
 public sealed class IndexPathTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Index_part_is_a_path_from_a_field_of_the_entity_type_to_the_indexed_field()
     {
         var schema = ValueSchema.Compile();
@@ -51,7 +51,7 @@ public sealed class IndexPathTests
         Assert.Equal(["Age", "Name"], byAgeAndName.Parts.Select(part => part.Field.Name));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Index_may_cover_one_field_of_an_owned_type_through_two_owned_values()
     {
         // Home.City and Work.City are the same field of Address in two owned values.
@@ -64,7 +64,7 @@ public sealed class IndexPathTests
         Assert.Same(index.Parts[0].Field, index.Parts[1].Field);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A step that is not an Owned field: a scalar, a reference, a List, a Map, a Set.
     [InlineData("[ [20, 1] ]")]
     [InlineData("[ [5, 1] ]")]
@@ -85,7 +85,7 @@ public sealed class IndexPathTests
         Assert.Contains("ByHomeCity", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Path_to_a_field_that_an_index_cannot_have_is_refused_with_its_place()
     {
         // A Binary field inside an owned value.
@@ -97,7 +97,7 @@ public sealed class IndexPathTests
         Assert.Contains("ByHomeLat", exception.Message);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An element of Fields is an identity or a list of identities.
     [InlineData("[ ['2', 1] ]")]
     [InlineData("[ { 'Path': [2, 1] } ]")]
@@ -107,7 +107,7 @@ public sealed class IndexPathTests
         Descriptor.ExpectRefused(ValueSchema.Json, "'Fields': [ [2, 1] ] }", $"'Fields': {fields} }}");
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Search_key_may_give_null_for_a_part_that_can_be_null_and_the_search_is_not_implemented_yet()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());
@@ -126,7 +126,7 @@ public sealed class IndexPathTests
         }
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Search_key_that_gives_null_for_a_part_that_is_never_null_is_refused_before_the_search()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());

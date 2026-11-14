@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // entity type. A record holds the key and accepts the key.
 public sealed class ReferenceTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Reference_names_its_entity_type_and_holds_the_key_of_its_target()
     {
         var schema = ValueSchema.Compile();
@@ -30,7 +30,7 @@ public sealed class ReferenceTests
         Assert.Equal(typeof(Guid), group.Key.Declaration.ValueType);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Int8", typeof(sbyte))]
     [InlineData("UInt8", typeof(byte))]
     [InlineData("Int16", typeof(short))]
@@ -67,7 +67,7 @@ public sealed class ReferenceTests
         Assert.Equal(valueType, targets.Declaration.Element!.ValueType);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An entity type the schema does not declare, an owned type, which is not an entity type,
     // and no entity type at all.
     [InlineData("{ 'Id': 5, 'Name': 'Manager', 'Type': 'Reference', 'EntityType': 'User', 'Nullable': true }", "{ 'Id': 5, 'Name': 'Manager', 'Type': 'Reference', 'EntityType': 'Customer', 'Nullable': true }", "User", "Manager")]
@@ -86,7 +86,7 @@ public sealed class ReferenceTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Record_holds_a_reference_as_the_key_of_its_target()
     {
         var user = ValueSchema.User(ValueSchema.Compile());

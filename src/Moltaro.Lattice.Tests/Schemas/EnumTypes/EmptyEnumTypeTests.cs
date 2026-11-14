@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Tests.Schemas.EnumTypes;
 // zero holds the empty set and is valid.
 public sealed class EmptyEnumTypeTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Enum_type_without_members_is_refused_with_the_enum_type_named(bool isFlags)
@@ -19,7 +19,7 @@ public sealed class EmptyEnumTypeTests
         Assert.Contains("Code", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Enum_type_without_members_is_refused_also_when_no_field_names_it()
     {
         var json = """

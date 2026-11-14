@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.Records;
 // and of equal members of a Set the first is kept.
 public sealed class RecordCollectionTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void List_keeps_the_order_and_the_duplicates_of_its_input_in_a_copy()
     {
         var record = NewRecord();
@@ -23,7 +23,7 @@ public sealed class RecordCollectionTests
         Assert.NotSame(scores, held);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void List_accepts_any_sequence_of_its_element_type()
     {
         var record = NewRecord();
@@ -39,7 +39,7 @@ public sealed class RecordCollectionTests
         Assert.Empty(Assert.IsType<List<int?>>(record["Scores"]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void List_refuses_an_element_of_another_type_and_a_null_its_element_does_not_allow()
     {
         var record = NewRecord();
@@ -53,7 +53,7 @@ public sealed class RecordCollectionTests
         Assert.Equal([null], Assert.IsType<List<int?>>(record["Scores"]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Map_holds_a_copy_of_its_input_with_the_comparer_of_its_key_declaration()
     {
         var record = NewRecord();
@@ -76,7 +76,7 @@ public sealed class RecordCollectionTests
         Assert.True(heldMembers.ContainsKey("MAIN"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Map_accepts_any_sequence_of_key_value_pairs()
     {
         var record = NewRecord();
@@ -88,7 +88,7 @@ public sealed class RecordCollectionTests
         Assert.Equal(4, held[1]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Key_given_twice_in_the_input_of_a_Map_is_refused()
     {
         var record = NewRecord();
@@ -105,7 +105,7 @@ public sealed class RecordCollectionTests
         Assert.Equal(2, Assert.IsType<Dictionary<string, string>>(record["Options"]).Count);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Map_refuses_a_key_or_a_value_of_another_type_and_a_null_its_declaration_does_not_allow()
     {
         var record = NewRecord();
@@ -119,7 +119,7 @@ public sealed class RecordCollectionTests
         Assert.Throws<ArgumentException>(() => record["Members"] = new Dictionary<string, List<Guid>?> { ["Main"] = null });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Set_keeps_the_first_of_equal_members_in_a_copy_with_the_comparer_of_its_element_declaration()
     {
         var record = NewRecord();
@@ -141,7 +141,7 @@ public sealed class RecordCollectionTests
         Assert.Contains(null, held);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Set_compares_its_members_as_its_element_declaration_does_and_not_as_its_input()
     {
         var record = NewRecord();
@@ -155,7 +155,7 @@ public sealed class RecordCollectionTests
         Assert.DoesNotContain("READ", Assert.IsType<HashSet<string>>(record["Rights"]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Set_refuses_a_member_of_another_type_and_a_null_its_element_does_not_allow()
     {
         var record = NewRecord();
@@ -170,7 +170,7 @@ public sealed class RecordCollectionTests
         Assert.Empty(Assert.IsType<HashSet<Guid>>(record["Teams"]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collections_inside_collections_are_held_and_checked_at_every_position()
     {
         var record = NewRecord();
@@ -191,7 +191,7 @@ public sealed class RecordCollectionTests
         Assert.Throws<ArgumentException>(() => record["Layers"] = new List<List<long>?> { new() { 1 }, null });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Elements_of_an_enum_type_and_of_Binary_are_held_as_their_values()
     {
         var record = NewRecord();

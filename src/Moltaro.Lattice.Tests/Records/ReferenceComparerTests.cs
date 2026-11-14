@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Records;
 // collection never covers that comparison; the fingerprint of the schema does.
 public sealed class ReferenceComparerTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Set_of_references_compares_its_members_as_the_key_of_their_target()
     {
         var record = new LatticeRecord(Holder(Schema()));
@@ -24,7 +24,7 @@ public sealed class ReferenceComparerTests
         Assert.Equal(2, Assert.IsType<HashSet<string>>(record["Codes"]).Count);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Map_of_references_refuses_two_keys_that_the_key_of_their_target_holds_equal()
     {
         var record = new LatticeRecord(Holder(Schema()));
@@ -37,7 +37,7 @@ public sealed class ReferenceComparerTests
         Assert.True(Assert.IsType<Dictionary<string, int>>(record["Counts"]).ContainsKey("MAIN"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Object_whose_Map_holds_two_keys_that_the_key_of_their_target_holds_equal_is_ValidationFailed()
     {
         await using var database = await TestData.OpenMasterAsync(schema: Schema());
@@ -47,7 +47,7 @@ public sealed class ReferenceComparerTests
         await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => database.Set<HolderObject>().InsertAsync(holder));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Comparison_of_the_key_of_a_target_changes_the_schema_fingerprint_and_not_the_layout_fingerprint()
     {
         var ignoringCase = Schema();

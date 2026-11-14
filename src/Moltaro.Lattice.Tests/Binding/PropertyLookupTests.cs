@@ -34,7 +34,7 @@ public sealed class PropertyLookupTests
         Assert.Equal("", ((NoteBase)read).Text);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Hiding_property_of_the_type_the_field_needs_binds_where_the_base_has_another_type()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SchemaFor<HidingNumberNote>());
@@ -47,20 +47,20 @@ public sealed class PropertyLookupTests
         Assert.Equal(0, ((NumberNoteBase)read).Text);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Hiding_property_of_a_type_the_field_does_not_accept_is_refused_with_the_property_named()
     {
         // The base has a String Text, as the field needs; the most derived class has an Int32.
         await ExpectNotBoundAsync(new HidingTextWithNumberNote { Id = 1 });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Static_property_is_refused_with_the_property_named()
     {
         await ExpectNotBoundAsync(new StaticTextNote { Id = 1 });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Static_property_that_hides_an_instance_property_is_refused_with_the_property_named()
     {
         await ExpectNotBoundAsync(new StaticHidingNote { Id = 1 });

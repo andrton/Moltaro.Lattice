@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.Schemas.Fingerprints;
 // of the entity type. Comparisons, indexes, names and classes are not part of it.
 public sealed class ValueLayoutFingerprintTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A field added to an owned type the entity type holds, directly or inside another one.
     [InlineData("{ 'Id': 3, 'Name': 'Geo', 'Type': 'Owned', 'OwnedType': 'Point', 'Nullable': true }", "{ 'Id': 3, 'Name': 'Geo', 'Type': 'Owned', 'OwnedType': 'Point', 'Nullable': true }, { 'Id': 4, 'Name': 'Floor', 'Type': 'Int16' }")]
     [InlineData("{ 'Id': 2, 'Name': 'Lon', 'Type': 'Float64' }", "{ 'Id': 2, 'Name': 'Lon', 'Type': 'Float64' }, { 'Id': 3, 'Name': 'Alt', 'Type': 'Float64' }")]
@@ -47,7 +47,7 @@ public sealed class ValueLayoutFingerprintTests
         Assert.NotEqual(original.LayoutFingerprint, changed.LayoutFingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type the entity type does not hold, and a new one.
     [InlineData("{ 'Id': 1, 'Name': 'Memo', 'Type': 'String' }", "{ 'Id': 1, 'Name': 'Memo', 'Type': 'String' }, { 'Id': 2, 'Name': 'Pinned', 'Type': 'Boolean' }")]
     [InlineData("'OwnedTypes': [", "'OwnedTypes': [ { 'Id': 4, 'Name': 'Extra', 'Fields': [ { 'Id': 1, 'Name': 'Flag', 'Type': 'Boolean' } ] },")]
@@ -82,7 +82,7 @@ public sealed class ValueLayoutFingerprintTests
         Assert.Equal(original.LayoutFingerprint, changed.LayoutFingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type with the fields that hold it, an owned field, an entity type that is
     // referred to with the references to it, and the entity type itself.
     [InlineData("Address", "Location")]
@@ -97,7 +97,7 @@ public sealed class ValueLayoutFingerprintTests
         Assert.Equal(original.LayoutFingerprint, renamed.LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Order_in_which_the_descriptor_lists_owned_types_and_fields_does_not_change_the_layout_fingerprint()
     {
         var original = ValueFingerprintDescriptor.Compile();
@@ -106,7 +106,7 @@ public sealed class ValueLayoutFingerprintTests
         Assert.Equal(original.EntityTypes.OrderBy(entityType => entityType.Id).Select(entityType => entityType.LayoutFingerprint), reversed.EntityTypes.OrderBy(entityType => entityType.Id).Select(entityType => entityType.LayoutFingerprint));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Layout_fingerprint_changes_when_another_field_becomes_the_primary_key()
     {
         // In the descriptor of the tests of Epic 1, sprint 2: Login, a String, becomes the key
@@ -140,7 +140,7 @@ public sealed class ValueLayoutFingerprintTests
         Assert.Equal(schema.EntityTypes[0].LayoutFingerprint, schema.EntityTypes[1].LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Entity_types_with_the_same_nested_values_and_key_have_the_same_layout_fingerprint()
     {
         // A second Person with another identity and another name, and the same fields.

@@ -19,7 +19,7 @@ public sealed class OwnedTypeFormTests
         }
         """;
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An empty list of fields, and no list.
     [InlineData("'Fields': [ { 'Id': 1, 'Name': 'Text', 'Type': 'String' } ] }", "'Fields': [] }")]
     [InlineData(", 'Fields': [ { 'Id': 1, 'Name': 'Text', 'Type': 'String' } ] }", " }")]
@@ -32,7 +32,7 @@ public sealed class OwnedTypeFormTests
         Assert.Contains("Emblem", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_type_without_a_class_is_valid()
     {
         var schema = LatticeSchema.Compile(Descriptor.With(Json, "'ClrType': 'Example.Emblem',", ""));

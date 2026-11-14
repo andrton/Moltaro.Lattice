@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Records;
 // into another owned value or into a collection.
 public sealed class OwnedValueReturnTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_returns_its_own_values_the_same_every_time()
     {
         var schema = Schema();
@@ -27,7 +27,7 @@ public sealed class OwnedValueReturnTests
         Assert.Equal(new byte[] { 9, 2 }, address.Get<byte[]>("Photo"));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_inside_a_record_is_edited_through_what_it_returns()
     {
         var schema = Schema();
@@ -41,7 +41,7 @@ public sealed class OwnedValueReturnTests
         Assert.Equal(60.4, record.Get<LatticeOwnedValue>("Home")!.Get<LatticeOwnedValue>("Location")!["Lat"]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_made_invalid_through_a_collection_it_returned_is_refused_when_it_is_set()
     {
         var schema = Schema();
@@ -62,7 +62,7 @@ public sealed class OwnedValueReturnTests
         ExpectRefused(() => envelope["Copies"] = new[] { address });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_value_that_holds_one_made_invalid_is_refused_when_it_is_set()
     {
         var schema = Schema();

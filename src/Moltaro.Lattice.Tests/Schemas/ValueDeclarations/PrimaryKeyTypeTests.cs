@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // and a reference are none of these, so none of them is a primary key.
 public sealed class PrimaryKeyTypeTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("'Type': 'Owned', 'OwnedType': 'Address'")]
     [InlineData("'Type': 'List', 'Element': { 'Type': 'Int64' }")]
     [InlineData("'Type': 'Map', 'Key': { 'Type': 'Int64' }, 'Value': { 'Type': 'Int64' }")]

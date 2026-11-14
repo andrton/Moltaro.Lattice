@@ -3,13 +3,15 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access;
 
-// How values supplied by callers are checked against the schema, and how they are kept
-// separate from what the database stores.
+// How a value that a caller gives by itself, a field value, a primary key or a part of a search
+// key, is checked against the schema, and how stored values are kept separate from what a read
+// returns. Values inside owned values and collections are RecordValues' business.
 internal static class FieldValues
 {
     // Returns the value in the field's exact .NET type. An integer of another width is
-    // accepted when it fits, so that a literal such as 1 works for an Int64 field, and for an
-    // Enum field, which holds the integer of its enum type.
+    // accepted when it fits, so that a literal such as 1 works for an Int64 field, for an Enum
+    // field, which holds the integer of its enum type, and for a Reference, which holds the key
+    // of its target.
     public static object Normalize(LatticeField field, object value, string parameterName)
     {
         var declaration = field.Declaration;
@@ -19,8 +21,7 @@ internal static class FieldValues
             return value;
         }
 
-        var integerType = declaration.EnumType?.UnderlyingType ?? declaration.Type;
-        if (FieldTypes.IsInteger(integerType) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
+        if (FieldTypes.IsInteger(declaration.ScalarType) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
         {
             try
             {
@@ -43,8 +44,9 @@ internal static class FieldValues
         return Normalize(entityType.Key, key, nameof(key));
     }
 
-    // Stored values are never modified in place; a byte array is the only mutable value,
-    // so it is copied whenever values cross the database boundary.
+    // Stored values are never modified in place. Until owned values and collections are stored
+    // a byte array is the only mutable value a stored entity holds, so it is copied whenever
+    // values cross the database boundary.
     public static object?[] Copy(object?[] values)
     {
         var copy = (object?[])values.Clone();
@@ -57,16 +59,5 @@ internal static class FieldValues
         }
 
         return copy;
-    }
-
-    public static void EnsureRequiredValues(LatticeEntityType entityType, object?[] values)
-    {
-        foreach (var field in entityType.Fields)
-        {
-            if (values[field.Ordinal] is null && !field.Declaration.IsNullable)
-            {
-                throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{entityType.Name}.{field.Name} is required and has no value.");
-            }
-        }
     }
 }

@@ -93,7 +93,7 @@ public sealed class LatticeRecord
         set
         {
             var field = Field(fieldName);
-            _values[field.Ordinal] = value is null ? null : FieldValues.Normalize(field, value, nameof(value));
+            _values[field.Ordinal] = value is null ? null : RecordValues.Accept(field, EntityType.Name, value);
         }
     }
 
@@ -108,13 +108,9 @@ public sealed class LatticeRecord
     /// <exception cref="InvalidCastException">The field value is not a <typeparamref name="T"/>.</exception>
     public T? Get<T>(string fieldName) => this[fieldName] is { } value ? (T)value : default;
 
-    // Record -> values to store. The result shares nothing mutable with the record.
-    internal object?[] Capture()
-    {
-        var values = FieldValues.Copy(_values);
-        FieldValues.EnsureRequiredValues(EntityType, values);
-        return values;
-    }
+    // Record -> values to store, checked against the schema at every depth. The result shares
+    // nothing mutable with the record.
+    internal object?[] Capture() => RecordValues.Submit(EntityType, _values);
 
     private LatticeField Field(string fieldName)
     {

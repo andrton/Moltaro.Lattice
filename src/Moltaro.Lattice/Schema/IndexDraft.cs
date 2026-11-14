@@ -1,5 +1,6 @@
 namespace Moltaro.Lattice.Schema;
 
-// An index as read from a descriptor, before validation: its identity, its name, the ids of
-// its fields and whether it is declared unique.
-internal readonly record struct IndexDraft(int Id, string? Name, IReadOnlyList<int> FieldIds, bool IsUnique);
+// An index as read from a descriptor, before validation: its identity, its name, its parts,
+// each the path of field ids from a field of the entity type to the indexed field, and
+// whether it is declared unique. A part declared as one id is a path of that id alone.
+internal readonly record struct IndexDraft(int Id, string? Name, IReadOnlyList<IReadOnlyList<int>> Parts, bool IsUnique);

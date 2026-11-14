@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Records;
 // key.
 public sealed class ExactCollectionTypeTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collection_of_a_record_is_accepted_only_with_its_exact_element_key_and_value_types()
     {
         var record = new LatticeRecord(ValueSchema.User(ValueSchema.Compile()));
@@ -31,7 +31,7 @@ public sealed class ExactCollectionTypeTests
         Assert.Equal(1, Assert.IsType<Dictionary<byte, int>>(record["PaintCounts"])[0]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collection_of_an_owned_value_is_accepted_only_with_its_exact_element_type()
     {
         // Address gets a List of Int64.
@@ -48,7 +48,7 @@ public sealed class ExactCollectionTypeTests
         Assert.Equal([1L], Assert.IsType<List<long>>(value["Doors"]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Integer_of_another_width_is_accepted_where_a_value_is_given_by_itself()
     {
         var schema = ValueSchema.Compile();

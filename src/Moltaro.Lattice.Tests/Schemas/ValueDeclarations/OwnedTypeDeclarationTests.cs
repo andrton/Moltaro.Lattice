@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // type of the schema.
 public sealed class OwnedTypeDeclarationTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Descriptor_declares_owned_types_with_their_fields_and_classes()
     {
         var schema = ValueSchema.Compile();
@@ -37,7 +37,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.False(schema.TryGetOwnedType("Planet", out _));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Field_of_type_Owned_holds_a_value_of_the_owned_type_it_names()
     {
         var schema = ValueSchema.Compile();
@@ -70,7 +70,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.Equal(typeof(LatticeOwnedValue), location.Declaration.ValueType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Schema_without_owned_types_has_none()
     {
         var schema = LatticeSchema.Compile(TestData.SchemaJson);
@@ -79,7 +79,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.False(schema.TryGetOwnedType("User", out _));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Owned_types_are_a_scope_of_their_own_for_identities_and_names()
     {
         // The owned type Group has the identity and the name of the entity type Group and of
@@ -125,7 +125,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.Equal([1], badge.Fields.Select(field => field.Id));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type: zero, negative, missing, the identity of another owned type.
     [InlineData("'Id': 1, 'Name': 'Address',", "'Id': 0, 'Name': 'Address',", "Address")]
     [InlineData("'Id': 1, 'Name': 'Address',", "'Id': -1, 'Name': 'Address',", "Address")]
@@ -143,7 +143,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // Two owned types with one name.
     [InlineData("'OwnedTypes': [", "'OwnedTypes': [ { 'Id': 3, 'Name': 'Point', 'Fields': [ { 'Id': 1, 'Name': 'X', 'Type': 'Int32' } ] },", "Point")]
     // Two fields of an owned type with one name.
@@ -155,7 +155,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // Two owned types.
     [InlineData("'Id': 2, 'Name': 'Point',", "'Id': 2, 'Name': 'Point', 'ClrType': 'Example.Address',", "Example.Address")]
     // An owned type and an entity type.
@@ -167,7 +167,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.Contains(className, exception.Message);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A field of type Owned that names no owned type, one the schema does not declare, or an
     // entity type, which is not an owned type.
     [InlineData("{ 'Id': 3, 'Name': 'Work', 'Type': 'Owned', 'OwnedType': 'Address' }", "{ 'Id': 3, 'Name': 'Work', 'Type': 'Owned' }", "User", "Work")]
@@ -187,7 +187,7 @@ public sealed class OwnedTypeDeclarationTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type has no key and no indexes of its own.
     [InlineData("'Id': 2, 'Name': 'Point',", "'Id': 2, 'Name': 'Point', 'PrimaryKey': [1],")]
     [InlineData("'Id': 2, 'Name': 'Point',", "'Id': 2, 'Name': 'Point', 'Indexes': [],")]

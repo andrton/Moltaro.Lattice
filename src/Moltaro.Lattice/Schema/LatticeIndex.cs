@@ -22,14 +22,11 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeIndex
 {
-    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeField> fields, bool isUnique)
+    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeIndexPart> parts, bool isUnique)
     {
         Id = id;
         Name = name;
-
-        // The present forms of the descriptor and of the saved schema declare a part as one
-        // field of the entity type: a path of one element.
-        Parts = [.. fields.Select(field => new LatticeIndexPart([field]))];
+        Parts = parts;
         IsUnique = isUnique;
     }
 

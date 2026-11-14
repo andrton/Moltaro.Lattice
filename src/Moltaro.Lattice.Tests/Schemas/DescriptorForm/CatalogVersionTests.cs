@@ -22,7 +22,7 @@ public sealed class CatalogVersionTests
         Assert.Equal(1, LatticeSchema.Compile(Descriptor.With(Json, "'SchemaVersion': 4,", "")).Version);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("0")]
     [InlineData("-1")]
     [InlineData("-2147483648")]

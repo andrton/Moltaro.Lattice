@@ -39,6 +39,10 @@ public sealed class LatticeIndexPart
     {
         Path = path;
         Field = path[^1];
+
+        // Every step but the last is an owned value, which is absent when it is nullable and
+        // has no value; the last step is the indexed field.
+        CanBeNull = path.Any(step => step.Declaration.IsNullable);
     }
 
     /// <summary>
@@ -49,4 +53,8 @@ public sealed class LatticeIndexPart
 
     /// <summary>The indexed field: the last of the path.</summary>
     public LatticeField Field { get; }
+
+    // Whether a value of this part can be null: the indexed field is nullable, or an owned
+    // value on the path is.
+    internal bool CanBeNull { get; }
 }

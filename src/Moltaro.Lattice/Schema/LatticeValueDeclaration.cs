@@ -20,14 +20,58 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeValueDeclaration
 {
-    internal LatticeValueDeclaration(LatticeFieldTypeEnum type, bool isNullable, LatticeStringComparisonEnum? comparison, LatticeStringStorageEnum? stringStorage, LatticeEnumType? enumType)
+    // SchemaBuilder gives each type what it has and nothing else: the policies to a String,
+    // the enum type to an Enum, the owned type to an Owned value, the target to a Reference,
+    // the element to a List and a Set, the key and the value to a Map.
+    internal LatticeValueDeclaration(
+        LatticeFieldTypeEnum type,
+        bool isNullable,
+        LatticeStringComparisonEnum? comparison = null,
+        LatticeStringStorageEnum? stringStorage = null,
+        LatticeEnumType? enumType = null,
+        LatticeOwnedType? ownedType = null,
+        ReferenceTarget? target = null,
+        LatticeValueDeclaration? element = null,
+        LatticeValueDeclaration? key = null,
+        LatticeValueDeclaration? value = null)
     {
         Type = type;
         IsNullable = isNullable;
         Comparison = comparison;
         StringStorage = stringStorage;
         EnumType = enumType;
-        ValueType = FieldTypes.ValueType(enumType?.UnderlyingType ?? type);
+        OwnedType = ownedType;
+        Target = target;
+        Element = element;
+        Key = key;
+        Value = value;
+
+        ScalarType = enumType?.UnderlyingType ?? target?.Key.Type ?? type;
+        TextComparer = type == LatticeFieldTypeEnum.String
+            ? (comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            : target?.Key.TextComparer;
+
+        if (type is LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set)
+        {
+            Sequence = SequenceForm.For(type == LatticeFieldTypeEnum.Set, element!);
+        }
+        else if (type == LatticeFieldTypeEnum.Map)
+        {
+            Map = MapForm.For(key!, value!);
+        }
+
+        // An owned value is held as a LatticeOwnedValue of the access namespace: the public
+        // contract names that type as the ValueType of an Owned position, so this is the one
+        // place where the schema refers to it.
+        ValueType = type switch
+        {
+            LatticeFieldTypeEnum.Owned => typeof(Access.LatticeOwnedValue),
+            LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set => Sequence!.ValueType,
+            LatticeFieldTypeEnum.Map => Map!.ValueType,
+            _ => FieldTypes.ValueType(ScalarType),
+        };
+
+        PositionType = isNullable && ValueType.IsValueType ? typeof(Nullable<>).MakeGenericType(ValueType) : ValueType;
     }
 
     /// <summary>The declared type.</summary>
@@ -62,8 +106,7 @@ public sealed class LatticeValueDeclaration
     /// The owned type whose value is held. <see langword="null"/> when the type is not
     /// <see cref="LatticeFieldTypeEnum.Owned"/>.
     /// </summary>
-    public LatticeOwnedType? OwnedType =>
-        throw new NotSupportedException("Owned types are not implemented yet.");
+    public LatticeOwnedType? OwnedType { get; }
 
     /// <summary>
     /// The name of the entity type that a reference refers to: the value is the primary key of
@@ -71,8 +114,7 @@ public sealed class LatticeValueDeclaration
     /// <see cref="LatticeSchema.TryGetEntityType(string, out LatticeEntityType)"/>.
     /// <see langword="null"/> when the type is not <see cref="LatticeFieldTypeEnum.Reference"/>.
     /// </summary>
-    public string? ReferencedEntityTypeName =>
-        throw new NotSupportedException("References are not implemented yet.");
+    public string? ReferencedEntityTypeName => Target?.EntityTypeName;
 
     /// <summary>
     /// The declaration of the elements of a List or a Set. An element of a List may be
@@ -82,8 +124,7 @@ public sealed class LatticeValueDeclaration
     /// <see langword="null"/> when the type is neither
     /// <see cref="LatticeFieldTypeEnum.List"/> nor <see cref="LatticeFieldTypeEnum.Set"/>.
     /// </summary>
-    public LatticeValueDeclaration? Element =>
-        throw new NotSupportedException("Collections are not implemented yet.");
+    public LatticeValueDeclaration? Element { get; }
 
     /// <summary>
     /// The declaration of the keys of a Map, never nullable. A Map key, like a Set element, is
@@ -94,16 +135,14 @@ public sealed class LatticeValueDeclaration
     /// of that key. <see langword="null"/> when the type is not
     /// <see cref="LatticeFieldTypeEnum.Map"/>.
     /// </summary>
-    public LatticeValueDeclaration? Key =>
-        throw new NotSupportedException("Collections are not implemented yet.");
+    public LatticeValueDeclaration? Key { get; }
 
     /// <summary>
     /// The declaration of the values of a Map: anything a field may be, an owned value and
     /// another collection included. <see langword="null"/> when the type is not
     /// <see cref="LatticeFieldTypeEnum.Map"/>.
     /// </summary>
-    public LatticeValueDeclaration? Value =>
-        throw new NotSupportedException("Collections are not implemented yet.");
+    public LatticeValueDeclaration? Value { get; }
 
     /// <summary>
     /// The .NET type of a non-null value at this position: what a record holds for it, at
@@ -169,4 +208,26 @@ public sealed class LatticeValueDeclaration
     /// </para>
     /// </remarks>
     public Type ValueType { get; }
+
+    // The .NET type that holds a value of this position with its null: ValueType, or
+    // Nullable<> of it when the position is nullable and ValueType is a value type. What a
+    // collection of a record holds at an inner position, and what a bound class declares.
+    internal Type PositionType { get; }
+
+    // The scalar type a value is held as: the underlying integer of an Enum, the key type of
+    // the target of a Reference, the declared type of any other scalar. For an owned value
+    // and a collection, the declared type.
+    internal LatticeFieldTypeEnum ScalarType { get; }
+
+    // How text at this position is compared: the comparison of a String, or of the key of the
+    // target of a Reference, which compares as that key. Null for any other type.
+    internal StringComparer? TextComparer { get; }
+
+    // The entity type a Reference refers to; null for any other type.
+    internal ReferenceTarget? Target { get; }
+
+    // How a record holds a List or a Set, or a Map; null for any other type.
+    internal SequenceForm? Sequence { get; }
+
+    internal MapForm? Map { get; }
 }

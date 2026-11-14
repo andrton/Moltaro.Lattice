@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // declare is not refused yet, and a unique index is not consulted.
 public sealed class ValidationBeforeRefusalTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Valid_record_or_object_with_nested_values_ends_in_NotSupportedException()
     {
         await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
@@ -23,7 +23,7 @@ public sealed class ValidationBeforeRefusalTests
         Assert.Equal(1, batch.Count);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A field, an owned value and a field inside it, without a value.
     [InlineData("Tags is missing")]
     [InlineData("Work is missing")]
@@ -67,7 +67,7 @@ public sealed class ValidationBeforeRefusalTests
         await ExpectValidationFailedAsync(database, database.Set("Holder"), record, (batch, value) => batch.Insert(value));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Record_made_invalid_through_a_collection_of_an_owned_value_it_returned_is_ValidationFailed_when_written()
     {
         await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
@@ -80,7 +80,7 @@ public sealed class ValidationBeforeRefusalTests
         await ExpectValidationFailedAsync(database, database.Set("Holder"), record, (batch, value) => batch.Insert(value));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("a null in Tags")]
     [InlineData("Work is null")]
     [InlineData("City of Work is null")]

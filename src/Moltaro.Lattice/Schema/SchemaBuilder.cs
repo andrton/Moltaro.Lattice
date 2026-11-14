@@ -1,200 +1,160 @@
 namespace Moltaro.Lattice.Schema;
 
 // The single place that validates a schema, whether it comes from JSON or from the binary form.
-// The readers turn what they read into drafts; every rule of the model is checked here, and
-// every refusal names the declaration it concerns.
+// The readers turn what they read into drafts; every rule of the model is checked here and in
+// the builders this class calls, EnumTypeBuilder, DeclarationBuilder, OwnedTypeContainment and
+// IndexBuilder, and every refusal names the declaration it concerns.
+//
+// The parts of a schema are built in an order in which everything a declaration names exists
+// before the declaration: the enum types; the names, identities and classes of the entity
+// types and the owned types, each kind a scope of its own; the primary keys of the entity
+// types, which a reference holds and compares as; the owned types, each after the owned types
+// it contains; the entity types with their fields and indexes; the fingerprints.
 internal static class SchemaBuilder
 {
-    public static LatticeSchema BuildSchema(int version, LatticeStringEncodingEnum stringEncoding, IReadOnlyList<EnumTypeDraft> enumTypeDrafts, IReadOnlyList<EntityTypeDraft> entityTypeDrafts)
+    public static LatticeSchema BuildSchema(
+        int version,
+        LatticeStringEncodingEnum stringEncoding,
+        IReadOnlyList<EnumTypeDraft> enumTypeDrafts,
+        IReadOnlyList<OwnedTypeDraft> ownedTypeDrafts,
+        IReadOnlyList<EntityTypeDraft> entityTypeDrafts)
     {
+        if (version < 1)
+        {
+            throw Invalid($"the SchemaVersion is {version}; a catalog version is a whole number from 1.");
+        }
+
         if (!Enum.IsDefined(stringEncoding))
         {
             throw Invalid($"the string encoding {stringEncoding} is not known.");
         }
 
-        var enumTypes = BuildEnumTypes(enumTypeDrafts);
-        var enumTypesByName = enumTypes.ToDictionary(enumType => enumType.Name, StringComparer.Ordinal);
+        var enumTypes = EnumTypeBuilder.Build(enumTypeDrafts);
 
-        var entityTypes = new LatticeEntityType[entityTypeDrafts.Count];
-        var ids = new Dictionary<int, string>();
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        var clrTypeNames = new HashSet<string>(StringComparer.Ordinal);
+        // A .NET class is named by at most one type of the schema, entity type or owned type,
+        // so that a class always means one type.
+        var classNames = new HashSet<string>(StringComparer.Ordinal);
+        CheckEntityTypes(entityTypeDrafts, classNames);
+        CheckOwnedTypes(ownedTypeDrafts, classNames);
 
-        for (var position = 0; position < entityTypes.Length; position++)
+        var declarations = new DeclarationBuilder(enumTypes);
+        foreach (var draft in entityTypeDrafts)
         {
-            var entityType = BuildEntityType(entityTypeDrafts[position], stringEncoding, enumTypesByName);
-            var place = $"entity type '{Shown(entityType.Name)}'";
-
-            CheckIdentity(entityType.Id, place, ids);
-            if (!names.Add(entityType.Name))
-            {
-                throw Invalid($"{place} is declared twice.");
-            }
-
-            if (entityType.ClrTypeName is { } clrTypeName && !clrTypeNames.Add(clrTypeName))
-            {
-                throw Invalid($".NET class '{Shown(clrTypeName)}' is assigned to more than one entity type.");
-            }
-
-            entityTypes[position] = entityType;
+            declarations.AddTarget(new ReferenceTarget(draft.Name!, draft.Id, BuildKey(draft, declarations)));
         }
 
-        var fingerprint = SchemaFingerprints.Schema(stringEncoding, enumTypes, entityTypes);
-        return new LatticeSchema(version, stringEncoding, enumTypes, entityTypes, fingerprint);
+        var ownedTypes = new LatticeOwnedType[ownedTypeDrafts.Count];
+        foreach (var position in OwnedTypeContainment.BuildOrder(ownedTypeDrafts))
+        {
+            ownedTypes[position] = BuildOwnedType(ownedTypeDrafts[position], declarations);
+            declarations.AddOwnedType(ownedTypes[position]);
+        }
+
+        var entityTypes = new LatticeEntityType[entityTypeDrafts.Count];
+        for (var position = 0; position < entityTypes.Length; position++)
+        {
+            entityTypes[position] = BuildEntityType(entityTypeDrafts[position], stringEncoding, declarations);
+        }
+
+        var fingerprint = SchemaFingerprints.Schema(stringEncoding, enumTypes, ownedTypes, entityTypes);
+        return new LatticeSchema(version, stringEncoding, enumTypes, ownedTypes, entityTypes, fingerprint);
     }
 
-    private static LatticeEnumType[] BuildEnumTypes(IReadOnlyList<EnumTypeDraft> drafts)
+    // Entity types are a scope of their own for identities and names.
+    private static void CheckEntityTypes(IReadOnlyList<EntityTypeDraft> drafts, HashSet<string> classNames)
     {
-        var enumTypes = new LatticeEnumType[drafts.Count];
         var ids = new Dictionary<int, string>();
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        for (var position = 0; position < enumTypes.Length; position++)
+        foreach (var draft in drafts)
         {
-            var draft = drafts[position];
             if (string.IsNullOrWhiteSpace(draft.Name))
             {
-                throw Invalid($"enum type {draft.Id} has no name.");
+                throw Invalid($"entity type {draft.Id} has no name.");
             }
 
-            var place = $"enum type '{Shown(draft.Name)}'";
+            var place = $"entity type '{Shown(draft.Name)}'";
             CheckIdentity(draft.Id, place, ids);
             if (!names.Add(draft.Name))
             {
                 throw Invalid($"{place} is declared twice.");
             }
 
-            if (!FieldTypes.IsInteger(draft.UnderlyingType))
-            {
-                throw Invalid($"{place} has the underlying type {draft.UnderlyingType}; it must be one of the eight integer types, Int8 to UInt64.");
-            }
-
-            enumTypes[position] = new LatticeEnumType(draft.Id, draft.Name, draft.UnderlyingType, draft.IsFlags, BuildEnumMembers(draft));
-        }
-
-        return enumTypes;
-    }
-
-    private static LatticeEnumMember[] BuildEnumMembers(EnumTypeDraft draft)
-    {
-        var range = IntegerRange.Of(draft.UnderlyingType);
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        var namesOfValue = new Dictionary<Int128, int>();
-        var canonicalNamesOfValue = new Dictionary<Int128, int>();
-
-        foreach (var member in draft.Members)
-        {
-            if (string.IsNullOrWhiteSpace(member.Name))
-            {
-                throw Invalid($"a member of enum type '{Shown(draft.Name)}' has no name.");
-            }
-
-            if (!names.Add(member.Name))
-            {
-                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' is declared twice.");
-            }
-
-            if (!range.Contains(member.Value))
-            {
-                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' has the value {member.Value}, outside the range of {draft.UnderlyingType}.");
-            }
-
-            namesOfValue[member.Value] = namesOfValue.GetValueOrDefault(member.Value) + 1;
-            if (member.IsCanonical)
-            {
-                canonicalNamesOfValue[member.Value] = canonicalNamesOfValue.GetValueOrDefault(member.Value) + 1;
-            }
-        }
-
-        // A value with several names has exactly one canonical name, which the descriptor
-        // marks: the order of declaration does not choose it.
-        foreach (var member in draft.Members)
-        {
-            var nameCount = namesOfValue[member.Value];
-            var canonicalCount = canonicalNamesOfValue.GetValueOrDefault(member.Value);
-            if (nameCount > 1 && canonicalCount != 1)
-            {
-                throw Invalid($"the value {member.Value} of enum type '{Shown(draft.Name)}' has {nameCount} names and {canonicalCount} of them marked Canonical; exactly one must be.");
-            }
-        }
-
-        if (draft.IsFlags)
-        {
-            CheckFlags(draft, range);
-        }
-
-        // The only name of a value is canonical, marked or not.
-        return [.. draft.Members.Select(member => new LatticeEnumMember(member.Name!, member.Value, member.IsCanonical || namesOfValue[member.Value] == 1))];
-    }
-
-    // A flag is a member with exactly one bit within the width of the underlying type; the
-    // sign bit of a signed type is one bit like the others. A member with several bits names a
-    // combination, which adds no bit: it may have only bits that flags declare. Zero names
-    // the empty set.
-    private static void CheckFlags(EnumTypeDraft draft, IntegerRange range)
-    {
-        var flagBits = UInt128.Zero;
-        foreach (var member in draft.Members)
-        {
-            var bits = range.BitsOf(member.Value);
-            if (UInt128.PopCount(bits) == UInt128.One)
-            {
-                flagBits |= bits;
-            }
-        }
-
-        foreach (var member in draft.Members)
-        {
-            if ((range.BitsOf(member.Value) & ~flagBits) != UInt128.Zero)
-            {
-                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' of the Flags enum type has the value {member.Value}, with a bit that no flag declares; a member that names a combination has only bits of members with one bit.");
-            }
+            CheckClass(draft.ClrTypeName, place, classNames);
         }
     }
 
-    private static LatticeEntityType BuildEntityType(EntityTypeDraft draft, LatticeStringEncodingEnum stringEncoding, Dictionary<string, LatticeEnumType> enumTypes)
+    // Owned types are a scope of their own for identities and names, as enum types and entity
+    // types are: an owned type may have the identity or the name of a type of another kind,
+    // because a declaration names a type of one kind.
+    private static void CheckOwnedTypes(IReadOnlyList<OwnedTypeDraft> drafts, HashSet<string> classNames)
     {
-        var name = draft.Name;
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw Invalid($"entity type {draft.Id} has no name.");
-        }
-
-        if (draft.ClrTypeName is not null && string.IsNullOrWhiteSpace(draft.ClrTypeName))
-        {
-            throw Invalid($"entity type '{Shown(name)}' has an empty ClrType.");
-        }
-
-        var fields = new LatticeField[draft.Fields.Count];
         var ids = new Dictionary<int, string>();
         var names = new HashSet<string>(StringComparer.Ordinal);
-        LatticeField? key = null;
 
-        for (var ordinal = 0; ordinal < fields.Length; ordinal++)
+        foreach (var draft in drafts)
         {
-            var fieldDraft = draft.Fields[ordinal];
-            if (string.IsNullOrWhiteSpace(fieldDraft.Name))
+            if (string.IsNullOrWhiteSpace(draft.Name))
             {
-                throw Invalid($"field {fieldDraft.Id} of entity type '{Shown(name)}' has no name.");
+                throw Invalid($"owned type {draft.Id} has no name.");
             }
 
-            var place = $"field '{Shown(name)}.{Shown(fieldDraft.Name)}'";
-            CheckIdentity(fieldDraft.Id, place, ids);
-            if (!names.Add(fieldDraft.Name))
+            var place = $"owned type '{Shown(draft.Name)}'";
+            CheckIdentity(draft.Id, place, ids);
+            if (!names.Add(draft.Name))
             {
                 throw Invalid($"{place} is declared twice.");
             }
 
-            fields[ordinal] = new LatticeField(fieldDraft.Id, fieldDraft.Name, BuildDeclaration(fieldDraft.Declaration, place, enumTypes), ordinal);
-            if (fieldDraft.Id == draft.KeyFieldId)
+            CheckClass(draft.ClrTypeName, place, classNames);
+            if (draft.Fields.Count == 0)
             {
-                key = fields[ordinal];
+                throw Invalid($"{place} declares no fields; an owned type declares at least one.");
+            }
+        }
+    }
+
+    private static void CheckClass(string? clrTypeName, string place, HashSet<string> classNames)
+    {
+        if (clrTypeName is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(clrTypeName))
+        {
+            throw Invalid($"{place} has an empty ClrType.");
+        }
+
+        if (!classNames.Add(clrTypeName))
+        {
+            throw Invalid($".NET class '{Shown(clrTypeName)}' is named by more than one type of the schema; a class is the class of one entity type or one owned type.");
+        }
+    }
+
+    // The declaration of the primary key of an entity type, built before any other field of
+    // the schema because a reference to the entity type holds and compares a key.
+    private static LatticeValueDeclaration BuildKey(EntityTypeDraft draft, DeclarationBuilder declarations)
+    {
+        var name = draft.Name!;
+        var position = -1;
+        for (var index = 0; index < draft.Fields.Count && position < 0; index++)
+        {
+            if (draft.Fields[index].Id == draft.KeyFieldId)
+            {
+                position = index;
             }
         }
 
-        if (key is null)
+        if (position < 0)
         {
             throw Invalid($"entity type '{Shown(name)}' has no field with the primary key id {draft.KeyFieldId}.");
+        }
+
+        var key = draft.Fields[position];
+        if (string.IsNullOrWhiteSpace(key.Name))
+        {
+            throw Invalid($"field {key.Id} of entity type '{Shown(name)}' has no name.");
         }
 
         if (key.Declaration.IsNullable || !FieldTypes.CanBeKey(key.Declaration.Type))
@@ -202,122 +162,71 @@ internal static class SchemaBuilder
             throw Invalid($"primary key '{Shown(name)}.{Shown(key.Name)}' must be a non-nullable integer, String or Guid field.");
         }
 
-        var indexes = BuildIndexes(name, fields, draft.Indexes);
-        var layoutFingerprint = SchemaFingerprints.Layout(stringEncoding, fields);
+        return declarations.Build(key.Declaration, $"field '{Shown(name)}.{Shown(key.Name)}'");
+    }
+
+    private static LatticeOwnedType BuildOwnedType(OwnedTypeDraft draft, DeclarationBuilder declarations)
+    {
+        var fields = BuildFields(draft.Fields, "owned type", draft.Name!, declarations, key: null);
+
+        return new LatticeOwnedType(draft.Id, draft.Name!, draft.ClrTypeName, fields);
+    }
+
+    private static LatticeEntityType BuildEntityType(EntityTypeDraft draft, LatticeStringEncodingEnum stringEncoding, DeclarationBuilder declarations)
+    {
+        var name = draft.Name!;
+        var fields = BuildFields(draft.Fields, "entity type", name, declarations, (draft.KeyFieldId, declarations.TargetOf(name).Key));
+        var key = Array.Find(fields, field => field.Id == draft.KeyFieldId)!;
+
+        var indexes = IndexBuilder.Build(name, fields, draft.Indexes);
+        var layoutFingerprint = SchemaFingerprints.Layout(stringEncoding, key, fields);
         return new LatticeEntityType(draft.Id, name, draft.ClrTypeName, fields, key, indexes, layoutFingerprint);
     }
 
-    // A policy belongs to the type it applies to. Stated for another type it would mean
-    // nothing, so it is a mistake in the descriptor rather than something to ignore.
-    private static LatticeValueDeclaration BuildDeclaration(ValueDeclarationDraft draft, string place, Dictionary<string, LatticeEnumType> enumTypes)
+    // The fields of an entity type or of an owned type, which is the scope of their identities
+    // and names. The key of an entity type keeps the declaration it was built with, the one
+    // that references to the entity type hold.
+    private static LatticeField[] BuildFields(
+        IReadOnlyList<FieldDraft> drafts,
+        string ownerKind,
+        string ownerName,
+        DeclarationBuilder declarations,
+        (int FieldId, LatticeValueDeclaration Declaration)? key)
     {
-        // The present forms of the descriptor and of the saved schema declare no owned types,
-        // references or collections, so no value can be of one of these types: they stay
-        // unknown types, as they were before they existed. The implementation of these types
-        // replaces this check.
-        var isNotDeclarableYet = draft.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set or LatticeFieldTypeEnum.Reference;
-        if (!Enum.IsDefined(draft.Type) || isNotDeclarableYet)
-        {
-            throw Invalid($"{place} has an unknown type.");
-        }
-
-        var isString = draft.Type == LatticeFieldTypeEnum.String;
-        if (!isString && (draft.Comparison is not null || draft.StringStorage is not null))
-        {
-            throw Invalid($"{place} is {draft.Type}; a Comparison and a StringStorage apply only to a String.");
-        }
-
-        if (draft.Comparison is { } comparison && !Enum.IsDefined(comparison))
-        {
-            throw Invalid($"{place} has an unknown comparison.");
-        }
-
-        if (draft.StringStorage is { } stringStorage && !Enum.IsDefined(stringStorage))
-        {
-            throw Invalid($"{place} has an unknown string storage.");
-        }
-
-        LatticeEnumType? enumType = null;
-        if (draft.Type == LatticeFieldTypeEnum.Enum)
-        {
-            if (draft.EnumTypeName is null)
-            {
-                throw Invalid($"{place} is of type Enum and names no enum type.");
-            }
-
-            if (!enumTypes.TryGetValue(draft.EnumTypeName, out enumType))
-            {
-                throw Invalid($"{place} names the enum type '{Shown(draft.EnumTypeName)}', which the schema does not declare.");
-            }
-        }
-        else if (draft.EnumTypeName is not null)
-        {
-            throw Invalid($"{place} is {draft.Type} and names the enum type '{Shown(draft.EnumTypeName)}'; only a field of type Enum has one.");
-        }
-
-        return new LatticeValueDeclaration(
-            draft.Type,
-            draft.IsNullable,
-            isString ? draft.Comparison ?? LatticeStringComparisonEnum.Ordinal : null,
-            isString ? draft.StringStorage ?? LatticeStringStorageEnum.Plain : null,
-            enumType);
-    }
-
-    private static LatticeIndex[] BuildIndexes(string entityName, LatticeField[] fields, IReadOnlyList<IndexDraft> drafts)
-    {
-        var indexes = new LatticeIndex[drafts.Count];
+        var fields = new LatticeField[drafts.Count];
         var ids = new Dictionary<int, string>();
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        for (var position = 0; position < drafts.Count; position++)
+        for (var ordinal = 0; ordinal < fields.Length; ordinal++)
         {
-            var draft = drafts[position];
+            var draft = drafts[ordinal];
             if (string.IsNullOrWhiteSpace(draft.Name))
             {
-                throw Invalid($"an index of entity type '{Shown(entityName)}' has no name.");
+                throw Invalid($"field {draft.Id} of {ownerKind} '{Shown(ownerName)}' has no name.");
             }
 
-            var place = $"index '{Shown(entityName)}.{Shown(draft.Name)}'";
+            var place = $"field '{Shown(ownerName)}.{Shown(draft.Name)}'";
             CheckIdentity(draft.Id, place, ids);
             if (!names.Add(draft.Name))
             {
                 throw Invalid($"{place} is declared twice.");
             }
 
-            if (draft.FieldIds.Count == 0)
-            {
-                throw Invalid($"{place} has no fields.");
-            }
+            var declaration = key is { } primaryKey && draft.Id == primaryKey.FieldId
+                ? primaryKey.Declaration
+                : declarations.Build(draft.Declaration, place);
 
-            var indexFields = new LatticeField[draft.FieldIds.Count];
-            for (var part = 0; part < indexFields.Length; part++)
-            {
-                var field = Array.Find(fields, candidate => candidate.Id == draft.FieldIds[part])
-                    ?? throw Invalid($"{place} refers to the field id {draft.FieldIds[part]}, which the entity type does not have.");
-
-                if (field.Declaration.Type == LatticeFieldTypeEnum.Binary)
-                {
-                    throw Invalid($"{place} covers the Binary field '{Shown(field.Name)}'; binary fields cannot be indexed.");
-                }
-
-                if (Array.IndexOf(indexFields, field, 0, part) >= 0)
-                {
-                    throw Invalid($"{place} covers the field '{Shown(field.Name)}' twice.");
-                }
-
-                indexFields[part] = field;
-            }
-
-            indexes[position] = new LatticeIndex(draft.Id, draft.Name, indexFields, draft.IsUnique);
+            fields[ordinal] = new LatticeField(draft.Id, draft.Name, declaration, ordinal);
         }
 
-        return indexes;
+        return fields;
     }
 
-    // An identity is at least 1 and unique within its scope: the schema for enum types and for
-    // entity types, the entity type for fields and for indexes. Of two declarations with the
-    // same identity, the one that repeats it is refused.
-    private static void CheckIdentity(int id, string place, Dictionary<int, string> scope)
+    // An identity is at least 1 and unique within its scope: the schema for enum types, for
+    // owned types and for entity types, each apart; the entity type or the owned type for
+    // fields, the entity type for indexes. Of two declarations with the same identity, the one
+    // that repeats it is refused.
+    public static void CheckIdentity(int id, string place, Dictionary<int, string> scope)
     {
         if (id < 1)
         {

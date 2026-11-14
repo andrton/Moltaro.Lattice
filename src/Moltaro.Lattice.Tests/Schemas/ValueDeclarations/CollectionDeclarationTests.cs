@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // Reference; a Map key is never nullable, a Set element may be.
 public sealed class CollectionDeclarationTests
 {
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Descriptor_declares_lists_maps_and_sets_with_their_elements_keys_and_values()
     {
         var schema = ValueSchema.Compile();
@@ -56,7 +56,7 @@ public sealed class CollectionDeclarationTests
         Assert.Same(address, ValueSchema.Field(schema, "Sites").Declaration.Value!.OwnedType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Collection_may_hold_collections()
     {
         var schema = ValueSchema.Compile();
@@ -80,7 +80,7 @@ public sealed class CollectionDeclarationTests
         Assert.Equal(LatticeFieldTypeEnum.DateOnly, grid.Value.Value.Element!.Type);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Declaration_that_is_not_a_collection_has_no_element_key_or_value()
     {
         var schema = ValueSchema.Compile();
@@ -99,7 +99,7 @@ public sealed class CollectionDeclarationTests
         Assert.Null(login.ReferencedEntityTypeName);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Boolean")]
     [InlineData("Int8")]
     [InlineData("UInt64")]
@@ -130,7 +130,7 @@ public sealed class CollectionDeclarationTests
         Assert.Equal(Enum.Parse<LatticeFieldTypeEnum>(type), itemsByName.Declaration.Value!.Type);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Boolean")]
     [InlineData("Int8")]
     [InlineData("UInt8")]
@@ -165,7 +165,7 @@ public sealed class CollectionDeclarationTests
         Assert.Equal(Enum.Parse<LatticeFieldTypeEnum>(type), distinct.Declaration.Element!.Type);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Binary")]
     [InlineData("Owned")]
     [InlineData("List")]
@@ -181,7 +181,7 @@ public sealed class CollectionDeclarationTests
         ExpectRefusedWithPlace(json, "Holder", "Counts");
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Binary")]
     [InlineData("Owned")]
     [InlineData("List")]
@@ -196,7 +196,7 @@ public sealed class CollectionDeclarationTests
         ExpectRefusedWithPlace(json, "Holder", "Distinct");
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Complex_key_or_Set_element_inside_another_collection_is_refused_with_its_place()
     {
         // The Map and the Set are values of a Map, which may hold anything.
@@ -212,7 +212,7 @@ public sealed class CollectionDeclarationTests
             "Nested");
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Nullable_Map_key_is_refused_with_its_place_and_a_nullable_Set_element_is_not()
     {
         // A key that states it is not nullable is a key as before.
@@ -226,7 +226,7 @@ public sealed class CollectionDeclarationTests
         Assert.True(ValueSchema.Field(ValueSchema.Compile(), "Aliases").Declaration.Element!.IsNullable);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A collection without what its kind needs.
     [InlineData("{ 'Id': 6, 'Name': 'Groups', 'Type': 'List', 'Element': { 'Type': 'Reference', 'EntityType': 'Group' } }", "{ 'Id': 6, 'Name': 'Groups', 'Type': 'List' }", "User", "Groups")]
     [InlineData("'Name': 'Rights', 'Type': 'Set', 'Element': { 'Type': 'String', 'StringStorage': 'Dictionary' }", "'Name': 'Rights', 'Type': 'Set'", "User", "Rights")]
@@ -252,7 +252,7 @@ public sealed class CollectionDeclarationTests
         Assert.All(place, name => Assert.Contains(name, exception.Message));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An element, a key and a value take what a field takes, except an identity and a name.
     [InlineData("'Element': { 'Type': 'Binary' }", "'Element': { 'Id': 1, 'Type': 'Binary' }")]
     [InlineData("'Element': { 'Type': 'Binary' }", "'Element': { 'Name': 'Blob', 'Type': 'Binary' }")]

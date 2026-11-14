@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Schemas.Fingerprints;
 // descriptor are not part of it.
 public sealed class ValueSchemaFingerprintTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type: its identity, a field more, held or not; another owned type.
     [InlineData("'Id': 1, 'Name': 'Address',", "'Id': 4, 'Name': 'Address',")]
     [InlineData("{ 'Id': 3, 'Name': 'Geo', 'Type': 'Owned', 'OwnedType': 'Point', 'Nullable': true }", "{ 'Id': 3, 'Name': 'Geo', 'Type': 'Owned', 'OwnedType': 'Point', 'Nullable': true }, { 'Id': 4, 'Name': 'Floor', 'Type': 'Int16' }")]
@@ -46,7 +46,7 @@ public sealed class ValueSchemaFingerprintTests
         Assert.NotEqual(original.Fingerprint, changed.Fingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // The .NET class of an owned type.
     [InlineData("'ClrType': 'Example.Address',", "'ClrType': 'Other.Location',")]
     [InlineData("'Name': 'Address', 'ClrType': 'Example.Address',", "'Name': 'Address',")]
@@ -63,7 +63,7 @@ public sealed class ValueSchemaFingerprintTests
         Assert.Equal(original.Fingerprint, changed.Fingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // An owned type with the fields that hold it, a field of an owned type, an entity type that
     // is referred to with the references to it.
     [InlineData("Address", "Location")]
@@ -77,7 +77,7 @@ public sealed class ValueSchemaFingerprintTests
         Assert.Equal(ValueFingerprintDescriptor.Compile().Fingerprint, renamed.Fingerprint);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // The owned type Spare and its field, which nothing names.
     [InlineData("'Id': 3, 'Name': 'Spare',", "'Id': 5, 'Name': 'Spare',")]
     [InlineData("{ 'Id': 1, 'Name': 'Memo',", "{ 'Id': 2, 'Name': 'Memo',")]
@@ -92,13 +92,13 @@ public sealed class ValueSchemaFingerprintTests
         Assert.Equal(ValueFingerprintDescriptor.Person(original).LayoutFingerprint, ValueFingerprintDescriptor.Person(changed).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Order_in_which_the_descriptor_lists_owned_types_and_fields_does_not_change_the_fingerprint()
     {
         Assert.Equal(ValueFingerprintDescriptor.Compile().Fingerprint, ValueFingerprintDescriptor.CompileReversed().Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Same_declarations_with_owned_types_and_collections_give_the_same_fingerprint()
     {
         Assert.Equal(ValueFingerprintDescriptor.Compile().Fingerprint, ValueFingerprintDescriptor.Compile().Fingerprint);

@@ -8,7 +8,7 @@ public sealed class IndexPartFormTests
 {
     private const string Fields = "'Fields': [20, [3, 3]]";
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Part_written_as_a_list_of_one_identity_is_the_field_itself()
     {
         var original = ValueSchema.Compile();
@@ -23,7 +23,7 @@ public sealed class IndexPartFormTests
         Assert.Equal(ValueSchema.User(original).LayoutFingerprint, ValueSchema.User(spelled).LayoutFingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Part_of_a_field_of_the_entity_type_has_the_same_fingerprint_in_either_spelling()
     {
         // A schema of Epic 1, sprint 2, with the parts of ByAgeAndName written as lists.
@@ -35,7 +35,7 @@ public sealed class IndexPartFormTests
         Assert.Equal(["Age", "Name"], byAgeAndName.Parts.Select(part => Assert.Single(part.Path).Name));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("'Fields': [[], [3, 3]]")]
     [InlineData("'Fields': [20, []]")]
     [InlineData("'Fields': [ [] ]")]
@@ -46,7 +46,7 @@ public sealed class IndexPartFormTests
         Assert.Contains("ByLoginAndWorkFloor", exception.Message);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // A path twice, and a field twice in the two spellings.
     [InlineData("'Fields': [20, [3, 3], [3, 3]]")]
     [InlineData("'Fields': [20, [20]]")]

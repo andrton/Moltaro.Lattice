@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // Nullable<> of it when that position is nullable and its type is a value type.
 public sealed class ValueTypeTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Home", typeof(LatticeOwnedValue))]
     [InlineData("Work", typeof(LatticeOwnedValue))]
     [InlineData("Spot", typeof(LatticeOwnedValue))]
@@ -34,7 +34,7 @@ public sealed class ValueTypeTests
         Assert.Equal(valueType, field.Declaration.ValueType);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Value_type_of_an_inner_position_is_the_type_of_a_value_that_is_not_null()
     {
         var schema = ValueSchema.Compile();
@@ -48,7 +48,7 @@ public sealed class ValueTypeTests
         Assert.Equal(typeof(Guid), ValueSchema.Field(schema, "Teams").Declaration.Element!.ValueType);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("City", typeof(string))]
     [InlineData("Floor", typeof(short))]
     [InlineData("Location", typeof(LatticeOwnedValue))]

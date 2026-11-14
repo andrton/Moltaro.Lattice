@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // before.
 public sealed class ValueWriteTests
 {
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData("Resident")]
     [InlineData("Roster")]
     [InlineData("Settings")]
@@ -27,7 +27,7 @@ public sealed class ValueWriteTests
         Assert.Empty(set.Enumerate());
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Entity_type_with_a_nested_value_or_a_reference_is_not_writable_yet_through_classes()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());
@@ -39,7 +39,7 @@ public sealed class ValueWriteTests
         await ExpectNotWritableAsync(database.Set<Membership>(), new Membership { Id = 1, Club = 1 });
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public async Task Entity_type_without_such_fields_is_written_as_before_in_the_same_schema()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SavedAndLoaded());

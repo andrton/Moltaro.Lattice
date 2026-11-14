@@ -13,6 +13,11 @@ internal static class SchemaJsonReader
 {
     private const string Descriptor = "the descriptor";
 
+    // The properties of a declaration: of a field besides its identity and its name, and of
+    // the element, the key and the value of a collection. Never changed, so it is shared.
+    private static readonly string[] DeclarationProperties =
+        ["Type", "Nullable", "Comparison", "StringStorage", "Enum", "OwnedType", "EntityType", "Element", "Key", "Value"];
+
     public static LatticeSchema Read(string json)
     {
         JsonDocument document;
@@ -34,7 +39,7 @@ internal static class SchemaJsonReader
         {
             var root = document.RootElement;
             CheckText(root);
-            CheckProperties(root, Descriptor, "SchemaVersion", "StringEncoding", "Enums", "EntityTypes");
+            CheckProperties(root, Descriptor, "SchemaVersion", "StringEncoding", "Enums", "OwnedTypes", "EntityTypes");
 
             var version = root.TryGetProperty("SchemaVersion", out var versionElement)
                 ? Int32(versionElement, "SchemaVersion", Descriptor)
@@ -48,9 +53,13 @@ internal static class SchemaJsonReader
                 ? ReadList(enumElements, "Enums", Descriptor, ReadEnumType)
                 : [];
 
+            List<OwnedTypeDraft> ownedTypes = root.TryGetProperty("OwnedTypes", out var ownedElements)
+                ? ReadList(ownedElements, "OwnedTypes", Descriptor, ReadOwnedType)
+                : [];
+
             var entityTypes = ReadList(Required(root, "EntityTypes", Descriptor), "EntityTypes", Descriptor, ReadEntityType);
 
-            return SchemaBuilder.BuildSchema(version, stringEncoding, enumTypes, entityTypes);
+            return SchemaBuilder.BuildSchema(version, stringEncoding, enumTypes, ownedTypes, entityTypes);
         }
     }
 
@@ -84,6 +93,19 @@ internal static class SchemaJsonReader
         return new EnumMemberDraft(name, value, isCanonical);
     }
 
+    private static OwnedTypeDraft ReadOwnedType(JsonElement element, int position)
+    {
+        var place = Place(element, "owned type", position, owner: null);
+        CheckProperties(element, place, "Id", "Name", "ClrType", "Fields");
+
+        var id = Identity(element, place);
+        var name = OptionalString(element, "Name", place);
+        var clrTypeName = OptionalString(element, "ClrType", place);
+        var fields = ReadList(Required(element, "Fields", place), "Fields", place, (field, index) => ReadField(field, index, name));
+
+        return new OwnedTypeDraft(id, name, clrTypeName, fields);
+    }
+
     private static EntityTypeDraft ReadEntityType(JsonElement element, int position)
     {
         var place = Place(element, "entity type", position, owner: null);
@@ -110,7 +132,7 @@ internal static class SchemaJsonReader
     private static FieldDraft ReadField(JsonElement element, int position, string? owner)
     {
         var place = Place(element, "field", position, owner);
-        CheckProperties(element, place, "Id", "Name", "Type", "Nullable", "Comparison", "StringStorage", "Enum");
+        CheckProperties(element, place, ["Id", "Name", .. DeclarationProperties]);
 
         var id = Identity(element, place);
         var name = OptionalString(element, "Name", place);
@@ -118,7 +140,10 @@ internal static class SchemaJsonReader
         return new FieldDraft(id, name, ReadDeclaration(element, place));
     }
 
-    // What a field holds: everything a field declares except its identity and its name.
+    // What a field holds: everything a field declares except its identity and its name. The
+    // element, the key and the value of a collection are declarations of their own, with
+    // these properties and no identity and no name. Their nesting is bounded by the depth that
+    // JsonDocument reads.
     private static ValueDeclarationDraft ReadDeclaration(JsonElement element, string place)
     {
         var type = Name<LatticeFieldTypeEnum>(Required(element, "Type", place), "Type", place);
@@ -133,8 +158,31 @@ internal static class SchemaJsonReader
             : null;
 
         var enumTypeName = OptionalString(element, "Enum", place);
+        var ownedTypeName = OptionalString(element, "OwnedType", place);
+        var entityTypeName = OptionalString(element, "EntityType", place);
 
-        return new ValueDeclarationDraft(type, isNullable, comparison, stringStorage, enumTypeName);
+        return new ValueDeclarationDraft(
+            type,
+            isNullable,
+            comparison,
+            stringStorage,
+            enumTypeName,
+            ownedTypeName,
+            entityTypeName,
+            ReadInnerDeclaration(element, "Element", $"the element of {place}"),
+            ReadInnerDeclaration(element, "Key", $"the key of {place}"),
+            ReadInnerDeclaration(element, "Value", $"the value of {place}"));
+    }
+
+    private static ValueDeclarationDraft? ReadInnerDeclaration(JsonElement element, string property, string place)
+    {
+        if (!element.TryGetProperty(property, out var inner))
+        {
+            return null;
+        }
+
+        CheckProperties(inner, place, DeclarationProperties);
+        return ReadDeclaration(inner, place);
     }
 
     private static IndexDraft ReadIndex(JsonElement element, int position, string? owner)
@@ -144,11 +192,18 @@ internal static class SchemaJsonReader
 
         var id = Identity(element, place);
         var name = OptionalString(element, "Name", place);
-        var fieldIds = ReadList(Required(element, "Fields", place), "Fields", place, (field, _) => Int32(field, "Fields", place));
+        var parts = ReadList(Required(element, "Fields", place), "Fields", place, (part, _) => ReadPart(part, place));
         var isUnique = OptionalBoolean(element, "Unique", place);
 
-        return new IndexDraft(id, name, fieldIds, isUnique);
+        return new IndexDraft(id, name, parts, isUnique);
     }
+
+    // A part is one field identity, or a list of identities from a field of the entity type
+    // down to the indexed field. One identity is the path of that field alone.
+    private static IReadOnlyList<int> ReadPart(JsonElement part, string place) =>
+        part.ValueKind == JsonValueKind.Array
+            ? ReadList(part, "Fields", place, (step, _) => Int32(step, "Fields", place))
+            : [Int32(part, "Fields", place)];
 
     // Names a declaration in a message by its name, with the name of what it belongs to, or
     // by its position when it has no name.

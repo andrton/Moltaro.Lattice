@@ -41,21 +41,20 @@ public sealed class DamagedCompiledSchemaTests
     [Fact]
     public void Text_with_a_negative_length_is_refused()
     {
-        // The start of a schema of the current format with one enum type: magic, format 4,
-        // catalog version 1, UTF-8, one enum type with the identity 1, and then the length of
-        // its name, -1 as a 7-bit encoded integer.
+        // The start of the body of a schema of the current format with one enum type: catalog
+        // version 1, UTF-8, no owned types, one enum type with the identity 1, and then the
+        // length of its name, -1 as a 7-bit encoded integer.
         byte[] data =
         [
-            (byte)'M', (byte)'L', (byte)'S', (byte)'C',
-            4, 0, 0, 0,
             1, 0, 0, 0,
             1,
+            0, 0, 0, 0,
             1, 0, 0, 0,
             1, 0, 0, 0,
             0xFF, 0xFF, 0xFF, 0xFF, 0x0F,
         ];
 
-        ExpectRefused(data);
+        ExpectRefused(Form(data));
     }
 
     [Theory]
@@ -72,7 +71,8 @@ public sealed class DamagedCompiledSchemaTests
 
         saved[at + 3] = value;
 
-        ExpectRefused(saved);
+        // The digest is written again for the changed name, so that the name is read.
+        ExpectRefused(FitLengthAndDigest(saved));
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public sealed class DamagedCompiledSchemaTests
     {
         // A 7-bit encoded length has at most five bytes. The name of N has six continuation
         // bytes and an end.
-        var data = Bytes(writer =>
+        var data = Form(Bytes(writer =>
         {
             WriteHeader(writer);
             writer.Write(0); // enum types
@@ -123,7 +123,7 @@ public sealed class DamagedCompiledSchemaTests
             writer.Write(1); // identity of N
             writer.Write([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]);
             writer.Write("N"u8);
-        });
+        }));
 
         ExpectRefused(data);
     }
@@ -165,7 +165,7 @@ public sealed class DamagedCompiledSchemaTests
     [InlineData(1 << 30)]
     public void Text_length_far_beyond_the_data_costs_memory_for_the_data_only(int declaredLength)
     {
-        var data = Bytes(writer =>
+        var data = Form(Bytes(writer =>
         {
             WriteHeader(writer);
             writer.Write(0); // enum types
@@ -173,7 +173,7 @@ public sealed class DamagedCompiledSchemaTests
             writer.Write(1); // identity of N
             writer.Write7BitEncodedInt(declaredLength);
             writer.Write("abc"u8);
-        });
+        }));
 
         ExpectRefusedAllocatingLittle(data);
     }
@@ -185,7 +185,7 @@ public sealed class DamagedCompiledSchemaTests
     [InlineData(1 << 27)]
     public void Count_far_beyond_the_data_costs_memory_for_the_data_only(int declaredCount)
     {
-        var data = Bytes(writer =>
+        var data = Form(Bytes(writer =>
         {
             WriteHeader(writer);
             writer.Write(declaredCount); // enum types
@@ -194,7 +194,7 @@ public sealed class DamagedCompiledSchemaTests
             writer.Write((byte)LatticeFieldTypeEnum.Int32);
             writer.Write((byte)0); // not Flags
             writer.Write(0); // members
-        });
+        }));
 
         ExpectRefusedAllocatingLittle(data);
     }
@@ -268,7 +268,7 @@ public sealed class DamagedCompiledSchemaTests
         Assert.Equal(42, stream.ReadByte());
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Form_made_from_the_body_of_a_saved_schema_is_the_saved_schema()
     {
         // What the helpers below write is the form that Save writes.
@@ -278,7 +278,7 @@ public sealed class DamagedCompiledSchemaTests
         Assert.Equal(saved, FitLengthAndDigest(saved));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(int.MinValue)]
     public void Negative_length_of_the_body_is_refused(int length)
@@ -292,7 +292,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(form);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // Two gigabytes and one gigabyte of body, announced before the few hundred bytes there are.
     [InlineData(int.MaxValue)]
     [InlineData(1 << 30)]
@@ -306,7 +306,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefusedAllocatingLittle(form);
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(255)]
@@ -319,7 +319,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(FitLengthAndDigest([.. saved[..^32], added, .. saved[^32..]]));
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Last_byte_of_the_body_taken_away_is_refused_also_with_its_length_and_digest_fitted()
     {
         var saved = Save();
@@ -329,7 +329,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(FitLengthAndDigest([.. saved[..^33], .. saved[^32..]]));
     }
 
-    [Theory(Skip = NotImplemented.SchemaValues)]
+    [Theory]
     // The format of Epic 1, sprint 2, and one that does not exist yet.
     [InlineData(4)]
     [InlineData(6)]
@@ -344,7 +344,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(form);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Form_with_another_magic_is_refused_also_with_its_digest_fitted()
     {
         var form = FitLengthAndDigest(Save());
@@ -356,7 +356,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(form);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Change_that_still_reads_as_a_schema_is_refused()
     {
         // Without a digest, Account would load as an entity type Bccount.
@@ -369,7 +369,7 @@ public sealed class DamagedCompiledSchemaTests
         ExpectRefused(renamed);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Every_single_byte_change_of_a_saved_schema_is_refused()
     {
         var saved = Save();
@@ -425,8 +425,9 @@ public sealed class DamagedCompiledSchemaTests
         Assert.InRange(allocated, 0, Bound);
     }
 
-    // The binary form, written by hand part by part as the reader expects it, so that a test
-    // can write one part wrong and every other part as Save writes it.
+    // Bytes of the binary form, written by hand part by part as the reader expects them, so
+    // that a test can write one part wrong and every other part as Save writes it: a body,
+    // which Form makes a whole form, or in Form the bytes before the digest.
     private static byte[] Bytes(Action<BinaryWriter> write)
     {
         using var stream = new MemoryStream();
@@ -438,19 +439,18 @@ public sealed class DamagedCompiledSchemaTests
         return stream.ToArray();
     }
 
-    // Magic, format 4, catalog version 1, UTF-8.
+    // The start of a body: catalog version 1, UTF-8, no owned types.
     private static void WriteHeader(BinaryWriter writer)
     {
-        writer.Write("MLSC"u8);
-        writer.Write(4);
         writer.Write(1);
         writer.Write((byte)LatticeStringEncodingEnum.Utf8);
+        writer.Write(0); // owned types
     }
 
-    // A schema with one entity type N, whose key field Id is an Int64, followed by the field
-    // that writeField writes. It has no enum type and no index unless a count says otherwise,
-    // with nothing written for what such a count announces.
-    private static byte[] Compiled(Action<BinaryWriter>? writeField = null, int enumTypeCount = 0, int indexCount = 0) => Bytes(writer =>
+    // The whole form of a schema with one entity type N, whose key field Id is an Int64,
+    // followed by the field that writeField writes. It has no enum type and no index unless a
+    // count says otherwise, with nothing written for what such a count announces.
+    private static byte[] Compiled(Action<BinaryWriter>? writeField = null, int enumTypeCount = 0, int indexCount = 0) => Form(Bytes(writer =>
     {
         WriteHeader(writer);
         writer.Write(enumTypeCount);
@@ -463,7 +463,7 @@ public sealed class DamagedCompiledSchemaTests
         Field(writer, 1, "Id", LatticeFieldTypeEnum.Int64);
         writeField?.Invoke(writer);
         writer.Write(indexCount);
-    });
+    }));
 
     // A declaration without an enum type; a policy is the value of its public enum, 0 for none.
     private static void Field(BinaryWriter writer, int id, string name, LatticeFieldTypeEnum type, byte nullableMark = 0, byte comparison = 0, byte stringStorage = 0)

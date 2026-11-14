@@ -20,7 +20,7 @@ public sealed class CompiledSchemaFormTests
     //     "PrimaryKey": [1], "Indexes": [ { "Id": 1, "Name": "ByText", "Fields": [2] } ] } ] }
     private const string SavedInTheFormOfSprint2 = "TUxTQwQAAAABAAAAAQAAAAABAAAAAQAAAAROb3RlAAEAAAACAAAAAQAAAAJJZAgAAAAAAgAAAARUZXh0DQABAQABAAAAAQAAAAZCeVRleHQAAQAAAAIAAAA=";
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Saved_schema_is_the_magic_the_format_version_the_length_of_the_body_the_body_and_its_digest()
     {
         var saved = Save(ValueSchema.Compile());
@@ -36,7 +36,7 @@ public sealed class CompiledSchemaFormTests
         Assert.Equal(SHA256.HashData(saved.AsSpan(..^DigestLength)), saved[^DigestLength..]);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Stream_is_left_right_after_the_digest()
     {
         var saved = Save(ValueSchema.Compile());
@@ -54,7 +54,7 @@ public sealed class CompiledSchemaFormTests
         Assert.Equal(first.Fingerprint, second.Fingerprint);
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void File_with_data_after_the_digest_is_refused()
     {
         var saved = Save(ValueSchema.Compile());
@@ -78,7 +78,7 @@ public sealed class CompiledSchemaFormTests
         }
     }
 
-    [Fact(Skip = NotImplemented.SchemaValues)]
+    [Fact]
     public void Schema_saved_in_the_form_of_sprint_2_does_not_load()
     {
         using var stream = new MemoryStream(Convert.FromBase64String(SavedInTheFormOfSprint2));
