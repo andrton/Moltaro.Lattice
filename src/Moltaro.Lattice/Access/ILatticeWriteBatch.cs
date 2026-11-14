@@ -56,7 +56,8 @@ public interface ILatticeWriteBatch
     /// <param name="entity">The complete entity.</param>
     /// <exception cref="ArgumentException">The batch already has an operation for this entity.</exception>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for the class.
+    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
+    /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the entity violates the schema.
     /// </exception>
     void Insert<TEntity>(TEntity entity)
@@ -158,7 +159,8 @@ public interface ILatticeWriteBatch
     /// The batch already has an operation for this entity, or the key has another type.
     /// </exception>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for the class.
+    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
+    /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
     void Delete<TEntity>(object key)
         where TEntity : class;
@@ -174,7 +176,8 @@ public interface ILatticeWriteBatch
     /// The batch already has an operation for this entity, or the key has another type.
     /// </exception>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for the class.
+    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
+    /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
     void Delete<TEntity>(object key, LatticeRevision expectedRevision)
         where TEntity : class;
