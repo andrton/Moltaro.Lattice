@@ -31,14 +31,7 @@ in the meantime.
 
 ## Open
 
-### Q16. May an owned type contain itself?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
-| **Question** | Nothing says whether an owned type may have a field of its own type, directly or through a List, a Map or another owned type. Q02 excludes cycles of ownership between values; a type that refers to itself through a nullable field or a collection has none in its values, but its layout and both fingerprints would have to describe a type in terms of itself |
-| **Until answered** | Undecided. No test is written for it |
-| **Decides** | The planner, for S03: the compiler either accepts such a declaration or refuses it with `InvalidSchema`, and the fingerprints depend on which |
+None. Every question found so far is answered below.
 
 
 ## Answered
@@ -177,6 +170,15 @@ in the meantime.
 | **Question** | The brief of S03 said a List is a `List<T>` where "T is the `ValueType` of the inner declaration", and that `ValueType` of an Owned position is `LatticeOwnedValue`. It also said that in a bound class an owned value is "the class named by `ClrType` of its owned type". For a collection of owned values in a bound class the two sentences gave different T. Which one binds, and what does a class do with an owned type that names no `ClrType`? |
 | **Answer** | The planner, 14 November 2026, from the sentence of the brief on a bound class, and reported to the owner: `ValueType` says what a record holds. A bound class holds the same data in its own types, by one rule for every position: an owned value is the class of its owned type as a property, an element or a value. An owned type that names no `ClrType` has no form in a class, and neither has `LatticeOwnedValue`: both are `BindingFailed` |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md): the table "In a bound class" |
+
+### Q16. May an owned type contain itself?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | Nothing said whether an owned type may have a field of its own type, directly or through a List, a Map or another owned type. Q02 excludes cycles of ownership between values; a type that refers to itself through a nullable field or a collection has none in its values, but its layout and both fingerprints would have to describe a type in terms of itself |
+| **Answer** | The owner, 14 November 2026, through the planner's session: no. An owned type does not contain itself, directly or through another owned type, a List or a Map; such a declaration is `InvalidSchema` with the owned types on the way named, whether the field is nullable or not. A Reference is not containment. Allowing it would make every walk over values bear any depth and need a depth limit as a setting; the restriction can be lifted later without changing the meaning of a schema that compiles under it |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
 
 ### Q17. The scope of an owned type's identity, name and class
 

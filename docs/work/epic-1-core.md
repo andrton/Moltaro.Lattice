@@ -1189,7 +1189,11 @@ entity types whose layout fingerprint differs.
   the place named, and an owned type may have the identity or the name of an entity type
   or of an enum type. The identity of a field is unique within its owned type. A .NET
   class named by two owned types, or by an owned type and an entity type, is
-  `InvalidSchema` with the class named. A search key may give null for a part of an index
+  `InvalidSchema` with the class named. An owned type that contains itself is refused
+  with `InvalidSchema` and the owned types on the way named: through a field of its own
+  type, nullable or not, through a List element or a Map value of its own type, and
+  through another owned type that contains it. An owned type with a Reference to the
+  entity type that holds it compiles. A search key may give null for a part of an index
   when the indexed field is nullable or a step of its path is a nullable owned value;
   null for a part that can never be null is `ArgumentException`. The key is checked
   before the search is refused as not implemented: a key with a permitted null ends in
@@ -1291,8 +1295,7 @@ contract step also found four gaps in this brief, entered as Q15 to Q18 of the
 [open questions](open-questions.md): the element type of a collection of owned values in
 a bound class, an owned type that contains itself, the scope of an owned type's identity,
 name and class, and a null key for an index part behind an absent owned value. Q15, Q17
-and Q18 are answered by the planner and their texts are in this brief; the tests of Q16
-wait for the owner's answer.
+and Q18 are answered by the planner, Q16 by the owner, and their texts are in this brief.
 
 **Types and members of S03.** Namespaces `Moltaro.Lattice.Schema` and `Moltaro.Lattice.Access`.
 
@@ -1319,6 +1322,16 @@ may be the name of an entity type or of an enum type, because `OwnedType`, `Enti
 and `Enum` in a declaration each name a type of one kind. A .NET class is named by at
 most one type of the schema: two owned types that name the same `ClrType`, and an owned
 type and an entity type that do, are `InvalidSchema` with the class named.
+
+By the owner's answer to Q16 an owned type does not contain itself. What an owned type
+contains is what its values own: the owned types of its Owned fields, of the elements of
+its Lists and of the values of its Maps, through collections inside collections, and
+whatever those owned types contain in turn. A declaration in which this leads from an
+owned type back to itself is `InvalidSchema`, with the owned types on the way named. The
+shortest case is an owned type with a field of its own type, and it is refused whether
+the field is nullable or not. A Reference is not containment: an owned type may refer to
+any entity type, the one whose entities hold it included. It is a rule of the model, so a
+saved schema that declares such a type is refused on load as a descriptor is.
 
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
 themselves be a List, a Map or a Set. A Map key and a Set element are a scalar other than
@@ -1490,7 +1503,7 @@ absent in such an entity. Null for any other part is `ArgumentException`, as bef
 From this sprint on the layout fingerprint of an entity type covers everything an entity
 of that type stores. For an Owned field it covers the identity of the owned type and
 every field of it, in the way S02 gives for the fields of an entity type, and so on
-through owned values inside it. For a List, a Map or a Set it covers the element, the key and the value in
+through owned values inside it, which ends because an owned type does not contain itself. For a List, a Map or a Set it covers the element, the key and the value in
 the way S02 gives for a field: type, nullability, string storage and the underlying type
 of an enum, never a comparison; an element, a key or a value that is itself an owned value,
 a reference or a collection follows the rules of this paragraph. For a Reference it covers the type of the key of its
