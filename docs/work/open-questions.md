@@ -31,60 +31,7 @@ in the meantime.
 
 ## Open
 
-### Q19. Which fields may be the last step of an index part?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | The brief of S03 accepts an index part "when … the last is a field an index may have", and S02 refuses a Binary field. It does not say whether a part may end at an Owned field, at a Reference, or at a List, a Map or a Set. Indexes over the members of a collection are outside the milestone; a Reference holds the key of its target |
-| **Until answered** | Only a Binary field inside an owned value is tested as refused |
-| **Decides** | The planner, for S03 |
-
-### Q20. Is an integer of another width accepted inside a collection of a record?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | A record accepts for an integer field "an integer of another width when it fits". For a List, a Map or a Set the brief says "any `IEnumerable<T>`", with T the `ValueType` of the inner declaration. Is a `List<int>` accepted for a List of Int64, and an `int` key for a Map of Int64 keys, or only the exact type? The same for an integer inside a `LatticeOwnedValue` |
-| **Until answered** | Not tested; refusals are tested with types that are wrong in any reading |
-| **Decides** | The planner, for S03 |
-
-### Q21. Which comparer has a Map or a Set of references?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | A record holds a Map as a `Dictionary` "with the comparer of the key declaration" and a Set with that of the element declaration. A Reference declaration has no comparison of its own. Q03.4.2 says a reference compares as the key of its target; when that key is a String compared without case, does the Map or the Set of references ignore case as well? |
-| **Until answered** | Not tested |
-| **Decides** | The planner, for S03 |
-
-### Q22. How deep is the copy when a value is set into a record?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | The brief says the input of a List, a Map or a Set is copied. It does not say whether collections inside it are copied too, or whether a `LatticeOwnedValue` that is set into a record, or stands inside a collection, is copied or shared with the caller. Principle 3 says a read returns an owned copy; nothing says the same of what a record takes |
-| **Until answered** | Copying is tested for the outer collection only |
-| **Decides** | The planner, for S03 |
-
-### Q23. Which error comes first for an object with an invalid nested value?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | Until S18 and S19 a write of an entity type with one of the new fields is refused with `NotSupportedException`. An object of a bound class is validated when it is taken: a null where none is allowed, a duplicate Map key. Through a write batch the validation is `ValidationFailed` when the object is added. Through a set both could answer a write of an invalid object, and the brief does not say which |
-| **Until answered** | Tested through a write batch only |
-| **Decides** | The planner, with the sprints that store these values (S18, S19), where the refusal ends |
-
-### Q24. Forms of the descriptor that the brief of S03 does not mention
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
-| **Question** | Each of these is neither accepted nor refused by the brief: an index part written as a path of one identity, `[[2]]`, next to the plain `[2]`; an empty path `[]`; the same part or path twice in one index; an owned type without `Fields` or with none; an empty `ClrType` on an owned type. The sentence "A Map key and a Set element are a scalar other than Binary, an Enum or a Reference" can also be read as excluding Enum and Reference, while Q03.4.2 allows both |
-| **Until answered** | Not tested. The tests accept an Enum and a Reference as a Map key and a Set element, as Q03.4.2 has it |
-| **Decides** | The planner, for S03 |
-
+None. Every question found so far is answered below.
 
 ## Answered
 
@@ -248,4 +195,58 @@ in the meantime.
 | **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
 | **Question** | The check of a search key refuses null for a part whose field is not nullable. By decision P9 a part that is a path through owned values is null when an owned value on the path is absent, even when the indexed field itself is not nullable. Does the check of S03 have to know this, or does it come with S18? |
 | **Answer** | The planner, 14 November 2026, from decision P9 and the rule that a check needing no engine works from the start, and reported to the owner: the check of S03 accepts null for a part whose field is nullable or whose path has a nullable owned step, and refuses it for any other part with `ArgumentException`. That the entity is then found by a search for null stays with S18 |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q19. Which fields may be the last step of an index part?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | The brief of S03 accepted an index part "when … the last is a field an index may have", and S02 refuses a Binary field. May a part end at an Owned field, at a Reference, or at a List, a Map or a Set? |
+| **Answer** | The planner, 14 November 2026, from Q03.4.2, and reported to the owner: a part ends at a scalar that is not Binary, an Enum or a Reference, the types that have an equality of their own. A Reference is compared as the key of its target. A part that ends at an Owned field or a collection is `InvalidSchema` |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q20. Is an integer of another width accepted inside a collection of a record?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | A record accepts for an integer field "an integer of another width when it fits". Is a `List<int>` accepted for a List of Int64, and an `int` key for a Map of Int64 keys? The same for an integer inside a `LatticeOwnedValue` |
+| **Answer** | The planner, 14 November 2026, from the purpose of the rule, and reported to the owner: the element, key and value types of a collection are exact, and another one is `ArgumentException`. An integer of another width is accepted only where a value is given by itself: a field of a record, a field of a `LatticeOwnedValue`, a primary key, a part of a search key |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q21. Which comparer has a Map or a Set of references?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | A Reference declaration has no comparison of its own. When the key of its target is a String compared without case, does a Map or a Set of references ignore case as well, and does a fingerprint cover it? |
+| **Answer** | The planner, 14 November 2026, from Q03.4.2, and reported to the owner: a reference compares as the key of its target, comparison included, so such a Map or Set ignores case. No fingerprint gains anything: the layout fingerprint never covers a comparison, and the fingerprint of the schema already covers the comparison of the target's key and the identity of the target |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); the consequence for a migration in the brief of S37 |
+
+### Q22. How deep is the copy when a value is set into a record?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | The brief said the input of a List, a Map or a Set is copied. Are collections inside it copied too, and is a `LatticeOwnedValue` that is set into a record copied or shared with the caller? |
+| **Answer** | The planner, 14 November 2026, from what a record does today with a byte array, and reported to the owner: a record rebuilds a collection it is given, at every depth, and holds a `LatticeOwnedValue` and a byte array as given, as an object of a class holds what is assigned to it. A record is not the boundary of the database: a write and a read are, and there everything is validated and copied at every depth |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); what a write and a read copy is asserted in S18, whose brief has the sentence |
+
+### Q23. Which error comes first for an object with an invalid nested value?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | Until S18 and S19 a write of an entity type with one of the new fields is refused with `NotSupportedException`. Through a set, does an invalid object or record get `ValidationFailed` or that refusal? |
+| **Answer** | The planner, 14 November 2026, from the rule that a check needing no engine works from the start, and reported to the owner: validation comes first, through a set as through a write batch. An invalid value at any depth is `ValidationFailed`, and only a valid object or record ends in `NotSupportedException` |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q24. Forms of the descriptor that the brief of S03 does not mention
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, tests of Epic 1, sprint S03 |
+| **Question** | An index part written as a path of one identity, `[[2]]`; an empty path; the same part twice in one index; an owned type without fields; an empty `ClrType` on an owned type; and the sentence on Map keys and Set elements, which could be read as excluding Enum and Reference |
+| **Answer** | The planner, 14 November 2026, from what S02 does for the same things one level up and the owner's answer to Q9, and reported to the owner: `[[2]]` and `[2]` are the same part; an empty path and the same part twice are `InvalidSchema`; an owned type declares at least one field, and its `ClrType` is not empty when given; a Map key and a Set element are a scalar that is not Binary, an Enum, or a Reference |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
