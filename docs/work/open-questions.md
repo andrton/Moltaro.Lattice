@@ -28,7 +28,41 @@ in the meantime.
 
 ## Open
 
-None. Every question found so far is answered below.
+### Q15. What is the element type of a collection of owned values in a bound class?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The brief of S03 says a List is a `List<T>` where "T is the `ValueType` of the inner declaration", and that `ValueType` of an Owned position is `LatticeOwnedValue`. It also says that in a bound class an owned value is "the class named by `ClrType` of its owned type". For a `List`, a `Map` value or an array of owned values in a bound class the two sentences give different T: `LatticeOwnedValue`, or the class of the owned type. Which one binds, and what does a class do with an owned type that names no `ClrType`? |
+| **Until answered** | The documentation of `LatticeValueDeclaration.ValueType` repeats both sentences. No test is written for a collection of owned values in a class |
+| **Decides** | The planner, for S03: the tests of the binding cannot be written without it |
+
+### Q16. May an owned type contain itself?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | Nothing says whether an owned type may have a field of its own type, directly or through a List, a Map or another owned type. Q02 excludes cycles of ownership between values; a type that refers to itself through a nullable field or a collection has none in its values, but its layout and both fingerprints would have to describe a type in terms of itself |
+| **Until answered** | Undecided. No test is written for it |
+| **Decides** | The planner, for S03: the compiler either accepts such a declaration or refuses it with `InvalidSchema`, and the fingerprints depend on which |
+
+### Q17. The scope of an owned type's identity, name and class
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The brief gives an owned type an `Id`, a `Name` and an optional `ClrType` and does not say in which scope each is unique. Enum types and entity types each have a scope of their own for identities. May an owned type and an entity type have the same identity, the same name, or name the same .NET class? May two owned types name the same class? |
+| **Until answered** | The documentation says an owned type's identity and name are unique "within the schema", as it does for an enum type. No test is written for the cases between kinds |
+| **Decides** | The planner, for S03 |
+
+### Q18. A null key value for an index part behind an absent owned value
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, contract of Epic 1, sprint S03 |
+| **Question** | The check of a search key refuses null for a part whose field is not nullable. By decision P9 a part that is a path through owned values is null when an owned value on the path is absent, and the entity is found by a search for null, even when the indexed field itself is not nullable. The check does not know this yet |
+| **Until answered** | The check is as before S03: null is refused for a field that is not nullable. Search through an index is not implemented, and a path cannot be declared before the implementation of S03 |
+| **Decides** | The planner, with the sprint that stores owned values and indexes their fields (S18), or earlier if the check of S03 has to say it |
 
 ## Answered
 

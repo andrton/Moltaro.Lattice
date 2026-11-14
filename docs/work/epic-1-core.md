@@ -1264,6 +1264,17 @@ entity types whose layout fingerprint differs.
   refused until S18 and S19. Partial commands (S20). Indexes on collection members,
   which are outside the milestone.
 
+**Entered by the coordinator in the contract step.** The five new field types exist from
+the contract commit, while the reader of that commit cannot declare an owned type, an
+element or a target. So that a descriptor or a saved schema that names one of them is
+still refused with `InvalidSchema`, as before, the contract author made `SchemaBuilder`
+treat the five as unknown types in that commit; the implementer replaces the check. The
+contract step also found four gaps in this brief, entered as Q15 to Q18 of the
+[open questions](open-questions.md): the element type of a collection of owned values in
+a bound class, an owned type that contains itself, the scope of an owned type's identity,
+name and class, and a null key for an index part behind an absent owned value. The tests
+of those points wait for their answers.
+
 **Types and members of S03.** Namespaces `Moltaro.Lattice.Schema` and `Moltaro.Lattice.Access`.
 
 The descriptor gains a top array `OwnedTypes` and five field types:
