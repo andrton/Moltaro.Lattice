@@ -159,9 +159,20 @@ decides. What the coordinator cannot decide goes to the owner.
 
 **Rounds.** Review and fixes repeat for as long as an independent review finds a P1, P2
 or P3. A sprint or a plan is never closed on its author's word that a finding was fixed:
-the fix is reviewed. After the third round with such findings still open, the coordinator
-stops and reports to the owner what keeps coming back; the owner decides how the cycle
-goes on.
+the fix is reviewed. The rounds are not limited by a number: a round that finds something
+new, which is then fixed and reviewed, is the review doing its work, and the sprint goes
+on.
+
+A finding that comes back is another matter. When a finding is found again after its fix
+was reviewed, the coordinator settles it itself first: it decides the dispute between the
+implementer and the reviewer, or gives the fix to another implementer. The coordinator
+stops and asks the owner only when the finding comes back once more after that, or when
+it can be closed only by changing the contract, the acceptance of the brief or an accepted
+decision. Then it reports what keeps coming back and what it tried, and the owner
+decides: the requirement changes, or the finding is accepted with an entry in the
+[exceptions](exceptions.md) or moved to a named sprint. A sprint is never closed with an
+open P1, P2 or P3 on the coordinator's own word. The report of a closed sprint says how
+many rounds it took.
 
 ## Commits
 
@@ -180,7 +191,8 @@ goes on.
 
 - The contract has to change.
 - A decision record contradicts the brief, or has changed.
-- Three review rounds did not close the findings.
+- A finding keeps coming back after the coordinator has settled it once, as
+  [Review](#review) describes. The number of review rounds alone is no reason to stop.
 - A dispute the coordinator cannot settle.
 - Anything destructive, or anything that leaves this repository: a push, a pull request,
   a merge, a release tag. A standing permission of the owner, as
