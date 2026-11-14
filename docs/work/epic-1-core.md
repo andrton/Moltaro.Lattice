@@ -1340,6 +1340,23 @@ for nothing but to find the digest. One test of Q16 needs a saved form that `Sav
 write, with a body that encodes owned types: the test author adds it in the commit of its
 own that follows the implementation, with the recorded fingerprints.
 
+**Added by the owner's word while the sprint was carried out (decision O16).** Two matters
+of order, both made in this branch:
+
+- The test project `Moltaro.Lattice.Tests` had 61 files in its root. The test author put
+  it into folders by area of behavior and gave every type its own file, before the
+  implementation; `AGENTS.md` and the review checklist of the development process say
+  what a test project looks like.
+- The folder `Schema` of the contract assembly holds three layers after this sprint: the
+  public model, the compilation of drafts into it, and the encodings of a schema. After
+  the implementation commit the implementer moves the internal types into
+  `Schema/Compilation` (drafts, builders and their checks) and `Schema/Encoding` (the
+  reader of the descriptor, the binary form, the canonical encoding of the fingerprints),
+  in a commit of its own that changes places and `namespace` lines only. The public types
+  stay in `Moltaro.Lattice.Schema`, which is their namespace by the contract, with the
+  internal types the model itself holds. Principle 11 of `AGENTS.md` says how a folder
+  and its sub-folders depend on each other.
+
 **Types and members of S03.** Namespaces `Moltaro.Lattice.Schema` and `Moltaro.Lattice.Access`.
 
 The descriptor gains a top array `OwnedTypes` and five field types:

@@ -97,8 +97,12 @@ These hold across the contract, the placeholder and the future engine.
     the engine and owns the PostgreSQL driver. No other shipped assembly references those
     two packages.
     Inside an assembly a folder is a namespace and one responsibility, and folders depend
-    on each other in one direction. An integration is its own thin assembly, named for
-    what it is for.
+    on each other in one direction. A folder that holds several layers of one
+    responsibility has a sub-folder for each: the sub-folders are parts of that
+    responsibility, the direction holds between the folders of one level, and the type
+    that is the entry point of a folder may call into its sub-folders. Public types stay
+    in the namespace the contract gives them. An integration is its own thin assembly,
+    named for what it is for.
 12. **Performance is a design goal, proven by measurement.** Avoid needless copies and
     allocations on read paths, but justify added complexity with a number. The
     placeholder's speed is not a target.
