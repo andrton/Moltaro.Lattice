@@ -1219,7 +1219,11 @@ entity types whose layout fingerprint differs.
   through a set validates the object or the record before it is refused as not
   implemented: a null where none is allowed, or a duplicate Map key, at any depth is
   `ValidationFailed`, and a valid object or record of such an entity type ends in
-  `NotSupportedException` until S18 and S19. An index part written as a list of one
+  `NotSupportedException` until S18 and S19. A write of an entity type that the
+  placeholder refuses checks first what needs no engine: an entity without a required
+  value is `ValidationFailed`, and a key of another type is `ArgumentException`, for an
+  entity type with a unique index as for any other; an entity that passes ends in
+  `NotSupportedException`. An index part written as a list of one
   identity is the part of that field, and its index has the same fingerprint as with the
   plain spelling. An empty path, and the same part twice in one index in either spelling,
   are `InvalidSchema` with the index named. An owned type without fields, and one with an
@@ -1541,7 +1545,20 @@ and S19 a write of an entity type that declares one of these fields throws
 `NotSupportedException`; compiling, saving, loading, records and binding work. The
 validation comes first: an object or a record with an invalid value at any depth is
 `ValidationFailed`, through a set as when it is added to a write batch, and only a valid
-one ends in `NotSupportedException`.
+one ends in `NotSupportedException`. The same order holds for every entity type whose
+writes are refused as not implemented, those of S02 included — a unique index, a
+comparison that ignores case, Dictionary storage, an enum field, a schema in UTF-16: a
+write first checks its arguments and validates the entity against the schema, and only a
+write that passes ends in `NotSupportedException`. A check that belongs to what is not
+implemented is not made: whether an integer is a declared value of its enum type, and
+whether a unique index already holds the key.
+
+In the "Not implemented yet" parts of the public documentation, the sentence "every write
+of such an entity type throws `NotSupportedException`" becomes, by the answer to Q25:
+
+> Until then no write of such an entity type is carried out: after the checks every write
+> makes of its arguments and of the entity against the schema, it throws
+> `NotSupportedException`.
 
 A part of an index may be a field inside an owned value, by decision P9. In the
 descriptor an element of `Fields` is then a list of identities instead of one identity,

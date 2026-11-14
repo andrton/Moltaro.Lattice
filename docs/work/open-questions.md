@@ -40,15 +40,6 @@ in the meantime.
 | **Until answered** | Settled by the planner and confirmed by the owner on 14 November 2026: a record rebuilds a collection it is given at every depth, and a write and a read validate and copy at every depth; the brief of S03 has the text. Under discussion with the owner: whether a `LatticeOwnedValue` and a byte array are held as given or copied. No test and no documentation states either |
 | **Decides** | The owner, for S03 |
 
-### Q25. Does validation also come before the refusals of S02?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
-| **Question** | By the answer to Q23 an invalid object or record of an entity type with an owned value, a collection or a reference is `ValidationFailed`, and only a valid one ends in `NotSupportedException`. The same is not said of what S02 has the placeholder refuse: an entity type with a unique index, a comparison that ignores case, Dictionary storage or an enum field, and a schema that declares UTF-16. Does an invalid entity of such a type get `ValidationFailed` first as well? The "Not implemented yet" parts of the documentation say "every write … throws `NotSupportedException`", which Q23 already makes inexact for the new types |
-| **Until answered** | The order is documented for owned values, collections and references only, in the remarks of `ILatticeSet<TEntity>`; for the declarations of S02 the placeholder refuses first, as it did |
-| **Decides** | The planner, for S03 if the answer changes what the placeholder does; otherwise the documentation is made exact in S03 and the rest ends with the placeholder in S12 |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -257,3 +248,12 @@ in the meantime.
 | **Question** | An index part written as a path of one identity, `[[2]]`; an empty path; the same part twice in one index; an owned type without fields; an empty `ClrType` on an owned type; and the sentence on Map keys and Set elements, which could be read as excluding Enum and Reference |
 | **Answer** | The planner, 14 November 2026, from what S02 does for the same things one level up and the owner's answer to Q9, confirmed by the owner: `[[2]]` and `[2]` are the same part; an empty path and the same part twice are `InvalidSchema`; an owned type declares at least one field, and its `ClrType` is not empty when given; a Map key and a Set element are a scalar that is not Binary, an Enum, or a Reference |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
+
+### Q25. Does validation also come before the refusals of S02?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
+| **Question** | By the answer to Q23 an invalid object or record of an entity type with an owned value, a collection or a reference is `ValidationFailed`, and only a valid one ends in `NotSupportedException`. Is the same true of what S02 has the placeholder refuse: a unique index, a comparison that ignores case, Dictionary storage, an enum field, a schema in UTF-16? |
+| **Answer** | The planner, 14 November 2026, from what the code already does: yes, for every entity type. A write first checks its arguments and validates the entity against the schema, and only a write that passes ends in `NotSupportedException`. A check that belongs to what is not implemented is not made: whether an integer is a declared value of its enum type, and whether a unique index already holds the key |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), with the sentence for the "Not implemented yet" parts of the public documentation |
