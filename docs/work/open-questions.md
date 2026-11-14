@@ -28,7 +28,14 @@ in the meantime.
 
 ## Open
 
-None. Every question found so far is answered below.
+### Q14. A class can fail to bind with an exception that is not a `LatticeException`
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, review of Epic 1, sprint S02 |
+| **Question** | Binding a class reports a class that does not agree with its entity type as `BindingFailed`. Two classes escape that: one with a static property named like a field throws `ArgumentException` from `Set<TEntity>()`, and a derived class that hides a property with one of another type throws `AmbiguousMatchException`; both also from the typed members of a write batch. The code is older than S02. Are both `BindingFailed`, with the property named? |
+| **Until answered** | The two exceptions escape as they are. The documentation of `ILatticeDatabase.Set<TEntity>()` names every cause that is reported as `BindingFailed`, and these two are not among them |
+| **Decides** | The planner, for S03, which extends the binding of classes and states that "a class with inherited properties binds as before" |
 
 ## Answered
 

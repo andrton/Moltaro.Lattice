@@ -98,7 +98,18 @@ stops and has the plan corrected before the next sprint.
    disagreement between the code and an accepted decision is not corrected in the text;
    it goes to the owner.
 8. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
-   the sprint done in the epic document. The next sprint starts, with another implementer.
+   the sprint done in the epic document. A finding is no longer open when its fix was
+   reviewed, or when the owner accepted it or moved it to a named sprint, as
+   [Review](#review) describes. The next sprint starts, with another implementer.
+
+**Small changes during a sprint.** A change that comes up while a sprint is open and is
+small — an answer of the owner that touches a rule, a document, a file of the
+repository's settings or the brief of a later sprint; a sentence of documentation — is
+made in the branch of that sprint and merged with it. It gets no branch and no pull
+request of its own. The brief of the sprint or the [open questions](open-questions.md)
+name it with the answer that caused it, whoever holds the role for that kind of work
+makes it, and it is reviewed with the sprint. The light track is for a change made while
+no sprint is open, or one that cannot wait for the open sprint.
 
 When the last sprint of an epic closes, the same comparison is made once more over the
 whole design reference, and what the epic delivered moves from its working document into
@@ -138,7 +149,9 @@ is handed a conclusion confirms it.
 - The behavior against the brief and the decision records it names.
 - The architectural principles and the quality priorities of the zone, from `AGENTS.md`.
 - That every behavior the brief states has a test, and that no test was weakened.
-- That nothing outside the sprint's scope was changed.
+- That nothing outside the sprint's scope was changed. A small change that the owner
+  decided while the sprint was open belongs to its scope when the brief or the
+  [open questions](open-questions.md) name it; see "Small changes during a sprint".
 - That the documentation the change touches says what the code now does.
 
 **A finding states** where it is, which rule, decision or requirement it breaks, and what
@@ -169,8 +182,9 @@ implementer and the reviewer, or gives the fix to another implementer. The coord
 stops and asks the owner only when the finding comes back once more after that, or when
 it can be closed only by changing the contract, the acceptance of the brief or an accepted
 decision. Then it reports what keeps coming back and what it tried, and the owner
-decides: the requirement changes, or the finding is accepted with an entry in the
-[exceptions](exceptions.md) or moved to a named sprint. A sprint is never closed with an
+decides: the requirement changes, or the finding is accepted, or it is moved to a named
+sprint. The decision is recorded in the epic document, and in the
+[exceptions](exceptions.md) as well when it departs from a rule of `AGENTS.md`. A sprint is never closed with an
 open P1, P2 or P3 on the coordinator's own word. The report of a closed sprint says how
 many rounds it took.
 

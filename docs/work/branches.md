@@ -37,6 +37,11 @@ Examples: `epic-1/sprint-03-index-search`, `fix/child-reconnect-timeout`,
   clone of the repository does not carry it.
 - **One sprint of an epic at a time.** The next sprint branch is cut from `main` after the
   previous one is merged. Light-track branches may exist next to it.
+- **A small change that comes up during a sprint goes into the branch of that sprint**,
+  not into a branch of its own: a rule, a document, a file of the repository's settings,
+  a sentence of documentation. The [development process](process.md#a-sprint-on-the-full-track)
+  says what makes it part of the sprint. A light-track branch is for a change made while
+  no sprint is open, or one that cannot wait for the open sprint.
 - **A branch that fell behind `main` is updated by merging `main` into it.** A branch with
   an open pull request is never force-pushed.
 - **The branch is deleted after the merge.**
@@ -141,6 +146,9 @@ gh api repos/{owner}/{repo}/rulesets
 ```bash
 gh api -X PUT repos/{owner}/{repo}/rulesets/RULESET_ID --input .github/rulesets/main.json
 ```
+
+A setting of the repository is not part of a ruleset. When the merge methods change, the
+`PATCH` command above is run again as well, so that the repository and the ruleset agree.
 
 The same can be done by hand. A new ruleset: repository **Settings → Rules → Rulesets →
 New ruleset → Import a ruleset**. A changed one: open it there and edit it. The merge

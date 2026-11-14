@@ -485,6 +485,21 @@ class is found when the class is bound, not when a value is read. *Not chosen:* 
 the rule to the implementation; accepting an enum that names a part of the declared
 values. Shapes S02.
 
+**O16. A small change goes into the branch of the sprint that is open.** Decided while
+S02 was carried out. A change that comes up during a sprint and is small — an answer of
+the owner that touches a rule, a document, a file of the repository's settings or the
+brief of a later sprint; a sentence of documentation — is made in the branch of that
+sprint and merged with it, and gets no branch and no pull request of its own. It is
+named in the brief of the sprint or in the [open questions](open-questions.md) with the
+answer that caused it, and it is reviewed with the sprint like everything else on the
+branch. The light track stays for a change that is made while no sprint is open, or that
+cannot wait for the open one. *Not chosen:* a branch, a pull request and a review round
+of their own for every such change, which cost the owner a merge each and bought nothing.
+Shapes every sprint from S02 on; S02 carries, besides its own work, the register of open
+questions, the rule on review rounds, the squash in the ruleset of `main`, and the
+texts that the owner's answers added to the briefs of S03, S04 and S37 and to the
+document of Epic 2.
+
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
 with what the code does in the meantime. The coordinator names the new entries when a
@@ -1159,8 +1174,13 @@ entity types whose layout fingerprint differs.
   same layout fingerprint. In the contract commit the contract author moves the uses of
   `LatticeIndex.Fields` to `Parts` by the rule on edits that state nothing new, P10: in
   the contract assembly `IndexCriteria` and `SchemaBinaryFormat`, in the Identity package
-  `LatticeIdentitySchema`, in the tests `SchemaTests`. `Parts` works in that commit for
-  the indexes that exist today. A use the build finds outside this list is reported to
+  `LatticeIdentitySchema`, in the tests `SchemaTests`. S02 added five more uses, which
+  the coordinator entered here when S02 closed and which the contract author moves in the
+  same commit: in the contract assembly `SchemaFingerprints`; in the samples
+  `SchemaDeclarationsSample`; in the tests `SavedSchemaTests`, and `DescriptorFormTests`
+  and `EnumTypeTests`, where the use stands inside an assertion — the assertion reads
+  the same fields through `Parts` and asserts what it asserted. `Parts` works in that
+  commit for the indexes that exist today. A use the build finds outside this list is reported to
   the coordinator, who enters it in the brief, and is then edited in the same way.
   The sprint extends what the layout fingerprint encodes, so the value S02 recorded for
   the fixed descriptor changes. That is a change of what a test asserts, so it is not
