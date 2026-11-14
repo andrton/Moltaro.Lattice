@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using static Moltaro.Lattice.Tests.Schemas.SavedForm.HandWrittenForm;
 
 namespace Moltaro.Lattice.Tests.Schemas.SavedForm;
 
@@ -79,36 +78,6 @@ public sealed class NestedDeclarationFormTests
             writer.Write(0); // indexes
         });
 
-        var form = Bytes(writer =>
-        {
-            writer.Write("MLSC"u8);
-            writer.Write(5);
-            writer.Write(body.Length);
-            writer.Write(body);
-        });
-
-        TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Load(new MemoryStream([.. form, .. SHA256.HashData(form)])));
-    }
-
-    // The part of a declaration that every type has: the type, not nullable, no text policies
-    // and no enum type. A List is followed by the declaration of its element.
-    private static void WriteDeclaration(BinaryWriter writer, LatticeFieldTypeEnum type)
-    {
-        writer.Write((byte)type);
-        writer.Write((byte)0);
-        writer.Write((byte)0);
-        writer.Write((byte)0);
-        writer.Write((byte)0);
-    }
-
-    private static byte[] Bytes(Action<BinaryWriter> write)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
-        {
-            write(writer);
-        }
-
-        return stream.ToArray();
+        TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Load(new MemoryStream(Form(body))));
     }
 }
