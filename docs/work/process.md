@@ -175,7 +175,8 @@ goes on.
 - Anything destructive, or anything that leaves this repository: a push, a pull request,
   a merge, a release tag. A standing permission of the owner, as
   [branches and releases](branches.md#who-does-what) describes it, covers the push, the
-  pull request and the merge of a closed sprint; nothing covers a release tag.
+  pull request and the merge of a closed sprint while no decision of the owner is open;
+  nothing covers a release tag.
 
 ## Where the state lives
 

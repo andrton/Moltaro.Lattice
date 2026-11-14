@@ -457,12 +457,13 @@ in S01. Shapes S01.
 **O14. The coordinator pushes and merges closed sprints.** Decided after S01. The owner
 gave the coordinator of this epic a standing permission: when a sprint is closed and no
 decision of the owner is open, the coordinator pushes its branch, opens the pull request,
-squashes it into `main` once every job of CI has passed, and goes on to the next sprint;
-it reports after the merge. Every pull request is squashed, also that of a sprint on the
-full track: the series contract, tests, implementation, fixes stays on the branch and in
-the pull request. What the coordinator stops for is unchanged and is listed in the
-[development process](process.md#when-to-stop-and-ask-the-owner). A release tag stays the
-owner's. *Not chosen:* the owner merging every sprint by hand, which made the owner a
+squashes it into `main` once every job that CI runs for the pull request has passed, and
+goes on to the next sprint; it reports after the merge. Every pull request is squashed,
+also that of a sprint on the full track. The series contract, tests, implementation,
+fixes is then no longer in the history of `main`: after the merge it is visible in the
+pull request on GitHub only. What the coordinator stops for is otherwise unchanged and is
+listed in the [development process](process.md#when-to-stop-and-ask-the-owner). A release
+tag, the rulesets and the settings of the repository stay the owner's. *Not chosen:* the owner merging every sprint by hand, which made the owner a
 relay between two steps that need no decision; a merge commit for a sprint on the full
 track. [Branches and releases](branches.md#who-does-what) has the rule. Shapes every
 sprint from S02 on.
