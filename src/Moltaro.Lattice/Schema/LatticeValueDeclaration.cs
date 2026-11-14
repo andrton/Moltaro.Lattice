@@ -8,6 +8,7 @@ namespace Moltaro.Lattice.Schema;
 /// collection.
 /// </summary>
 /// <remarks>
+/// <para>
 /// A policy that does not apply to the type is <see langword="null"/>: a comparison and a
 /// string storage only for <see cref="LatticeFieldTypeEnum.String"/>, an enum type only for
 /// <see cref="LatticeFieldTypeEnum.Enum"/>. A policy that the descriptor does not state has
@@ -17,6 +18,17 @@ namespace Moltaro.Lattice.Schema;
 /// <see cref="LatticeFieldTypeEnum.Reference"/>, the element only for
 /// <see cref="LatticeFieldTypeEnum.List"/> and <see cref="LatticeFieldTypeEnum.Set"/>, and
 /// the key and the value only for <see cref="LatticeFieldTypeEnum.Map"/>.
+/// </para>
+/// <para>
+/// <b>A declaration is at most 32 deep</b>, counted through collections and owned types
+/// together. The depth of a declaration is 1 for a scalar, a Binary, an Enum and a Reference;
+/// for a List and a Set one more than the depth of its element; for a Map one more than the
+/// deeper of its key and its value; for an Owned one more than the deepest field of its owned
+/// type. The declaration of every field, of an entity type and of an owned type, is 32 deep
+/// or less: a deeper one is refused with <see cref="LatticeErrorEnum.InvalidSchema"/>, with
+/// the field named, in a descriptor and in a saved schema alike. It is a fixed rule of the
+/// schema language, the same in every process, and not an option.
+/// </para>
 /// </remarks>
 public sealed class LatticeValueDeclaration
 {
@@ -128,7 +140,8 @@ public sealed class LatticeValueDeclaration
 
     /// <summary>
     /// The declaration of the elements of a List or a Set. An element of a List may be
-    /// anything a field may be, an owned value and another collection included. An element of
+    /// anything a field may be, an owned value and another collection included, within the
+    /// depth a declaration may have, see the remarks of this class. An element of
     /// a Set is what a Map key may be, and two members are equal as two keys are, see
     /// <see cref="Key"/>; a nullable element allows one <see langword="null"/> member.
     /// <see langword="null"/> when the type is neither
@@ -149,7 +162,8 @@ public sealed class LatticeValueDeclaration
 
     /// <summary>
     /// The declaration of the values of a Map: anything a field may be, an owned value and
-    /// another collection included. <see langword="null"/> when the type is not
+    /// another collection included, within the depth a declaration may have, see the remarks
+    /// of this class. <see langword="null"/> when the type is not
     /// <see cref="LatticeFieldTypeEnum.Map"/>.
     /// </summary>
     public LatticeValueDeclaration? Value { get; }

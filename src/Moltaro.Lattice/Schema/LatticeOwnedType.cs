@@ -22,7 +22,8 @@ namespace Moltaro.Lattice.Schema;
 /// <see cref="LatticeErrorEnum.InvalidSchema"/>, which names the owned types on the way. The
 /// shortest case, a field of its own type, is refused whether the field is nullable or not.
 /// A Reference is not containment: an owned type may refer to any entity type, the one whose
-/// entities hold it included.
+/// entities hold it included. A chain of owned types, each holding the next, counts toward
+/// the depth of a declaration, which is at most 32, see <see cref="LatticeValueDeclaration"/>.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> An owned type is declared, compiled, saved and loaded, records
