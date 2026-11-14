@@ -48,7 +48,7 @@ None. Every question found so far is answered below.
 | **Found** | 14 November 2026, tests of Epic 1, sprint S02 |
 | **Question** | The brief of S02 lists what the layout fingerprint of an entity type covers — the string encoding and, for every field, identity, type, nullability, string storage and the underlying type of an enum — and what it does not. The identity of the entity type and its primary key are in neither list |
 | **Answer** | The owner, 14 November 2026, through the planner's session: the primary key is covered, the identity of the entity type is not. Which field is the key decides how an entity is found in the saved base, so a change of the key field has to be seen by a migration; the fingerprints of one entity type are compared across two versions of a schema, where its identity is the same, so two entity types with the same fields and key have the same layout fingerprint. The fingerprint of the schema does not change: it covers both already |
-| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which extends the layout fingerprint anyway. S02 delivers the fingerprint without the key, as its brief lists it; the recorded values of its tests change in S03 |
+| **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md), which extends the layout fingerprint anyway. S02 delivers the fingerprint without the key, as its brief lists it; the recorded layout value changes in S03; the recorded value of the schema fingerprint is recorded again there only if the extension of S03 changes it |
 
 ### Q7. Is a policy on a field of the wrong type an error of the descriptor?
 
@@ -102,7 +102,7 @@ None. Every question found so far is answered below.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | `"SchemaVersion": 0` and a negative one compile, as they did before S02. Since S02 the number is the catalog version, which the milestone contract calls monotonically increasing; nothing says where it starts or what a descriptor without it means |
 | **Answer** | The owner, 14 November 2026, through the planner's session: a catalog version is a whole number from 1; zero or below is `InvalidSchema` with the property named. A descriptor without `SchemaVersion` has version 1, as before, and the property stays optional. "Monotonically increasing" means that the target schema of a migration has a greater version than the stored one |
-| **Where the rule lives** | The range and the default: the brief of S03 in the [document of Epic 1](epic-1-core.md), which makes the check and words the documentation of `LatticeSchema.Version`. The rule that a version grows: the contract of S37, which the planner writes before that stage |
+| **Where the rule lives** | The range and the default: the brief of S03 in the [document of Epic 1](epic-1-core.md), which makes the check and words the documentation of `LatticeSchema.Version`. The rule that a version grows: the brief of S37 in the same document |
 
 ### Q11. Should a saved compiled schema carry a digest of itself?
 
@@ -110,7 +110,7 @@ None. Every question found so far is answered below.
 | --- | --- |
 | **Found** | 14 November 2026, fixes after the review of Epic 1, sprint S02 |
 | **Question** | A truncated or malformed saved schema is refused. A byte change that still forms a valid schema — another name, another identity — loads as another schema, because the format carries no checksum. The fingerprint does not cover names, so it does not show such a change either |
-| **Answer** | The owner, 14 November 2026, through the planner's session: yes. The binary form of a compiled schema ends with SHA-256 over every byte before it, and a load refuses a difference with `InvalidSchema` before it uses anything it decoded. It comes in S03 with the format version that sprint changes anyway; S02 delivers the form without a digest |
+| **Answer** | The owner, 14 November 2026, through the planner's session: yes. The binary form of a compiled schema ends with SHA-256 over every byte before it, and a load refuses a difference with `InvalidSchema` before it decodes anything of the body. It comes in S03 with the format version that sprint changes anyway; S02 delivers the form without a digest |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md) |
 
 ### Q6. The write batch does not document every way a class can fail to bind

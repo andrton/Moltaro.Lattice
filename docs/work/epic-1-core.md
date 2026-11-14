@@ -1138,7 +1138,13 @@ entity types whose layout fingerprint differs.
   zero or below is refused with `InvalidSchema` and the property named. A descriptor
   without the property has version 1, as before. A saved schema carries a digest of
   itself. A change of any single byte of a saved schema, the digest included, is refused
-  with `InvalidSchema`: no change loads as another schema. A schema saved and loaded is
+  with `InvalidSchema`: no change loads as another schema. A negative length of the body
+  is refused. A length far beyond the data is refused and costs memory for the data only,
+  as a count and a text length inside the body do since S02. A form whose digest is right
+  is still read strictly: a saved schema with one byte added at the end of its body, and
+  one with the last byte of its body taken away, each with its length and its digest
+  written again to fit, is refused. A stream is left right after the digest, and a file
+  with data after the digest is refused. A schema saved and loaded is
   equal to the one that was saved, with the same fingerprints. A record and an object are validated against the declaration when they are
   built or bound: wrong element type, null where it is not allowed, a duplicate Map key
   in bulk input. A Set built from input keeps the first representation of equal members.
@@ -1166,10 +1172,59 @@ entity types whose layout fingerprint differs.
   implementation commit the test author records `RecordedAccountLayoutFingerprint` again
   in a commit of its own — the value the test computes against the implementation,
   checked against an independent encoding of exactly the declarations the briefs list —
-  and removes the skip. The answer to Q5 does not change `RecordedFingerprint` of
-  `SchemaFingerprintTests`. Should the extension of the schema fingerprint to owned
-  types, collections and the parts of an index change it, it is recorded again in the
-  same commit under the same check; a different value for any other reason is a defect.
+  and removes the skip. The fingerprint of a schema is extended in this sprint as well,
+  to owned types, collections and the paths of index parts, and the brief does not fix
+  how the extension is encoded, so the value recorded for the fixed descriptor of
+  `SchemaFingerprintTests` may or may not stay.
+  `Fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform` is therefore
+  handled exactly as the layout test: the test author marks it as skipped in the tests
+  commit and changes nothing else in it, the implementer leaves it skipped, and in the
+  same later commit the test author removes the skip and, when the implementation
+  computes another value, records `RecordedFingerprint` again under the same check. The
+  answer to Q5 is no reason for that value to change: the fingerprint of a schema has
+  covered the primary key since S02.
+
+  The new form also forces edits on `DamagedCompiledSchemaTests`, which writes forms of
+  S02 by hand. Its tests state behavior this sprint keeps — the reader is strict, and
+  nothing is allocated by a declared size — in a form this sprint changes, so they are
+  edited by the rule on edits that state nothing new, P10, in two steps. In the tests
+  commit the test author adds to that class one helper that makes a whole form of this
+  sprint from the bytes of a body — the magic, format version 5, the length of the body,
+  the body, the digest — and one that writes the length and the digest of a form again
+  after a test changed its body. The new tests of the sprint use them and are skipped; no
+  existing test is touched in that commit. In the implementation commit the implementer
+  moves every hand-written form of the class onto those helpers, so that each is a whole
+  form of this sprint whose length and digest are right and whose one fault is the fault
+  its test names:
+
+  - `WriteHeader`, `Bytes`, `Compiled` and `Field`, with the body as `Save` now writes
+    it, and through them the forms of `Mark_that_is_neither_0_nor_1_is_refused`,
+    `Declaration_whose_policies_do_not_fit_its_type_is_refused`,
+    `Negative_count_is_refused`, `Text_length_of_more_than_five_bytes_is_refused`,
+    `Text_length_far_beyond_the_data_costs_memory_for_the_data_only` and
+    `Count_far_beyond_the_data_costs_memory_for_the_data_only`.
+    `Hand_written_form_of_the_tests_below_is_the_form_that_Save_writes` is not changed:
+    it is what shows that the hand-written form is the form of this sprint.
+  - The literal bytes of `Text_with_a_negative_length_is_refused`, which become a body
+    given to the helper.
+  - `Name_that_is_not_well_formed_UTF8_is_refused_rather_than_replaced`, which writes
+    the digest again after it changed the byte of the name.
+
+  No assertion, no name of a test and no inline data changes; a comment that describes
+  the form follows the form. Without these edits four tests would fail, because the forms
+  that have to load would not, and the others would pass for a wrong reason, refused as
+  an unknown format or for their digest. A test the new form breaks outside this list is
+  reported to the coordinator, who enters it in the brief, and is then edited in the same
+  way. `Every_truncation_of_a_saved_schema_is_refused`,
+  `File_with_data_after_the_compiled_schema_is_refused` and
+  `Stream_is_left_right_after_the_compiled_schema` hold for the new form as they are
+  written and are not edited.
+
+  `Every_single_byte_change_of_a_saved_schema_loads_or_is_refused` is superseded, not
+  edited: the test of this sprint states more, that every such change is refused. The old
+  test stays and passes until the new one runs. The test author removes it in the commit
+  of its own that follows the implementation, the one that records the fingerprints, and
+  names the reason in the commit message.
 - **Out of scope.** Storing these values: writing an entity type that uses them is
   refused until S18 and S19. Partial commands (S20). Indexes on collection members,
   which are outside the milestone.
@@ -1206,12 +1261,51 @@ S37. In the contract commit the documentation of `LatticeSchema.Version` becomes
 > `SchemaVersion`, or 1 when the descriptor does not declare it. A later version of a
 > schema has a greater number. It is not part of `Fingerprint`.
 
-By the owner's answer to Q11 the binary form of a compiled schema ends with a digest:
-SHA-256 over every byte written before it, from the magic on. `Load` computes it over
-what it read and refuses a difference with `InvalidSchema` before it uses anything it
-decoded. The form says how long it is before the digest, so that a reader of a stream
-knows where the digest stands and reads nothing after it. The digest comes with the new
-format version of this sprint; the reader does not read the form of S02.
+By the owner's answer to Q11 the binary form of a compiled schema carries a digest of
+itself. From this sprint the form is, in this order:
+
+| Part | Encoding |
+| --- | --- |
+| Magic | The four bytes `MLSC`, as before |
+| Format version | `Int32`, little-endian: 5 |
+| Length of the body | `Int32`, little-endian, not negative: the number of bytes of the body |
+| Body | Everything else the form holds, from the catalog version on. Its encoding stays internal to `SchemaBinaryFormat` |
+| Digest | 32 bytes: SHA-256 over every byte before it, from the magic to the last byte of the body |
+
+`Load` goes through the form in this order and refuses with `InvalidSchema` at the first
+rule that does not hold:
+
+1. The magic and the format version, as before. A form of another format, that of S02
+   included, is refused: nothing was released, so such a schema is compiled again.
+2. The length. A negative length is refused. The length says where the digest stands and
+   is used for nothing else: it counts the bytes to read. No allocation is sized by it.
+   The rule of S02, that nothing is allocated by a declared size, holds for it as for
+   every count and length inside the body: the body is read in pieces, and memory grows
+   with the bytes that arrived. Data that ends before the body and the digest are
+   complete is refused.
+3. The digest. It is computed over the bytes that were read and compared with the 32
+   bytes that follow them. A difference is refused, and nothing of the body is decoded
+   before the digest agreed. The magic, the format version and the length are the only
+   values taken from the data before that: they are what locates the digest, and the
+   digest covers each of them.
+4. The body, with every rule of the reader of S02 unchanged: marks, counts, lengths,
+   well-formed UTF-8, policies that fit their type. A digest shows damage, not who wrote
+   the bytes, so a form whose digest is right is still read strictly. The schema fills
+   the body exactly: bytes left in the body after the schema, and a schema that needs
+   more bytes than the body holds, are refused.
+
+`Load(Stream)` leaves the stream right after the digest, and `Load(string)` refuses a
+file that has data after the digest: the rules of S02 on where a saved schema ends, with
+the digest as its end.
+
+In the contract commit the documentation of `LatticeSchema.Load(Stream)` loses the
+sentence "The compiled form has no checksum: a change that still reads as a valid schema,
+such as another name, is loaded as that schema." and has in its place:
+
+> The compiled form ends with a digest of itself, SHA-256. A change of any byte is damage
+> and is refused, also when the changed bytes would still read as a schema; nothing is
+> decoded from data whose digest does not agree. The digest detects damage. It is not a
+> signature: it does not show who wrote the data.
 
 ```csharp
 public enum LatticeFieldTypeEnum : byte
@@ -2830,7 +2924,10 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   that says there is nothing saved to convert. The contract of this stage also says how a
   migration treats a changed comparison — of a Map key, of a Set element, of a String
   primary key, of a part of a unique index: it changes what the database may hold
-  without changing a layout fingerprint.
+  without changing a layout fingerprint. By the owner's answer to Q10 the catalog version
+  of the target schema is greater than that of the schema in force: a migration to a
+  schema with the same or a lower version is refused, with an error the contract of this
+  stage names.
 - **To read.** [Schema identity, migration and facade integration](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration);
   [Q03, Q03.9](../decisions/schema-and-types.md).
 - **Acceptance.** All writes pause, also those of unaffected entity types, and the
