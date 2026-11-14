@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 // deeper one is refused with the field named.
 public sealed class DeclarationDepthTests
 {
-    [Theory(Skip = NotImplemented.DeclarationDepth)]
+    [Theory]
     [InlineData("through Lists alone")]
     [InlineData("through a chain of owned types each holding the next")]
     [InlineData("through Lists around a chain of owned types")]
@@ -27,7 +27,7 @@ public sealed class DeclarationDepthTests
         Assert.Contains("Deep", exception.Message);
     }
 
-    [Fact(Skip = NotImplemented.DeclarationDepth)]
+    [Fact]
     public void Field_of_an_owned_type_is_held_to_the_same_depth()
     {
         // Box holds its field Deep and is held by nothing, so only the depth of Deep counts.

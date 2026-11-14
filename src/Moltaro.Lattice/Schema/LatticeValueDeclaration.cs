@@ -60,9 +60,19 @@ public sealed class LatticeValueDeclaration
             Map = MapForm.For(key!, value!);
         }
 
+        // Every part a declaration holds is built before it, so its depth is taken from theirs
+        // and nothing is walked here.
+        Depth = type switch
+        {
+            LatticeFieldTypeEnum.Owned => 1 + ownedType!.Depth,
+            LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set => 1 + element!.Depth,
+            LatticeFieldTypeEnum.Map => 1 + Math.Max(key!.Depth, value!.Depth),
+            _ => 1,
+        };
+
         // An owned value is held as a LatticeOwnedValue of the access namespace: the public
         // contract names that type as the ValueType of an Owned position, so this is the one
-        // place where the schema refers to it.
+        // place where the schema refers to it. It is exception X5 of docs/work/exceptions.md.
         ValueType = type switch
         {
             LatticeFieldTypeEnum.Owned => typeof(Access.LatticeOwnedValue),
@@ -218,6 +228,13 @@ public sealed class LatticeValueDeclaration
     // the target of a Reference, the declared type of any other scalar. For an owned value
     // and a collection, the declared type.
     internal LatticeFieldTypeEnum ScalarType { get; }
+
+    // How deep the declaration is, through collections and owned types together: 1 for a
+    // scalar, a Binary, an Enum and a Reference; one more than its element for a List and a
+    // Set; one more than the deeper of its key and its value for a Map; one more than the
+    // deepest field of its owned type for an Owned. SchemaBuilder holds every field to its
+    // bound.
+    internal int Depth { get; }
 
     // How text at this position is compared: the comparison of a String, or of the key of the
     // target of a Reference, which compares as that key. Null for any other type.

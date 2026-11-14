@@ -21,10 +21,11 @@ namespace Moltaro.Lattice.Access.Values;
 // The walk descends by the declarations of the schema, never by the objects it meets: at each
 // step it goes from a declaration into one inside it, or into the fields of an owned type the
 // declaration names, and it checks that a value is of the declared type before it looks into
-// it. An owned type does not contain itself, so this ends, and its depth is the depth of the
-// schema, whatever the caller built: a collection added to itself through what a record
-// returned cannot be added, because no collection is of its own element type, and an owned
-// value of another owned type is refused before it is entered.
+// it. An owned type does not contain itself, so this ends, and it goes no deeper than the
+// declaration, which is at most as deep as SchemaBuilder allows, whatever the caller built: a
+// collection added to itself through what a record returned cannot be added, because no
+// collection is of its own element type, and an owned value of another owned type is refused
+// before it is entered.
 internal static class RecordValues
 {
     // A value that is not null, set into a field of a record or of an owned value. A value

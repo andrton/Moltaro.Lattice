@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Access.Binding;
 // declaration, are ValidationFailed. Of equal members of a Set the first is kept. The class of
 // an owned type is bound once for every pair of owned type and class, however many positions
 // hold it, so binding grows with the declarations; it ends because an owned type does not
-// contain itself.
+// contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
 internal sealed class ClassBinder
 {
     private readonly LatticeEntityType _entityType;

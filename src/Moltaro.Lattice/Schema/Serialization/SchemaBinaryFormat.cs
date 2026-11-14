@@ -46,7 +46,7 @@ namespace Moltaro.Lattice.Schema.Serialization;
 //   4. The body. A digest shows damage, not who wrote the bytes, so the body is still read
 //      strictly: a mark that is not 0 or 1, a negative count or length, text that is not
 //      well-formed UTF-8, policies that do not fit the type and a declaration nested deeper
-//      than any descriptor can declare are refused here. The schema fills the body exactly:
+//      than a declaration may be are refused here. The schema fills the body exactly:
 //      bytes left after it, and a schema that needs more bytes than the body holds, are
 //      refused. Every rule of the model is checked by SchemaBuilder, as for a descriptor.
 // Nothing is allocated by a count or a length before the bytes it announces have been read, so
@@ -65,12 +65,6 @@ internal static class SchemaBinaryFormat
 
     // The body is read in pieces of this size.
     private const int PieceLength = 1024;
-
-    // A declaration nests at most this deep in a body. The JSON reader stops at a depth of 64,
-    // the default of JsonDocument, so no descriptor declares a deeper one and no schema that
-    // Save writes holds one. Refusing a deeper declaration keeps the recursion of reading
-    // bounded by this number instead of by the data.
-    private const int MaximumNesting = 64;
 
     // Refuses bytes that are not UTF-8 instead of replacing them, so that a damaged name is not
     // loaded as another name. Immutable, so it is shared.
@@ -309,7 +303,7 @@ internal static class SchemaBinaryFormat
         var id = reader.ReadInt32();
         var name = ReadText(reader);
         var clrTypeName = ReadMark(reader) ? ReadText(reader) : null;
-        var fields = ReadList(reader, ReadField);
+        var fields = ReadList(reader, fieldReader => ReadField(fieldReader, name));
 
         return new OwnedTypeDraft(id, name, clrTypeName, fields);
     }
@@ -341,18 +335,20 @@ internal static class SchemaBinaryFormat
         var name = ReadText(reader);
         var clrTypeName = ReadMark(reader) ? ReadText(reader) : null;
         var keyFieldId = reader.ReadInt32();
-        var fields = ReadList(reader, ReadField);
+        var fields = ReadList(reader, fieldReader => ReadField(fieldReader, name));
         var indexes = ReadList(reader, ReadIndex);
 
         return new EntityTypeDraft(id, name, clrTypeName, fields, keyFieldId, indexes);
     }
 
-    private static FieldDraft ReadField(BinaryReader reader)
+    // A field of the entity type or the owned type of the given name, which a message names.
+    private static FieldDraft ReadField(BinaryReader reader, string owner)
     {
         var id = reader.ReadInt32();
         var name = ReadText(reader);
+        var place = $"field '{SchemaBuilder.Shown(owner)}.{SchemaBuilder.Shown(name)}'";
 
-        return new FieldDraft(id, name, ReadDeclaration(reader, nesting: 1));
+        return new FieldDraft(id, name, ReadDeclaration(reader, nesting: 1, place));
     }
 
     private static IndexDraft ReadIndex(BinaryReader reader)
@@ -368,11 +364,16 @@ internal static class SchemaBinaryFormat
     // The writer gives a String both of its policies and every other type neither, so a
     // declaration that has them otherwise is damaged. Read as a descriptor, a missing policy
     // would quietly become its default. What follows depends on the type alone.
-    private static ValueDeclarationDraft ReadDeclaration(BinaryReader reader, int nesting)
+    //
+    // A declaration nested deeper than a declaration may be is refused here, while it is read,
+    // and not only by SchemaBuilder afterwards: the recursion of reading is so bounded by the
+    // rule and not by the data, and a form nested deeper cannot exhaust the stack. Nesting
+    // counts only the collections inside one declaration, which is never more than its depth.
+    private static ValueDeclarationDraft ReadDeclaration(BinaryReader reader, int nesting, string place)
     {
-        if (nesting > MaximumNesting)
+        if (nesting > SchemaBuilder.MaximumDepth)
         {
-            throw Damaged();
+            throw SchemaBuilder.Invalid($"{place} is nested more than {SchemaBuilder.MaximumDepth} deep; a declaration is at most {SchemaBuilder.MaximumDepth} deep, counted through collections and owned types together.");
         }
 
         var type = (LatticeFieldTypeEnum)reader.ReadByte();
@@ -390,9 +391,9 @@ internal static class SchemaBinaryFormat
 
         var ownedTypeName = type == LatticeFieldTypeEnum.Owned ? ReadText(reader) : null;
         var entityTypeName = type == LatticeFieldTypeEnum.Reference ? ReadText(reader) : null;
-        var element = type is LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set ? ReadDeclaration(reader, nesting + 1) : null;
-        var key = type == LatticeFieldTypeEnum.Map ? ReadDeclaration(reader, nesting + 1) : null;
-        var value = type == LatticeFieldTypeEnum.Map ? ReadDeclaration(reader, nesting + 1) : null;
+        var element = type is LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set ? ReadDeclaration(reader, nesting + 1, place) : null;
+        var key = type == LatticeFieldTypeEnum.Map ? ReadDeclaration(reader, nesting + 1, place) : null;
+        var value = type == LatticeFieldTypeEnum.Map ? ReadDeclaration(reader, nesting + 1, place) : null;
 
         return new ValueDeclarationDraft(
             type,

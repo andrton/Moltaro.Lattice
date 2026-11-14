@@ -12,6 +12,13 @@ namespace Moltaro.Lattice.Schema.Compilation;
 // it contains; the entity types with their fields and indexes; the fingerprints.
 internal static class SchemaBuilder
 {
+    // By the owner's answer to Q28 the declaration of a field is at most this deep, counted
+    // through collections and owned types together, see LatticeValueDeclaration.Depth. It is a
+    // rule of the schema language, the same in every process, and not an option: a schema
+    // means the same on every node. Every walk over a value or a class therefore goes no deeper,
+    // and the reader of a saved schema stops at it while it reads.
+    public const int MaximumDepth = 32;
+
     public static LatticeSchema BuildSchema(
         int version,
         LatticeStringEncodingEnum stringEncoding,
@@ -215,6 +222,11 @@ internal static class SchemaBuilder
             var declaration = key is { } primaryKey && draft.Id == primaryKey.FieldId
                 ? primaryKey.Declaration
                 : declarations.Build(draft.Declaration, place);
+
+            if (declaration.Depth > MaximumDepth)
+            {
+                throw Invalid($"{place} is {declaration.Depth} deep; a declaration is at most {MaximumDepth} deep, counted through collections and owned types together.");
+            }
 
             fields[ordinal] = new LatticeField(draft.Id, draft.Name, declaration, ordinal);
         }

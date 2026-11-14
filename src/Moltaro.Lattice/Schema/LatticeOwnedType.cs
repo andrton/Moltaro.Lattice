@@ -43,6 +43,10 @@ public sealed class LatticeOwnedType
         ClrTypeName = clrTypeName;
         Fields = fields;
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
+
+        // An owned type has at least one field, and the owned types it holds are built before
+        // it, so the depth of every field is known.
+        Depth = fields.Max(field => field.Declaration.Depth);
     }
 
     /// <summary>
@@ -87,4 +91,7 @@ public sealed class LatticeOwnedType
     /// <returns><see langword="true"/> when the owned type has the field.</returns>
     public bool TryGetField(string name, [NotNullWhen(true)] out LatticeField? field) =>
         _fieldsByName.TryGetValue(name, out field);
+
+    // The depth of its deepest field; an Owned declaration of it is one deeper.
+    internal int Depth { get; }
 }

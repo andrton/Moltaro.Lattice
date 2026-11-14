@@ -143,8 +143,9 @@ internal static class SchemaJsonReader
 
     // What a field holds: everything a field declares except its identity and its name. The
     // element, the key and the value of a collection are declarations of their own, with
-    // these properties and no identity and no name. Their nesting is bounded by the depth that
-    // JsonDocument reads.
+    // these properties and no identity and no name. The recursion here is bounded by the depth
+    // of 64 at which JsonDocument stops reading; how deep a declaration may be is a rule of the
+    // model, which SchemaBuilder checks, see SchemaBuilder.MaximumDepth.
     private static ValueDeclarationDraft ReadDeclaration(JsonElement element, string place)
     {
         var type = Name<LatticeFieldTypeEnum>(Required(element, "Type", place), "Type", place);

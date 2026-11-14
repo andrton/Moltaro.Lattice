@@ -37,7 +37,7 @@ public sealed class DeclarationDepthFormTests
         Assert.Equal(LatticeFieldTypeEnum.Int64, inner.Type);
     }
 
-    [Fact(Skip = NotImplemented.DeclarationDepth)]
+    [Fact]
     public void Saved_schema_nested_33_deep_is_refused()
     {
         // The same form 32 deep loads.
@@ -55,7 +55,7 @@ public sealed class DeclarationDepthFormTests
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => Load(Form(ListsBody(depth))));
     }
 
-    [Fact(Skip = NotImplemented.DeclarationDepth)]
+    [Fact]
     public void Saved_schema_with_a_chain_of_owned_types_33_deep_is_refused()
     {
         // 31 owned types make the field Deep 32 deep; 32 owned types make it 33.
