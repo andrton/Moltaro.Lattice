@@ -1196,7 +1196,12 @@ entity types whose layout fingerprint differs.
   with `InvalidSchema` and the owned types on the way named: through a field of its own
   type, nullable or not, through a List element or a Map value of its own type, and
   through another owned type that contains it. An owned type with a Reference to the
-  entity type that holds it compiles. A search key may give null for a part of an index
+  entity type that holds it compiles. A declaration is at most 32 deep, counted through
+  collections and owned types together. A field whose declaration is 32 deep compiles,
+  and one that is 33 deep is refused with `InvalidSchema` and the field named: through
+  Lists alone, through a chain of owned types each holding the next, and through both
+  mixed. A saved schema nested deeper than 32 is refused with `InvalidSchema` however
+  deep it is, without exhausting the stack. A search key may give null for a part of an index
   when the indexed field is nullable or a step of its path is a nullable owned value;
   null for a part that can never be null is `ArgumentException`. The key is checked
   before the search is refused as not implemented: a key with a permitted null ends in
@@ -1404,6 +1409,18 @@ the field is nullable or not. A Reference is not containment: an owned type may 
 any entity type, the one whose entities hold it included. It is a rule of the model, so a
 saved schema that declares such a type is refused on load as a descriptor is.
 
+By the owner's answer to Q28 a declaration is at most 32 deep. The depth of a declaration
+is 1 for a scalar, a Binary, an Enum and a Reference; for a List and a Set one more than
+the depth of its element; for a Map one more than the deeper of its key and its value;
+for an Owned one more than the deepest field of its owned type. The declaration of every
+field, of an entity type and of an owned type, has a depth of 32 or less; a deeper one is
+`InvalidSchema` with the field named. The depth is finite because an owned type does not
+contain itself. It is a rule of the schema language, the same in every process, and not
+an option. It is a rule of the model, so it holds for a descriptor and for a saved schema
+alike; the reader of a saved schema also stops at it while it reads, so that a form
+nested deeper cannot exhaust the stack before the model is checked. Whatever walks a
+value or binds a class therefore never goes deeper than 32.
+
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
 themselves be a List, a Map or a Set. A Map key and a Set element are one of three: a
 scalar that is not Binary, an Enum, a Reference. A Map key is never nullable.
@@ -1435,7 +1452,8 @@ rule that does not hold:
 
 1. The magic and the format version, as before. A form of another format, that of S02
    included, is refused: nothing was released, so such a schema is compiled again.
-2. The length. A negative length is refused. The length says where the digest stands and
+2. The length. A negative length is refused. So is a length greater than one array can
+   hold: such a body cannot be read, and it is damage like any other. The length says where the digest stands and
    is used for nothing else: it counts the bytes to read. No allocation is sized by it.
    The rule of S02, that nothing is allocated by a declared size, holds for it as for
    every count and length inside the body: the body is read in pieces, and memory grows
