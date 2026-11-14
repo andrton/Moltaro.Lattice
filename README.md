@@ -332,6 +332,7 @@ replication status. A query language is not planned for the first version.
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity: the contract; the stores are not implemented yet |
 | `src/Moltaro.Lattice.AspNet.Identity.Tests` | Tests of the Identity storage; most are written ahead and skipped. Includes Microsoft's Identity specification tests, see [third-party notices](THIRD-PARTY-NOTICES.md) |
+| `src/Moltaro.Lattice.TestSupport` | Code shared by the test projects; never shipped |
 | `src/Moltaro.Lattice.Samples` | Runnable usage samples |
 | `src/Prototypes` | [Synthetic experiments](src/Prototypes/README.md), isolated from the product solution |
 | `docs/design`, `docs/decisions` | [Engine design reference](docs/design/README.md), decisions, measurements and planning handoff |

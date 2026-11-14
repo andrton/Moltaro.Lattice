@@ -56,7 +56,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Write_through_a_child_is_on_that_child_when_it_completes()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childUsers = child.Set<User>();
@@ -74,7 +74,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Read_with_a_session_waits_until_the_child_has_caught_up()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childUsers = child.Set<User>();
@@ -102,7 +102,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Read_that_cannot_catch_up_in_time_fails_instead_of_returning_old_data()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childUsers = child.Set<User>();
@@ -127,7 +127,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Timeout_after_the_master_committed_does_not_undo_the_write()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await OpenChildAsync(address, TimeSpan.FromMilliseconds(100));
         var session = new LatticeSession();
@@ -159,7 +159,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Enumeration_with_a_session_waits_and_has_a_position_even_when_empty()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var childUsers = child.Set<User>();
@@ -186,7 +186,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Records_have_the_same_consistency_operations_as_classes()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var masterSettings = master.Set("Setting");
@@ -241,7 +241,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Child_that_has_the_position_serves_the_session_after_its_master_is_gone()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var session = new LatticeSession();
@@ -257,7 +257,7 @@ public sealed class ConsistencyTests
     [Fact]
     public async Task Position_can_be_carried_to_another_process_as_text()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var written = await master.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" });

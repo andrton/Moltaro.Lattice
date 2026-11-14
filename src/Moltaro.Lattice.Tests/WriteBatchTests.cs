@@ -269,7 +269,7 @@ public sealed class WriteBatchTests
     [Fact(Skip = ExecutionNotImplemented)]
     public async Task Batch_through_a_child_is_on_that_child_when_it_completes()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
 
@@ -288,7 +288,7 @@ public sealed class WriteBatchTests
     [Fact(Skip = ExecutionNotImplemented)]
     public async Task Batch_follows_a_session_and_moves_it_forward()
     {
-        var address = TestData.NewAddress();
+        var address = MasterAndChild.NewAddress();
         await using var master = await TestData.OpenMasterAsync(address);
         await using var child = await TestData.OpenChildAsync(address);
         var session = new LatticeSession();

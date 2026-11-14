@@ -1,6 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text.Json;
 
 namespace Moltaro.Lattice.Tests;
 
@@ -22,7 +20,7 @@ public sealed class DependencyTests
         var contract = Assembly.Load("Moltaro.Lattice");
 
         var outsideDotnet = contract.GetReferencedAssemblies()
-            .Where(reference => !IsPartOfDotnet(reference))
+            .Where(reference => !BuiltDependencies.IsPartOfDotnet(reference))
             .Select(reference => reference.FullName);
 
         Assert.Empty(outsideDotnet);
@@ -31,38 +29,8 @@ public sealed class DependencyTests
     [Fact]
     public void The_contract_depends_on_no_package()
     {
-        var dependencies = BuiltDependencies("Moltaro.Lattice");
+        var dependencies = BuiltDependencies.Recorded(typeof(DependencyTests).Assembly, "Moltaro.Lattice");
 
         Assert.Empty(dependencies);
-    }
-
-    // An assembly is part of .NET when the shared framework this test runs on,
-    // Microsoft.NETCore.App, contains it in the referenced version or a later one. A package
-    // cannot place an assembly there, and a package that ships a later version of a framework
-    // assembly is outside .NET as well.
-    private static bool IsPartOfDotnet(AssemblyName reference)
-    {
-        var path = Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), reference.Name + ".dll");
-
-        return File.Exists(path) && AssemblyName.GetAssemblyName(path).Version >= reference.Version;
-    }
-
-    // The packages and projects, with their versions, that the build recorded for one project.
-    private static Dictionary<string, string> BuiltDependencies(string projectName)
-    {
-        var manifestPath = Path.ChangeExtension(typeof(DependencyTests).Assembly.Location, ".deps.json");
-        using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
-
-        var runtimeTarget = manifest.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString()!;
-        var libraries = manifest.RootElement.GetProperty("targets").GetProperty(runtimeTarget);
-        var project = libraries.EnumerateObject().Single(library => library.Name.StartsWith(projectName + "/", StringComparison.Ordinal));
-
-        // The build writes no "dependencies" for a project that has none.
-        if (!project.Value.TryGetProperty("dependencies", out var dependencies))
-        {
-            return new Dictionary<string, string>();
-        }
-
-        return dependencies.EnumerateObject().ToDictionary(dependency => dependency.Name, dependency => dependency.Value.GetString()!);
     }
 }

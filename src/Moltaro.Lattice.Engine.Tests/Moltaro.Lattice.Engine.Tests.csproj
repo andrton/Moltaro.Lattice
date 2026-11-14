@@ -8,8 +8,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
+    <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Using Include="Moltaro.Lattice.TestSupport" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>
