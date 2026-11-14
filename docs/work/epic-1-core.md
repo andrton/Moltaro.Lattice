@@ -739,6 +739,17 @@ each when its sprint is prepared.
    on edits that state nothing new, yet it is assigned one commit earlier than the commit
    that would break. It is harmless and keeps the roles apart.
 
+The coordinator added the remark below while S01 was reviewed. It is settled in the same
+way, when its sprint is prepared.
+
+5. S01 created `Moltaro.Lattice.Engine` as a project that is not packed: it has no code,
+   and the Publish workflow packs every packable project on a release tag. From S12 on
+   the dependency injection package references the engine, and a package that depends on
+   one that is never published cannot be restored; nothing in the build shows it. In the
+   implementation commit of S12 the implementer makes the engine project packable and
+   corrects the sentence of `README.md` that names the published packages. The brief of
+   S12 does not list this edit; the coordinator enters it there when S12 is prepared.
+
 ### Stage 0. Ground
 
 #### S01 · Assemblies, package ownership and the default lane
