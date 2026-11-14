@@ -13,7 +13,7 @@ internal static class UniqueIndexSample
     private const string SchemaJson = """
         {
           "SchemaVersion": 1,
-          "Tables": [
+          "EntityTypes": [
             {
               "Id": 1,
               "Name": "Mailbox",
@@ -24,8 +24,8 @@ internal static class UniqueIndexSample
               ],
               "PrimaryKey": [1],
               "Indexes": [
-                { "Name": "ByAddress", "Fields": [2], "Unique": true },
-                { "Name": "ByAlias", "Fields": [3], "Unique": true }
+                { "Id": 1, "Name": "ByAddress", "Fields": [2], "Unique": true },
+                { "Id": 2, "Name": "ByAlias", "Fields": [3], "Unique": true }
               ]
             }
           ]

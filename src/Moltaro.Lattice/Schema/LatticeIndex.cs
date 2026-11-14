@@ -1,9 +1,9 @@
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A secondary index of an entity type, as declared in the schema: a name, the fields it
-/// covers, in order, and whether it is unique. Entities are found through it by the
-/// values of those fields.
+/// A secondary index of an entity type, as declared in the schema: an identity, a name, the
+/// fields it covers, in order, and whether it is unique. Entities are found through it by
+/// the values of those fields.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,12 +21,19 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeIndex
 {
-    internal LatticeIndex(string name, IReadOnlyList<LatticeField> fields, bool isUnique)
+    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeField> fields, bool isUnique)
     {
+        Id = id;
         Name = name;
         Fields = fields;
         IsUnique = isUnique;
     }
+
+    /// <summary>
+    /// The stable identity of the index within its entity type. It is declared in the
+    /// descriptor, and a rename of the index keeps it.
+    /// </summary>
+    public int Id { get; }
 
     /// <summary>The index name, unique within its entity type.</summary>
     public string Name { get; }
@@ -38,6 +45,12 @@ public sealed class LatticeIndex
     /// Whether the index is unique: at most one entity may have a given complete set of
     /// values of the indexed fields.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares unique indexes, and is compiled, saved
+    /// and loaded with them, but keeping them is not implemented: every write of an entity
+    /// type that declares a unique index, an insert, a replace, an upsert or a delete,
+    /// throws <see cref="NotSupportedException"/>.
+    /// </remarks>
     public bool IsUnique { get; }
 
     /// <summary>Returns the index name.</summary>

@@ -8,16 +8,19 @@ namespace Moltaro.Lattice.Access;
 internal static class FieldValues
 {
     // Returns the value in the field's exact .NET type. An integer of another width is
-    // accepted when it fits, so that a literal such as 1 works for an Int64 field.
+    // accepted when it fits, so that a literal such as 1 works for an Int64 field, and for an
+    // Enum field, which holds the integer of its enum type.
     public static object Normalize(LatticeField field, object value, string parameterName)
     {
-        var expected = field.ValueType;
+        var declaration = field.Declaration;
+        var expected = declaration.ValueType;
         if (value.GetType() == expected)
         {
             return value;
         }
 
-        if (FieldTypes.IsInteger(field.Type) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
+        var integerType = declaration.EnumType?.UnderlyingType ?? declaration.Type;
+        if (FieldTypes.IsInteger(integerType) && value is sbyte or byte or short or ushort or int or uint or long or ulong)
         {
             try
             {
@@ -30,7 +33,7 @@ internal static class FieldValues
         }
 
         throw new ArgumentException(
-            $"Field '{field.Name}' is {field.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.",
+            $"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.",
             parameterName);
     }
 
@@ -60,7 +63,7 @@ internal static class FieldValues
     {
         foreach (var field in entityType.Fields)
         {
-            if (values[field.Ordinal] is null && !field.IsNullable)
+            if (values[field.Ordinal] is null && !field.Declaration.IsNullable)
             {
                 throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{entityType.Name}.{field.Name} is required and has no value.");
             }

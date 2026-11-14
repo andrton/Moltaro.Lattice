@@ -11,9 +11,12 @@ managed in-memory store stands behind it, so the samples and tests in this repos
 work today.
 
 That store is a **placeholder, not the database engine**. It supports MemoryOnly mode,
-scalar fields, and connects a master with its children inside one process. The native
-storage engine, PostgreSQL persistence and network replication are not implemented yet,
-and the contract may still change.
+scalar fields, and connects a master with its children inside one process. A schema can
+already declare more than the placeholder stores: an entity type with a comparison that
+ignores case, with Dictionary storage or with an enum field compiles, and so does a schema
+that declares UTF-16, but none of them can be written yet. The native storage engine,
+PostgreSQL persistence and network replication are not implemented yet, and the contract
+may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -23,13 +26,18 @@ Design acceptance and prototype results do not mean the production engine exists
 
 ## Schema
 
-A JSON descriptor declares the entity types, their fields, primary keys and indexes. An entity
+A JSON descriptor declares the entity types, their fields, primary keys and indexes, and
+the enum types. Entity types, fields, indexes and enum types each have a stable identity,
+which a rename keeps. A String field may say how it is compared (`Comparison`: `Ordinal`
+or `OrdinalIgnoreCase`) and stored (`StringStorage`: `Plain` or `Dictionary`), and the
+schema says how its text is encoded (`StringEncoding`: `Utf8` or `Utf16`). The descriptor
+is closed: a property it does not know is an error, not something to ignore. An entity
 type may name the .NET class that represents it; this is optional.
 
 ```json
 {
   "SchemaVersion": 1,
-  "Tables": [
+  "EntityTypes": [
     {
       "Id": 1,
       "Name": "User",
@@ -56,6 +64,11 @@ compiled.Save("directory.schema.bin");          // or Save(stream)
 // At startup
 var schema = LatticeSchema.Load("directory.schema.bin");   // or Load(stream)
 ```
+
+A compiled schema has a fingerprint, `schema.Fingerprint`: the same for the same
+declarations on every platform, changed by anything that decides how data is laid out,
+compared or kept unique, and not changed by a rename. Each entity type also has a
+`LayoutFingerprint`, which covers only how its entities are stored.
 
 ## Using the database
 
@@ -112,8 +125,8 @@ secondary indexes in the schema, each with a name and the fields it covers, in o
 
 ```json
 "Indexes": [
-  { "Name": "ByEmail", "Fields": [5] },
-  { "Name": "BySectionAndName", "Fields": [2, 3] }
+  { "Id": 1, "Name": "ByEmail", "Fields": [5] },
+  { "Id": 2, "Name": "BySectionAndName", "Fields": [2, 3] }
 ]
 ```
 
@@ -142,7 +155,7 @@ not implemented yet, so an entity type that declares a unique index cannot be wr
 Several entities can have the same indexed values unless the index says otherwise:
 
 ```json
-{ "Name": "ByEmail", "Fields": [5], "Unique": true }
+{ "Id": 1, "Name": "ByEmail", "Fields": [5], "Unique": true }
 ```
 
 The master then refuses a write that would give a value a second owner, with
@@ -307,6 +320,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | | `LatticeException` | Failures, told apart by `LatticeErrorEnum` |
 | `Moltaro.Lattice.Schema` | `LatticeSchema` | Compiled schema: `Compile`, `Save`, `Load` |
 | | `LatticeEntityType`, `LatticeField`, `LatticeIndex` | Entity types, their fields and secondary indexes |
+| | `LatticeValueDeclaration`, `LatticeEnumType` | What a field holds: its type, nullability and text policies; the enum types of the schema |
+| | `LatticeFingerprint` | The fingerprint of a schema and the layout fingerprint of an entity type |
 | `Moltaro.Lattice.Access` | `ILatticeSet<TEntity>` | Entities as objects of a .NET class |
 | | `ILatticeSet`, `LatticeRecord` | Entities by name, as records |
 | | `ILatticeIndex<TEntity>`, `IndexKey`, `IndexBound` | Finding entities through a declared secondary index |
@@ -315,7 +330,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
-write batch, Durable persistence. Not in the contract yet: replication between processes,
+write batch, Durable persistence, and storing by what a schema can declare beyond the
+defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16. Not in the contract yet: replication between processes,
 collection and nested fields, partial updates, safe retry of a write, schema migration and
 replication status. A query language is not planned for the first version.
 

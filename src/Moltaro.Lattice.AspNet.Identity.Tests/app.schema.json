@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Tables": [
+  "EntityTypes": [
     {
       "Id": 1,
       "Name": "User",
@@ -26,9 +26,9 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByNormalizedUserName", "Fields": [3], "Unique": true },
-        { "Name": "ByNormalizedEmail", "Fields": [5] },
-        { "Name": "ByTenant", "Fields": [17] }
+        { "Id": 1, "Name": "ByNormalizedUserName", "Fields": [3], "Unique": true },
+        { "Id": 2, "Name": "ByNormalizedEmail", "Fields": [5] },
+        { "Id": 3, "Name": "ByTenant", "Fields": [17] }
       ]
     },
     {
@@ -43,7 +43,7 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByNormalizedName", "Fields": [3], "Unique": true }
+        { "Id": 1, "Name": "ByNormalizedName", "Fields": [3], "Unique": true }
       ]
     },
     {
@@ -56,8 +56,8 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByUserAndRole", "Fields": [2, 3], "Unique": true },
-        { "Name": "ByRole", "Fields": [3] }
+        { "Id": 1, "Name": "ByUserAndRole", "Fields": [2, 3], "Unique": true },
+        { "Id": 2, "Name": "ByRole", "Fields": [3] }
       ]
     },
     {
@@ -71,8 +71,8 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByUser", "Fields": [2] },
-        { "Name": "ByClaim", "Fields": [3, 4] }
+        { "Id": 1, "Name": "ByUser", "Fields": [2] },
+        { "Id": 2, "Name": "ByClaim", "Fields": [3, 4] }
       ]
     },
     {
@@ -87,8 +87,8 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByProviderAndKey", "Fields": [2, 3], "Unique": true },
-        { "Name": "ByUser", "Fields": [5] }
+        { "Id": 1, "Name": "ByProviderAndKey", "Fields": [2, 3], "Unique": true },
+        { "Id": 2, "Name": "ByUser", "Fields": [5] }
       ]
     },
     {
@@ -103,7 +103,7 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByUserProviderAndName", "Fields": [2, 3, 4], "Unique": true }
+        { "Id": 1, "Name": "ByUserProviderAndName", "Fields": [2, 3, 4], "Unique": true }
       ]
     },
     {
@@ -117,7 +117,7 @@
       ],
       "PrimaryKey": [1],
       "Indexes": [
-        { "Name": "ByRole", "Fields": [2] }
+        { "Id": 1, "Name": "ByRole", "Fields": [2] }
       ]
     },
     {

@@ -11,7 +11,7 @@ public sealed class LatticeEntityType
     private readonly Dictionary<string, LatticeField> _fieldsByName;
     private readonly Dictionary<string, LatticeIndex> _indexesByName;
 
-    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes)
+    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes, LatticeFingerprint layoutFingerprint)
     {
         Id = id;
         Name = name;
@@ -19,6 +19,7 @@ public sealed class LatticeEntityType
         Fields = fields;
         Key = key;
         Indexes = indexes;
+        LayoutFingerprint = layoutFingerprint;
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
         _indexesByName = indexes.ToDictionary(index => index.Name, StringComparer.Ordinal);
     }
@@ -44,6 +45,20 @@ public sealed class LatticeEntityType
 
     /// <summary>The declared secondary indexes, in declaration order.</summary>
     public IReadOnlyList<LatticeIndex> Indexes { get; }
+
+    /// <summary>
+    /// The fingerprint of how one entity of this type is stored: the string encoding of the
+    /// schema and, for every field, its identity, type, nullability, string storage and, for
+    /// an Enum field, the underlying type of its enum type.
+    /// </summary>
+    /// <remarks>
+    /// It does not change when a comparison, an index, a name or the .NET class changes, or
+    /// when another entity type changes in a way that does not alter what this one stores.
+    /// Entities of two schemas whose entity type has the same layout fingerprint are stored
+    /// alike; when it differs, the entities of that type have to be converted.
+    /// <see cref="LatticeSchema.Fingerprint"/> covers more.
+    /// </remarks>
+    public LatticeFingerprint LayoutFingerprint { get; }
 
     /// <summary>Finds a field by name.</summary>
     /// <param name="name">The field name.</param>

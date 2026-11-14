@@ -36,7 +36,7 @@ public sealed class LatticeRecord
 
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
-    /// <see cref="LatticeField.ValueType"/>; an integer of another width is accepted when it fits.
+    /// <see cref="LatticeValueDeclaration.ValueType"/>; an integer of another width is accepted when it fits.
     /// </summary>
     /// <param name="fieldName">The field name declared in the schema.</param>
     /// <exception cref="ArgumentException">

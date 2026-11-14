@@ -61,4 +61,19 @@ public enum LatticeFieldTypeEnum : byte
 
     /// <summary>An array of <see cref="byte"/>.</summary>
     Binary = 19,
+
+    /// <summary>
+    /// A value of an enum type declared in the schema, see
+    /// <see cref="LatticeValueDeclaration.EnumType"/>. It is stored as its underlying integer,
+    /// and its .NET type is that integer; a bound class may declare the property as a .NET
+    /// enum that agrees with the enum type, as <see cref="LatticeValueDeclaration.ValueType"/>
+    /// states.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> A schema declares Enum fields, and is compiled, saved and
+    /// loaded with them, but storing their values is not implemented: every write of an
+    /// entity type that has an Enum field throws <see cref="NotSupportedException"/>, whatever
+    /// the value.
+    /// </remarks>
+    Enum = 20,
 }

@@ -54,11 +54,16 @@ specification tests, become a check of the finished engine when Epic 2 runs.
 
 ### Where the contract stands today
 
+The state after the last closed sprint; the coordinator keeps it current.
+
 **In the contract and working in the placeholder.** Opening and closing; master and child;
-MemoryOnly. The compiled schema with scalar fields: JSON descriptor, binary save and load,
-optional .NET class. Sets by class and by name: read, enumerate, insert, replace, upsert,
-delete, expected revisions. Positions and sessions; a write through a child completes when
-that child has applied it; waiting for a position with a timeout.
+MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
+types, fields, indexes and enum types, scalar fields, enum and Flags types, text policies
+and the string encoding; binary save and load; both fingerprints; the optional .NET class,
+with a .NET enum that has to agree with its enum type. Sets by class and by name, for
+entity types of scalar fields with the default text policies: read, enumerate, insert,
+replace, upsert, delete, expected revisions. Positions and sessions; a write through a
+child completes when that child has applied it; waiting for a position with a timeout.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -69,13 +74,13 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
+| Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
 and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Stable identities of indexes, text policies, enums and Flags in the schema | S02 |
 | Owned values, List, Map, Set, references by key | S03, then S18 and S19 |
 | Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
@@ -468,6 +473,42 @@ relay between two steps that need no decision; a merge commit for a sprint on th
 track. [Branches and releases](branches.md#who-does-what) has the rule. Shapes every
 sprint from S02 on.
 
+**O15. A .NET enum that does not agree with the schema is refused, as a class is.**
+Decided while S02 was carried out; the question is Q1 of the
+[open questions](open-questions.md). A property of a bound class may be a .NET enum. That
+enum has to agree with the enum type the schema declares for the field: the same
+underlying type, the same members — every name with its value, in both directions — and
+the Flags mark. An enum that does not agree is handled exactly as a class that does not
+agree with its entity type: the binding fails with `BindingFailed` and names the
+property. Nothing is mapped, guessed or tolerated, and a schema that changed without the
+class is found when the class is bound, not when a value is read. *Not chosen:* leaving
+the rule to the implementation; accepting an enum that names a part of the declared
+values. Shapes S02.
+
+**O16. A small change goes into the branch of the sprint that is open.** Decided while
+S02 was carried out. A change that comes up during a sprint and is small — an answer of
+the owner that touches a rule, a document, a file of the repository's settings or the
+brief of a later sprint; a sentence of documentation — is made in the branch of that
+sprint and merged with it, and gets no branch and no pull request of its own. It is
+named in the brief of the sprint or in the [open questions](open-questions.md) with the
+answer that caused it, and it is reviewed with the sprint like everything else on the
+branch. The light track stays for a change that is made while no sprint is open, or that
+cannot wait for the open one. *Not chosen:* a branch, a pull request and a review round
+of their own for every such change, which cost the owner a merge each and bought nothing.
+Shapes every sprint from S02 on; S02 carries, besides its own work: the register of open
+questions with its rule in the development process; the rule that review rounds are not
+limited by a number, and this rule on small changes, both decided by the owner while the
+sprint was open and named here; the squash in the ruleset of `main` (Q2); the sentences
+"Not implemented yet" in the documentation of unique indexes (Q12) and the completed
+documentation of the write batch and of `Set<TEntity>()` (Q6); and the texts that the
+owner's answers added to the briefs of S03, S04 and S37 and to the document of Epic 2
+(Q3, Q4, Q5, Q9, Q10, Q11).
+
+**Questions that do not block are written down.** A gap that a sprint finds and that no
+brief, decision or rule answers is entered in the [open questions](open-questions.md),
+with what the code does in the meantime. The coordinator names the new entries when a
+sprint closes, and all of them are gone through with the owner when the epic closes.
+
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
 `AGENTS.md` on 14 November 2026; every brief below follows it.
@@ -543,8 +584,11 @@ The blocks "Types and members" settle the following points, which no decision re
 settles. They are approved with the plan, each by name.
 
 - **The descriptor is closed.** A property the reader does not know is `InvalidSchema`.
-  Today such a property is ignored, and a misspelt `Comparison` would silently give the
-  wrong comparison.
+  Before S02 such a property was ignored, and a misspelt `Comparison` would silently
+  have given the wrong comparison. By the owner's answers of 14 November 2026 to Q7 and Q8 of the
+  [open questions](open-questions.md), the same holds for a property in a place where it
+  does not apply — a text policy on a field that is not a String, an enum type named by
+  a field that is not an Enum — and for a property given twice.
 - **The string encoding of a database is declared in its schema**, as `StringEncoding`.
   The decision makes it a setting fixed when the database is created and leaves its
   place open; in the schema it is saved, loaded and bound into the fingerprint with
@@ -702,7 +746,7 @@ Why this order:
 | Sprint | Result | Track | Status |
 | --- | --- | --- | --- |
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
-| S02 | Schema: identities, text policies, enums | Full | Not started |
+| S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Not started |
 | S04 | Arena | Full | Not started |
 | S05 | Root layout and values | Full | Not started |
@@ -781,6 +825,11 @@ way, when its sprint is prepared.
    two files. The sprint that next adds shared code to it — S22 or S27 at the latest —
    gives the project folders by responsibility, as `AGENTS.md` asks of every assembly;
    its brief says so.
+8. By the owner's answer to Q12 of the [open questions](open-questions.md), S02 added a
+   sentence "Not implemented yet" to the documentation of `LatticeIndex.IsUnique`, of
+   `LatticeErrorEnum.UniqueConstraintViolation` and to the remarks of
+   `ILatticeSet<TEntity>`. S16 implements unique indexes and removes the three sentences;
+   the planner enters it in the brief of S16.
 
 ### Stage 0. Ground
 
@@ -911,6 +960,52 @@ Both sprints work in the contract assembly and need no engine.
 - **Out of scope.** Storing or comparing values by these policies: in the placeholder an
   entity type that declares what it cannot honor is refused on write. Collections and
   owned types (S03). Migration between catalog versions (S37–S38).
+
+**Entered by the coordinator in the contract step.** `LatticeFieldTypeEnum.Enum` exists
+from the contract commit, while the reader of that commit cannot declare an enum type. So
+that a descriptor or a saved schema that names the type `Enum` is still refused with
+`InvalidSchema`, as it was before the member existed, the contract author made
+`SchemaBuilder` treat `Enum` as an unknown type in that commit; the implementer replaces
+the check when enum types can be declared. The scope of the identity of an index is its
+entity type, as for a field: two entity types may each have an index with the identity 1.
+
+**Added by decision O15, while the sprint was carried out.** A .NET enum of a bound
+property has to agree with the enum type of its field: the same underlying type, the same
+members with the same values in both directions, and `[Flags]` exactly when the enum type
+is a Flags type. A class whose enum does not agree is refused with `BindingFailed`, with
+the property named, when the class is bound. The sentence of the block about two names
+for one value follows from it: a .NET enum that has two names for one value agrees only
+with an enum type that declares both names, of which one is canonical. The test author
+adds the tests after the implementation commit, skipped; the implementer then makes them
+pass.
+
+**Read from decision O2 for the tests.** On the placeholder a write is refused with
+`NotSupportedException` for an entity type that declares a comparison that ignores case,
+the Dictionary storage or an enum field, and for every entity type of a schema that
+declares UTF-16: decision O2 has the placeholder refuse a declaration it cannot honor.
+
+**Confirmed by the owner on 14 November 2026.** Two rules of the descriptor were not
+given by the approved choice "the descriptor is closed", which spoke of a property the
+reader does not know; they were raised as Q7 and Q8 of the
+[open questions](open-questions.md), and the choice now names them. A text policy on a
+field that is not a String, and an enum type named by a field that is not an Enum, are
+`InvalidSchema`. A property that a descriptor gives twice is `InvalidSchema`; the
+implementer added that rule with its test.
+
+**Added by the owner's answer to Q12, in this branch.** The documentation of
+`LatticeIndex.IsUnique`, of `LatticeErrorEnum.UniqueConstraintViolation` and the remarks
+of `ILatticeSet<TEntity>` say, as `ILatticeIndex` does for search, that unique indexes
+are not implemented yet: until then every write of an entity type that declares one is
+refused with `NotSupportedException`. Documentation only; the contract author adds the
+sentences, and S16 removes them.
+
+**Raised by the fixes and confirmed by the owner on 14 November 2026.** The reader of a
+saved schema was made strict after the first review: whatever is wrong with the bytes
+ends in `InvalidSchema`, and text that is not well-formed UTF-8 is refused instead of
+being replaced. With it came two rules that nobody had asked for; they were raised as Q13
+of the [open questions](open-questions.md), and the owner confirmed them. `Load(path)`
+refuses a file with data after the schema. `Load(stream)` reads one schema and leaves the
+stream right after it: what follows in a stream belongs to the caller.
 
 **Types and members of S02.** Namespace `Moltaro.Lattice.Schema`, in the contract assembly.
 
@@ -1055,7 +1150,21 @@ entity types whose layout fingerprint differs.
   [Binary fields](../decisions/schema-and-types.md).
 - **Acceptance.** The compiler accepts complex values in List and Map and refuses complex
   or Binary keys and Set elements, a nullable Map key, and a reference to an undeclared
-  entity type, each with the place named. A record and an object are validated against the declaration when they are
+  entity type, each with the place named. By the owner's answer to Q9 an enum type that
+  declares no member is refused with `InvalidSchema` and the enum type named, whether it
+  is a Flags type or not; a Flags type whose only member is zero is accepted. By the
+  owner's answer to Q10 a catalog version is a whole number from 1: `"SchemaVersion"` of
+  zero or below is refused with `InvalidSchema` and the property named. A descriptor
+  without the property has version 1, as before. A saved schema carries a digest of
+  itself. A change of any single byte of a saved schema, the digest included, is refused
+  with `InvalidSchema`: no change loads as another schema. A negative length of the body
+  is refused. A length far beyond the data is refused and costs memory for the data only,
+  as a count and a text length inside the body do since S02. A form whose digest is right
+  is still read strictly: a saved schema with one byte added at the end of its body, and
+  one with the last byte of its body taken away, each with its length and its digest
+  written again to fit, is refused. A stream is left right after the digest, and a file
+  with data after the digest is refused. A schema saved and loaded is
+  equal to the one that was saved, with the same fingerprints. A record and an object are validated against the declaration when they are
   built or bound: wrong element type, null where it is not allowed, a duplicate Map key
   in bulk input. A Set built from input keeps the first representation of equal members.
   A class with inherited properties binds as before. An index part that is a
@@ -1064,12 +1173,84 @@ entity types whose layout fingerprint differs.
   exist, is refused with the place named. The layout fingerprint of an entity type changes when a field is added to an
   owned type it uses, when the declaration of a collection element changes and when the
   key type of an entity type it refers to changes; it does not change when an index or a
-  comparison does. In the contract commit the contract author moves the uses of
+  comparison does. It changes when another field of the entity type becomes the primary
+  key, and two entity types that differ only in their identity and their name have the
+  same layout fingerprint. In the contract commit the contract author moves the uses of
   `LatticeIndex.Fields` to `Parts` by the rule on edits that state nothing new, P10: in
   the contract assembly `IndexCriteria` and `SchemaBinaryFormat`, in the Identity package
-  `LatticeIdentitySchema`, in the tests `SchemaTests`. `Parts` works in that commit for
-  the indexes that exist today. A use the build finds outside this list is reported to
+  `LatticeIdentitySchema`, in the tests `SchemaTests`. S02 added five more uses, which
+  the coordinator entered here when S02 closed and which the contract author moves in the
+  same commit: in the contract assembly `SchemaFingerprints`; in the samples
+  `SchemaDeclarationsSample`; in the tests `SavedSchemaTests`, and `DescriptorFormTests`
+  and `EnumTypeTests`, where the use stands inside an assertion — the assertion reads
+  the same fields through `Parts` and asserts what it asserted. `Parts` works in that
+  commit for the indexes that exist today. A use the build finds outside this list is reported to
   the coordinator, who enters it in the brief, and is then edited in the same way.
+  The sprint extends what the layout fingerprint encodes, so the value S02 recorded for
+  the fixed descriptor changes. That is a change of what a test asserts, so it is not
+  made under the rule on edits that state nothing new: the test author makes it. In the
+  tests commit the test author marks
+  `Layout_fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform` of
+  `LayoutFingerprintTests` as skipped with the shared reason of the sprint and changes
+  nothing else in it. The implementer leaves that one test skipped. After the
+  implementation commit the test author records `RecordedAccountLayoutFingerprint` again
+  in a commit of its own — the value the test computes against the implementation,
+  checked against an independent encoding of exactly the declarations the briefs list —
+  and removes the skip. The fingerprint of a schema is extended in this sprint as well,
+  to owned types, collections and the paths of index parts, and the brief does not fix
+  how the extension is encoded, so the value recorded for the fixed descriptor of
+  `SchemaFingerprintTests` may or may not stay.
+  `Fingerprint_of_a_fixed_descriptor_is_the_recorded_one_on_every_platform` is therefore
+  handled exactly as the layout test: the test author marks it as skipped in the tests
+  commit and changes nothing else in it, the implementer leaves it skipped, and in the
+  same later commit the test author removes the skip and, when the implementation
+  computes another value, records `RecordedFingerprint` again under the same check. The
+  answer to Q5 is no reason for that value to change: the fingerprint of a schema has
+  covered the primary key since S02.
+
+  The new form also forces edits on `DamagedCompiledSchemaTests`, which writes forms of
+  S02 by hand. Its tests state behavior this sprint keeps — the reader is strict, and
+  nothing is allocated by a declared size — in a form this sprint changes, so they are
+  edited by the rule on edits that state nothing new, P10, in two steps. In the tests
+  commit the test author adds to that class one helper that makes a whole form of this
+  sprint from the bytes of a body — the magic, format version 5, the length of the body,
+  the body, the digest — and one that writes the length and the digest of a form again
+  after a test changed its body. The new tests of the sprint use them and are skipped; no
+  existing test is touched in that commit. In the implementation commit the implementer
+  moves every hand-written form of the class onto those helpers, so that each is a form
+  of this sprint whose length and digest are right: the reader gets past the digest and
+  refuses the form for the fault its test names, which is the first fault it meets in the
+  body. What a body holds after that fault is not changed; some bodies end right after
+  it, as they do today:
+
+  - `WriteHeader`, `Bytes`, `Compiled` and `Field`, with the body as `Save` now writes
+    it, and through them the forms of `Mark_that_is_neither_0_nor_1_is_refused`,
+    `Declaration_whose_policies_do_not_fit_its_type_is_refused`,
+    `Negative_count_is_refused`, `Text_length_of_more_than_five_bytes_is_refused`,
+    `Text_length_far_beyond_the_data_costs_memory_for_the_data_only` and
+    `Count_far_beyond_the_data_costs_memory_for_the_data_only`.
+    `Hand_written_form_of_the_tests_below_is_the_form_that_Save_writes` is not changed:
+    it is what shows that the hand-written form is the form of this sprint.
+  - The literal bytes of `Text_with_a_negative_length_is_refused`, which become a body
+    given to the helper.
+  - `Name_that_is_not_well_formed_UTF8_is_refused_rather_than_replaced`, which writes
+    the digest again after it changed the byte of the name.
+
+  No assertion, no name of a test and no inline data changes; a comment that describes
+  the form follows the form. Without these edits four tests would fail, because the forms
+  that have to load would not, and the others would pass for a wrong reason, refused as
+  an unknown format or for their digest. A test the new form breaks outside this list is
+  reported to the coordinator, who enters it in the brief, and is then edited in the same
+  way. `Every_truncation_of_a_saved_schema_is_refused`,
+  `File_with_data_after_the_compiled_schema_is_refused` and
+  `Stream_is_left_right_after_the_compiled_schema` hold for the new form as they are
+  written and are not edited.
+
+  `Every_single_byte_change_of_a_saved_schema_loads_or_is_refused` is superseded, not
+  edited: the test of this sprint states more, that every such change is refused. The old
+  test stays and passes until the new one runs. The test author removes it in the commit
+  of its own that follows the implementation, the one that records the fingerprints, and
+  names the reason in the commit message.
 - **Out of scope.** Storing these values: writing an entity type that uses them is
   refused until S18 and S19. Partial commands (S20). Indexes on collection members,
   which are outside the milestone.
@@ -1094,6 +1275,63 @@ The descriptor gains a top array `OwnedTypes` and five field types:
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
 themselves be a List, a Map or a Set. A Map key and a Set element are a scalar other than
 Binary, an Enum or a Reference; a Map key is never nullable.
+
+An enum type declares at least one member: `"Members": []` is `InvalidSchema`. This
+completes the declaration of enum types of S02, where an empty list compiled.
+
+`SchemaVersion` is optional and at least 1; without it the catalog version is 1. That a
+migration's target has a greater version than the stored one belongs to the contract of
+S37. In the contract commit the documentation of `LatticeSchema.Version` becomes:
+
+> The catalog version: a whole number from 1, declared by the descriptor as
+> `SchemaVersion`, or 1 when the descriptor does not declare it. A later version of a
+> schema has a greater number. It is not part of `Fingerprint`.
+
+By the owner's answer to Q11 the binary form of a compiled schema carries a digest of
+itself. From this sprint the form is, in this order:
+
+| Part | Encoding |
+| --- | --- |
+| Magic | The four bytes `MLSC`, as before |
+| Format version | `Int32`, little-endian: 5 |
+| Length of the body | `Int32`, little-endian, not negative: the number of bytes of the body |
+| Body | Everything else the form holds, from the catalog version on. Its encoding stays internal to `SchemaBinaryFormat` |
+| Digest | 32 bytes: SHA-256 over every byte before it, from the magic to the last byte of the body |
+
+`Load` goes through the form in this order and refuses with `InvalidSchema` at the first
+rule that does not hold:
+
+1. The magic and the format version, as before. A form of another format, that of S02
+   included, is refused: nothing was released, so such a schema is compiled again.
+2. The length. A negative length is refused. The length says where the digest stands and
+   is used for nothing else: it counts the bytes to read. No allocation is sized by it.
+   The rule of S02, that nothing is allocated by a declared size, holds for it as for
+   every count and length inside the body: the body is read in pieces, and memory grows
+   with the bytes that arrived. Data that ends before the body and the digest are
+   complete is refused.
+3. The digest. It is computed over the bytes that were read and compared with the 32
+   bytes that follow them. A difference is refused, and nothing of the body is decoded
+   before the digest agreed. The magic, the format version and the length are the only
+   values taken from the data before that: they are what locates the digest, and the
+   digest covers each of them.
+4. The body, with every rule of the reader of S02 unchanged: marks, counts, lengths,
+   well-formed UTF-8, policies that fit their type. A digest shows damage, not who wrote
+   the bytes, so a form whose digest is right is still read strictly. The schema fills
+   the body exactly: bytes left in the body after the schema, and a schema that needs
+   more bytes than the body holds, are refused.
+
+`Load(Stream)` leaves the stream right after the digest, and `Load(string)` refuses a
+file that has data after the digest: the rules of S02 on where a saved schema ends, with
+the digest as its end.
+
+In the contract commit the documentation of `LatticeSchema.Load(Stream)` loses the
+sentence "The compiled form has no checksum: a change that still reads as a valid schema,
+such as another name, is loaded as that schema." and has in its place:
+
+> The compiled form ends with a digest of itself, SHA-256. A change of any byte is damage
+> and is refused, also when the changed bytes would still read as a schema; nothing is
+> decoded from data whose digest does not agree. The digest detects damage. It is not a
+> signature: it does not show who wrote the data.
 
 ```csharp
 public enum LatticeFieldTypeEnum : byte
@@ -1188,6 +1426,17 @@ target and nothing else of the target. So it changes when a field is added to an
 type the entity type uses, when the declaration of an element changes and when the key
 type of a referenced entity type changes.
 
+By the owner's answer to Q5 the layout fingerprint also covers, from this sprint on, which
+field is the primary key: the identity of the key field. The key decides how an entity is
+addressed in the saved base, so a schema in which another field becomes the key has to
+convert every entity of that type, and a migration sees that through this fingerprint.
+The identity of the entity type is not covered. Layout fingerprints are compared for one
+entity type in two versions of a schema; an entity type is recognized by its identity,
+and an identity is never reused. Two entity types with the same fields and the same key
+field therefore have the same layout fingerprint. The fingerprint of a schema is not
+touched by this answer: it has covered the identity of an entity type and its primary key
+since S02.
+
 ### Stage 2. One node, in memory
 
 #### S04 · Arena
@@ -1214,6 +1463,13 @@ type of a referenced entity type changes.
   entries copies no existing entry. Allocation beyond the given budget fails and leaves
   the counters as they were. After a deterministic churn of allocations and frees the
   counters equal an independent tally and nothing is live that the test did not keep.
+  By the owner's answer to Q3 of the [open questions](open-questions.md): a test of
+  `Moltaro.Lattice.Engine.Tests` reads `src/Directory.Packages.props` and states that
+  `Arc.Collections` is declared with the version `[2.2.0]`, brackets included: the exact
+  pin, which a range or a bare version would not be. The test of the resolved version in
+  `DependencyTests` stays as it is. The test finds the file from its own location
+  upwards, with no machine path; it states the invariant of decision O1 and falls under
+  exception X3.
 - **Measured.** Asserted: the actual size of a root entry against the 48 bytes of the
   specification, and of a block header against 32; no managed allocation on allocate and
   free after warm-up.
@@ -2694,7 +2950,10 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   that says there is nothing saved to convert. The contract of this stage also says how a
   migration treats a changed comparison — of a Map key, of a Set element, of a String
   primary key, of a part of a unique index: it changes what the database may hold
-  without changing a layout fingerprint.
+  without changing a layout fingerprint. By the owner's answer to Q10 the catalog version
+  of the target schema is greater than that of the schema in force: a migration to a
+  schema with the same or a lower version is refused, with an error the contract of this
+  stage names.
 - **To read.** [Schema identity, migration and facade integration](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration);
   [Q03, Q03.9](../decisions/schema-and-types.md).
 - **Acceptance.** All writes pause, also those of unaffected entity types, and the

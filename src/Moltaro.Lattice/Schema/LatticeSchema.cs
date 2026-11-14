@@ -3,9 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A compiled schema: the validated entity types of one database with everything resolved
-/// that the database needs to serve them: names, fields, primary keys and the optional
-/// .NET classes.
+/// A compiled schema: the validated entity types and enum types of one database with
+/// everything resolved that the database needs to serve them: identities, names, fields,
+/// primary keys, indexes, the string encoding and the optional .NET classes.
 /// </summary>
 /// <remarks>
 /// Compile a JSON descriptor once with <see cref="Compile"/>, then either use the result
@@ -16,22 +16,66 @@ public sealed class LatticeSchema
 {
     private readonly Dictionary<string, LatticeEntityType> _byName;
     private readonly Dictionary<string, LatticeEntityType> _byClrTypeName;
+    private readonly Dictionary<string, LatticeEnumType> _enumTypesByName;
 
-    internal LatticeSchema(int version, IReadOnlyList<LatticeEntityType> entityTypes)
+    internal LatticeSchema(
+        int version,
+        LatticeStringEncodingEnum stringEncoding,
+        IReadOnlyList<LatticeEnumType> enumTypes,
+        IReadOnlyList<LatticeEntityType> entityTypes,
+        LatticeFingerprint fingerprint)
     {
         Version = version;
+        StringEncoding = stringEncoding;
+        EnumTypes = enumTypes;
         EntityTypes = entityTypes;
+        Fingerprint = fingerprint;
         _byName = entityTypes.ToDictionary(entityType => entityType.Name, StringComparer.Ordinal);
         _byClrTypeName = entityTypes
             .Where(entityType => entityType.ClrTypeName is not null)
             .ToDictionary(entityType => entityType.ClrTypeName!, StringComparer.Ordinal);
+        _enumTypesByName = enumTypes.ToDictionary(enumType => enumType.Name, StringComparer.Ordinal);
     }
 
-    /// <summary>The version number declared by the descriptor.</summary>
+    /// <summary>
+    /// The catalog version: the version number declared by the descriptor. It is not part of
+    /// <see cref="Fingerprint"/>.
+    /// </summary>
     public int Version { get; }
+
+    /// <summary>
+    /// How the text of the database is encoded in storage: one encoding for every field.
+    /// <see cref="LatticeStringEncodingEnum.Utf8"/> when the descriptor does not name one.
+    /// </summary>
+    public LatticeStringEncodingEnum StringEncoding { get; }
 
     /// <summary>All entity types in declaration order.</summary>
     public IReadOnlyList<LatticeEntityType> EntityTypes { get; }
+
+    /// <summary>All enum types in declaration order; empty when the descriptor declares none.</summary>
+    public IReadOnlyList<LatticeEnumType> EnumTypes { get; }
+
+    /// <summary>
+    /// The fingerprint of everything in the schema that decides how data is laid out,
+    /// compared and constrained.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It covers the string encoding; for every enum type its identity, underlying type,
+    /// Flags mark and the set of its values; for every entity type its identity and its
+    /// primary key, and for every field the identity, type, nullability, comparison, string
+    /// storage and enum type; for every index its identity, its fields in order and whether
+    /// it is unique.
+    /// </para>
+    /// <para>
+    /// Names, the .NET classes, the catalog version and the order in which the descriptor
+    /// lists things are not part of it: a rename does not change it. Two schemas with the
+    /// same fingerprint agree on everything that decides how the data of a database is
+    /// stored, compared and kept unique. <see cref="LatticeEntityType.LayoutFingerprint"/>
+    /// covers only how the entities of one type are stored.
+    /// </para>
+    /// </remarks>
+    public LatticeFingerprint Fingerprint { get; }
 
     /// <summary>Finds an entity type by name.</summary>
     /// <param name="name">The entity type name.</param>
@@ -51,13 +95,22 @@ public sealed class LatticeSchema
         return clrType.FullName is { } fullName && _byClrTypeName.TryGetValue(fullName, out entityType);
     }
 
+    /// <summary>Finds an enum type by name.</summary>
+    /// <param name="name">The enum type name.</param>
+    /// <param name="enumType">The enum type, when found.</param>
+    /// <returns><see langword="true"/> when the schema declares the enum type.</returns>
+    public bool TryGetEnumType(string name, [NotNullWhen(true)] out LatticeEnumType? enumType) =>
+        _enumTypesByName.TryGetValue(name, out enumType);
+
     /// <summary>
-    /// Compiles a JSON schema descriptor: parses it, validates it and resolves its entity
-    /// types, fields and primary keys.
+    /// Compiles a JSON schema descriptor: parses it, validates it and resolves its enum
+    /// types, entity types, fields, primary keys and indexes.
     /// </summary>
     /// <param name="json">The JSON descriptor.</param>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the descriptor is not valid.
+    /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the descriptor is not valid. That
+    /// includes text that is not well-formed: a surrogate without its pair, whether written
+    /// as it is or escaped, such as <c>\ud800</c>, is refused and never replaced.
     /// </exception>
     public static LatticeSchema Compile(string json)
     {
@@ -65,11 +118,19 @@ public sealed class LatticeSchema
         return SchemaJsonReader.Read(json);
     }
 
-    /// <summary>Loads a compiled schema written by <see cref="Save(Stream)"/>.</summary>
+    /// <summary>
+    /// Loads a compiled schema written by <see cref="Save(Stream)"/>. It reads one schema from
+    /// the current position and leaves the stream right after it: what follows belongs to the
+    /// caller.
+    /// </summary>
     /// <param name="stream">The stream to read from. It stays open.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the data is not a compiled schema of a
-    /// supported format.
+    /// supported format, or it is truncated or damaged. Text in it that is not well-formed
+    /// UTF-8 is damage: it is refused and never replaced by other text. No damage ends in
+    /// another exception; only a failure of the stream itself is reported as the stream
+    /// reports it. The compiled form has no checksum: a change that still reads as a valid
+    /// schema, such as another name, is loaded as that schema.
     /// </exception>
     public static LatticeSchema Load(Stream stream)
     {
@@ -77,17 +138,18 @@ public sealed class LatticeSchema
         return SchemaBinaryFormat.Read(stream);
     }
 
-    /// <summary>Loads a compiled schema from a file written by <see cref="Save(string)"/>.</summary>
+    /// <summary>
+    /// Loads a compiled schema from a file written by <see cref="Save(string)"/>. The file
+    /// holds one compiled schema and nothing after it.
+    /// </summary>
     /// <param name="path">The file path.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the file is not a compiled schema of a
-    /// supported format.
+    /// supported format, it is truncated or damaged, as for <see cref="Load(Stream)"/>, or it
+    /// has data after the schema. Only a failure to open or read the file is reported as the
+    /// file system reports it.
     /// </exception>
-    public static LatticeSchema Load(string path)
-    {
-        using var stream = File.OpenRead(path);
-        return Load(stream);
-    }
+    public static LatticeSchema Load(string path) => SchemaBinaryFormat.ReadFile(path);
 
     /// <summary>Writes the compiled schema in its binary form.</summary>
     /// <param name="stream">The stream to write to. It stays open.</param>

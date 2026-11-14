@@ -68,6 +68,10 @@ namespace Moltaro.Lattice.Access;
 /// several threads.
 /// </para>
 /// <para>
+/// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until
+/// they are is stated at <see cref="LatticeIndex.IsUnique"/>.
+/// </para>
+/// <para>
 /// Each write here is atomic for its one entity. Writes that have to succeed or fail
 /// together are submitted as one <see cref="ILatticeWriteBatch"/>.
 /// </para>

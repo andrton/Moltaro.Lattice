@@ -14,13 +14,13 @@ public sealed class SchemaTests
         Assert.True(schema.TryGetEntityType("User", out var user));
         Assert.Equal("Moltaro.Lattice.Tests.User", user.ClrTypeName);
         Assert.Equal("Id", user.Key.Name);
-        Assert.Equal(LatticeFieldTypeEnum.Int64, user.Key.Type);
+        Assert.Equal(LatticeFieldTypeEnum.Int64, user.Key.Declaration.Type);
         Assert.Equal(["Id", "Name", "Email", "Age", "Enabled"], user.Fields.Select(field => field.Name));
 
         Assert.True(user.TryGetField("Age", out var age));
-        Assert.Equal(LatticeFieldTypeEnum.Int32, age.Type);
-        Assert.Equal(typeof(int), age.ValueType);
-        Assert.True(age.IsNullable);
+        Assert.Equal(LatticeFieldTypeEnum.Int32, age.Declaration.Type);
+        Assert.Equal(typeof(int), age.Declaration.ValueType);
+        Assert.True(age.Declaration.IsNullable);
 
         // A .NET class is optional.
         Assert.True(schema.TryGetEntityType("Setting", out var setting));
@@ -47,22 +47,22 @@ public sealed class SchemaTests
 
     [Theory]
     // A field the entity type does not have.
-    [InlineData("""{ "Name": "ByMissing", "Fields": [99] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByMissing", "Fields": [99] }""")]
     // No fields.
-    [InlineData("""{ "Name": "Empty", "Fields": [] }""")]
+    [InlineData("""{ "Id": 1, "Name": "Empty", "Fields": [] }""")]
     // The same field twice.
-    [InlineData("""{ "Name": "Twice", "Fields": [2, 2] }""")]
+    [InlineData("""{ "Id": 1, "Name": "Twice", "Fields": [2, 2] }""")]
     // No name.
-    [InlineData("""{ "Name": "", "Fields": [2] }""")]
+    [InlineData("""{ "Id": 1, "Name": "", "Fields": [2] }""")]
     // A binary field.
-    [InlineData("""{ "Name": "ByPayload", "Fields": [3] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByPayload", "Fields": [3] }""")]
     // The same index name twice.
-    [InlineData("""{ "Name": "ByName", "Fields": [2] }, { "Name": "ByName", "Fields": [1] }""")]
+    [InlineData("""{ "Id": 1, "Name": "ByName", "Fields": [2] }, { "Id": 2, "Name": "ByName", "Fields": [1] }""")]
     public void Invalid_index_declaration_does_not_compile(string indexes)
     {
         var json = $$"""
             {
-              "Tables": [
+              "EntityTypes": [
                 {
                   "Id": 1,
                   "Name": "File",
@@ -134,17 +134,17 @@ public sealed class SchemaTests
     [InlineData("not json")]
     [InlineData("{}")]
     // No field with the primary key id.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [], "PrimaryKey": [1] } ] }""")]
     // Unknown field type.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Text" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Text" } ], "PrimaryKey": [1] } ] }""")]
     // A floating-point field cannot be a primary key.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Float64" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Float64" } ], "PrimaryKey": [1] } ] }""")]
     // A nullable field cannot be a primary key.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64", "Nullable": true } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64", "Nullable": true } ], "PrimaryKey": [1] } ] }""")]
     // The same field name twice.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Id", "Type": "String" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Id", "Type": "String" } ], "PrimaryKey": [1] } ] }""")]
     // The same entity type name twice.
-    [InlineData("""{ "Tables": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }, { "Id": 2, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""")]
+    [InlineData("""{ "EntityTypes": [ { "Id": 1, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }, { "Id": 2, "Name": "User", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""")]
     public void Invalid_descriptor_does_not_compile(string json)
     {
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Compile(json));
@@ -169,7 +169,7 @@ public sealed class SchemaTests
 
         static IEnumerable<string> Describe(LatticeSchema schema) =>
             schema.EntityTypes.SelectMany(entityType => entityType.Fields
-                .Select(field => $"{entityType.Id}:{entityType.Name}:{entityType.ClrTypeName}:{entityType.Key.Name}/{field.Id}:{field.Name}:{field.Type}:{field.IsNullable}")
+                .Select(field => $"{entityType.Id}:{entityType.Name}:{entityType.ClrTypeName}:{entityType.Key.Name}/{field.Id}:{field.Name}:{field.Declaration.Type}:{field.Declaration.IsNullable}")
                 .Concat(entityType.Indexes.Select(index => $"{entityType.Name}/index {index.Name}({string.Join(",", index.Fields.Select(field => field.Name))})")));
     }
 }

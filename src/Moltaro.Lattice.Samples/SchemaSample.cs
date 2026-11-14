@@ -26,7 +26,7 @@ internal static class SchemaSample
         // Everything about the entity types is known from here on.
         foreach (var entityType in schema.EntityTypes)
         {
-            var fields = string.Join(", ", entityType.Fields.Select(field => $"{field.Name}: {field.Type}{(field.IsNullable ? "?" : "")}"));
+            var fields = string.Join(", ", entityType.Fields.Select(field => $"{field.Name}: {field.Declaration.Type}{(field.Declaration.IsNullable ? "?" : "")}"));
             Console.WriteLine($"{entityType.Name} (key {entityType.Key.Name}, class {entityType.ClrTypeName ?? "none"}): {fields}");
         }
 
