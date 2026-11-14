@@ -142,7 +142,8 @@ public sealed class LatticeSchema
     /// <param name="stream">The stream to read from. It stays open.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the data is not a compiled schema of a
-    /// supported format, or it is truncated or damaged. Text in it that is not well-formed
+    /// supported format, it is truncated or damaged, or the schema it holds breaks a rule
+    /// that <see cref="Compile"/> checks in a descriptor. Text in it that is not well-formed
     /// UTF-8 is damage: it is refused and never replaced by other text. No damage ends in
     /// another exception; only a failure of the stream itself is reported as the stream
     /// reports it. The compiled form ends with a digest of itself, SHA-256. A change of any

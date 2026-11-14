@@ -77,20 +77,22 @@ public sealed class LatticeValueDeclaration
     /// <summary>
     /// The declaration of the elements of a List or a Set. An element of a List may be
     /// anything a field may be, an owned value and another collection included. An element of
-    /// a Set is a scalar other than <see cref="LatticeFieldTypeEnum.Binary"/>, an Enum or a
-    /// Reference, and two members are equal as this declaration compares them; a nullable
-    /// element allows one <see langword="null"/> member. <see langword="null"/> when the type
-    /// is neither <see cref="LatticeFieldTypeEnum.List"/> nor
-    /// <see cref="LatticeFieldTypeEnum.Set"/>.
+    /// a Set is what a Map key may be, and two members are equal as two keys are, see
+    /// <see cref="Key"/>; a nullable element allows one <see langword="null"/> member.
+    /// <see langword="null"/> when the type is neither
+    /// <see cref="LatticeFieldTypeEnum.List"/> nor <see cref="LatticeFieldTypeEnum.Set"/>.
     /// </summary>
     public LatticeValueDeclaration? Element =>
         throw new NotSupportedException("Collections are not implemented yet.");
 
     /// <summary>
-    /// The declaration of the keys of a Map: a scalar other than
-    /// <see cref="LatticeFieldTypeEnum.Binary"/>, an Enum or a Reference, never nullable. Two
-    /// keys are equal as this declaration compares them. <see langword="null"/> when the type
-    /// is not <see cref="LatticeFieldTypeEnum.Map"/>.
+    /// The declaration of the keys of a Map, never nullable. A Map key, like a Set element, is
+    /// one of three: a scalar that is not <see cref="LatticeFieldTypeEnum.Binary"/>, an
+    /// <see cref="LatticeFieldTypeEnum.Enum"/>, a <see cref="LatticeFieldTypeEnum.Reference"/>.
+    /// Two keys are equal as this declaration compares them: a String by its
+    /// <see cref="Comparison"/>, and a Reference as the key of its target, with the comparison
+    /// of that key. <see langword="null"/> when the type is not
+    /// <see cref="LatticeFieldTypeEnum.Map"/>.
     /// </summary>
     public LatticeValueDeclaration? Key =>
         throw new NotSupportedException("Collections are not implemented yet.");
@@ -104,28 +106,14 @@ public sealed class LatticeValueDeclaration
         throw new NotSupportedException("Collections are not implemented yet.");
 
     /// <summary>
-    /// The .NET type of a non-null value at this position: what a record holds for it. For a
-    /// scalar, an Enum and a Reference it is also what a record accepts and the type of the
-    /// property of a bound class, as <see cref="Nullable{T}"/> of it when the value is
-    /// nullable and the type is a value type. For an owned value and a collection the remarks
-    /// say what a record accepts and what a bound class declares.
+    /// The .NET type of a non-null value at this position: what a record holds for it, at
+    /// every depth, and for a scalar and an Enum also what a record accepts. The remarks say
+    /// what a record accepts for the other types.
     /// </summary>
     /// <remarks>
     /// <para>
     /// For an <see cref="LatticeFieldTypeEnum.Enum"/> it is the .NET type of the underlying
-    /// integer: a record holds that integer. A bound class may declare the property as that
-    /// integer too; it then holds the value as it is stored and is not compared with the
-    /// members of the enum type.
-    /// </para>
-    /// <para>
-    /// A bound class may instead declare the property as a .NET enum, as
-    /// <see cref="Nullable{T}"/> of it when the value is nullable. That enum has to agree with
-    /// the enum type of the field: the same underlying type, the same members, every name
-    /// with its value in both directions, and <see cref="FlagsAttribute"/> exactly when the
-    /// enum type is a Flags type. A .NET enum with two names for one value therefore agrees
-    /// only with an enum type that declares both names. Nothing is mapped or guessed: a class
-    /// whose enum does not agree is refused with <see cref="LatticeErrorEnum.BindingFailed"/>,
-    /// with the property named, when the class is bound, and not later when a value is read.
+    /// integer: a record holds that integer.
     /// </para>
     /// <para>What a record holds at a position, which is what this property reports for it:</para>
     /// <list type="table">
@@ -169,14 +157,15 @@ public sealed class LatticeValueDeclaration
     /// </list>
     /// <para>
     /// T is the <see cref="ValueType"/> of the inner declaration, or <see cref="Nullable{T}"/>
-    /// of it when that position is nullable and its type is a value type.
+    /// of it when that position is nullable and its type is a value type. That is what a
+    /// record holds at every depth: an owned value inside a List or a Map of a record is a
+    /// <c>LatticeOwnedValue</c> too, whether or not its owned type names a class. The
+    /// documentation of <c>LatticeRecord</c> says where a record takes these types exactly and
+    /// what it keeps of what it is given.
     /// </para>
     /// <para>
-    /// In a bound class a List is a property of <c>List&lt;T&gt;</c> or <c>T[]</c>, a Map of
-    /// <c>Dictionary&lt;K, V&gt;</c>, a Set of <c>HashSet&lt;T&gt;</c>, an owned value of the
-    /// class named by <see cref="LatticeOwnedType.ClrTypeName"/> of its owned type, and a
-    /// reference of the key type of its target. A property of another type is refused with
-    /// <see cref="LatticeErrorEnum.BindingFailed"/>, with the property named.
+    /// This property says nothing about a class. A bound class holds the same data in its own
+    /// types, by the rule that <see cref="ILatticeDatabase.Set{TEntity}"/> states.
     /// </para>
     /// </remarks>
     public Type ValueType { get; }

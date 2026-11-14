@@ -8,9 +8,24 @@ namespace Moltaro.Lattice.Schema;
 /// <para>
 /// Every step of the path but the last is an <see cref="LatticeFieldTypeEnum.Owned"/> field.
 /// A path never passes through a List, a Map or a Set: an index does not cover the members of
-/// a collection. In the descriptor such a part is written in the <c>Fields</c> of the index
-/// as a list of field identities, from the field of the entity type down to the indexed
-/// field, instead of one identity.
+/// a collection, and a path through one is refused with
+/// <see cref="LatticeErrorEnum.InvalidSchema"/>.
+/// </para>
+/// <para>
+/// The field a part ends at, which for a plain part is the field itself, is one of three: a
+/// scalar that is not <see cref="LatticeFieldTypeEnum.Binary"/>, an
+/// <see cref="LatticeFieldTypeEnum.Enum"/>, a <see cref="LatticeFieldTypeEnum.Reference"/>. A
+/// Reference is compared as the key of its target, with the comparison of that key. A part
+/// that ends at a Binary or an Owned field, a List, a Map or a Set is refused with
+/// <see cref="LatticeErrorEnum.InvalidSchema"/>, with the index and the field named: an owned
+/// value is indexed through a path to a field inside it.
+/// </para>
+/// <para>
+/// In the descriptor an element of the <c>Fields</c> of an index is one field identity or a
+/// list of them, from the field of the entity type down to the indexed field. A list of one
+/// identity is that field itself: <c>[[2]]</c> and <c>[2]</c> declare the same part, and the
+/// index has the same fingerprint with either. An empty list is refused with
+/// <see cref="LatticeErrorEnum.InvalidSchema"/>, with the index named.
 /// </para>
 /// <para>
 /// When an owned value on the path is absent, the component has no value: it is

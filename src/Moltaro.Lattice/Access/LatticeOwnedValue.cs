@@ -8,11 +8,18 @@ namespace Moltaro.Lattice.Access;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A record holds one at a position declared <see cref="LatticeFieldTypeEnum.Owned"/>, and
-/// accepts one of that owned type there, see <see cref="LatticeValueDeclaration.ValueType"/>.
-/// It is part of the record that holds it: reading returns new ones with the record, and
-/// changing one changes nothing in the database until the record that holds it is submitted
-/// by a write. An owned value is not safe to change from several threads.
+/// A record holds one at every position declared <see cref="LatticeFieldTypeEnum.Owned"/>, in
+/// a field, an element of a List or a value of a Map, whether or not the owned type names a
+/// class, and accepts one of that owned type there, see
+/// <see cref="LatticeValueDeclaration.ValueType"/>. A bound class never holds one, see
+/// <see cref="ILatticeDatabase.Set{TEntity}"/>.
+/// </para>
+/// <para>
+/// An owned value keeps what is set into it in the same way as a record, see
+/// <see cref="LatticeRecord"/>: a collection is rebuilt at every depth. Reading returns new
+/// ones with the record, and changing one changes nothing in the database until the record
+/// that holds it is submitted by a write. An owned value is not safe to change from several
+/// threads.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Records hold owned values, but storing them is not
@@ -39,8 +46,9 @@ public sealed class LatticeOwnedValue
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for
-    /// an owned value and a collection; an integer of another width is accepted when it
-    /// fits.
+    /// an owned value and a collection. An integer of another width is accepted when it fits,
+    /// and the types inside a collection are exact, as for a field of a
+    /// <see cref="LatticeRecord"/>.
     /// </summary>
     /// <param name="fieldName">The field name declared in the owned type.</param>
     /// <exception cref="ArgumentException">

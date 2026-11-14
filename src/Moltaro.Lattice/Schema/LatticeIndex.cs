@@ -45,7 +45,10 @@ public sealed class LatticeIndex
     /// <summary>
     /// The parts of the index key, in the order that defines the index order: each a field of
     /// the entity type or a field inside an owned value of it, see
-    /// <see cref="LatticeIndexPart"/>.
+    /// <see cref="LatticeIndexPart"/>. An index names a part once: the same path twice, in
+    /// either spelling of the descriptor, is refused with
+    /// <see cref="LatticeErrorEnum.InvalidSchema"/>, with the index named, as the same field
+    /// twice is. Two paths that differ in any step are different parts.
     /// </summary>
     public IReadOnlyList<LatticeIndexPart> Parts { get; }
 

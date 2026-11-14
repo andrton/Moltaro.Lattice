@@ -6,9 +6,31 @@ namespace Moltaro.Lattice.Access;
 /// An entity without a .NET class: the values of its fields, accessed by field name.
 /// </summary>
 /// <remarks>
+/// <para>
 /// A record is an owned copy, exactly like an entity object: reading returns a new record,
 /// and changing a record changes nothing in the database until it is submitted by a write.
 /// A record is not safe to change from several threads.
+/// </para>
+/// <para>
+/// <b>What a record keeps of what it is given.</b> A collection is rebuilt: the record never
+/// holds the caller's collection object, and the collections inside it are rebuilt in the
+/// same way, at every depth, as the record's own <see cref="List{T}"/>,
+/// <see cref="Dictionary{TKey, TValue}"/> and <see cref="HashSet{T}"/> with the comparers of
+/// the schema. A later change of the caller's collection is not seen through the record.
+/// </para>
+/// <para>
+/// <b>What a record returns is its own.</b> A collection it returns can be changed, and that
+/// changes the record without a check. A record made invalid that way, such as by a
+/// <see langword="null"/> added where none is allowed, is refused with
+/// <see cref="LatticeErrorEnum.ValidationFailed"/> when it is written.
+/// </para>
+/// <para>
+/// <b>A record is not the boundary of the database.</b> The boundary is a write, through a
+/// set or by adding to a write batch, and a read. A write validates the record again and
+/// copies it at every depth, owned values and byte arrays included: nothing changed in the
+/// record afterwards reaches what was submitted. What a read returns shares nothing with the
+/// database or with another read.
+/// </para>
 /// </remarks>
 public sealed class LatticeRecord
 {
@@ -37,14 +59,22 @@ public sealed class LatticeRecord
     /// <summary>
     /// Gets or sets the value of a field. A value has the field's .NET type, see
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for an
-    /// owned value and a collection; an integer of another width is accepted when it fits.
+    /// owned value and a collection.
     /// </summary>
+    /// <remarks>
+    /// An integer of another width is accepted when it fits only where a value is given by
+    /// itself: the value of a field here or in a <see cref="LatticeOwnedValue"/>, as a primary
+    /// key and a part of a search key are. The element, key and value types of a collection
+    /// are exact: a <c>List&lt;int&gt;</c> is not accepted for a List of Int64, nor a Map with
+    /// <see cref="int"/> keys for a Map of Int64 keys.
+    /// </remarks>
     /// <param name="fieldName">The field name declared in the schema.</param>
     /// <exception cref="ArgumentException">
     /// The entity type has no such field, or the value does not match the declaration of the
     /// field: it is of another type, an owned value of another owned type, or a collection
-    /// with an element, a key or a value of another type or <see langword="null"/> where its
-    /// declaration does not allow it, or with a key given twice.
+    /// whose element, key or value type is not exactly the declared one, that holds
+    /// <see langword="null"/> where its declaration does not allow it, or that gives a Map key
+    /// twice. The message names the field.
     /// </exception>
     public object? this[string fieldName]
     {

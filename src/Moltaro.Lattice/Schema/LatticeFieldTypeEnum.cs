@@ -67,7 +67,7 @@ public enum LatticeFieldTypeEnum : byte
     /// A value of an enum type declared in the schema, see
     /// <see cref="LatticeValueDeclaration.EnumType"/>. It is stored as its underlying integer,
     /// and its .NET type is that integer; a bound class may declare the property as a .NET
-    /// enum that agrees with the enum type, as <see cref="LatticeValueDeclaration.ValueType"/>
+    /// enum that agrees with the enum type, as <see cref="ILatticeDatabase.Set{TEntity}"/>
     /// states.
     /// </summary>
     /// <remarks>
@@ -82,8 +82,9 @@ public enum LatticeFieldTypeEnum : byte
     /// An owned value: a value of an owned type declared in the schema, see
     /// <see cref="LatticeValueDeclaration.OwnedType"/>, with fields of its own. It has no key
     /// and is never shared: it belongs to the one entity that holds it and is read and written
-    /// with that entity. A record holds it as a <c>LatticeOwnedValue</c>, and a bound class as
-    /// an object of the class that its owned type names.
+    /// with that entity. At every position a record holds it as a <c>LatticeOwnedValue</c>,
+    /// see <see cref="LatticeValueDeclaration.ValueType"/>, and a bound class as an object of
+    /// the class that its owned type names, see <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares Owned values, and is compiled, saved and

@@ -68,6 +68,15 @@ namespace Moltaro.Lattice.Access;
 /// several threads.
 /// </para>
 /// <para>
+/// A write validates the entity at every depth: a <see langword="null"/> where none is
+/// allowed, or two Map keys that the key declaration holds equal, in a collection or an owned
+/// value as in a field, is <see cref="LatticeErrorEnum.ValidationFailed"/>. This comes before
+/// a write is refused as not implemented: for an entity type whose owned values, collections
+/// or references cannot be stored yet, an invalid entity is
+/// <see cref="LatticeErrorEnum.ValidationFailed"/>, and only a valid one ends in
+/// <see cref="NotSupportedException"/>.
+/// </para>
+/// <para>
 /// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until
 /// they are is stated at <see cref="LatticeIndex.IsUnique"/>.
 /// </para>

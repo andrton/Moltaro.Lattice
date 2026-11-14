@@ -33,7 +33,8 @@ public sealed class LatticeEntityType
     /// <summary>
     /// The full name of the .NET class that represents entities of this type, such as
     /// <c>MyApp.Directory.User</c>. Optional: <see langword="null"/> when the entity type is
-    /// accessed only by name, through records.
+    /// accessed only by name, through records. A .NET class is named by at most one type of
+    /// the schema, see <see cref="LatticeOwnedType.ClrTypeName"/>.
     /// </summary>
     public string? ClrTypeName { get; }
 
@@ -57,10 +58,11 @@ public sealed class LatticeEntityType
     /// the identity, type, nullability, string storage and, for an Enum field, the underlying
     /// type of its enum type. For an Owned field it covers the identity of the owned type and
     /// every field of it in the same way as a field of the entity type, and so on through the
-    /// owned values inside it. For a List, a Map or a Set it covers the declarations of the
-    /// element, the key and the value in the same way: type, nullability, string storage and
-    /// the underlying type of an enum; an element, a key or a value that is itself an owned
-    /// value, a reference or a collection is covered as a field of that type is. For a
+    /// owned values inside it, which ends because an owned type does not contain itself, see
+    /// <see cref="LatticeOwnedType"/>. For a List, a Map or a Set it covers the declarations
+    /// of the element, the key and the value in the same way: type, nullability, string
+    /// storage and the underlying type of an enum; an element, a key or a value that is itself
+    /// an owned value, a reference or a collection is covered as a field of that type is. For a
     /// Reference it covers the type of the key of the entity type it refers to, and nothing
     /// else of that entity type. So it changes when a field is added to an owned type that the
     /// entity type uses, when the declaration of an element changes, when the key type of a
