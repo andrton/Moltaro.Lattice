@@ -23,7 +23,7 @@ internal static class SchemaBuilder
         for (var position = 0; position < entityTypes.Length; position++)
         {
             var entityType = BuildEntityType(entityTypeDrafts[position], stringEncoding, enumTypesByName);
-            var place = $"entity type '{entityType.Name}'";
+            var place = $"entity type '{Shown(entityType.Name)}'";
 
             CheckIdentity(entityType.Id, place, ids);
             if (!names.Add(entityType.Name))
@@ -33,7 +33,7 @@ internal static class SchemaBuilder
 
             if (entityType.ClrTypeName is { } clrTypeName && !clrTypeNames.Add(clrTypeName))
             {
-                throw Invalid($".NET class '{clrTypeName}' is assigned to more than one entity type.");
+                throw Invalid($".NET class '{Shown(clrTypeName)}' is assigned to more than one entity type.");
             }
 
             entityTypes[position] = entityType;
@@ -57,7 +57,7 @@ internal static class SchemaBuilder
                 throw Invalid($"enum type {draft.Id} has no name.");
             }
 
-            var place = $"enum type '{draft.Name}'";
+            var place = $"enum type '{Shown(draft.Name)}'";
             CheckIdentity(draft.Id, place, ids);
             if (!names.Add(draft.Name))
             {
@@ -86,17 +86,17 @@ internal static class SchemaBuilder
         {
             if (string.IsNullOrWhiteSpace(member.Name))
             {
-                throw Invalid($"a member of enum type '{draft.Name}' has no name.");
+                throw Invalid($"a member of enum type '{Shown(draft.Name)}' has no name.");
             }
 
             if (!names.Add(member.Name))
             {
-                throw Invalid($"member '{draft.Name}.{member.Name}' is declared twice.");
+                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' is declared twice.");
             }
 
             if (!range.Contains(member.Value))
             {
-                throw Invalid($"member '{draft.Name}.{member.Name}' has the value {member.Value}, outside the range of {draft.UnderlyingType}.");
+                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' has the value {member.Value}, outside the range of {draft.UnderlyingType}.");
             }
 
             namesOfValue[member.Value] = namesOfValue.GetValueOrDefault(member.Value) + 1;
@@ -114,7 +114,7 @@ internal static class SchemaBuilder
             var canonicalCount = canonicalNamesOfValue.GetValueOrDefault(member.Value);
             if (nameCount > 1 && canonicalCount != 1)
             {
-                throw Invalid($"the value {member.Value} of enum type '{draft.Name}' has {nameCount} names and {canonicalCount} of them marked Canonical; exactly one must be.");
+                throw Invalid($"the value {member.Value} of enum type '{Shown(draft.Name)}' has {nameCount} names and {canonicalCount} of them marked Canonical; exactly one must be.");
             }
         }
 
@@ -147,7 +147,7 @@ internal static class SchemaBuilder
         {
             if ((range.BitsOf(member.Value) & ~flagBits) != UInt128.Zero)
             {
-                throw Invalid($"member '{draft.Name}.{member.Name}' of the Flags enum type has the value {member.Value}, with a bit that no flag declares; a member that names a combination has only bits of members with one bit.");
+                throw Invalid($"member '{Shown(draft.Name)}.{Shown(member.Name)}' of the Flags enum type has the value {member.Value}, with a bit that no flag declares; a member that names a combination has only bits of members with one bit.");
             }
         }
     }
@@ -162,7 +162,7 @@ internal static class SchemaBuilder
 
         if (draft.ClrTypeName is not null && string.IsNullOrWhiteSpace(draft.ClrTypeName))
         {
-            throw Invalid($"entity type '{name}' has an empty ClrType.");
+            throw Invalid($"entity type '{Shown(name)}' has an empty ClrType.");
         }
 
         var fields = new LatticeField[draft.Fields.Count];
@@ -175,10 +175,10 @@ internal static class SchemaBuilder
             var fieldDraft = draft.Fields[ordinal];
             if (string.IsNullOrWhiteSpace(fieldDraft.Name))
             {
-                throw Invalid($"field {fieldDraft.Id} of entity type '{name}' has no name.");
+                throw Invalid($"field {fieldDraft.Id} of entity type '{Shown(name)}' has no name.");
             }
 
-            var place = $"field '{name}.{fieldDraft.Name}'";
+            var place = $"field '{Shown(name)}.{Shown(fieldDraft.Name)}'";
             CheckIdentity(fieldDraft.Id, place, ids);
             if (!names.Add(fieldDraft.Name))
             {
@@ -194,12 +194,12 @@ internal static class SchemaBuilder
 
         if (key is null)
         {
-            throw Invalid($"entity type '{name}' has no field with the primary key id {draft.KeyFieldId}.");
+            throw Invalid($"entity type '{Shown(name)}' has no field with the primary key id {draft.KeyFieldId}.");
         }
 
         if (key.Declaration.IsNullable || !FieldTypes.CanBeKey(key.Declaration.Type))
         {
-            throw Invalid($"primary key '{name}.{key.Name}' must be a non-nullable integer, String or Guid field.");
+            throw Invalid($"primary key '{Shown(name)}.{Shown(key.Name)}' must be a non-nullable integer, String or Guid field.");
         }
 
         var indexes = BuildIndexes(name, fields, draft.Indexes);
@@ -242,12 +242,12 @@ internal static class SchemaBuilder
 
             if (!enumTypes.TryGetValue(draft.EnumTypeName, out enumType))
             {
-                throw Invalid($"{place} names the enum type '{draft.EnumTypeName}', which the schema does not declare.");
+                throw Invalid($"{place} names the enum type '{Shown(draft.EnumTypeName)}', which the schema does not declare.");
             }
         }
         else if (draft.EnumTypeName is not null)
         {
-            throw Invalid($"{place} is {draft.Type} and names the enum type '{draft.EnumTypeName}'; only a field of type Enum has one.");
+            throw Invalid($"{place} is {draft.Type} and names the enum type '{Shown(draft.EnumTypeName)}'; only a field of type Enum has one.");
         }
 
         return new LatticeValueDeclaration(
@@ -269,10 +269,10 @@ internal static class SchemaBuilder
             var draft = drafts[position];
             if (string.IsNullOrWhiteSpace(draft.Name))
             {
-                throw Invalid($"an index of entity type '{entityName}' has no name.");
+                throw Invalid($"an index of entity type '{Shown(entityName)}' has no name.");
             }
 
-            var place = $"index '{entityName}.{draft.Name}'";
+            var place = $"index '{Shown(entityName)}.{Shown(draft.Name)}'";
             CheckIdentity(draft.Id, place, ids);
             if (!names.Add(draft.Name))
             {
@@ -292,12 +292,12 @@ internal static class SchemaBuilder
 
                 if (field.Declaration.Type == LatticeFieldTypeEnum.Binary)
                 {
-                    throw Invalid($"{place} covers the Binary field '{field.Name}'; binary fields cannot be indexed.");
+                    throw Invalid($"{place} covers the Binary field '{Shown(field.Name)}'; binary fields cannot be indexed.");
                 }
 
                 if (Array.IndexOf(indexFields, field, 0, part) >= 0)
                 {
-                    throw Invalid($"{place} covers the field '{field.Name}' twice.");
+                    throw Invalid($"{place} covers the field '{Shown(field.Name)}' twice.");
                 }
 
                 indexFields[part] = field;
@@ -327,4 +327,19 @@ internal static class SchemaBuilder
 
     public static LatticeException Invalid(string message, Exception? innerException = null) =>
         new(LatticeErrorEnum.InvalidSchema, $"The schema is not valid: {message}", innerException);
+
+    // Text of the input repeated in a message: a name or a number of a descriptor has no
+    // length limit, and a message stays readable whatever its length. A longer text is cut,
+    // never inside a surrogate pair, and its length is told.
+    public static string Shown(string? text)
+    {
+        const int ShownLength = 64;
+        if (text is null || text.Length <= ShownLength)
+        {
+            return text ?? "";
+        }
+
+        var length = char.IsHighSurrogate(text[ShownLength - 1]) ? ShownLength - 1 : ShownLength;
+        return $"{text[..length]}... ({text.Length} characters)";
+    }
 }

@@ -47,4 +47,29 @@ public sealed class DescriptorTextTests
         Assert.Contains("outside the range", exception.Message);
         Assert.Contains("Level.Low", exception.Message);
     }
+
+    [Fact]
+    public void Input_repeated_in_a_message_is_cut_to_a_readable_length()
+    {
+        var digits = new string('9', 100_000);
+        var name = new string('n', 100_000);
+
+        // A member value beyond every integer type, a property the form does not have, and a
+        // field name given twice: refused by the reader and by the validation of the model.
+        string[] variants =
+        [
+            Descriptor.With(Json, "'Value': 0", $"'Value': {digits}"),
+            Descriptor.With(Json, "'Enums': [", $"'{name}': 1, 'Enums': ["),
+            Descriptor.With(Json, "{ 'Id': 1, 'Name': 'Id', 'Type': 'Int64' }", $"{{ 'Id': 1, 'Name': 'Id', 'Type': 'Int64' }}, {{ 'Id': 2, 'Name': '{name}', 'Type': 'Int64' }}, {{ 'Id': 3, 'Name': '{name}', 'Type': 'Int64' }}"),
+        ];
+
+        foreach (var variant in variants)
+        {
+            var exception = Assert.Throws<LatticeException>(() => LatticeSchema.Compile(variant));
+
+            Assert.Equal(LatticeErrorEnum.InvalidSchema, exception.Error);
+            Assert.InRange(exception.Message.Length, 1, 400);
+            Assert.Contains("(100000 characters)", exception.Message);
+        }
+    }
 }

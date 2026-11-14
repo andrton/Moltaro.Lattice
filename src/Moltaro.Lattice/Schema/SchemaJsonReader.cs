@@ -160,10 +160,10 @@ internal static class SchemaJsonReader
 
         if (string.IsNullOrEmpty(name))
         {
-            return owner is null ? $"{kind} number {position + 1}" : $"{kind} number {position + 1} of '{owner}'";
+            return owner is null ? $"{kind} number {position + 1}" : $"{kind} number {position + 1} of '{SchemaBuilder.Shown(owner)}'";
         }
 
-        return owner is null ? $"{kind} '{name}'" : $"{kind} '{owner}.{name}'";
+        return owner is null ? $"{kind} '{SchemaBuilder.Shown(name)}'" : $"{kind} '{SchemaBuilder.Shown(owner)}.{SchemaBuilder.Shown(name)}'";
     }
 
     // JsonDocument accepts an escaped lone surrogate, such as \ud800, and fails only when the
@@ -222,12 +222,12 @@ internal static class SchemaJsonReader
         {
             if (!properties.Contains(property.Name))
             {
-                throw SchemaBuilder.Invalid($"{place} has the unknown property '{property.Name}'.");
+                throw SchemaBuilder.Invalid($"{place} has the unknown property '{SchemaBuilder.Shown(property.Name)}'.");
             }
 
             if (!seen.Add(property.Name))
             {
-                throw SchemaBuilder.Invalid($"{place} has the property '{property.Name}' twice.");
+                throw SchemaBuilder.Invalid($"{place} has the property '{SchemaBuilder.Shown(property.Name)}' twice.");
             }
         }
     }
@@ -261,7 +261,7 @@ internal static class SchemaJsonReader
         // that is beyond Int128 is beyond every integer type an enum type can have.
         var isInteger = text is not null && text.TrimStart('-').All(char.IsAsciiDigit);
         throw SchemaBuilder.Invalid(isInteger
-            ? $"{place} has the {property} {text}, outside the range of every integer type."
+            ? $"{place} has the {property} {SchemaBuilder.Shown(text)}, outside the range of every integer type."
             : $"the {property} of {place} is not an integer.");
     }
 
@@ -299,7 +299,7 @@ internal static class SchemaJsonReader
         // member, is a name of the descriptor.
         if (text is null || !Enum.TryParse<TEnum>(text, out var parsed) || !Enum.IsDefined(parsed) || parsed.ToString() != text)
         {
-            throw SchemaBuilder.Invalid($"{place} has the unknown {property} {value.GetRawText()}.");
+            throw SchemaBuilder.Invalid($"{place} has the unknown {property} {SchemaBuilder.Shown(value.GetRawText())}.");
         }
 
         return parsed;

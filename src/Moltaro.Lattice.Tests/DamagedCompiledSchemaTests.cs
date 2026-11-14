@@ -74,19 +74,127 @@ public sealed class DamagedCompiledSchemaTests
     }
 
     [Fact]
-    public void Mark_that_is_neither_0_nor_1_is_refused()
+    public void Hand_written_form_of_the_tests_below_is_the_form_that_Save_writes()
     {
-        using var stream = new MemoryStream();
-        LatticeSchema.Compile("""{ "EntityTypes": [ { "Id": 1, "Name": "N", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }""").Save(stream);
-        var saved = stream.ToArray();
+        var schema = LatticeSchema.Compile("""
+            {
+              "EntityTypes": [
+                {
+                  "Id": 1, "Name": "N",
+                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String", "Nullable": true } ],
+                  "PrimaryKey": [1]
+                }
+              ]
+            }
+            """);
+        using var saved = new MemoryStream();
+        schema.Save(saved);
 
-        // Magic, format, catalog version, encoding, enum type count, entity type count, the
-        // identity and the name of N (length 1, then "N"), then the mark of its class.
-        const int ClassMark = 4 + 4 + 4 + 1 + 4 + 4 + 4 + 2;
-        Assert.Equal(0, saved[ClassMark]);
-        saved[ClassMark] = 2;
+        var written = Compiled(writer => Field(writer, 2, "Text", LatticeFieldTypeEnum.String, nullableMark: 1, comparison: 1, stringStorage: 1));
 
-        ExpectRefused(saved);
+        Assert.Equal(saved.ToArray(), written);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(255)]
+    public void Mark_that_is_neither_0_nor_1_is_refused(byte mark)
+    {
+        // The nullable mark of a field that is nullable is 1. A reader that took any byte but 0
+        // for 1 would load the damaged form as the same nullable field.
+        var nullable = Load(Compiled(writer => Field(writer, 2, "Age", LatticeFieldTypeEnum.Int32, nullableMark: 1)));
+        Assert.True(nullable.EntityTypes[0].Fields[1].Declaration.IsNullable);
+
+        ExpectRefused(Compiled(writer => Field(writer, 2, "Age", LatticeFieldTypeEnum.Int32, nullableMark: mark)));
+    }
+
+    [Fact]
+    public void Text_length_of_more_than_five_bytes_is_refused()
+    {
+        // A 7-bit encoded length has at most five bytes. The name of N has six continuation
+        // bytes and an end.
+        var data = Bytes(writer =>
+        {
+            WriteHeader(writer);
+            writer.Write(0); // enum types
+            writer.Write(1); // entity types
+            writer.Write(1); // identity of N
+            writer.Write([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]);
+            writer.Write("N"u8);
+        });
+
+        ExpectRefused(data);
+    }
+
+    [Theory]
+    // A String without one of its policies, or without both, which would otherwise become
+    // their defaults; and a type that has no policy with one.
+    [InlineData(LatticeFieldTypeEnum.String, 0, 1)]
+    [InlineData(LatticeFieldTypeEnum.String, 1, 0)]
+    [InlineData(LatticeFieldTypeEnum.String, 0, 0)]
+    [InlineData(LatticeFieldTypeEnum.Int32, 1, 0)]
+    [InlineData(LatticeFieldTypeEnum.Int32, 0, 1)]
+    public void Declaration_whose_policies_do_not_fit_its_type_is_refused(LatticeFieldTypeEnum type, byte comparison, byte stringStorage)
+    {
+        // A String with both policies, and an Int32 with neither, load.
+        Load(Compiled(writer => Field(writer, 2, "Text", LatticeFieldTypeEnum.String, comparison: 2, stringStorage: 2)));
+        Load(Compiled(writer => Field(writer, 2, "Text", LatticeFieldTypeEnum.Int32)));
+
+        ExpectRefused(Compiled(writer => Field(writer, 2, "Text", type, comparison: comparison, stringStorage: stringStorage)));
+    }
+
+    [Theory]
+    // The count of enum types, which comes first, and the count of indexes, which comes last.
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    [InlineData(int.MinValue, 0)]
+    public void Negative_count_is_refused(int enumTypeCount, int indexCount)
+    {
+        // The same form with empty lists loads; a reader that took a negative count for zero
+        // would load the damaged form as it.
+        Load(Compiled());
+
+        ExpectRefused(Compiled(enumTypeCount: enumTypeCount, indexCount: indexCount));
+    }
+
+    [Theory]
+    // Two gigabytes and one gigabyte of text, announced by a name that has three bytes.
+    [InlineData(int.MaxValue)]
+    [InlineData(1 << 30)]
+    public void Text_length_far_beyond_the_data_costs_memory_for_the_data_only(int declaredLength)
+    {
+        var data = Bytes(writer =>
+        {
+            WriteHeader(writer);
+            writer.Write(0); // enum types
+            writer.Write(1); // entity types
+            writer.Write(1); // identity of N
+            writer.Write7BitEncodedInt(declaredLength);
+            writer.Write("abc"u8);
+        });
+
+        ExpectRefusedAllocatingLittle(data);
+    }
+
+    [Theory]
+    // More enum types than an array can hold, and enough for a gigabyte of references,
+    // announced before one enum type without members.
+    [InlineData(int.MaxValue)]
+    [InlineData(1 << 27)]
+    public void Count_far_beyond_the_data_costs_memory_for_the_data_only(int declaredCount)
+    {
+        var data = Bytes(writer =>
+        {
+            WriteHeader(writer);
+            writer.Write(declaredCount); // enum types
+            writer.Write(1); // identity
+            writer.Write("E");
+            writer.Write((byte)LatticeFieldTypeEnum.Int32);
+            writer.Write((byte)0); // not Flags
+            writer.Write(0); // members
+        });
+
+        ExpectRefusedAllocatingLittle(data);
     }
 
     [Fact]
@@ -165,6 +273,76 @@ public sealed class DamagedCompiledSchemaTests
         return stream.ToArray();
     }
 
+    private static LatticeSchema Load(byte[] data) => LatticeSchema.Load(new MemoryStream(data));
+
     private static void ExpectRefused(byte[] data) =>
-        TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => LatticeSchema.Load(new MemoryStream(data)));
+        TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => Load(data));
+
+    // Refused, and the load allocates no more than a fixed bound, generous for the few bytes
+    // that are there and far below what the declared count or length would need. The load
+    // runs on this thread, so the bytes allocated by this thread measure it on any machine.
+    private static void ExpectRefusedAllocatingLittle(byte[] data)
+    {
+        const long Bound = 1 << 20;
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var exception = Record.Exception(() => Load(data));
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var refused = Assert.IsType<LatticeException>(exception);
+        Assert.Equal(LatticeErrorEnum.InvalidSchema, refused.Error);
+        Assert.InRange(allocated, 0, Bound);
+    }
+
+    // The binary form, written by hand part by part as the reader expects it, so that a test
+    // can write one part wrong and every other part as Save writes it.
+    private static byte[] Bytes(Action<BinaryWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            write(writer);
+        }
+
+        return stream.ToArray();
+    }
+
+    // Magic, format 4, catalog version 1, UTF-8.
+    private static void WriteHeader(BinaryWriter writer)
+    {
+        writer.Write("MLSC"u8);
+        writer.Write(4);
+        writer.Write(1);
+        writer.Write((byte)LatticeStringEncodingEnum.Utf8);
+    }
+
+    // A schema with one entity type N, whose key field Id is an Int64, followed by the field
+    // that writeField writes. It has no enum type and no index unless a count says otherwise,
+    // with nothing written for what such a count announces.
+    private static byte[] Compiled(Action<BinaryWriter>? writeField = null, int enumTypeCount = 0, int indexCount = 0) => Bytes(writer =>
+    {
+        WriteHeader(writer);
+        writer.Write(enumTypeCount);
+        writer.Write(1); // entity types
+        writer.Write(1); // identity of N
+        writer.Write("N");
+        writer.Write((byte)0); // no class
+        writer.Write(1); // key field
+        writer.Write(writeField is null ? 1 : 2);
+        Field(writer, 1, "Id", LatticeFieldTypeEnum.Int64);
+        writeField?.Invoke(writer);
+        writer.Write(indexCount);
+    });
+
+    // A declaration without an enum type; a policy is the value of its public enum, 0 for none.
+    private static void Field(BinaryWriter writer, int id, string name, LatticeFieldTypeEnum type, byte nullableMark = 0, byte comparison = 0, byte stringStorage = 0)
+    {
+        writer.Write(id);
+        writer.Write(name);
+        writer.Write((byte)type);
+        writer.Write(nullableMark);
+        writer.Write(comparison);
+        writer.Write(stringStorage);
+        writer.Write((byte)0); // no enum type
+    }
 }
