@@ -1,0 +1,32 @@
+<figure class="diagram" aria-labelledby="replication-caption">
+  <figcaption class="diagram-head" id="replication-caption"><span class="diagram-title">Load, catch up, open reads</span><span class="diagram-label">Initial loading</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 354" role="img" aria-labelledby="replication-svg-title replication-svg-desc">
+      <title id="replication-svg-title">A child becomes ready at a fixed published position</title>
+      <desc id="replication-svg-desc">A capture starts at S, copies coherent root blocks with individual watermarks, then fixes R. The child installs the data, rebuilds indexes and replays complete transactions through R before acknowledging readiness.</desc>
+      <defs><marker id="replication-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node core" x="26" y="10" width="348" height="66"/>
+      <text class="title" x="200" y="38" text-anchor="middle">Master memory</text>
+      <text class="caption" id="capture-label" x="200" y="61" text-anchor="middle">Connect to the configured master</text>
+      <path class="wire" d="M200 76 V144" marker-end="url(#replication-arrow)"/>
+      <text class="caption" id="wire-label" x="216" y="116">Connect</text>
+      <rect class="node" x="26" y="150" width="348" height="116"/>
+      <text class="title" x="200" y="180" text-anchor="middle">Child arena + local indexes</text>
+      <rect id="page-1" class="slot" x="43" y="199" width="66" height="45"/>
+      <rect id="page-2" class="slot" x="126" y="199" width="66" height="45"/>
+      <rect id="page-3" class="slot" x="209" y="199" width="66" height="45"/>
+      <rect id="page-4" class="slot" x="292" y="199" width="66" height="45"/>
+      <text x="76" y="227" text-anchor="middle">B1</text><text x="159" y="227" text-anchor="middle">B2</text><text x="242" y="227" text-anchor="middle">B3</text><text x="325" y="227" text-anchor="middle">B4</text>
+      <rect id="request-box" class="node pending" x="26" y="292" width="348" height="50"/>
+      <text id="request-label" x="200" y="323" text-anchor="middle">Not ready · reads closed</text>
+      <circle class="particle" r="4"><animateMotion dur="3s" repeatCount="indefinite" path="M200 76 V144"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <p class="stage-number" id="replication-step">Stage 1 of 6</p>
+      <div class="stage-description" aria-live="polite"><strong id="replication-stage-title">Connect</strong><p id="replication-description">An empty child connects to its configured master. Application reads are not admitted yet.</p></div>
+      <div class="controls"><button type="button" id="replication-next">Next stage</button><button type="button" id="replication-reset">Restart</button></div>
+      <p>Use the controls to follow the protocol. The stages do not advance automatically.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">B1–B4 illustrate transferred data, not SQL pages. Physical indexes are rebuilt locally. No partial-read mode or second full arena.</p>
+</figure>

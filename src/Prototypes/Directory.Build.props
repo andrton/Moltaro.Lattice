@@ -1,0 +1,7 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+  <PropertyGroup>
+    <!-- Historical experiments are executable evidence, never release packages. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

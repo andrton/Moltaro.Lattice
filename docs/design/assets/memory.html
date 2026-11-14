@@ -1,0 +1,38 @@
+<figure class="diagram" aria-labelledby="memory-caption">
+  <figcaption class="diagram-head" id="memory-caption"><span class="diagram-title">Stable identity, movable storage</span><span class="diagram-label">Native arena</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 462" role="img" aria-labelledby="memory-svg-title memory-svg-desc">
+      <title id="memory-svg-title">A payload moves without changing the entity key</title>
+      <desc id="memory-svg-desc">The primary index reaches a stable managed root entry. The root contains fixed fields and a payload descriptor. Compaction moves an owned list block between native segments and repairs the descriptor under protection. The old slot becomes reusable.</desc>
+      <defs><marker id="memory-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node" x="16" y="10" width="368" height="62"/>
+      <text class="title" x="200" y="37" text-anchor="middle">Primary key → root entry #42</text>
+      <text class="caption" x="200" y="59" text-anchor="middle">Stable managed control entry</text>
+      <path class="wire" d="M200 72 V109" marker-end="url(#memory-arrow)"/>
+      <rect class="node core" x="16" y="113" width="368" height="76"/>
+      <text class="title" x="200" y="143" text-anchor="middle">Root: fixed fields + descriptors</text>
+      <text id="memory-address" x="200" y="172" text-anchor="middle">List → segment 7 : offset 128</text>
+      <path id="memory-route" class="wire wire-active" d="M200 189 V220 H103 V284" marker-end="url(#memory-arrow)"/>
+      <rect class="node" x="16" y="246" width="174" height="120"/>
+      <rect class="node" x="210" y="246" width="174" height="120"/>
+      <text x="103" y="273" text-anchor="middle">Segment 7</text>
+      <text x="297" y="273" text-anchor="middle">Segment 9</text>
+      <rect id="memory-old-slot" class="slot live" x="29" y="290" width="148" height="54"/>
+      <rect id="memory-new-slot" class="slot vacant" x="223" y="290" width="148" height="54"/>
+      <text id="memory-old-label" x="103" y="323" text-anchor="middle">List payload</text>
+      <text id="memory-new-label" x="297" y="323" text-anchor="middle">Free slot</text>
+      <rect class="node core" x="16" y="397" width="368" height="52"/>
+      <text x="200" y="429" text-anchor="middle">Shared text has stable handles</text>
+    </svg>
+    <div class="diagram-note">
+      <h3>Move a block, preserve the entity</h3>
+      <p id="memory-description" aria-live="polite">The root owns this List block. Its descriptor stores a relative address; the primary key and stable root entry do not change when the block moves.</p>
+      <div class="controls" aria-label="Compaction illustration">
+        <button type="button" data-memory="before" aria-pressed="true">Before move</button>
+        <button type="button" data-memory="after" aria-pressed="false">After move</button>
+      </div>
+      <ul><li>A small partial update prepares only the affected values or blocks.</li><li>Save prepares a complete replacement without automatic diff.</li><li>Readers and retained references must finish before old storage is reused.</li></ul>
+    </div>
+  </div>
+  <p class="diagram-foot">Compaction changes physical placement, not logical values or revisions. A root move updates its control entry; an owned-block move repairs its parent descriptor.</p>
+</figure>

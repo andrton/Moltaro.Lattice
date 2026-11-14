@@ -1,0 +1,231 @@
+using System.Diagnostics.CodeAnalysis;
+using Moltaro.Lattice.Schema;
+
+namespace Moltaro.Lattice.Access;
+
+/// <summary>
+/// The entities of one entity type as records, without a .NET class: read, enumerate,
+/// insert, replace, upsert and delete. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
+/// </summary>
+/// <remarks>
+/// Every entity type of the schema is available this way, whether or not a .NET class is
+/// declared for it. The data and the rules are the same as for
+/// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
+/// synchronous reads return what this node has now, the asynchronous ones first wait for
+/// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
+/// through a child, complete when that child has applied them; a record passed to a write
+/// must stay unchanged until the returned task completes; the same failures are reported.
+/// A record of another entity type is an <see cref="ArgumentException"/>.
+/// </remarks>
+public interface ILatticeSet
+{
+    /// <summary>The entity type this set serves.</summary>
+    LatticeEntityType EntityType { get; }
+
+    /// <summary>
+    /// Selects a secondary index declared for the entity type, to find entities by the
+    /// values of its fields. The returned object can be kept and reused.
+    /// </summary>
+    /// <param name="indexName">The index name declared in the schema.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.BindingFailed"/>: the entity type declares no such index.
+    /// </exception>
+    ILatticeIndex<LatticeRecord> Index(string indexName);
+
+    /// <summary>Reads the entity with the given primary key from what this node has now.</summary>
+    /// <param name="key">The primary key.</param>
+    /// <returns>
+    /// An owned copy of the entity; <see langword="null"/> when no entity has this key.
+    /// </returns>
+    LatticeRecord? Get(object key);
+
+    /// <summary>Reads the entity with the given primary key from what this node has now.</summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="record">An owned copy of the entity, when found.</param>
+    /// <returns><see langword="true"/> when the entity exists.</returns>
+    bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record);
+
+    /// <summary>
+    /// Reads the entity with the given primary key, together with its revision, from what
+    /// this node has now.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="record">An owned copy of the entity, when found.</param>
+    /// <param name="revision">The revision of exactly the returned state, when found.</param>
+    /// <returns><see langword="true"/> when the entity exists.</returns>
+    bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision);
+
+    /// <summary>
+    /// Reads the entity with the given primary key after this node has applied the position
+    /// the session depends on. Moves the session forward to the position of the answer.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>
+    /// The record, when the entity exists, its revision and the position of the answer.
+    /// </returns>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
+    /// required position in time; nothing was read.
+    /// </exception>
+    ValueTask<LatticeReadResult<LatticeRecord>> GetAsync(object key, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enumerates owned copies of all entities of the entity type from what this node has
+    /// now, in no particular order. The traversal follows the rules of
+    /// <see cref="ILatticeSet{TEntity}.Enumerate"/>.
+    /// </summary>
+    IEnumerable<LatticeRecord> Enumerate();
+
+    /// <summary>
+    /// Enumerates owned copies of all entities of the entity type after this node has
+    /// applied the position the session depends on. The session moves forward to cover
+    /// everything the enumeration returns, also when it returns nothing.
+    /// </summary>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the wait and the enumeration.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
+    /// required position in time; nothing was returned.
+    /// </exception>
+    IAsyncEnumerable<LatticeRecord> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates a new entity. The primary key is taken from the record.</summary>
+    /// <param name="record">The complete entity.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.DuplicateKey"/>: an entity with this key already exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> InsertAsync(LatticeRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a new entity, after the position the session depends on. Moves the session
+    /// forward to the position of the write.
+    /// </summary>
+    /// <param name="record">The complete entity.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.DuplicateKey"/>: an entity with this key already exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> InsertAsync(LatticeRecord record, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>Replaces an existing entity as a whole.</summary>
+    /// <param name="record">The complete new state of the entity.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.NotFound"/>: no entity with this key exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> ReplaceAsync(LatticeRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an existing entity as a whole, after the position the session depends on.
+    /// Moves the session forward to the position of the write.
+    /// </summary>
+    /// <param name="record">The complete new state of the entity.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.NotFound"/>: no entity with this key exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> ReplaceAsync(LatticeRecord record, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an existing entity as a whole, provided it still has the expected revision.
+    /// </summary>
+    /// <param name="record">The complete new state of the entity.</param>
+    /// <param name="expectedRevision">The revision read together with the entity.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
+    /// no longer exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> ReplaceAsync(LatticeRecord record, LatticeRevision expectedRevision, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces an existing entity as a whole, provided it still has the expected revision,
+    /// after the position the session depends on. Moves the session forward to the position
+    /// of the write.
+    /// </summary>
+    /// <param name="record">The complete new state of the entity.</param>
+    /// <param name="expectedRevision">The revision read together with the entity.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
+    /// no longer exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> ReplaceAsync(LatticeRecord record, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates the entity when its key is absent, otherwise replaces the existing entity
+    /// as a whole.
+    /// </summary>
+    /// <param name="record">The complete entity.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    ValueTask<LatticeWriteResult> UpsertAsync(LatticeRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates the entity when its key is absent, otherwise replaces the existing entity as
+    /// a whole, after the position the session depends on. Moves the session forward to the
+    /// position of the write.
+    /// </summary>
+    /// <param name="record">The complete entity.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    ValueTask<LatticeWriteResult> UpsertAsync(LatticeRecord record, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the entity with the given primary key. An absent key is an ordinary result,
+    /// not a failure.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <returns>
+    /// A result whose <see cref="LatticeWriteResult.Changed"/> is <see langword="true"/>
+    /// when an entity was deleted and <see langword="false"/> when the key was already absent.
+    /// </returns>
+    ValueTask<LatticeWriteResult> DeleteAsync(object key, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the entity with the given primary key, after the position the session
+    /// depends on. An absent key is an ordinary result. Moves the session forward to the
+    /// position of the answer.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <returns>
+    /// A result whose <see cref="LatticeWriteResult.Changed"/> is <see langword="true"/>
+    /// when an entity was deleted and <see langword="false"/> when the key was already absent.
+    /// </returns>
+    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the entity with the given primary key, provided it still has the expected revision.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="expectedRevision">The revision read together with the entity.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
+    /// no longer exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the entity with the given primary key, provided it still has the expected
+    /// revision, after the position the session depends on. Moves the session forward to
+    /// the position of the write.
+    /// </summary>
+    /// <param name="key">The primary key.</param>
+    /// <param name="expectedRevision">The revision read together with the entity.</param>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
+    /// no longer exists.
+    /// </exception>
+    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default);
+}

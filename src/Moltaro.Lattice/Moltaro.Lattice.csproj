@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>A schema-driven in-memory object database for .NET, designed for compact storage, low-allocation access, master-coordinated writes, PostgreSQL persistence and local read replicas.</Description>
+    <PackageTags>database;in-memory;object-database;replication</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The tests hold back replication on a child to check the consistency guarantees. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Tests" />
+  </ItemGroup>
+</Project>

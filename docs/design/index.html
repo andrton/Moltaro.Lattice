@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The accepted architecture of Moltaro.Lattice: native object storage, master-coordinated writes, PostgreSQL durability and local read replicas.">
+  <title>Moltaro.Lattice · Architecture</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/diagrams.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#document">Skip to architecture</a>
+  <aside class="sidebar">
+    <a class="brand" href="#document">Moltaro<span>.Lattice</span></a>
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="page-navigation">Contents</button>
+    <div id="page-navigation">
+      <p class="edition">Architecture<br><time datetime="2026-11-14">14 November 2026</time></p>
+      <nav aria-label="Architecture sections">
+        <a href="#engine-and-distribution"><span class="nav-number">01</span> System</a>
+        <a href="#objects-and-schema"><span class="nav-number">02</span> Objects &amp; schema</a>
+        <a href="#memory-and-strings"><span class="nav-number">03</span> Memory &amp; strings</a>
+        <a href="#reads-and-indexes"><span class="nav-number">04</span> Reads &amp; indexes</a>
+        <a href="#writes-and-durability"><span class="nav-number">05</span> Writes &amp; durability</a>
+        <a href="#replica-lifecycle"><span class="nav-number">06</span> Replicas</a>
+        <a href="#operations-and-milestone-scope"><span class="nav-number">07</span> Operations &amp; scope</a>
+        <a href="#release-targets"><span class="nav-number">08</span> Release targets</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <a href="milestone-1-engine-contract.md">Full specification ↗</a>
+        <a href="planning-handoff.md">Planning handoff ↗</a>
+        <a href="README.md">Documentation map ↗</a>
+      </div>
+    </div>
+  </aside>
+  <main id="document" tabindex="-1">
+    <header class="page-meta"><span>Engineering / architecture</span><button id="animation-toggle" type="button" aria-pressed="false">Play motion</button></header>
+    <article>
+      <h1 id="moltaro.lattice">Moltaro.Lattice</h1>
+<p>A schema-driven in-memory object database for .NET. Compact native storage,
+master-coordinated writes and local read replicas, with PostgreSQL durability.</p>
+<blockquote>
+<p><strong>First production milestone · accepted design.</strong> The public facade and a managed
+placeholder exist today. The native, durable and distributed engine still needs
+implementation and integrated release verification.</p>
+</blockquote>
+<p><a id="purpose-and-boundaries"></a>
+<a id="physical-foundation-before-implementation"></a></p>
+<h2 id="engine-and-distribution">Engine and distribution</h2>
+<p>One instance owns one database: schema, data, indexes, strings and memory budget.
+The same engine runs embedded in an application or in a dedicated service.</p>
+<figure class="diagram" aria-labelledby="architecture-caption">
+  <figcaption class="diagram-head" id="architecture-caption"><span class="diagram-title">One engine, two node roles</span><span class="diagram-label">Selected architecture</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 380" role="img" aria-labelledby="architecture-svg-title architecture-svg-desc">
+      <title id="architecture-svg-title">Master, PostgreSQL and local children</title>
+      <desc id="architecture-svg-desc">Concurrent application callers send writes to one master. The Durable master commits to PostgreSQL and sends confirmed changes from memory to children. Children serve local reads and have no PostgreSQL connection.</desc>
+      <defs><marker id="architecture-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node" x="16" y="10" width="368" height="56"/>
+      <text class="title" x="200" y="44" text-anchor="middle">Concurrent application callers</text>
+      <path class="wire" d="M200 66 V112" marker-end="url(#architecture-arrow)"/>
+      <rect class="node core" x="16" y="116" width="368" height="90"/>
+      <text class="title" x="200" y="150" text-anchor="middle">Authoritative master</text>
+      <text x="200" y="178" text-anchor="middle">Arena · indexes · write coordinator</text>
+      <path class="wire" d="M110 206 V282" marker-end="url(#architecture-arrow)"/>
+      <path class="wire" d="M290 206 V282" marker-end="url(#architecture-arrow)"/>
+      <text class="caption" x="110" y="248" text-anchor="middle">Durable commit</text>
+      <text class="caption" x="290" y="248" text-anchor="middle">Memory stream</text>
+      <rect class="node" x="16" y="286" width="174" height="80"/>
+      <text class="title" x="103" y="318" text-anchor="middle">PostgreSQL</text>
+      <text class="caption" x="103" y="345" text-anchor="middle">Base + journal</text>
+      <rect class="node core" x="210" y="286" width="174" height="80"/>
+      <text class="title" x="297" y="318" text-anchor="middle">Children</text>
+      <text class="caption" x="297" y="345" text-anchor="middle">Local reads</text>
+      <circle class="particle" r="4"><animateMotion dur="3s" repeatCount="indefinite" path="M200 66 V112"/></circle>
+      <circle class="particle" r="4"><animateMotion dur="3.5s" repeatCount="indefinite" path="M290 206 V282"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <h3>The boundary is authority</h3>
+      <p>Every node has its own local engine. Only the master accepts a new logical mutation.</p>
+      <ul><li>The master and children share the arena application mechanism.</li><li>Children load the full database and build their own indexes.</li><li>Replication sends from master memory; it does not read PostgreSQL.</li></ul>
+      <p>An embedded master serves its own application directly. It needs no replica of itself.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">Shown: Durable master. MemoryOnly omits PostgreSQL; child nodes are always MemoryOnly in this milestone.</p>
+</figure>
+
+<p><strong>Many callers, one authoritative master.</strong> Application threads may submit writes
+concurrently. Independent preparation overlaps; short bounded groups commit and
+publish in order. Children forward writes and apply the master's confirmed changes.</p>
+<p><strong>Local reads.</strong> A ready child reads its own arena. PostgreSQL belongs to the Durable
+master; children never connect to it. An embedded MemoryOnly master also works without
+PostgreSQL or a child connection. Persistence mode is fixed when opening the instance.</p>
+<p><a id="document-and-schema-model"></a></p>
+<h2 id="objects-and-schema">Objects and schema</h2>
+<p>Each entity type has a declared schema and one immutable primary key. A root owns its
+nested values and collections. Key references connect independent entities into graphs
+without foreign-key enforcement, cascades or automatic loading of a whole graph.</p>
+<p>A <strong>root</strong> is one stored entity with everything it owns. The public contract calls it
+an <em>entity</em>, and a <em>record</em> when it is accessed by name without a .NET class. A <em>child</em>
+is a read replica.</p>
+<ul>
+<li><strong>Types:</strong> fixed-width numbers, Decimal, Boolean, String, Guid, temporal values,
+Binary and numeric enum/Flags. Null is allowed only where declared.</li>
+<li><strong>Collections:</strong> List preserves order and duplicates. Map and Set enforce uniqueness
+without ordering guarantees. Owned complex values belong in List and Map values.</li>
+<li><strong>Bindings:</strong> typed .NET access and runtime access by schema share the same engine.
+A generated domain class is optional.</li>
+<li><strong>Evolution:</strong> stable type/field identities and versioned layouts are required.
+Explicit migration pauses affected data; lazy mixed-format conversion is deferred.</li>
+</ul>
+<h2 id="memory-and-strings">Memory and strings</h2>
+<p>Fixed fields stay together in the root. Small owned values can be inline; larger
+strings and collections use separate blocks and bounded chunks. This is the selected
+layout for the first milestone.</p>
+<figure class="diagram" aria-labelledby="memory-caption">
+  <figcaption class="diagram-head" id="memory-caption"><span class="diagram-title">Stable identity, movable storage</span><span class="diagram-label">Native arena</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 462" role="img" aria-labelledby="memory-svg-title memory-svg-desc">
+      <title id="memory-svg-title">A payload moves without changing the entity key</title>
+      <desc id="memory-svg-desc">The primary index reaches a stable managed root entry. The root contains fixed fields and a payload descriptor. Compaction moves an owned list block between native segments and repairs the descriptor under protection. The old slot becomes reusable.</desc>
+      <defs><marker id="memory-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node" x="16" y="10" width="368" height="62"/>
+      <text class="title" x="200" y="37" text-anchor="middle">Primary key → root entry #42</text>
+      <text class="caption" x="200" y="59" text-anchor="middle">Stable managed control entry</text>
+      <path class="wire" d="M200 72 V109" marker-end="url(#memory-arrow)"/>
+      <rect class="node core" x="16" y="113" width="368" height="76"/>
+      <text class="title" x="200" y="143" text-anchor="middle">Root: fixed fields + descriptors</text>
+      <text id="memory-address" x="200" y="172" text-anchor="middle">List → segment 7 : offset 128</text>
+      <path id="memory-route" class="wire wire-active" d="M200 189 V220 H103 V284" marker-end="url(#memory-arrow)"/>
+      <rect class="node" x="16" y="246" width="174" height="120"/>
+      <rect class="node" x="210" y="246" width="174" height="120"/>
+      <text x="103" y="273" text-anchor="middle">Segment 7</text>
+      <text x="297" y="273" text-anchor="middle">Segment 9</text>
+      <rect id="memory-old-slot" class="slot live" x="29" y="290" width="148" height="54"/>
+      <rect id="memory-new-slot" class="slot vacant" x="223" y="290" width="148" height="54"/>
+      <text id="memory-old-label" x="103" y="323" text-anchor="middle">List payload</text>
+      <text id="memory-new-label" x="297" y="323" text-anchor="middle">Free slot</text>
+      <rect class="node core" x="16" y="397" width="368" height="52"/>
+      <text x="200" y="429" text-anchor="middle">Shared text has stable handles</text>
+    </svg>
+    <div class="diagram-note">
+      <h3>Move a block, preserve the entity</h3>
+      <p id="memory-description" aria-live="polite">The root owns this List block. Its descriptor stores a relative address; the primary key and stable root entry do not change when the block moves.</p>
+      <div class="controls" aria-label="Compaction illustration">
+        <button type="button" data-memory="before" aria-pressed="true">Before move</button>
+        <button type="button" data-memory="after" aria-pressed="false">After move</button>
+      </div>
+      <ul><li>A small partial update prepares only the affected values or blocks.</li><li>Save prepares a complete replacement without automatic diff.</li><li>Readers and retained references must finish before old storage is reused.</li></ul>
+    </div>
+  </div>
+  <p class="diagram-foot">Compaction changes physical placement, not logical values or revisions. A root move updates its control entry; an owned-block move repairs its parent descriptor.</p>
+</figure>
+
+<h3 id="text-is-compact-with-explicit-sharing">Text is compact, with explicit sharing</h3>
+<ul>
+<li><strong>UTF-8 by default.</strong> UTF-16 is a database-creation option. Both preserve valid
+Unicode; malformed input is rejected before commit.</li>
+<li><strong>Plain by default.</strong> Fields explicitly marked Dictionary share equal original text
+through one dictionary per database. There is no automatic policy switching.</li>
+<li><strong>Stable text references.</strong> Indexes share protected text instead of copying it.
+Saved, prepared and index references are counted; reclamation waits for active users.</li>
+<li><strong>Schema-owned comparison.</strong> Ordinal is the default; individual fields may use
+OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.</li>
+</ul>
+<h3 id="space-is-reused-throughout-the-database-lifetime">Space is reused throughout the database lifetime</h3>
+<p>Size-class free lists find reusable slots without scanning all segments. Counters
+identify sparse regions; background compaction moves bounded blocks under owner
+protection. Empty segments enter a limited reserve or are released. Collection shrink
+reclaims sustained excess capacity. No second full arena is needed.</p>
+<p>Initial segment sizes, chunk sizes and work budgets are specified in the engine
+contract. They are starting settings to measure, not unresolved architecture choices.
+The PostgreSQL <strong>256-byte saved unit is separate from native allocation sizes</strong>.</p>
+<p><a id="reads-ownership-and-concurrency"></a>
+<a id="queries-and-indexes"></a></p>
+<h2 id="reads-and-indexes">Reads and indexes</h2>
+<p><strong>Ordinary reads return owned copies.</strong> Later updates cannot change a value already
+returned to application code. A separate short, synchronous protected read offers a
+read-only arena view; it cannot escape, await, perform I/O or make nested database calls.</p>
+<p>One logical gate protects a root and all its owned blocks. A read is coherent for that
+entity. Several reads, an enumeration or a graph walk do not create a shared snapshot.</p>
+<table>
+<thead>
+<tr>
+<th>Access path</th>
+<th>Selected mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Primary key</td>
+<td>Arc.Collections UnorderedMapSlim → stable root control entry</td>
+</tr>
+<tr>
+<td>Declared secondary index</td>
+<td>Arc.Collections OrderedMultiMap; single or composite keys</td>
+</tr>
+<tr>
+<td>Application-defined traversal</td>
+<td>Explicit, budgeted .NET enumeration</td>
+</tr>
+</tbody>
+</table>
+<p>The caller names the index. Equality, leading-key/range access and Limit/Offset are
+supported; a named-index lookup never silently becomes a full scan. Every node builds
+its indexes locally before readiness and maintains them with entity changes.</p>
+<p><strong>Unique is explicit.</strong> The master validates the final state before effects commit.
+A conflict rejects the whole operation or WriteBatch. Keys with any null component
+are exempt. A batch may swap unique values or delete and reclaim one atomically.</p>
+<p><a id="writes-and-persistence"></a></p>
+<h2 id="writes-and-durability">Writes and durability</h2>
+<p>Applications edit their own copies, then submit changes. Save sends the whole entity
+without automatic diff; partial updates are explicit. Expected revisions protect
+against conflicting changes. Borrowed views never mutate database memory directly.</p>
+<p>In the public contract a Save is <code>Upsert</code>: create the entity when its key is absent,
+otherwise replace it as a whole. <code>Insert</code> and <code>Replace</code> are the same complete write with
+a condition: the key must be absent, or must exist.</p>
+<figure class="diagram" aria-labelledby="write-caption">
+  <figcaption class="diagram-head" id="write-caption"><span class="diagram-title">When a child-facing write succeeds</span><span class="diagram-label">Durable path</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 450" role="img" aria-labelledby="write-svg-title write-svg-desc">
+      <title id="write-svg-title">Five steps before successful return</title>
+      <desc id="write-svg-desc">The master durably admits an operation identity, prepares and validates its final state, commits effects and the result, publishes memory and indexes, and delivers it to the calling child. Success waits for that child's application, not for every replica.</desc>
+      <defs><marker id="write-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <path class="wire" d="M217 70 V99 M217 159 V188 M217 248 V277 M217 337 V366" marker-end="url(#write-arrow)"/>
+      <rect class="node" x="51" y="10" width="333" height="60"/>
+      <text class="caption" x="19" y="44">01</text><text class="title" x="217" y="37" text-anchor="middle">Admit the operation</text><text class="caption" x="217" y="58" text-anchor="middle">Persist identity + retry deadline</text>
+      <rect class="node" x="51" y="99" width="333" height="60"/>
+      <text class="caption" x="19" y="133">02</text><text class="title" x="217" y="126" text-anchor="middle">Prepare and validate</text><text class="caption" x="217" y="147" text-anchor="middle">Reserve memory · final-state checks</text>
+      <rect class="node core" x="51" y="188" width="333" height="60"/>
+      <text class="caption" x="19" y="222">03</text><text class="title" x="217" y="215" text-anchor="middle">Commit effects</text><text class="caption" x="217" y="236" text-anchor="middle">Journal + result + position</text>
+      <rect class="node core" x="51" y="277" width="333" height="60"/>
+      <text class="caption" x="19" y="311">04</text><text class="title" x="217" y="304" text-anchor="middle">Publish on the master</text><text class="caption" x="217" y="325" text-anchor="middle">Entity data + indexes, coherently</text>
+      <rect class="node core" x="51" y="366" width="333" height="70"/>
+      <text class="caption" x="19" y="403">05</text><text class="title" x="217" y="394" text-anchor="middle">Apply on the calling child</text><text class="caption" x="217" y="420" text-anchor="middle">Then return success + position</text>
+      <circle class="particle" r="4"><animateMotion dur="5s" repeatCount="indefinite" path="M217 70 V99 M217 159 V188 M217 248 V277 M217 337 V366"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <h3>Commit, publish, then acknowledge</h3>
+      <p>Durable admission protects safe retry. Effects and their saved result commit together in a separate transaction.</p>
+      <p>Preparation reserves the required arena and index capacity before effects commit. Publication performs no I/O or allocation growth.</p>
+      <p>A direct master call completes after coherent master publication. A forwarded call also waits for the calling child's applied position.</p>
+      <p><strong>Other replicas are not part of the completion barrier.</strong> Related requests carry the returned position when they need that dependency.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes as a whole.</p>
+</figure>
+
+<h3 id="a-writebatch-is-one-transaction">A WriteBatch is one transaction</h3>
+<p>A bounded batch may change different entity types in the same database. It contains
+at most one operation per type/key. Validation, durable effects and publication preserve
+its all-or-nothing boundary; children preserve that same boundary during replay.</p>
+<p>It is a transaction of the database, not one the application works inside: a batch
+cannot read, and there is no interactive read/write transaction.</p>
+<p>Batch construction holds no locks. Readers continue during storage I/O; publication
+briefly closes access while the complete batch becomes visible. Internal grouping of
+independent writes for PostgreSQL efficiency does not make those calls a shared transaction.</p>
+<h3 id="the-saved-base-advances-in-the-background">The saved base advances in the background</h3>
+<p>Foreground writes append compact logical changes. A worker <strong>inside the master process</strong>
+coalesces a bounded committed prefix into the saved base and commits its applied position
+with those updates. Foreground success does not wait for this maintenance step.</p>
+<p>Recovery loads the independent binary base, replays the remaining journal and builds
+indexes. Native compaction does not relocate persisted units. Journal size/age triggers,
+hard limits and bounded workspaces prevent unbounded retention.</p>
+<p>Operation IDs and retained outcomes support safe same-operation retry within the
+configurable <strong>15-minute default window</strong>. An unknown commit is not treated as rollback.
+If committed publication fails, the instance stops serving data until reopen/recovery.</p>
+<h2 id="replica-lifecycle">Replica lifecycle</h2>
+<p>Initial loading and live updates come from master memory over the internal connection.
+A new child receives the whole database, builds local indexes and catches up through a
+fixed published position before opening reads.</p>
+<figure class="diagram" aria-labelledby="replication-caption">
+  <figcaption class="diagram-head" id="replication-caption"><span class="diagram-title">Load, catch up, open reads</span><span class="diagram-label">Initial loading</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 354" role="img" aria-labelledby="replication-svg-title replication-svg-desc">
+      <title id="replication-svg-title">A child becomes ready at a fixed published position</title>
+      <desc id="replication-svg-desc">A capture starts at S, copies coherent root blocks with individual watermarks, then fixes R. The child installs the data, rebuilds indexes and replays complete transactions through R before acknowledging readiness.</desc>
+      <defs><marker id="replication-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node core" x="26" y="10" width="348" height="66"/>
+      <text class="title" x="200" y="38" text-anchor="middle">Master memory</text>
+      <text class="caption" id="capture-label" x="200" y="61" text-anchor="middle">Connect to the configured master</text>
+      <path class="wire" d="M200 76 V144" marker-end="url(#replication-arrow)"/>
+      <text class="caption" id="wire-label" x="216" y="116">Connect</text>
+      <rect class="node" x="26" y="150" width="348" height="116"/>
+      <text class="title" x="200" y="180" text-anchor="middle">Child arena + local indexes</text>
+      <rect id="page-1" class="slot" x="43" y="199" width="66" height="45"/>
+      <rect id="page-2" class="slot" x="126" y="199" width="66" height="45"/>
+      <rect id="page-3" class="slot" x="209" y="199" width="66" height="45"/>
+      <rect id="page-4" class="slot" x="292" y="199" width="66" height="45"/>
+      <text x="76" y="227" text-anchor="middle">B1</text><text x="159" y="227" text-anchor="middle">B2</text><text x="242" y="227" text-anchor="middle">B3</text><text x="325" y="227" text-anchor="middle">B4</text>
+      <rect id="request-box" class="node pending" x="26" y="292" width="348" height="50"/>
+      <text id="request-label" x="200" y="323" text-anchor="middle">Not ready · reads closed</text>
+      <circle class="particle" r="4"><animateMotion dur="3s" repeatCount="indefinite" path="M200 76 V144"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <p class="stage-number" id="replication-step">Stage 1 of 6</p>
+      <div class="stage-description" aria-live="polite"><strong id="replication-stage-title">Connect</strong><p id="replication-description">An empty child connects to its configured master. Application reads are not admitted yet.</p></div>
+      <div class="controls"><button type="button" id="replication-next">Next stage</button><button type="button" id="replication-reset">Restart</button></div>
+      <p>Use the controls to follow the protocol. The stages do not advance automatically.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">B1–B4 illustrate transferred data, not SQL pages. Physical indexes are rebuilt locally. No partial-read mode or second full arena.</p>
+</figure>
+
+<h3 id="a-position-carries-the-dependency-between-requests">A position carries the dependency between requests</h3>
+<p>Save through a child waits until that child has applied the committed operation.
+The next request carries its history and position to any child. That child waits for
+at least the supplied position, with a timeout, then executes the request.</p>
+<figure class="diagram" aria-labelledby="session-caption">
+  <figcaption class="diagram-head" id="session-caption"><span class="diagram-title">The next request can use another pod</span><span class="diagram-label">Same history H</span></figcaption>
+  <div class="session-grid">
+    <div class="session-node"><h3>Pod A · Save returned</h3><div class="session-position">120</div><p>Master commit and local application are complete. The response carries position 120.</p></div>
+    <div class="session-node"><h3>Pod B · applied locally</h3><div class="session-position" id="session-applied">117</div><p>The next request requires at least position 120 before reading this node.</p></div>
+  </div>
+  <div class="session-controls">
+    <div class="session-result" id="session-result" role="status">Waiting: 117 is below the required position 120.</div>
+    <div class="controls"><button type="button" id="session-advance">Apply next change</button><button type="button" id="session-reset">Reset example</button></div>
+  </div>
+  <p class="diagram-foot">The required position stays fixed. A timeout fails the wait explicitly; success is a lower bound, not a frozen snapshot.</p>
+</figure>
+
+<p>Waiting does not freeze the database or chase a moving latest position. A later update
+may already be visible. Unconstrained reads can use intact local state during lag or
+disconnection; status reports the observed progress and whether it is current or unknown.</p>
+<p>The master retains a bounded shared delivery tail only while recipients need it.
+Acknowledged payloads are released. Missing history requires a full reload with one
+arena and bounded read waiting; an empty restarted child cannot serve data offline.</p>
+<p><a id="deployment"></a>
+<a id="control-and-maintenance"></a></p>
+<h2 id="operations-and-milestone-scope">Operations and milestone scope</h2>
+<p>The environment supplies one master and its URL. Lattice does not elect a replacement
+or promote a child. In Kubernetes, an application pod can embed a child; readiness stays
+closed until its database state and indexes are ready.</p>
+<ul>
+<li><strong>Diagnostics:</strong> DI services and host-mounted HTTP endpoints expose local status
+and can forward master-status requests through a child.</li>
+<li><strong>Backup and restore:</strong> infrastructure uses PostgreSQL mechanisms. Restore into a
+separate target, verify it, then activate a new history; children reload fully.</li>
+<li><strong>Automatic maintenance:</strong> bounded compaction, string reclamation, collection shrink
+and saved-base application are part of the engine.</li>
+<li><strong>Deferred:</strong> OQL, joins, external transactions, cross-call graph snapshots, automatic
+failover, lazy schema conversion, manual maintenance commands and a management UI.</li>
+</ul>
+<p>Declared indexes, Unique indexes, collections, PostgreSQL durability and atomic
+multi-type WriteBatch remain first-milestone requirements. Consumer integrations adapt
+to these contracts.</p>
+<h2 id="release-targets">Release targets</h2>
+<p>The first reference dataset has <strong>121,000 roots</strong> and a deployment profile of <strong>5–10
+children</strong>. These are acceptance targets, not measured production results.</p>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Required target</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ordinary offered load</td>
+<td>10,000 local reads/s per child; 200 changes/s total through the master</td>
+</tr>
+<tr>
+<td>Small-operation p99</td>
+<td>Local read ≤1 ms after synchronization; child-facing write ≤50 ms</td>
+</tr>
+<tr>
+<td>New child ready</td>
+<td>≤10 seconds on the reference dataset under ordinary load</td>
+</tr>
+<tr>
+<td>Retained storage memory</td>
+<td>At least 25% below the equivalent optimized managed reference</td>
+</tr>
+<tr>
+<td>Ordinary/startup node peak</td>
+<td>≤1.5× the defined steady-state node memory</td>
+</tr>
+<tr>
+<td>Separate burst</td>
+<td>10,000 changes/s for 30 seconds; recovery within 60 seconds at ordinary load</td>
+</tr>
+</tbody>
+</table>
+<p>Implementation, integrated fault/concurrency checks and full-system measurements remain.
+The physical baseline is specified; prototype measurements establish individual mechanisms,
+not a completed production engine.</p>
+<h2 id="supporting-documents">Supporting documents</h2>
+<p>Follow the document that answers the question, rather than searching through this overview.</p>
+<ul>
+<li><a href="milestone-1-engine-contract.md">Engine implementation contract</a> — exact layouts,
+ownership, protocols, starting limits and required verification.</li>
+<li><a href="../decisions/README.md">Accepted decisions</a> — guarantees, rationale and alternatives.</li>
+<li><a href="performance-requirements.md">Performance and evidence</a> — target definitions;
+<a href="prototype-evidence.md">prototype evidence</a> retains the historical measurements.</li>
+<li><a href="planning-handoff.md">Planning handoff</a> — scope and inputs for milestone/sprint planning.</li>
+</ul>
+<p>Historical comparisons remain in the Markdown evidence and decision records. This page
+shows the selected first-milestone architecture.</p>
+
+    </article>
+    <footer><span>Moltaro.Lattice · First production milestone</span><a href="architecture.md">Markdown source ↗</a><p>Diagrams explain the accepted design. They do not measure performance or represent a running database.</p></footer>
+  </main>
+</body>
+</html>

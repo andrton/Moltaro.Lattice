@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>Storage for ASP.NET Core Identity in a Moltaro.Lattice database: users and roles kept in Lattice instead of a relational database.</Description>
+    <PackageTags>database;in-memory;identity;aspnetcore</PackageTags>
+    <!-- Only the contract exists: the stores are not implemented. Make the project packable when they are. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="identity.schema.json" LogicalName="identity.schema.json" />
+  </ItemGroup>
+</Project>

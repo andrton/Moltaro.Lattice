@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Moltaro.Lattice/Moltaro.Lattice.csproj" />
+  <Project Path="Moltaro.Lattice.AspNet.Identity.Tests/Moltaro.Lattice.AspNet.Identity.Tests.csproj" />
+  <Project Path="Moltaro.Lattice.AspNet.Identity/Moltaro.Lattice.AspNet.Identity.csproj" />
+  <Project Path="Moltaro.Lattice.DependencyInjection.Tests/Moltaro.Lattice.DependencyInjection.Tests.csproj" />
+  <Project Path="Moltaro.Lattice.DependencyInjection/Moltaro.Lattice.DependencyInjection.csproj" />
+  <Project Path="Moltaro.Lattice.Samples/Moltaro.Lattice.Samples.csproj" />
+  <Project Path="Moltaro.Lattice.Tests/Moltaro.Lattice.Tests.csproj" />
+</Solution>

@@ -1,0 +1,30 @@
+<figure class="diagram" aria-labelledby="write-caption">
+  <figcaption class="diagram-head" id="write-caption"><span class="diagram-title">When a child-facing write succeeds</span><span class="diagram-label">Durable path</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 450" role="img" aria-labelledby="write-svg-title write-svg-desc">
+      <title id="write-svg-title">Five steps before successful return</title>
+      <desc id="write-svg-desc">The master durably admits an operation identity, prepares and validates its final state, commits effects and the result, publishes memory and indexes, and delivers it to the calling child. Success waits for that child's application, not for every replica.</desc>
+      <defs><marker id="write-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <path class="wire" d="M217 70 V99 M217 159 V188 M217 248 V277 M217 337 V366" marker-end="url(#write-arrow)"/>
+      <rect class="node" x="51" y="10" width="333" height="60"/>
+      <text class="caption" x="19" y="44">01</text><text class="title" x="217" y="37" text-anchor="middle">Admit the operation</text><text class="caption" x="217" y="58" text-anchor="middle">Persist identity + retry deadline</text>
+      <rect class="node" x="51" y="99" width="333" height="60"/>
+      <text class="caption" x="19" y="133">02</text><text class="title" x="217" y="126" text-anchor="middle">Prepare and validate</text><text class="caption" x="217" y="147" text-anchor="middle">Reserve memory · final-state checks</text>
+      <rect class="node core" x="51" y="188" width="333" height="60"/>
+      <text class="caption" x="19" y="222">03</text><text class="title" x="217" y="215" text-anchor="middle">Commit effects</text><text class="caption" x="217" y="236" text-anchor="middle">Journal + result + position</text>
+      <rect class="node core" x="51" y="277" width="333" height="60"/>
+      <text class="caption" x="19" y="311">04</text><text class="title" x="217" y="304" text-anchor="middle">Publish on the master</text><text class="caption" x="217" y="325" text-anchor="middle">Entity data + indexes, coherently</text>
+      <rect class="node core" x="51" y="366" width="333" height="70"/>
+      <text class="caption" x="19" y="403">05</text><text class="title" x="217" y="394" text-anchor="middle">Apply on the calling child</text><text class="caption" x="217" y="420" text-anchor="middle">Then return success + position</text>
+      <circle class="particle" r="4"><animateMotion dur="5s" repeatCount="indefinite" path="M217 70 V99 M217 159 V188 M217 248 V277 M217 337 V366"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <h3>Commit, publish, then acknowledge</h3>
+      <p>Durable admission protects safe retry. Effects and their saved result commit together in a separate transaction.</p>
+      <p>Preparation reserves the required arena and index capacity before effects commit. Publication performs no I/O or allocation growth.</p>
+      <p>A direct master call completes after coherent master publication. A forwarded call also waits for the calling child's applied position.</p>
+      <p><strong>Other replicas are not part of the completion barrier.</strong> Related requests carry the returned position when they need that dependency.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes as a whole.</p>
+</figure>

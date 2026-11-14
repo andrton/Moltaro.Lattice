@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "Arc.Collections": {
+        "type": "Direct",
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "muQ/cC/2P7elioJ2YeDzbgyjiSP040RyS8WDj3vRYYJ211NwcZi6FPUNR6upC6O1+OIklOrd8nqw9qsE3E0f3w=="
+      },
+      "Kaos.Collections": {
+        "type": "Direct",
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "fIuMRitdYNFO3kwzEKvheZPA1IlbxsDvUHfznOwJJFR0MeiHfzpytHbS1TbXKdblCodoD6pf7hPA5qjSA1/t1w==",
+        "dependencies": {
+          "NETStandard.Library": "1.6.1"
+        }
+      },
+      "Microsoft.NETCore.Platforms": {
+        "type": "Transitive",
+        "resolved": "1.1.0",
+        "contentHash": "kz0PEW2lhqygehI/d6XsPCQzD7ff7gUJaVGPVETX611eadGsA3A877GdSlU0LRVMCTH/+P3o2iDTak+S08V2+A=="
+      },
+      "NETStandard.Library": {
+        "type": "Transitive",
+        "resolved": "1.6.1",
+        "contentHash": "WcSp3+vP+yHNgS8EV5J7pZ9IRpeDuARBPN28by8zqff1wJQXm26PVU8L3/fYLBJVU7BtDyqNVWq2KlCVvSSR4A==",
+        "dependencies": {
+          "Microsoft.NETCore.Platforms": "1.1.0"
+        }
+      }
+    }
+  }
+}

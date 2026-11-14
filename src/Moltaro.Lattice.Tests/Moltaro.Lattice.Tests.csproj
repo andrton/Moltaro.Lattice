@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Tests read as usage examples; they do not thread the test cancellation token through every call. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Moltaro.Lattice.Access" />
+    <Using Include="Moltaro.Lattice.Schema" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

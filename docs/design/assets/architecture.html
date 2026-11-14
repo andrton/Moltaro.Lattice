@@ -1,0 +1,35 @@
+<figure class="diagram" aria-labelledby="architecture-caption">
+  <figcaption class="diagram-head" id="architecture-caption"><span class="diagram-title">One engine, two node roles</span><span class="diagram-label">Selected architecture</span></figcaption>
+  <div class="diagram-grid">
+    <svg viewBox="0 0 400 380" role="img" aria-labelledby="architecture-svg-title architecture-svg-desc">
+      <title id="architecture-svg-title">Master, PostgreSQL and local children</title>
+      <desc id="architecture-svg-desc">Concurrent application callers send writes to one master. The Durable master commits to PostgreSQL and sends confirmed changes from memory to children. Children serve local reads and have no PostgreSQL connection.</desc>
+      <defs><marker id="architecture-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow-head" d="M0,0 L8,4 L0,8 Z"/></marker></defs>
+      <rect class="node" x="16" y="10" width="368" height="56"/>
+      <text class="title" x="200" y="44" text-anchor="middle">Concurrent application callers</text>
+      <path class="wire" d="M200 66 V112" marker-end="url(#architecture-arrow)"/>
+      <rect class="node core" x="16" y="116" width="368" height="90"/>
+      <text class="title" x="200" y="150" text-anchor="middle">Authoritative master</text>
+      <text x="200" y="178" text-anchor="middle">Arena · indexes · write coordinator</text>
+      <path class="wire" d="M110 206 V282" marker-end="url(#architecture-arrow)"/>
+      <path class="wire" d="M290 206 V282" marker-end="url(#architecture-arrow)"/>
+      <text class="caption" x="110" y="248" text-anchor="middle">Durable commit</text>
+      <text class="caption" x="290" y="248" text-anchor="middle">Memory stream</text>
+      <rect class="node" x="16" y="286" width="174" height="80"/>
+      <text class="title" x="103" y="318" text-anchor="middle">PostgreSQL</text>
+      <text class="caption" x="103" y="345" text-anchor="middle">Base + journal</text>
+      <rect class="node core" x="210" y="286" width="174" height="80"/>
+      <text class="title" x="297" y="318" text-anchor="middle">Children</text>
+      <text class="caption" x="297" y="345" text-anchor="middle">Local reads</text>
+      <circle class="particle" r="4"><animateMotion dur="3s" repeatCount="indefinite" path="M200 66 V112"/></circle>
+      <circle class="particle" r="4"><animateMotion dur="3.5s" repeatCount="indefinite" path="M290 206 V282"/></circle>
+    </svg>
+    <div class="diagram-note">
+      <h3>The boundary is authority</h3>
+      <p>Every node has its own local engine. Only the master accepts a new logical mutation.</p>
+      <ul><li>The master and children share the arena application mechanism.</li><li>Children load the full database and build their own indexes.</li><li>Replication sends from master memory; it does not read PostgreSQL.</li></ul>
+      <p>An embedded master serves its own application directly. It needs no replica of itself.</p>
+    </div>
+  </div>
+  <p class="diagram-foot">Shown: Durable master. MemoryOnly omits PostgreSQL; child nodes are always MemoryOnly in this milestone.</p>
+</figure>

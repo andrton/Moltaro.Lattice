@@ -1,0 +1,133 @@
+{
+  "SchemaVersion": 1,
+  "Tables": [
+    {
+      "Id": 1,
+      "Name": "User",
+      "ClrType": "Moltaro.Lattice.AspNet.Identity.Tests.AppUser",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "String" },
+        { "Id": 2, "Name": "UserName", "Type": "String", "Nullable": true },
+        { "Id": 3, "Name": "NormalizedUserName", "Type": "String", "Nullable": true },
+        { "Id": 4, "Name": "Email", "Type": "String", "Nullable": true },
+        { "Id": 5, "Name": "NormalizedEmail", "Type": "String", "Nullable": true },
+        { "Id": 6, "Name": "EmailConfirmed", "Type": "Boolean" },
+        { "Id": 7, "Name": "PasswordHash", "Type": "String", "Nullable": true },
+        { "Id": 8, "Name": "SecurityStamp", "Type": "String", "Nullable": true },
+        { "Id": 9, "Name": "ConcurrencyStamp", "Type": "String", "Nullable": true },
+        { "Id": 10, "Name": "PhoneNumber", "Type": "String", "Nullable": true },
+        { "Id": 11, "Name": "PhoneNumberConfirmed", "Type": "Boolean" },
+        { "Id": 12, "Name": "TwoFactorEnabled", "Type": "Boolean" },
+        { "Id": 13, "Name": "LockoutEnd", "Type": "DateTimeOffset", "Nullable": true },
+        { "Id": 14, "Name": "LockoutEnabled", "Type": "Boolean" },
+        { "Id": 15, "Name": "AccessFailedCount", "Type": "Int32" },
+        { "Id": 16, "Name": "DisplayName", "Type": "String", "Nullable": true },
+        { "Id": 17, "Name": "TenantId", "Type": "Int64", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByNormalizedUserName", "Fields": [3], "Unique": true },
+        { "Name": "ByNormalizedEmail", "Fields": [5] },
+        { "Name": "ByTenant", "Fields": [17] }
+      ]
+    },
+    {
+      "Id": 2,
+      "Name": "Role",
+      "ClrType": "Moltaro.Lattice.AspNet.Identity.Tests.AppRole",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "String" },
+        { "Id": 2, "Name": "Name", "Type": "String", "Nullable": true },
+        { "Id": 3, "Name": "NormalizedName", "Type": "String", "Nullable": true },
+        { "Id": 4, "Name": "ConcurrencyStamp", "Type": "String", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByNormalizedName", "Fields": [3], "Unique": true }
+      ]
+    },
+    {
+      "Id": 3,
+      "Name": "IdentityUserRole",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Guid" },
+        { "Id": 2, "Name": "UserId", "Type": "String" },
+        { "Id": 3, "Name": "RoleId", "Type": "String" }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByUserAndRole", "Fields": [2, 3], "Unique": true },
+        { "Name": "ByRole", "Fields": [3] }
+      ]
+    },
+    {
+      "Id": 4,
+      "Name": "IdentityUserClaim",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Guid" },
+        { "Id": 2, "Name": "UserId", "Type": "String" },
+        { "Id": 3, "Name": "ClaimType", "Type": "String" },
+        { "Id": 4, "Name": "ClaimValue", "Type": "String", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByUser", "Fields": [2] },
+        { "Name": "ByClaim", "Fields": [3, 4] }
+      ]
+    },
+    {
+      "Id": 5,
+      "Name": "IdentityUserLogin",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Guid" },
+        { "Id": 2, "Name": "LoginProvider", "Type": "String" },
+        { "Id": 3, "Name": "ProviderKey", "Type": "String" },
+        { "Id": 4, "Name": "ProviderDisplayName", "Type": "String", "Nullable": true },
+        { "Id": 5, "Name": "UserId", "Type": "String" }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByProviderAndKey", "Fields": [2, 3], "Unique": true },
+        { "Name": "ByUser", "Fields": [5] }
+      ]
+    },
+    {
+      "Id": 6,
+      "Name": "IdentityUserToken",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Guid" },
+        { "Id": 2, "Name": "UserId", "Type": "String" },
+        { "Id": 3, "Name": "LoginProvider", "Type": "String" },
+        { "Id": 4, "Name": "Name", "Type": "String" },
+        { "Id": 5, "Name": "Value", "Type": "String", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByUserProviderAndName", "Fields": [2, 3, 4], "Unique": true }
+      ]
+    },
+    {
+      "Id": 7,
+      "Name": "IdentityRoleClaim",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Guid" },
+        { "Id": 2, "Name": "RoleId", "Type": "String" },
+        { "Id": 3, "Name": "ClaimType", "Type": "String" },
+        { "Id": 4, "Name": "ClaimValue", "Type": "String", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByRole", "Fields": [2] }
+      ]
+    },
+    {
+      "Id": 8,
+      "Name": "Tenant",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Int64" },
+        { "Id": 2, "Name": "Name", "Type": "String" }
+      ],
+      "PrimaryKey": [1]
+    }
+  ]
+}

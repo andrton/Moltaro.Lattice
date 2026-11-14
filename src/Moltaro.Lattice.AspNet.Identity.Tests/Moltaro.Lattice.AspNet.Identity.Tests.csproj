@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Tests read as usage examples; they do not thread the test cancellation token through every call. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The specification tests set up the whole of ASP.NET Core Identity, not only its stores.
+         The framework also brings the hosting and dependency injection packages. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice.AspNet.Identity\Moltaro.Lattice.AspNet.Identity.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="app.schema.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Identity" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Moltaro.Lattice.Schema" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

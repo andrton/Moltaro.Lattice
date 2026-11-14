@@ -1,0 +1,37 @@
+{
+  "SchemaVersion": 1,
+  "Tables": [
+    {
+      "Id": 1,
+      "Name": "User",
+      "ClrType": "Moltaro.Lattice.Samples.User",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Int64" },
+        { "Id": 2, "Name": "Name", "Type": "String" },
+        { "Id": 3, "Name": "Department", "Type": "String", "Nullable": true },
+        { "Id": 4, "Name": "Enabled", "Type": "Boolean" },
+        { "Id": 5, "Name": "Email", "Type": "String", "Nullable": true }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByEmail", "Fields": [5] },
+        { "Name": "ByDepartmentAndName", "Fields": [3, 2] }
+      ]
+    },
+    {
+      "Id": 2,
+      "Name": "Setting",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "String" },
+        { "Id": 2, "Name": "Section", "Type": "String" },
+        { "Id": 3, "Name": "Name", "Type": "String" },
+        { "Id": 4, "Name": "Value", "Type": "String" },
+        { "Id": 5, "Name": "Priority", "Type": "Int32" }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "BySectionAndName", "Fields": [2, 3] }
+      ]
+    }
+  ]
+}

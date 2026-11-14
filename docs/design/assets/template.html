@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The accepted architecture of Moltaro.Lattice: native object storage, master-coordinated writes, PostgreSQL durability and local read replicas.">
+  <title>Moltaro.Lattice · Architecture</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/diagrams.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#document">Skip to architecture</a>
+  <aside class="sidebar">
+    <a class="brand" href="#document">Moltaro<span>.Lattice</span></a>
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="page-navigation">Contents</button>
+    <div id="page-navigation">
+      <p class="edition">Architecture<br><time datetime="2026-11-14">14 November 2026</time></p>
+      <nav aria-label="Architecture sections">
+        <a href="#engine-and-distribution"><span class="nav-number">01</span> System</a>
+        <a href="#objects-and-schema"><span class="nav-number">02</span> Objects &amp; schema</a>
+        <a href="#memory-and-strings"><span class="nav-number">03</span> Memory &amp; strings</a>
+        <a href="#reads-and-indexes"><span class="nav-number">04</span> Reads &amp; indexes</a>
+        <a href="#writes-and-durability"><span class="nav-number">05</span> Writes &amp; durability</a>
+        <a href="#replica-lifecycle"><span class="nav-number">06</span> Replicas</a>
+        <a href="#operations-and-milestone-scope"><span class="nav-number">07</span> Operations &amp; scope</a>
+        <a href="#release-targets"><span class="nav-number">08</span> Release targets</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <a href="milestone-1-engine-contract.md">Full specification ↗</a>
+        <a href="planning-handoff.md">Planning handoff ↗</a>
+        <a href="README.md">Documentation map ↗</a>
+      </div>
+    </div>
+  </aside>
+  <main id="document" tabindex="-1">
+    <header class="page-meta"><span>Engineering / architecture</span><button id="animation-toggle" type="button" aria-pressed="false">Play motion</button></header>
+    <article>
+      {{CONTENT}}
+    </article>
+    <footer><span>Moltaro.Lattice · First production milestone</span><a href="architecture.md">Markdown source ↗</a><p>Diagrams explain the accepted design. They do not measure performance or represent a running database.</p></footer>
+  </main>
+</body>
+</html>

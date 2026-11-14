@@ -1,0 +1,73 @@
+namespace Moltaro.Lattice;
+
+/// <summary>
+/// Reason of a <see cref="LatticeException"/>.
+/// </summary>
+public enum LatticeErrorEnum
+{
+    /// <summary>The database options are missing a required value or combine incompatible ones.</summary>
+    InvalidConfiguration = 1,
+
+    /// <summary>The schema descriptor or the compiled schema is not valid.</summary>
+    InvalidSchema = 10,
+
+    /// <summary>
+    /// The requested entity type does not exist in the schema, or the .NET class does not
+    /// match its declaration.
+    /// </summary>
+    BindingFailed = 2,
+
+    /// <summary>The submitted entity violates the schema. Nothing was written.</summary>
+    ValidationFailed = 3,
+
+    /// <summary>Insert found an existing entity with the same primary key. Nothing was written.</summary>
+    DuplicateKey = 4,
+
+    /// <summary>Replace found no entity with the given primary key. Nothing was written.</summary>
+    NotFound = 5,
+
+    /// <summary>
+    /// The entity changed or disappeared since the expected revision was read. Nothing was
+    /// written; the application decides whether to read again and resubmit.
+    /// </summary>
+    RevisionConflict = 6,
+
+    /// <summary>
+    /// The write was refused before execution, for example because a memory, queue or
+    /// storage-recovery budget was exhausted. It was not executed and will not execute later.
+    /// </summary>
+    WriteRejected = 7,
+
+    /// <summary>
+    /// The outcome of the write is unknown: it may or may not have been committed. Losing the
+    /// response does not prove a rollback, so the write must not be blindly repeated.
+    /// </summary>
+    IndeterminateOutcome = 8,
+
+    /// <summary>
+    /// The instance cannot serve the operation in its current state: it is not ready yet,
+    /// is reloading or has faulted.
+    /// </summary>
+    Unavailable = 9,
+
+    /// <summary>
+    /// The node did not reach the required position within the synchronization timeout.
+    /// Nothing stale was returned. When <see cref="LatticeException.CommittedPosition"/> is
+    /// set, the write itself is committed and only its arrival on this node is late.
+    /// </summary>
+    SynchronizationTimeout = 11,
+
+    /// <summary>
+    /// The required position belongs to another database history, for example to the
+    /// database as it was before a restore. Positions of different histories are never
+    /// compared; start a new session.
+    /// </summary>
+    HistoryMismatch = 12,
+
+    /// <summary>
+    /// The write would give two entities the same value in a unique index. Nothing was
+    /// written; a write batch is refused as a whole. <see cref="LatticeException.IndexName"/>
+    /// names the index.
+    /// </summary>
+    UniqueConstraintViolation = 13,
+}

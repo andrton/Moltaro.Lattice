@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Description>Dependency injection support for Moltaro.Lattice: the database as a singleton, opened by a background service when the application starts and closed when it stops.</Description>
+    <PackageTags>database;in-memory;dependency-injection</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- IHostedService, the .NET contract of a background service, lives in this package. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+  </ItemGroup>
+</Project>

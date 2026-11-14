@@ -1,0 +1,22 @@
+{
+  "SchemaVersion": 1,
+  "Tables": [
+    {
+      "Id": 1,
+      "Name": "Setting",
+      "Fields": [
+        { "Id": 1, "Name": "Id", "Type": "Int64", "Nullable": false },
+        { "Id": 2, "Name": "Scope", "Type": "String", "Nullable": false, "Comparison": "OrdinalIgnoreCase", "StringStorage": "Dictionary" },
+        { "Id": 3, "Name": "Name", "Type": "String", "Nullable": false, "StringStorage": "Plain" },
+        { "Id": 4, "Name": "Value", "Type": "String", "Nullable": true, "StringStorage": "Plain" },
+        { "Id": 5, "Name": "Enabled", "Type": "Boolean", "Nullable": false },
+        { "Id": 6, "Name": "Priority", "Type": "UInt8" },
+        { "Id": 7, "Name": "RetryLimit", "Type": "UInt16", "Nullable": false }
+      ],
+      "PrimaryKey": [1],
+      "Indexes": [
+        { "Name": "ByScope", "Kind": "Equality", "Fields": [2] }
+      ]
+    }
+  ]
+}

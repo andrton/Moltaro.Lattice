@@ -1,0 +1,26 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Reproducible binaries with source paths mapped to the repository on GitHub Actions. -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!-- Shared by every package of this repository. Samples and tests are not packable. -->
+  <PropertyGroup>
+    <!-- A release build takes its version from the git tag; this one is for local builds. -->
+    <Version>0.1.0-dev</Version>
+    <Authors>Bijou Solutions</Authors>
+    <Company>Bijou Solutions</Company>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/andrton/Moltaro.Lattice</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/andrton/Moltaro.Lattice</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- GitHub Packages has no symbol server, so the debug symbols travel inside the assembly. -->
+    <DebugType>embedded</DebugType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+</Project>

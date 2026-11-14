@@ -1,0 +1,12 @@
+<figure class="diagram" aria-labelledby="session-caption">
+  <figcaption class="diagram-head" id="session-caption"><span class="diagram-title">The next request can use another pod</span><span class="diagram-label">Same history H</span></figcaption>
+  <div class="session-grid">
+    <div class="session-node"><h3>Pod A · Save returned</h3><div class="session-position">120</div><p>Master commit and local application are complete. The response carries position 120.</p></div>
+    <div class="session-node"><h3>Pod B · applied locally</h3><div class="session-position" id="session-applied">117</div><p>The next request requires at least position 120 before reading this node.</p></div>
+  </div>
+  <div class="session-controls">
+    <div class="session-result" id="session-result" role="status">Waiting: 117 is below the required position 120.</div>
+    <div class="controls"><button type="button" id="session-advance">Apply next change</button><button type="button" id="session-reset">Reset example</button></div>
+  </div>
+  <p class="diagram-foot">The required position stays fixed. A timeout fails the wait explicitly; success is a lower bound, not a frozen snapshot.</p>
+</figure>
