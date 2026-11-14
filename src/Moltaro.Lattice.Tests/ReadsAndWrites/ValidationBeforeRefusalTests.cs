@@ -67,6 +67,19 @@ public sealed class ValidationBeforeRefusalTests
         await ExpectValidationFailedAsync(database, database.Set("Holder"), record, (batch, value) => batch.Insert(value));
     }
 
+    [Fact(Skip = NotImplemented.SchemaValues)]
+    public async Task Record_made_invalid_through_a_collection_of_an_owned_value_it_returned_is_ValidationFailed_when_written()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: NestedSchema());
+        var record = ValidRecord(database.Schema);
+
+        // The owned value Work returns its own Lines; a null added there changes the record
+        // without a check.
+        record.Get<LatticeOwnedValue>("Work")!.Get<List<string>>("Lines")!.Add(null!);
+
+        await ExpectValidationFailedAsync(database, database.Set("Holder"), record, (batch, value) => batch.Insert(value));
+    }
+
     [Theory(Skip = NotImplemented.SchemaValues)]
     [InlineData("a null in Tags")]
     [InlineData("Work is null")]
