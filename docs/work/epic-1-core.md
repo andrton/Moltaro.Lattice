@@ -553,8 +553,12 @@ only how long the publication of a batch holds every read, and neither that paus
 the number 128 was ever measured. *Not chosen:* keeping a limit just in case with an
 invented value. Shapes S17, whose measurement is widened to batches of 1, 32, 1,000 and
 10,000 entities so that a limit on the number can come back with a measured value if it
-is needed. It rode in the branch of S06 under O16, with one row of the engine contract,
-one sentence of the architecture and one of the documentation of `ILatticeWriteBatch`.
+is needed. It rode in the branch of S06 under O16, with one row of the engine contract
+and one sentence of the architecture. The size limit itself is before the owner on the
+same day: whether a batch has a fixed limit of its own, 8 MiB so far, or one that follows
+from the memory budget of the instance. Until that is decided the sentences that state
+8 MiB stand as they were before this decision, and the documentation of
+`ILatticeWriteBatch` is not changed.
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
