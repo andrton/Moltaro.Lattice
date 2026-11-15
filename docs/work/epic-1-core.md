@@ -2042,8 +2042,10 @@ them.
   catalog, in field-identity order, without padding + one 16-byte descriptor for every
   String and Binary field, in field-identity order. A Boolean is one byte, 0 or 1. An
   Enum field has the width of its underlying type. A nullable fixed field keeps its place
-  when it is null. Every value of more than one byte is little-endian, text in a UTF-16
-  database included. Packing without padding is chosen because memory comes before speed
+  when it is null. A value of more than one byte is stored in the byte order of the
+  machine, as the block header and the descriptors are; native memory is never a durable
+  or a wire form, and the order of those forms belongs to their sprints. No test states a
+  byte order. Packing without padding is chosen because memory comes before speed
   in the engine and no measurement speaks against it; an implementer who wants alignment
   brings the number. `Compile` refuses with `InvalidSchema` a `FixedSize` above
   `Arena.MaxBlockSize`, with the entity type named.
@@ -2055,11 +2057,11 @@ them.
   changed layout is numbered belongs to S37.
 - **Where a value goes.** A String or Binary value of at most `InlineLimit` encoded bytes
   is stored in the root block after the fixed part, when the root block still fits one
-  block; an empty value is inline with length 0. A longer value of at most
+  block; an empty value is inline with length 0. Any other value of at most
   `SingleBlockLimit` bytes has one block of its own. A longer one is chunked: blocks of
   `ChunkPayload` bytes, every chunk but the last full, and one directory block of 16-byte
   descriptors, one per chunk; a value that needs more chunks than one directory block
-  holds is `WriteRejected`. A descriptor's `Location` of an inline value is its offset
+  holds is `WriteRejected`, reported by `Complete`. A descriptor's `Location` of an inline value is its offset
   from the start of the root block. The parent of a value block and of a directory is the
   root; the parent of a chunk is its directory. A null String or Binary is null in the
   bitmap and its descriptor is all zero. No member of the contract shows where a value
@@ -2067,7 +2069,8 @@ them.
   show.
 - **Which member serves which field.** `SetInteger` and `GetInteger`: Int8 to Int64 and
   an Enum whose underlying type is signed. `SetUnsigned` and `GetUnsigned`: UInt8 to
-  UInt64 and an Enum whose underlying type is unsigned. Every other member serves the one
+  UInt64 and an Enum whose underlying type is unsigned. `SetNull` and `IsNull` serve
+  every field, `GetLength` a String and a Binary field, and every other member the one
   field type of its name. A member called for a field of another type, or for a field of
   another entity type, is `ArgumentException`. A value outside the range of the field's
   width is `ValidationFailed`. Whether an Enum value is a declared member is checked from
@@ -2087,12 +2090,19 @@ them.
   entity of exactly `maxEntitySize` bytes is stored; one byte more is `WriteRejected`.
   The size and the memory of the arena are reported by `Complete`, as the block above
   says: no `Set…` member fails for either. When `Complete` fails, everything the writer
-  allocated is freed and the counters of the arena are as they were before the writer; an
-  `OutOfMemoryException` of the native allocator passes through in the same state.
-- **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of the same
-  field, any member after `Complete` or `Abandon`, and a second `Complete` are
-  `InvalidOperationException`. `Abandon` after a failed `Complete`, and a second
-  `Abandon`, do nothing. The constructor refuses a null arena or layout with
+  allocated is freed: `LiveBytes` and `ClassSlackBytes` are as they were before the
+  writer; a segment the arena obtained for the writer may stay in the reserve, so
+  `Segments` and `ReservedSegments` may differ. An `OutOfMemoryException` of the native
+  allocator passes through whichever member meets it; the caller then calls `Abandon`,
+  which frees everything as after any other failure.
+- **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of a field
+  that was set is `InvalidOperationException`. A call that was refused — malformed text,
+  a value out of range, `SetNull` of a field that is not nullable — did not set the
+  field, and a valid value may follow. After `Complete`, whether it returned or failed,
+  and after `Abandon`, every `Set…` member, `SetNull` and `Complete` are
+  `InvalidOperationException`. `Abandon` after a `Complete` that returned is
+  `InvalidOperationException` as well: the root belongs to the caller then. `Abandon`
+  after a failed `Complete`, and a second `Abandon`, do nothing. The constructor refuses a null arena or layout with
   `ArgumentNullException` and a `maxEntitySize` below 1 with
   `ArgumentOutOfRangeException`.
 - **A reader.** The constructor refuses with `ArgumentException` an address that is not a
@@ -2112,10 +2122,11 @@ them.
   depend on the order in which a Set or a Map enumerates, as lowercase hexadecimal. The
   test author states that two runs give the same records and the same digest; the digest
   of seed 42 is recorded in a test by the test author once the implementation has
-  produced it, as the fingerprints of S02 and S03 were.
-- **The measurement.** The implementer writes the development manifest — the processor,
-  the memory, the operating system and the versions of .NET, with no name of the machine
-  or of a user and no path — as a committed file of the measurement project, and the
+  produced it, as the fingerprints of S02 and S03 were: a recorded value cannot be
+  written before the code that produces it, so this one test follows the implementation.
+- **The measurement.** The implementer writes the development manifest — it names the
+  machine by its processor and its memory, the operating system and the versions of
+  .NET, with no host name, no name of a user and no path — as a committed file of the measurement project, and the
   scenario that reports the figure of "Measured"; the program is told the scenario on its
   command line. The implementer also adds the job of the measurement lane to the
   workflow, started by hand, which shows that the program runs.
