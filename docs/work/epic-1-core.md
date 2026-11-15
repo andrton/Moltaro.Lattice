@@ -2915,13 +2915,17 @@ be studied: how they do it is to be learned from their source and, in essence, r
   application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
   replaces what the milestone contract names as the initial synchronization, the
   coordinator corrects that section with the sprint and reports it to the owner.
-- **Acceptance, added.** Reads by key on 16 threads complete more in total than on one
-  thread, on the machine of the review; the figure for 1, 2, 4, 8 and 16 threads is
-  reported, with a writer and without, and the owner judges it against the aim of growth
-  close to the number of processors. The model-checked storms and the close cycles of S06
-  pass on the new protection. The scaling is a figure of a measurement and not a test of
-  the default lane; a miss of the first sentence is reported to the owner in the sprint,
-  as an early figure that misses its gate is.
+- **Acceptance, added**, as the owner set it on 15 November 2026 through the planner's
+  session. The total of reads by key grows with the number of reading threads up to the
+  number of processors, with and without a writer; the growth need not be linear. A step
+  at which more threads read less in total, beyond the noise of the measurement, stops
+  the sprint for the owner. The mechanism is one used by an established open-source
+  database or runtime, named in the report; nothing is invented here. The figure for 1,
+  2, 4, 8 and 16 threads is measured on the machine of the review and reported to the
+  owner at the close in any case; when the three conditions hold — every test of the
+  sprint passes, the total grows, the mechanism is a proven one — it does not gate the
+  merge. The model-checked storms and the close cycles of S06 pass on the new protection.
+  The scaling is a figure of a measurement and not a test of the default lane.
 - **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
   and 16 threads, without a writer and with one, before and after the change.
 - If the coordinator judges that this makes the sprint too large for one implementer and
