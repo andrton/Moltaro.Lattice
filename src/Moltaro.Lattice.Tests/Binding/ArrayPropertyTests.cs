@@ -2,9 +2,10 @@ namespace Moltaro.Lattice.Tests.Binding;
 
 // A property of an array type binds by its declared type, and at run time it may hold an array
 // of another element type, which the runtime takes for it: an sbyte[] in a byte[] property, a
-// uint[] in an int[] one. Such an object is refused with ValidationFailed when it is written, and
-// nothing of it is stored. A multi-dimensional array is not a List, and the message of its
-// refusal names it as what it is.
+// uint[] in an int[] one, whose values would be read as other values. Such an object is refused
+// with ValidationFailed when it is written, also an array of them inside an array, and nothing of
+// it is stored. An array of a derived class is valid, see CovariantArrayPropertyTests. A
+// multi-dimensional array is not a List, and the message of its refusal names it as what it is.
 public sealed class ArrayPropertyTests
 {
     [Fact]
@@ -47,6 +48,19 @@ public sealed class ArrayPropertyTests
         Assert.Equal(0, batch.Count);
 
         batch.Insert(new BindingSchema.Holder<int[]> { Id = 1, Value = [3] });
+        Assert.Equal(1, batch.Count);
+    }
+
+    [Fact]
+    public async Task Array_of_byte_arrays_that_holds_signed_byte_arrays_is_ValidationFailed()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: BindingSchema.For<BindingSchema.Holder<byte[][]>>("{ 'Id': 2, 'Name': 'Value', 'Type': 'List', 'Element': { 'Type': 'Binary' } }"));
+        var batch = database.CreateWriteBatch();
+
+        TestData.ExpectError(LatticeErrorEnum.ValidationFailed, () => batch.Insert(new BindingSchema.Holder<byte[][]> { Id = 1, Value = (byte[][])(object)new sbyte[][] { [-1] } }));
+        Assert.Equal(0, batch.Count);
+
+        batch.Insert(new BindingSchema.Holder<byte[][]> { Id = 1, Value = [[255]] });
         Assert.Equal(1, batch.Count);
     }
 

@@ -19,15 +19,20 @@ internal static class SchemaJsonReader
     private static readonly string[] DeclarationProperties =
         ["Type", "Nullable", "Comparison", "StringStorage", "Enum", "OwnedType", "EntityType", "Element", "Key", "Value"];
 
-    // The text is parsed however deep it nests, with no limit of its own: the parser does not
-    // recurse, CheckText walks the text with a stack of its own, and the one recursion of this
-    // reader, into the declarations inside a collection, stops at the depth a declaration may
-    // have. So a descriptor nested however deep is refused for what it holds, a declaration too
-    // deep with its field named, as in a saved schema. Memory grows with the text; the time the
-    // parser takes grows faster than the depth, about four times for twice as deep at a depth of
-    // tens of thousands, which only text nested far beyond any declaration reaches. Never
-    // changed, so it is shared.
-    private static readonly JsonDocumentOptions Options = new() { MaxDepth = int.MaxValue };
+    // How deep the text of a descriptor is read, counting the root object as 1. The text of a
+    // valid schema nests at most SchemaBuilder.MaximumDepth + 4 deep: the root object, the array
+    // of entity types or of owned types, one of them and its array of fields come before the
+    // declaration of a field, and each level of a declaration is one object deeper; every other
+    // part of a descriptor nests less. The text is read to four times the depth of a
+    // declaration, so that a declaration too deep by far, up to 124 deep, is still read and
+    // refused by the rule of the model with its field named. Text nested deeper than this is no
+    // descriptor of a schema and is refused as a whole. The parser's work for each closing
+    // bracket grows with the depth, so this bound also keeps the time to read any text linear
+    // in its size.
+    private const int MaximumTextDepth = 4 * SchemaBuilder.MaximumDepth;
+
+    // Never changed, so it is shared.
+    private static readonly JsonDocumentOptions Options = new() { MaxDepth = MaximumTextDepth };
 
     public static LatticeSchema Read(string json)
     {
@@ -35,6 +40,10 @@ internal static class SchemaJsonReader
         try
         {
             document = JsonDocument.Parse(json, Options);
+        }
+        catch (JsonException exception) when (NestsDeeperThan(json, MaximumTextDepth))
+        {
+            throw SchemaBuilder.Invalid($"the JSON descriptor is nested more than {MaximumTextDepth} deep, deeper than any descriptor of a schema can be.", exception);
         }
         catch (JsonException exception)
         {
@@ -242,40 +251,32 @@ internal static class SchemaJsonReader
 
     // JsonDocument accepts an escaped lone surrogate, such as \ud800, and fails only when the
     // text is taken as a .NET string. Every property name and string is taken here once, so
-    // that the rest of the reader works on well-formed text. The walk keeps the elements still
-    // to look at in a stack of its own, so that the depth of the text does not reach the call
-    // stack.
+    // that the rest of the reader works on well-formed text. The walk does not recurse: it holds
+    // the enumerator of every object and array it is inside, in an array as deep as the text is
+    // read, so it keeps no more than that, however many elements the text has.
     private static void CheckText(JsonElement root)
     {
-        var pending = new Stack<JsonElement>();
-        pending.Push(root);
+        var levels = new TextLevel[MaximumTextDepth];
+        var depth = 0;
 
         try
         {
-            while (pending.TryPop(out var element))
+            Take(root);
+            while (depth > 0)
             {
-                switch (element.ValueKind)
+                ref var level = ref levels[depth - 1];
+                if (level.IsObject ? !level.Properties.MoveNext() : !level.Items.MoveNext())
                 {
-                    case JsonValueKind.Object:
-                        foreach (var property in element.EnumerateObject())
-                        {
-                            _ = property.Name;
-                            pending.Push(property.Value);
-                        }
-
-                        break;
-
-                    case JsonValueKind.Array:
-                        foreach (var item in element.EnumerateArray())
-                        {
-                            pending.Push(item);
-                        }
-
-                        break;
-
-                    case JsonValueKind.String:
-                        _ = element.GetString();
-                        break;
+                    depth--;
+                }
+                else if (level.IsObject)
+                {
+                    _ = level.Properties.Current.Name;
+                    Take(level.Properties.Current.Value);
+                }
+                else
+                {
+                    Take(level.Items.Current);
                 }
             }
         }
@@ -283,6 +284,82 @@ internal static class SchemaJsonReader
         {
             throw SchemaBuilder.Invalid("the JSON descriptor has text that is not well-formed: an escaped surrogate without its pair.", exception);
         }
+
+        // Takes a string as text, and goes into an object or an array.
+        void Take(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    levels[depth++] = new TextLevel { IsObject = true, Properties = element.EnumerateObject() };
+                    break;
+
+                case JsonValueKind.Array:
+                    levels[depth++] = new TextLevel { Items = element.EnumerateArray() };
+                    break;
+
+                case JsonValueKind.String:
+                    _ = element.GetString();
+                    break;
+            }
+        }
+    }
+
+    // Whether the objects and arrays of the text nest deeper than the given depth, the root
+    // being 1. It is asked only of text the parser refused, to tell text nested too deep from
+    // text that is not JSON. A bracket inside a string does not count, and the scan stops as
+    // soon as it knows.
+    private static bool NestsDeeperThan(string json, int depth)
+    {
+        var nesting = 0;
+        var inString = false;
+        var escaped = false;
+
+        foreach (var character in json)
+        {
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (character == '\\')
+                {
+                    escaped = true;
+                }
+                else if (character == '"')
+                {
+                    inString = false;
+                }
+            }
+            else if (character == '"')
+            {
+                inString = true;
+            }
+            else if (character is '{' or '[')
+            {
+                nesting++;
+                if (nesting > depth)
+                {
+                    return true;
+                }
+            }
+            else if (character is '}' or ']')
+            {
+                nesting--;
+            }
+        }
+
+        return false;
+    }
+
+    // One object or array the walk of CheckText is inside, with the enumerator of what it holds.
+    // The enumerators are fields, so that they move on where they are stored.
+    private struct TextLevel
+    {
+        public bool IsObject;
+        public JsonElement.ObjectEnumerator Properties;
+        public JsonElement.ArrayEnumerator Items;
     }
 
     // The declaration is an object with properties of its form only, each at most once: of a

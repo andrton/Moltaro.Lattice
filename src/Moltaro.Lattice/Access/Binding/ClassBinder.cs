@@ -104,7 +104,7 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Set => BindSet(type, declaration, place),
         LatticeFieldTypeEnum.Map => BindMap(type, declaration, place),
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
-        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => OnlyAsDeclared(type, static value => ((byte[])value).Clone(), place),
+        LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
         _ when type == declaration.PositionType => static value => value,
         _ => throw place.Mismatch(),
@@ -195,7 +195,7 @@ internal sealed class ClassBinder
     {
         if (type.IsSZArray)
         {
-            return OnlyAsDeclared(type, BindSequence(type.GetElementType()!, declaration, place), place);
+            return ReadAsTheyAre(type, BindSequence(type.GetElementType()!, declaration, place), place);
         }
 
         var elementType = GenericArgument(type, typeof(List<>)) ?? throw place.Mismatch();
@@ -203,16 +203,17 @@ internal sealed class ClassBinder
         return BindSequence(elementType, declaration, place);
     }
 
-    // A property of an array type may hold an array of another element type at run time: the
-    // runtime takes an array of one integer type for one of another of the same size, and an
-    // array of an enum for one of its underlying type, and its values would be read as other
-    // values. Such an array is refused when it is written, as a record refuses it when it is
-    // set.
-    private Func<object, object> OnlyAsDeclared(Type arrayType, Func<object, object> toRecord, Place place)
+    // A property of an array type, or an array element of one, may hold an array of another
+    // element type at run time, which the runtime lets stand for it. It is taken or refused by
+    // the rule of ArrayElements: an array of a class derived from the declared one is taken,
+    // and an array whose elements would be read as other values, such as a uint[] in an int[]
+    // property, is refused when it is written, as a record refuses it when it is set.
+    private Func<object, object> ReadAsTheyAre(Type arrayType, Func<object, object> toRecord, Place place)
     {
         var entityTypeName = _entityType.Name;
+        var declaredElementType = arrayType.GetElementType()!;
 
-        return value => value.GetType() == arrayType
+        return value => value.GetType() == arrayType || ArrayElements.AreReadAsTheyAre(value.GetType(), declaredElementType)
             ? toRecord(value)
             : throw ValidationFailed(entityTypeName, place.Holds($"a {Place.TypeName(value.GetType())} where {Place.TypeName(arrayType)} is declared"));
     }

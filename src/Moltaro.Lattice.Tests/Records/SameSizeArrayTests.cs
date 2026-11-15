@@ -2,10 +2,11 @@ namespace Moltaro.Lattice.Tests.Records;
 
 // The runtime takes an array of one integer type for an array of another of the same size, and
 // an array of an enum for one of its underlying type: a uint[] passes as an int[], an sbyte[] as
-// a byte[]. A record takes an array for a collection, and a byte array for a Binary value, only
-// when its element type is exactly the declared one; any other is refused with the field named,
-// and its values are never read as other values. That holds at every position and depth, in a
-// record and in an owned value, when a value is set and when a record is written.
+// a byte[], and its values would be read as other values. A record refuses such an array for a
+// collection with the field named, and takes nothing but a byte[] for a Binary value. That holds
+// at every position and depth, in a record and in an owned value, when a value is set and when a
+// record is written. An array of a class derived from the declared one is taken, see
+// CovariantArrayTests.
 public sealed class SameSizeArrayTests
 {
     [Fact]
