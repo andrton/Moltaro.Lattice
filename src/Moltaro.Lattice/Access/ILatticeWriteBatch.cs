@@ -22,9 +22,12 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>Building.</b> Adding an operation contacts nothing. The entity or record is copied
 /// when it is added, so later edits of the object are not part of the batch. A batch
-/// takes one operation per entity: adding a second operation for the same entity type and
-/// primary key is an <see cref="ArgumentException"/>, and the batch stays as it was. An
-/// entity that violates the schema is refused when it is added, with
+/// takes one operation per entity. Two operations address the same entity when they name the
+/// same entity type and their primary keys are equal as the schema compares them: an integer
+/// key by its value whatever the width it was given in, a String key under the comparison
+/// declared for the key field. Adding a second operation for the same entity is an
+/// <see cref="ArgumentException"/>, and the batch stays as it was. An entity that violates the
+/// schema is refused when it is added, with
 /// <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not well-formed — a
 /// surrogate without its pair — is refused in the same way, at any depth, and is never stored
 /// and never replaced by another character. A String or Binary value of a field of the entity
