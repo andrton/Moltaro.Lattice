@@ -2698,6 +2698,27 @@ UTF-16 encoding gets its pair of cases here, where such a schema is first writte
 `OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
 and are not edited in S07.
 
+**Carried by this sprint besides its own work**, under decision O16, after its
+implementation commit and tests first: the planner's answer to Q45 of the
+[open questions](open-questions.md). A batch identifies an entity by its entity type and
+its primary key as the schema reads the key, not as the caller spelled it: two operations
+address one entity when their keys are equal after the key is brought to the declared
+key type and compared under the comparison the schema declares for the key field. For a
+String key compared without case "Main" and "MAIN" are one entity, and for an integer
+key 5 given as Int32 and 5 given as Int64 are one entity. The second operation is an
+`ArgumentException` when it is added, and the batch stays as it was. The check lives in
+the core, in the batch, so both implementations refuse alike, and it uses the
+normalization a read by key applies; no second rule of equality is written. The test
+author adds the scenario tests (a String key without case; an integer key of two widths;
+by class and by record; the batch unchanged after the refusal) and writes the remarks of
+`ILatticeWriteBatch` in the same commit, replacing the sentence that begins "A batch
+takes one operation per entity": "A batch takes one operation per entity. Two
+operations address the same entity when they name the same entity type and their primary
+keys are equal as the schema compares them: an integer key by its value whatever the
+width it was given in, a String key under the comparison declared for the key field.
+Adding a second operation for the same entity is an `ArgumentException`, and the batch
+stays as it was." The implementer then changes the check of the batch.
+
 #### S08 · Enumeration under change and the growth of the index
 
 **Track:** full · **Needs:** S07 · **Decisions:** O12 · **Owners:** E03, E04
