@@ -63,9 +63,9 @@ in the meantime.
 | | |
 | --- | --- |
 | **Found** | 15 November 2026, the owner's decision O18 on the limits of a write batch |
-| **Question** | A batch has no limit of its own, and a bounded buffer never refuses one transaction for its own size. The briefs of S09 and S17 say what follows for the queued write input and for the batch. Three places wait for the contracts of their stages: the journal and the application of the base, where one transaction larger than a batch of base application is applied alone, within bounded memory; replication, where one transaction larger than the pending replication buffer is delivered, and a child that cannot hold it pauses as Q14 says and reloads by S34; and the hard limit of the journal as the one storage bound a batch can meet. Principle 5 of `AGENTS.md` still calls a batch "bounded"; the planner reported the sentence to the owner |
+| **Question** | A batch has no limit of its own, and a bounded buffer never refuses one transaction for its own size. The briefs of S09 and S17 say what follows for the queued write input and for the batch. Three places wait for the contracts of their stages: the journal and the application of the base, where one transaction larger than a batch of base application is applied alone, within bounded memory; replication, where one transaction larger than the pending replication buffer is delivered, and a child that cannot hold it pauses as Q14 says and reloads by S34; and the hard limit of the journal as the one storage bound a batch can meet. |
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
-| **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36; the owner for the sentence of `AGENTS.md` |
+| **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
 ## Answered
 
