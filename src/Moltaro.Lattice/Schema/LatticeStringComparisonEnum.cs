@@ -19,10 +19,12 @@ public enum LatticeStringComparisonEnum : byte
     Ordinal = 1,
 
     /// <summary>
-    /// Comparison of the characters that ignores case, as
-    /// <see cref="StringComparison.OrdinalIgnoreCase"/>: <c>Main</c> and <c>main</c> are equal,
-    /// so a unique index refuses the second. It is not language-aware, and it does not
-    /// remove accents, trim whitespace or normalize the text.
+    /// Text is equal whatever its case. Lattice compares with a case table of its own, the simple
+    /// uppercase mapping of Unicode 16.0.0, character by character, so the result is the same in
+    /// every process, on every node and under every globalization setting. No culture is applied
+    /// and nothing is normalized. For a small number of rare characters the result can differ
+    /// from <see cref="StringComparison.OrdinalIgnoreCase"/> of the running process. It is not
+    /// language-aware, and it does not remove accents, trim whitespace or normalize the text.
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded

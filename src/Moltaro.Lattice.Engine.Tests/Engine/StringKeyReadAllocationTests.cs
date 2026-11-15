@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.TestSupport.Text;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
@@ -12,11 +13,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 //
 // The key repeats A, é, € and 𐐨, characters of one to four bytes in UTF-8, of which the first, the
 // second and the last have a case; it lies inline, in a block of its own and in chunks. Under
-// OrdinalIgnoreCase the measured reads are by the key and by its upper and its lower case, each where
-// .NET holds it equal to the key in the process the test runs in: the lower case differs from the key
-// in ASCII, which every globalization folds, and the upper case outside ASCII and, with ICU, outside
-// the basic plane. So the workspace the first read reserved serves another spelling of the same
-// length; a read of an absent key of that length allocates nothing. Measured as
+// OrdinalIgnoreCase the measured reads are by the key and by its spelling by the case table of
+// Lattice's own, its simple uppercase mapping of Unicode 16.0.0 (CaseRule of
+// Moltaro.Lattice.TestSupport), which differs from it outside ASCII and outside the basic plane. So the
+// workspace the first read reserved serves another spelling of the same length; a read of an absent key
+// of that length allocates nothing. Measured as
 // ReadAllocationTests measures, in the test collection of the tests that measure managed allocation.
 [Collection<ManagedAllocationCollection>]
 public sealed class StringKeyReadAllocationTests
@@ -119,9 +120,7 @@ public sealed class StringKeyReadAllocationTests
         const string Pattern = "Aé€𐐨";
 
         var key = string.Concat(Enumerable.Repeat(Pattern, length / Pattern.Length));
-        string[] spellings = comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase
-            ? [key, .. new[] { key.ToUpperInvariant(), key.ToLowerInvariant() }.Where(other => string.Equals(key, other, StringComparison.OrdinalIgnoreCase))]
-            : [key];
+        string[] spellings = comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? [key, CaseRule.ToUpper(key)] : [key];
 
         return (key, spellings, 'Z' + key[1..]);
     }

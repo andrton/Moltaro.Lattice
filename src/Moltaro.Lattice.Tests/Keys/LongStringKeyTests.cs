@@ -1,3 +1,4 @@
+using Moltaro.Lattice.TestSupport.Text;
 using static Moltaro.Lattice.Tests.Keys.StringKeySchema;
 
 namespace Moltaro.Lattice.Tests.Keys;
@@ -7,10 +8,9 @@ namespace Moltaro.Lattice.Tests.Keys;
 // The key repeats a, é, € and 𐐨, characters of one, two, three and four bytes in UTF-8, so that it
 // lies in chunks of the arena whose boundaries fall inside a character, and in UTF-16 between the two
 // halves of a surrogate pair. Under Ordinal another spelling is another key; under OrdinalIgnoreCase
-// the key is found as its upper case as well, where .NET holds the two equal in the process the test
-// runs in: it does with ICU, and under NLS, which holds the Deseret letters different, the upper case
-// is another key. A key that differs only in its last character, after every chunk, is another key
-// under both comparisons.
+// the key is found as its spelling by the case table as well, its simple uppercase mapping of Unicode
+// 16.0.0 (CaseRule of Moltaro.Lattice.TestSupport), which differs from it in a, é and 𐐨. A key that
+// differs only in its last character, after every chunk, is another key under both comparisons.
 //
 // The placeholder stores a String key compared with Ordinal in a UTF-8 database and runs that case
 // too; the other cases run on the engine only, which the placeholder refuses until S12.
@@ -38,7 +38,7 @@ public sealed class LongStringKeyTests
         var notes = database.Set<Note>();
         var records = database.Set("Note");
         var key = KeyEndingWith('z');
-        var upper = key.ToUpperInvariant();
+        var upper = CaseRule.ToUpper(key);
         var ignoresCase = comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase;
 
         await notes.InsertAsync(new Note { Name = key, Body = "first" });
@@ -50,11 +50,9 @@ public sealed class LongStringKeyTests
         Assert.Equal("other", notes.Get(KeyEndingWith('y'))!.Body);
         Assert.Null(notes.Get(KeyEndingWith('x')));
 
-        // Its upper case is the key where the comparison of .NET holds the two equal in this process,
-        // never under Ordinal, and then it is found with the spelling it was created with.
-        var upperIsTheKey = string.Equals(key, upper, ignoresCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-
-        if (upperIsTheKey)
+        // Its upper case is the key when the comparison ignores case, and then it is found with the
+        // spelling it was created with.
+        if (ignoresCase)
         {
             Assert.Equal(key, records.Get(upper)!["Name"]);
         }
@@ -65,7 +63,7 @@ public sealed class LongStringKeyTests
 
         // Replaced through the class and by name, then deleted, under the spelling the comparison
         // finds it by.
-        var spelling = upperIsTheKey ? upper : key;
+        var spelling = ignoresCase ? upper : key;
 
         await notes.ReplaceAsync(new Note { Name = spelling, Body = "replaced" });
         Assert.Equal("replaced", notes.Get(key)!.Body);

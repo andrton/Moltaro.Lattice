@@ -1,64 +1,64 @@
+using Moltaro.Lattice.TestSupport.Text;
 using static Moltaro.Lattice.Tests.Keys.StringKeySchema;
 
 namespace Moltaro.Lattice.Tests.Keys;
 
-// A String key compared without case (Q04; brief of Epic 1, sprint S07). It follows
-// StringComparison.OrdinalIgnoreCase of .NET, the semantic reference Q04 names: two keys that it holds
-// equal are one key. An entity is found under every spelling of its key and under no other text; an
-// insert under another spelling of a stored key is DuplicateKey; a replace and an upsert through
-// another spelling keep the spelling the entity was created with, since the primary key is immutable,
-// and replace every other field; a delete through another spelling deletes. All of it alike in a UTF-8
-// and in a UTF-16 database, through the class and by name.
+// A String key compared without case (Q04; brief of Epic 1, sprint S07). It follows the case table of
+// Lattice's own (decision on strings, Q04, the addition of 15 November 2026; the owner's answer to
+// Q46): two keys are one key when they are equal scalar value by scalar value after the simple
+// uppercase mapping of Unicode 16.0.0, the same in every process and under every globalization mode.
+// An entity is found under every spelling of its key and under no other text; an insert under another
+// spelling of a stored key is DuplicateKey; a replace and an upsert through another spelling keep the
+// spelling the entity was created with, since the primary key is immutable, and replace every other
+// field; a delete through another spelling deletes. All of it alike in a UTF-8 and in a UTF-16
+// database, through the class and by name.
 //
-// What a lookup finds is computed with string.Equals(…, StringComparison.OrdinalIgnoreCase) and not
-// written down. The keys and the texts looked up are chosen so that every case folding that differs
-// from it gives a wrong answer for some of them, as measured on .NET 10:
+// What a lookup finds is computed by the rule from the data of Unicode 16.0.0 (CaseRule of
+// Moltaro.Lattice.TestSupport), never by the runtime, and not written down. The keys and the texts
+// looked up are chosen so that every comparison that differs from the table gives a wrong answer for
+// some of them:
 // - a folding of ASCII letters only does not find Été as ÉTÉ, Жук as ЖУК, ΟΔΟΣ as οδοσ or 𐐀𐐩 as 𐐨𐐁;
-// - a folding of each UTF-16 code unit, which stops at the basic plane, does not find 𐐀𐐩 (Deseret)
+// - a mapping of each UTF-16 code unit, which stops at the basic plane, does not find 𐐀𐐩 (Deseret)
 //   as 𐐨𐐁 or 𐐀𐐁;
 // - a comparison by the invariant culture that ignores case finds kilo under the Kelvin sign K, café
 //   under cafe with a combining accent, ab under a soft hyphen between its letters, Straße under
-//   STRAẞE and the mathematical bold 𝐀 under 𝐚, all of which OrdinalIgnoreCase holds different;
-// - a folding by ToLowerInvariant does not find ΟΔΟΣ as οδος, with a final sigma, or 5µm, with the
-//   micro sign, as 5ΜM, and finds kilo under the Kelvin sign;
-// - a folding by ToUpperInvariant finds sun under ſun, with a long s;
-// - a full case folding finds Straße under STRASSE.
-// The hash has to agree with the comparison: a hash of the code units under an equality that ignores
-// case finds no other spelling.
-//
-// Which texts .NET holds equal depends on the globalization the process runs with: ICU by default,
-// NLS on Windows when the process asks for it, or the invariant mode. Under NLS, for example, the
-// Deseret letters above are different texts. So a test takes a text for another spelling of a key
-// only where string.Equals(…, StringComparison.OrdinalIgnoreCase) holds them equal in the process it
-// runs in, and leaves out a spelling that it holds different there; the measurements above are those
-// of ICU. Spellings in ASCII are equal under every globalization.
+//   STRAẞE and the mathematical bold 𝐀 under 𝐚, all of which the table holds different;
+// - a mapping to lowercase does not find ΟΔΟΣ as οδος, with a final sigma, or 5µm, with the micro
+//   sign, as 5ΜM, and finds kilo under the Kelvin sign;
+// - StringComparison.OrdinalIgnoreCase of .NET, in every globalization mode, does not find sun as ſun,
+//   with a long s, whose simple uppercase mapping is S;
+// - a full case mapping finds Straße under STRASSE.
+// The hash has to agree with the comparison: a hash that does not follow the table puts two spellings
+// of one key in different buckets, and the other spelling is not found.
 //
 // Engine only: the placeholder refuses an entity type with a comparison without case until S12.
 public sealed class CaseInsensitiveKeyTests
 {
-    // Keys that OrdinalIgnoreCase holds different from each other.
+    // Keys that the case table holds different from each other.
     private static readonly string[] StoredKeys =
     [
         "Main", "Été", "Жук", "ΟΔΟΣ", "5µm", "𐐀𐐩", "sun", "kilo", "Straße", "café", "ab", "𝐀", "42", "",
     ];
 
-    // Other spellings of the keys, and texts that only a wrong folding takes for one, besides the keys
-    // themselves and their upper and lower case by the invariant culture.
+    // Other spellings of the keys, and texts that only a wrong comparison takes for one, besides the keys
+    // themselves and their spelling by the table.
     private static readonly string[] OtherTexts =
     [
         "mAIN", "éTÉ", "οδος", "οδοσ", "5ΜM", "𐐨𐐁", "𐐀𐐁", "ſun", "Kilo", "STRASSE", "STRAẞE", "STRAßE", "café", "CAFÉ", "a­b",
         "𝐚", "Mai", "Main ", "ΟΔΟ",
     ];
 
-    // A stored key and two other spellings of it: ASCII, outside ASCII, and outside the basic plane;
-    // each where .NET holds all three one key in this process.
-    private static readonly (string Stored, string Other, string Third)[] Spellings =
-    [
-        .. new[] { ("Main", "mAIN", "MAIN"), ("Été", "éTÉ", "ÉTÉ"), ("𐐀𐐩", "𐐨𐐁", "𐐀𐐁") }
-            .Where(spelling => IsSameKey(spelling.Item1, spelling.Item2) && IsSameKey(spelling.Item1, spelling.Item3)),
-    ];
+    // A stored key and two other spellings of it, which the table holds one key: ASCII, outside ASCII,
+    // and outside the basic plane.
+    private static readonly (string Stored, string Other, string Third)[] Spellings = [("Main", "mAIN", "MAIN"), ("Été", "éTÉ", "ÉTÉ"), ("𐐀𐐩", "𐐨𐐁", "𐐀𐐁")];
 
-    [Theory]
+    [Fact]
+    public void Spellings_are_one_key_by_the_case_table()
+    {
+        Assert.All(Spellings, spelling => Assert.True(CaseRule.Equal(spelling.Stored, spelling.Other) && CaseRule.Equal(spelling.Stored, spelling.Third)));
+    }
+
+    [Theory(Skip = NotImplemented.CaseTable)]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Entity_is_found_under_every_spelling_of_its_key_and_under_no_other_text(LatticeStringEncodingEnum encoding)
@@ -68,7 +68,7 @@ public sealed class CaseInsensitiveKeyTests
         var records = database.Set("Note");
 
         // No two keys are one key, or an insert would be refused.
-        Assert.All(StoredKeys, key => Assert.Single(StoredKeys, other => string.Equals(key, other, StringComparison.OrdinalIgnoreCase)));
+        Assert.All(StoredKeys, key => Assert.Single(StoredKeys, other => CaseRule.Equal(key, other)));
 
         for (var index = 0; index < StoredKeys.Length; index++)
         {
@@ -85,13 +85,12 @@ public sealed class CaseInsensitiveKeyTests
         }
 
         var texts = StoredKeys
-            .Concat(StoredKeys.Select(key => key.ToUpperInvariant()))
-            .Concat(StoredKeys.Select(key => key.ToLowerInvariant()))
+            .Concat(StoredKeys.Select(CaseRule.ToUpper))
             .Concat(OtherTexts);
 
         foreach (var text in texts)
         {
-            var expected = Array.FindIndex(StoredKeys, key => string.Equals(key, text, StringComparison.OrdinalIgnoreCase));
+            var expected = Array.FindIndex(StoredKeys, key => CaseRule.Equal(key, text));
             var note = notes.Get(text);
             var record = records.Get(text);
 
@@ -227,9 +226,6 @@ public sealed class CaseInsensitiveKeyTests
 
     private static ValueTask<ILatticeDatabase> OpenAsync(LatticeStringEncodingEnum encoding) =>
         TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, StringKeySchema.Of(encoding, LatticeStringComparisonEnum.OrdinalIgnoreCase));
-
-    // Whether .NET holds the two texts one key in this process.
-    private static bool IsSameKey(string key, string other) => string.Equals(key, other, StringComparison.OrdinalIgnoreCase);
 
     // The entity of the key has the spelling it was created with and the body, through the class and
     // by name, under each of its spellings.
