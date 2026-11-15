@@ -99,9 +99,9 @@ a role by name are one search through a unique index. Nothing is found by enumer
 
 **A change of several entities is one write batch.** Deleting a user removes the user and
 its roles, claims, logins and tokens, either all or none. Adding or replacing several
-claims is one batch. The batch is bounded by the master, by default to 128 entities, so a
-user with more belongings than a batch may hold cannot be deleted in one step; the store
-reports that and does not delete in parts.
+claims is one batch. By decision O18 of Epic 1 a batch has no limit of its own, so a user
+is deleted in one step however many belongings it has; a batch that the master cannot
+hold is refused as a whole, and the store reports that and does not delete in parts.
 
 **Concurrency.** Saving a user is: read the stored user together with its revision; fail
 with a concurrency error if its `ConcurrencyStamp` differs from the one in the copy being

@@ -44,7 +44,10 @@ indexes, comparison rules, coherent publication or durability.
   covers owned data, excluding the contents of referenced roots. Oversized mutations
   fail before commit. The numerical threshold is to be measured; the cap is separate
   from the instance memory budget and bounded WriteBatch.
-- A bounded explicit WriteBatch is atomic within one database. Construction holds
+  **Changed by the owner on 15 November 2026:** an entity has no size limit of its own; it
+  is refused only when the memory budget cannot hold it.
+- An explicit WriteBatch is atomic within one database; since 15 November 2026 it has no
+  limit of its own on its operations or its size. Construction holds
   no engine locks; readers continue through preparation/storage I/O, and a database
   barrier closes access for whole-batch publication. Replay and replicas preserve
   that boundary. Separate reads/scans do not gain a shared snapshot.
@@ -291,7 +294,7 @@ There is one commit for the whole group, not an independent commit per object. T
 requires one operation per type/key inside the explicit batch and rejects the whole
 batch before commit on repetition. This does not restrict separate ordinary writes
 or repeated edits of one caller-owned value before a single Save. The
-[accepted package](questions/write-batch.md) is one bounded application
+[accepted package](questions/write-batch.md) is one application
 batch in one database. Construct it without engine locks, prepare
 and validate the whole group, commit it together, then publish behind a database
 barrier. Readers continue during storage I/O and wait during publication; conflicting

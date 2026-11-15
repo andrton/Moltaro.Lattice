@@ -54,7 +54,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Physical index structures](../decisions/index-structures.md) | ArcSlim selected for the primary index; Arc OrderedMultiMap accepted for ordered secondary indexes; fixed-size key copies and shared protected text accepted; preparation and remaining engine integration |
 | [Mutation preparation](questions/mutation-preparation.md) | Accepted targeted partial updates and full Save replacement without diff |
 | [Write coordination and group commit](questions/master-write-order.md) | Accepted per-object coordination and internal storage batching; the milestone contract specifies the scheduler |
-| [Explicit database WriteBatch](questions/write-batch.md) | Accepted bounded atomic writes in one database; publication/read boundary and costs |
+| [Explicit database WriteBatch](questions/write-batch.md) | Accepted atomic writes in one database, without a limit of their own since 15 November 2026; publication/read boundary and costs |
 | [Publication-failure recovery](questions/publication-failure.md) | Accepted instance-wide stop and recovery through close/reopen |
 | [Operation outcomes](questions/operation-outcomes.md) | Accepted operation identity, compact retained results and bounded safe resubmission |
 | [Performance requirements](performance-requirements.md) | Accepted workload and service objectives, with measurement definitions and limits |

@@ -129,7 +129,7 @@ while PostgreSQL is unavailable.
 
 ### A WriteBatch is one transaction
 
-A bounded batch may change different entity types in the same database. It contains
+A batch may change different entity types in the same database. It contains
 at most one operation per type/key. A batch has no limit of its own on the number of entities or on its size; it is refused
 only when the memory budget or the journal cannot hold it. Neither has one entity. Validation, durable effects and publication preserve
 its all-or-nothing boundary; children preserve that same boundary during replay.
@@ -149,7 +149,8 @@ with those updates. Foreground success does not wait for this maintenance step.
 
 Recovery loads the independent binary base, replays the remaining journal and builds
 indexes. Native compaction does not relocate persisted units. Journal size/age triggers,
-hard limits and bounded workspaces prevent unbounded retention.
+and bounded workspaces keep retention down; a hard limit of the journal is an option that
+is not set by default.
 
 Operation IDs and retained outcomes support safe same-operation retry within the
 configurable **15-minute default window**. An unknown commit is not treated as rollback.
