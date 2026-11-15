@@ -137,8 +137,10 @@ public sealed class BlockTests
             Assert.Throws<InvalidOperationException>(() => arena.Payload(address));
         }
 
-        // The block is still a block of the arena, and it can be freed.
+        // The block is still a block of the arena. With the length it was given back in its header,
+        // it can be freed.
         Assert.True(arena.IsValid(address));
+        arena.Header(address).PayloadLength = 100;
         arena.Free(address);
         Assert.False(arena.IsValid(address));
     }

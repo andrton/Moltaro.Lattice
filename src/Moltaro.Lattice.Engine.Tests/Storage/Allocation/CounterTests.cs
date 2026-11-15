@@ -7,8 +7,10 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // allocation; ClassSlackBytes is the rest of their slots. PreparedBytes and RetiredBytes stay 0 in
 // S04, where a block is only allocated or free. The arena keeps the counters as blocks come and go
 // (Q17), and after any sequence of allocations and frees they equal what the test can add up
-// itself from the blocks it keeps. The counters of regions and segments are stated by the tests
-// of segments and of the budget.
+// itself from the blocks it keeps. Nothing in S04 changes the length of a live block, so no test
+// reads these two counters after another PayloadLength was written through Header (brief,
+// "Counters"). The counters of regions and segments are stated by the tests of segments and of
+// the budget.
 public sealed class CounterTests
 {
     [Fact(Skip = NotImplemented.Arena)]
@@ -40,23 +42,6 @@ public sealed class CounterTests
 
             AssertCountersMatch(tally, arena);
         }
-    }
-
-    [Fact(Skip = NotImplemented.Arena)]
-    public void Live_bytes_count_the_payload_length_given_at_allocation_whatever_the_header_says_later()
-    {
-        using var arena = Arenas.Open();
-        var address = Arenas.Allocate(arena, 100);
-        var allocated = arena.Counters;
-
-        arena.Header(address).PayloadLength = 10;
-
-        Assert.Equal(allocated, arena.Counters);
-
-        arena.Free(address);
-
-        Assert.Equal(0, arena.Counters.LiveBytes);
-        Assert.Equal(0, arena.Counters.ClassSlackBytes);
     }
 
     [Fact(Skip = NotImplemented.Arena)]
