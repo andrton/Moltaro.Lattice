@@ -95,7 +95,7 @@ and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Limits of the write queue and of memory as options; resource errors. An entity and a batch have no limit of their own (decisions O18 and O19) | S08, S09, S17, S24 |
+| The memory budget as an option, the budgets of a read as options that are not set by default; resource errors. An entity, a batch and the queue of writes have no limit of their own (decisions O18, O19 and O20) | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
 | Protected read-only views | S21–S22 |
