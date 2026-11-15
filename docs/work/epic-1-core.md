@@ -3100,6 +3100,44 @@ internal sealed class BlockImport
 }
 ```
 
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S10),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- **Identity.** A MemoryOnly master takes a new random database identity with its new
+  history at each open; a Durable master reads both from its store (S27). A child has
+  neither before it loads, so in this sprint a refusal for another database, history or
+  schema cannot come from a real child: the tests of `Moltaro.Lattice.Engine.Tests` send a
+  Hello they make themselves.
+- **Byte order** (the planner's answer to point 3 of Q35). Blocks travel as the bytes of
+  the arena, in the byte order of the sending machine. `LayoutFormat` of the Hello
+  includes the byte order, and a peer of another byte order is refused with `Format`. No
+  conversion is built.
+- **A root larger than a frame.** A block with its framing does not fit one data frame,
+  and by decision O19 a root of tens of mebibytes is ordinary. The export of one root is
+  one stream, cut into `Blocks` frames of at most `MaxDataBody`; bit 0 of
+  `FrameHeader.Flags` marks the last frame of a root. The master copies a root coherently
+  under its protection into a buffer, releases the protection and then sends; the child
+  puts the frames of one root together and then imports it. Each side holds one root at
+  a time outside its arena. `BlockExport.Write` and `BlockImport.Read` keep their
+  signatures.
+- **What the child's caller sees.** While the master cannot be reached the child keeps
+  trying, with the back-off of the milestone contract, until `OpenTimeout`: a child may
+  be started before its master. A refusal by the master, a frame that is not valid and a
+  database the child's memory limit cannot hold end the open at once, without waiting
+  for the timeout: `Unavailable`, with the reason in the message, and the instance is
+  closed. Before it is Ready a child is `Loading` and every operation is `Unavailable`.
+  Until S12 a write on a child of the engine is `NotSupportedException`.
+- **The master's address.** A master binds the address the host of `ListenUri` names. A
+  failure to bind, a port in use for one, is reported as the system reports it and the
+  instance is closed. `OpenTimeout` is read by a child only.
+- **A loaded child** has the history of its master and the sequence at which the load
+  ended; `Schema`, `Set<TEntity>()` and `Set(name)` work on it as on a master.
+- **Acceptance, added.** An entity of 32 MiB is loaded by a child and equals the
+  master's. A child started before its master becomes Ready when the master opens within
+  the timeout. A child whose memory limit cannot hold the database fails its open at once
+  with `Unavailable`.
+
 #### S11 · A child loads under writes and follows the master
 
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
@@ -3169,6 +3207,24 @@ public IDisposable SuspendApplying();                        // a child holds ba
 
 A complete entity is encoded from the arena through `RootReader` and decoded through
 `RootWriter`; no value is boxed on the way.
+
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S11),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- From this sprint a master of the engine accepts writes while children are connected or
+  loading.
+- `EffectKindEnum.Unchanged` is a write that changed nothing: by the owner's answer to
+  Q39 it has a position of its own, and a child applies that position like any other.
+- With no child connected and no capture registered the master encodes and retains
+  nothing for delivery; `PendingDeliveryBytes` is 0.
+- A transaction of any size is delivered: it is cut into frames and applied only after
+  its end and its digest (decision O18). A child puts one transaction together at a time.
+- Until S24 gives a child its pause, a child whose arena cannot hold a received change
+  stops following: it keeps serving its reads at the position it has, a wait for a later
+  position on it times out, and it does not resume by itself.
+- **Acceptance, added.** A write of an entity of 32 MiB on the master reaches a child
+  whole. A delete of an absent key on the master moves the position of the child.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
@@ -3247,6 +3303,57 @@ public static class LatticeDatabase
 `SuspendApplying()`. `LatticeDatabaseOptions.Validate` gains the rule for addresses of
 S10: the scheme `lattice`, a host, a port, no path; anything else is
 `InvalidConfiguration`. The dependency injection package references the engine assembly.
+
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S12),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- **Forwarding had no frames in the brief.** Internal, namespace
+  `Moltaro.Lattice.Replication`: `FrameKindEnum` gains `WriteRequest = 10` and
+  `WriteReply = 11`, and
+
+  ```csharp
+  // The body of a forwarded write and of its answer, in the logical encoding of S11.
+  internal static class ForwardEncoding
+  {
+      public static void WriteRequest(IBufferWriter<byte> output, WriteKindEnum kind, uint typeId, ReadOnlySpan<byte> key, ReadOnlySpan<byte> entity, LatticeRevision? expectedRevision, LatticePosition? minimumPosition);
+      public static void WriteReply(IBufferWriter<byte> output, LatticeWriteResult result);
+      public static void WriteReply(IBufferWriter<byte> output, LatticeException refusal);
+      // Each refuses a truncated or malformed body with ValidationFailed.
+      public static ForwardedWrite ReadRequest(ReadOnlySequence<byte> body, LatticeSchema schema);
+      public static ForwardedReply ReadReply(ReadOnlySequence<byte> body);
+  }
+  ```
+
+  `ForwardedWrite` and `ForwardedReply` hold what the two writers take.
+  `FrameHeader.CorrelationId` pairs a reply with its request. A refusal travels with its
+  error code, its message, `Limit`, `OperationIndex` and `CommittedPosition`, and the
+  child throws a `LatticeException` equal in all of them.
+- **What a caller of a child sees.** The child checks the arguments and validates the
+  entity before it sends anything, in the order of Q25; the master validates again. A
+  child that has no connection to its master refuses a write with `Unavailable`. A
+  cancellation before the request is sent withdraws the write; after it is sent the call
+  waits for the real outcome, as on a master. When the connection ends after the request
+  was sent and before the reply arrived, the outcome is not known: `IndeterminateOutcome`.
+  S26 gives the caller a way to learn it. By the answer to Q44 a step of an enumeration
+  after a close is `ObjectDisposedException`; the engine-only test of S08 becomes a test
+  of the contract.
+- **What ends with the placeholder, beyond what the brief lists**, as forced edits of the
+  Acceptance. The test author removes `DatabaseImplementationEnum` and the parameter it
+  gave to the tests in the tests step: every test that ran on both runs once, a test
+  marked for the engine only loses the mark, and a test that ran on the placeholder only,
+  because it opened a child, runs on the engine. No assertion changes. The tests that
+  state a refusal of the placeholder which the engine does not make are removed by the
+  test author with the reason named: the tests of `TextPolicyAndEnumWriteTests` on a
+  comparison without case, an Enum field and UTF-16 "not writable yet", and the
+  placeholder cases of `MalformedTextWriteTests` and `ValueBoundWriteTests` for those
+  schemas; what they state of validation is already stated by the tests of S07. In the
+  contract commit the "Not implemented yet" remarks that S07 to S09 made untrue of the
+  engine are removed: on `OrdinalIgnoreCase`, on Enum fields and enum types, on the
+  UTF-16 encoding, and "not enforced yet" on `MemoryLimit` and on the read limits. The
+  remarks on Dictionary storage, unique indexes, index search, the write batch and the
+  field types of S03 stay. `README.md` follows. A use the build or a test finds outside
+  the lists is reported to the coordinator, as the brief already says.
 
 ### Stage 4. Indexes and batches
 
