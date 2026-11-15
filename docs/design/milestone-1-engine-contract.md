@@ -526,7 +526,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
 One root and one transaction may
-be larger than any bounded buffer of this table — the queued write input, an internal
+be larger than any bounded buffer of this table — an internal
 group, the pending replication, a batch of base application: each of them bounds what
 accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
 for its own size. What a transaction needs is reserved in the instance budget before it is

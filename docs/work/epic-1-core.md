@@ -2668,8 +2668,7 @@ table being built while the primary index grows.
   preparation runs concurrently and that a group waits at most 1 ms are checked by the
   reviews; the size of a group is asserted through the counters. An instance opened
   without `MemoryLimit` has half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as
-  its limit, and one opened with it has the given value; the limits that are shares of the budget follow
-  the limit in force.
+  its limit, and one opened with it has the given value.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2694,9 +2693,7 @@ instance opens. By the owner's answer to Q37 the default is defined by that figu
 not by the limit of the container: on a machine without limits it is the physical memory,
 in a container by default three quarters of the container's limit, and a configured heap
 hard limit of the collector lowers it. The limit in force is fixed at open and does not
-follow later changes. Every limit that is a share of the budget — the pending
-replication of S33 — is taken from the
-limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
+follow later changes. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
 `EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
 the default. The documentation of the option says in plain words the three cases above,
 that the default is per instance, that a process with several instances, production and
@@ -3629,14 +3626,17 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   and many children that start together are served within a limit.
 - **Contract.** Options for the pending delivery memory (the smaller of 32 MiB and 20%
   of the budget), the deadline of a slow peer (30 seconds) and the number of captures
-  that run at once (10).
+  that run at once (10). The default of the pending delivery memory is a share of the
+  instance budget and is taken from the limit in force at open, the given `MemoryLimit`
+  or the computed default.
 - **To read.** [Replication transport and initial loading](../design/milestone-1-engine-contract.md#replication-transport-and-initial-loading);
   [Q08.1.3 pending delivery in memory](../decisions/replication-and-hosting.md);
   [Q14 child memory pressure](../decisions/write-admission.md).
 - **Acceptance.** One delivery history serves all children, and a transaction leaves it
   when every participating child applied it. A child that holds it beyond its bytes or
   its deadline loses its claim and must reload; the other children are not disturbed.
-  The master's memory for delivery stays within the limit whatever a child does.
+  The master's memory for delivery stays within the limit whatever a child does. With
+  the default, the pending delivery memory follows the limit in force of the instance.
   Children that start together load in parallel; with the limit of captures set below
   their number, a child beyond the limit waits before its capture is registered, becomes
   ready after a turn is free, and fails with `Unavailable` when its open timeout passes
