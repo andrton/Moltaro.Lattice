@@ -6,8 +6,8 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // The figure that Epic 1, sprint S08 reports on the scaling of reads ("Measured", the owner's
 // decision on Q42): how many reads by key the engine database makes per second in total, for the
 // 100,000 users of UserDatabase, through the class, on 1, 2, 4, 8 and 16 threads and on as many
-// threads as there are logical processors when there are more than 16, alone and while one writer
-// replaces users on a thread of its own.
+// threads as there are logical processors when there are more than 16, alone and beside one writer
+// on a thread of its own; and how many writes that writer makes per second meanwhile.
 //
 // A series starts its readers, each on a thread of its own, and lets them read for a warm-up, then
 // counts the reads every thread makes in a window of a fixed length and divides their sum by the
@@ -18,11 +18,26 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // so a series can be faster or slower by the cores it was given; a figure is the result of one window,
 // and the program is run three times for a figure to be compared.
 //
-// The writer replaces users with the values they have, one after the other, as in read-by-key; how
-// many it replaced in the window is reported. No figure here judges a gate.
+// The writers, one in a series, each counting its writes in the window as the readers count theirs:
+// - one that replaces users with the values they have, one after the other, as in read-by-key;
+// - one that inserts a user of its own and deletes it again, over and over, with keys above the
+//   fixture's, so that every read still finds its user and the index keeps its size: the users stay
+//   100,000 or 100,001, and the index does not grow;
+// - one that inserts users of its own only, so that the index grows in the window. It writes in the
+//   window only, into a database of its own for the series, which it filled before the series until
+//   the index has room for 1,000 users more; so the index grows after the first 1,000 inserts of
+//   the window, and again whenever it is full. The bytes of the primary indexes before and after the
+//   window say how often it grew.
+// No figure here judges a gate.
 internal static class ReadByKeyThreadsScenario
 {
     public const string Name = "read-by-key-threads";
+
+    // The inserts of the window before the index grows, in the series in which it grows.
+    private const int RoomBeforeGrowth = 1_000;
+
+    // The users the writer that inserts and deletes takes in turn.
+    private const int OwnUsers = 1_000;
 
     private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
 
@@ -41,6 +56,19 @@ internal static class ReadByKeyThreadsScenario
         using var users = UserDatabase.Load();
 
         var keys = users.Keys(ReadByKeyScenario.KeySeed, ReadSeries.Reads);
+        var ownUsers = Enumerable.Range(users.Count + 1, OwnUsers).Select(key => users.NewUser(key)).ToArray();
+        var next = 0;
+
+        // One insert of a user of the writer and its delete: two writes.
+        int InsertAndDelete()
+        {
+            var user = ownUsers[next++ % ownUsers.Length];
+
+            users.Insert(user);
+            users.Delete((long)user[user.EntityType.Key.Name]!);
+
+            return 2;
+        }
 
         List<string> lines =
         [
@@ -52,8 +80,15 @@ internal static class ReadByKeyThreadsScenario
 
         foreach (var threads in ThreadCounts())
         {
-            lines.Add(Series(users, keys, threads, writer: false));
-            lines.Add(Series(users, keys, threads, writer: true));
+            lines.Add(Series(users, keys, threads, "alone", write: null, writesInWindowOnly: false));
+            lines.Add(Series(users, keys, threads, "with a writer that replaces", () =>
+            {
+                users.ReplaceNext();
+
+                return 1;
+            }, writesInWindowOnly: false));
+            lines.Add(Series(users, keys, threads, "with a writer that inserts and deletes", InsertAndDelete, writesInWindowOnly: false));
+            lines.Add(GrowingSeries(keys, threads));
         }
 
         return lines;
@@ -63,7 +98,27 @@ internal static class ReadByKeyThreadsScenario
     private static int[] ThreadCounts() =>
         Environment.ProcessorCount > 16 ? [1, 2, 4, 8, 16, Environment.ProcessorCount] : [1, 2, 4, 8, 16];
 
-    private static string Series(UserDatabase users, long[] keys, int readers, bool writer)
+    // The series with the writer that inserts only, in a database of its own.
+    private static string GrowingSeries(long[] keys, int readers)
+    {
+        using var users = UserDatabase.Load();
+
+        var next = users.FillBelowGrowth(RoomBeforeGrowth);
+        var before = users.IndexBytes;
+
+        int Insert()
+        {
+            users.Insert(users.NewUser(next++));
+
+            return 1;
+        }
+
+        var line = Series(users, keys, readers, "with a writer that inserts while the index grows", Insert, writesInWindowOnly: true);
+
+        return $"{line}; the primary indexes held {ReadSeries.Number(before)} bytes before the window and {ReadSeries.Number(users.IndexBytes)} after it";
+    }
+
+    private static string Series(UserDatabase users, long[] keys, int readers, string writer, Func<int>? write, bool writesInWindowOnly)
     {
         var phase = WarmingUp;
 
@@ -91,9 +146,9 @@ internal static class ReadByKeyThreadsScenario
             });
         }
 
-        if (writer)
+        if (write is not null)
         {
-            threads.Add(new Thread(() => writes = Write(users, ref phase))
+            threads.Add(new Thread(() => writes = Write(write, writesInWindowOnly, ref phase))
             {
                 IsBackground = true,
                 Name = "Writer",
@@ -129,10 +184,10 @@ internal static class ReadByKeyThreadsScenario
         }
 
         var total = reads.Sum();
-        var title = $"{readers} {(readers == 1 ? "thread" : "threads")}, {(writer ? "with a writer" : "alone")}";
+        var title = $"{readers} {(readers == 1 ? "thread" : "threads")}, {writer}";
         var line = $"{title}: {PerSecond(total, elapsed)} reads/s; {ReadSeries.Number(total)} reads in {Seconds(elapsed)} s; collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}";
 
-        return writer ? $"{line}; the writer replaced {ReadSeries.Number(writes)} entities meanwhile, {PerSecond(writes, elapsed)} per second" : line;
+        return write is null ? line : $"{line}; the writer made {ReadSeries.Number(writes)} writes meanwhile, {PerSecond(writes, elapsed)} per second";
     }
 
     // Reads keys from the place on, until the phase is Stopped, and returns how many it read while
@@ -168,9 +223,9 @@ internal static class ReadByKeyThreadsScenario
         }
     }
 
-    // Replaces users one after the other until the phase is Stopped, and returns how many it replaced
-    // while the phase was Counting.
-    private static long Write(UserDatabase users, ref int phase)
+    // Writes until the phase is Stopped, from the warm-up on or in the window only, and returns how
+    // many writes it made while the phase was Counting.
+    private static long Write(Func<int> write, bool inWindowOnly, ref int phase)
     {
         var counted = 0L;
         var counting = false;
@@ -190,8 +245,13 @@ internal static class ReadByKeyThreadsScenario
                 counted = 0;
             }
 
-            users.ReplaceNext();
-            counted++;
+            if (!counting && inWindowOnly)
+            {
+                Thread.Sleep(1);
+                continue;
+            }
+
+            counted += write();
         }
     }
 

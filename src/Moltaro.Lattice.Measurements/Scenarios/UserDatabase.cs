@@ -10,6 +10,10 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // the reference fixture without its Unique marks, inserted by name into the engine, MemoryOnly. The
 // class FixtureUser is named for the entity type User, which leaves the schema the scalar form, so
 // that the users are read through the class as well as by name.
+//
+// A writer beside the reads replaces the users with the values they have, or inserts and deletes
+// users of its own: users with keys above the fixture's, which the reads never read, made as copies
+// of the fixture's users with another key.
 internal sealed class UserDatabase : IDisposable
 {
     private readonly EngineDatabase _database;
@@ -90,6 +94,55 @@ internal sealed class UserDatabase : IDisposable
 
     // One replace of the next user with the values it has, for a writer on one thread.
     public void ReplaceNext() => ByName.ReplaceAsync(_users[_replaced++ % _users.Count]).AsTask().GetAwaiter().GetResult();
+
+    // A user of the writer with the key, above the fixture's: a copy of a user of the fixture with
+    // that key, not inserted yet.
+    public LatticeRecord NewUser(long key)
+    {
+        var template = _users[(int)((key - 1) % _users.Count)];
+        var user = new LatticeRecord(template.EntityType);
+
+        foreach (var field in template.EntityType.Fields)
+        {
+            user[field.Name] = template[field.Name];
+        }
+
+        user[template.EntityType.Key.Name] = key;
+
+        return user;
+    }
+
+    public void Insert(LatticeRecord user) => ByName.InsertAsync(user).AsTask().GetAwaiter().GetResult();
+
+    public void Delete(long key) => ByName.DeleteAsync(key).AsTask().GetAwaiter().GetResult();
+
+    // Inserts users of the writer, from the first key above the fixture's on, until the primary index
+    // has grown once and then until it holds margin users fewer than its capacity, so that the insert
+    // after margin more grows it again; returns the key of the next user to insert. The index doubles
+    // its capacity when it grows, before the key that does not fit (PrimaryIndex), so the users it
+    // held before that key are its old capacity.
+    public long FillBelowGrowth(int margin)
+    {
+        var next = (long)_users.Count + 1;
+        var bytes = _database.Counters.PrimaryIndexBytes;
+
+        while (_database.Counters.PrimaryIndexBytes == bytes)
+        {
+            Insert(NewUser(next++));
+        }
+
+        var capacity = 2 * (next - 2);
+
+        while (next - 1 < capacity - margin)
+        {
+            Insert(NewUser(next++));
+        }
+
+        return next;
+    }
+
+    // What the primary indexes hold, in bytes: it doubles when the index of the users grows.
+    public long IndexBytes => _database.Counters.PrimaryIndexBytes;
 
     public void Dispose() => _database.Dispose();
 
