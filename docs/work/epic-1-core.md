@@ -2035,7 +2035,11 @@ manifest is a committed file of this project.
   of an entity type with another key type, with a key compared without case or with an
   Enum field. Until S08 an enumeration during which the index changed fails
   with `NotSupportedException` instead of returning a set it cannot vouch for, and the
-  primary index grows under exclusive protection.
+  primary index grows under exclusive protection. By the planner's answer to Q30 of the
+  [open questions](open-questions.md): when every write has returned and no read is in
+  progress, `PreparedBytes` and `RetiredBytes` are 0 and the counters of the arena equal
+  an independent tally of what the entities hold; after a write that failed validation or
+  was refused, nothing of it is left in any counter.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2081,6 +2085,22 @@ when a delete is published; `Release` follows when the claims of S07 are gone.
 `RootEntry.LastMutationSequence` is the sequence of the position of the last published
 mutation of the root; the specification's "last mutation position" is the same eight
 bytes, because the history of a position is the database's and is not repeated per root.
+
+A block is counted in exactly one place. From its allocation until its write is published
+it is prepared: its whole slot is in `PreparedBytes`, and nothing of it is in `LiveBytes`
+or `ClassSlackBytes`. Publication moves it: its header and payload length to `LiveBytes`,
+the rest of its slot to `ClassSlackBytes`. A block that has left the published state and
+is kept until what still refers to it is gone is retired: its whole slot is in
+`RetiredBytes` until it is freed. A write that is abandoned frees its prepared blocks, and
+they leave `PreparedBytes`. So the bytes of the slots in use are always
+`LiveBytes + ClassSlackBytes + PreparedBytes + RetiredBytes`. "Every allocated block" in
+the description of `LiveBytes` in S04 holds for S04, where a block is only allocated or
+free and `TryAllocate` counts it as live; the members of the arena that allocate a block
+as prepared and move it between these states are the implementer's, as S04 leaves members
+beyond the listed ones to the implementer, and they do not change what the members of S04
+do. In S06 a write is executed alone and published at once, so a prepared block is not
+observable between writes; the rule is stated here because S06 is the first sprint with
+the transition, and S09 and the Durable sprints rely on it when prepared writes wait.
 
 #### S07 · Every key type and declared value
 
