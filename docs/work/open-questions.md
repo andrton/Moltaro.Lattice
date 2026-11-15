@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The internal exception stands; no test can reach the limit, which needs about 96 GiB of root entries |
 | **Decides** | The planner, with the resource errors of the memory budget (S24) |
 
+### Q35. What the root layout of S05 leaves to later sprints
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
+| **Question** | Five readings of entry Q34 reach into later sprints and need the planner's word there. (1) S06: `RootLayout.Compile` refuses an entity type with a field it cannot store yet, and the engine contract wants an oversized fixed part reported before data is admitted, while the brief of S06 refuses at a write; when does the engine compile a layout, and when does an application see `InvalidSchema`? (2) S08 and S09: is the size of an entity, as an application's limit counts it, the fixed part plus the encoded bytes of its String and Binary values, and is `PreparedWrite.EncodedSize` the same number? (3) S10: every value in a root is little-endian; is that also the order of the blocks a child receives? (4) S20: an inline descriptor holds an offset and a length and no capacity; where does the capacity that a partial update needs live? (5) S37: every layout has `LayoutVersion` 1; how is a changed layout numbered? |
+| **Until answered** | The readings of Q34 stand for S05 |
+| **Decides** | The planner: point 1 before S06 starts, point 2 before S08, point 3 before S10, the others before the contracts of their stages |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -329,3 +338,12 @@ in the meantime.
 | **Question** | The brief of S04 names the types and members of the arena and leaves open what several of them do: when a root handle is current and where generations start; which state a new root entry has; what a new block holds; which exception each refusal is; what the constructor of `Arena` refuses and what the memory limit bounds; what each counter counts; in which order space is taken and when an emptied segment is freed. `RootHandle` had no constructor, so the test of an exhausted generation could not name its slot. Later sprints were touched too: what `DescriptorOffset` counts from, who moves the state of a root entry, what `LastMutationSequence` is |
 | **Answer** | The planner, 15 November 2026, from the engine contract, the arena protocol and Q17, reported to the owner in the planner's session. The readings are written out in the brief of S04; `RootHandle` gets the constructor `RootHandle(uint generation, uint slot)`. Three of them are nearest to a choice: the payload of a new block is not zeroed, the memory limit is required, and an emptied segment beyond the reserve is freed inside `Free` until S23 brings the background release. Two things wait for the contracts of their stages and are the planner's to place: in S13 a shared-text block carries the handle of its text entry in `BlockHeader.Root`, told apart by `Kind`; in S20 a member of the arena changes the length of a live block and the counters with it |
 | **Where the rule lives** | The briefs of S04, S05 and S06 in the [document of Epic 1](epic-1-core.md) |
+
+### Q34. What the members of the root layout do where the brief of S05 does not say
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
+| **Question** | The brief of S05 names the types and members of the root layout and of the reference fixture and leaves open what the tests have to state: the formula of the fixed part, what `Compile` does with a field it cannot store yet, where a value of each size goes and what a directory holds, which member serves an Enum with an unsigned underlying type, the errors of a wrong field, of a value out of range and of reading a null, null against missing at `Complete`, the stored encoding of text and the byte order, what the size limit of an entity counts, the life of a writer, what a reader checks, what `LayoutVersion` is, and what of the fixture the engine contract does not give |
+| **Answer** | The coordinator, 15 November 2026, from the engine contract and the decisions named in the brief; the planner's session could not be reached, and the readings are reported to the owner with the close of S05. They are written out in the brief of S05. Nearest to a choice: the fixed part is packed without padding; an entity is measured as its fixed part plus the encoded bytes of its String and Binary values, and one of exactly the limit is stored; a field is set once; `Compile` refuses an entity type with a field S05 cannot store with `NotSupportedException`; `LayoutVersion` is 1 |
+| **Where the rule lives** | The brief of S05 in the [document of Epic 1](epic-1-core.md). What the readings leave to later sprints is entry Q35 |

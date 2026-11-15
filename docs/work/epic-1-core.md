@@ -2031,6 +2031,95 @@ internal static class ReferenceFixture
 }
 ```
 
+**What the members do where the block above does not say.** The coordinator's readings
+of 15 November 2026, entry Q34 of the [open questions](open-questions.md), from the
+engine contract and the decisions named under "To read"; the planner's session could not
+be reached, so they are reported to the owner at the close of the sprint. The tests state
+them.
+
+- **The fixed part.** `FixedSize` = the 32 bytes of the block header + a null bitmap of
+  ⌈n/8⌉ bytes for the n nullable fields + the fixed fields at the widths of the scalar
+  catalog, in field-identity order, without padding + one 16-byte descriptor for every
+  String and Binary field, in field-identity order. A Boolean is one byte, 0 or 1. An
+  Enum field has the width of its underlying type. A nullable fixed field keeps its place
+  when it is null. Every value of more than one byte is little-endian, text in a UTF-16
+  database included. Packing without padding is chosen because memory comes before speed
+  in the engine and no measurement speaks against it; an implementer who wants alignment
+  brings the number. `Compile` refuses with `InvalidSchema` a `FixedSize` above
+  `Arena.MaxBlockSize`, with the entity type named.
+- **What `Compile` does not lay out yet.** An entity type with a field S05 cannot store —
+  Owned, List, Map, Set, Reference, a String with Dictionary storage — is
+  `NotSupportedException` with the field named; S13, S18 and S19 extend it. An entity
+  type that is not of the given schema is `ArgumentException`. `LayoutVersion` is 1 for
+  every layout of S05 and is written into the header of every block of the root; how a
+  changed layout is numbered belongs to S37.
+- **Where a value goes.** A String or Binary value of at most `InlineLimit` encoded bytes
+  is stored in the root block after the fixed part, when the root block still fits one
+  block; an empty value is inline with length 0. A longer value of at most
+  `SingleBlockLimit` bytes has one block of its own. A longer one is chunked: blocks of
+  `ChunkPayload` bytes, every chunk but the last full, and one directory block of 16-byte
+  descriptors, one per chunk; a value that needs more chunks than one directory block
+  holds is `WriteRejected`. A descriptor's `Location` of an inline value is its offset
+  from the start of the root block. The parent of a value block and of a directory is the
+  root; the parent of a chunk is its directory. A null String or Binary is null in the
+  bitmap and its descriptor is all zero. No member of the contract shows where a value
+  went; a test sees it through the counters of the arena and states no more than they
+  show.
+- **Which member serves which field.** `SetInteger` and `GetInteger`: Int8 to Int64 and
+  an Enum whose underlying type is signed. `SetUnsigned` and `GetUnsigned`: UInt8 to
+  UInt64 and an Enum whose underlying type is unsigned. Every other member serves the one
+  field type of its name. A member called for a field of another type, or for a field of
+  another entity type, is `ArgumentException`. A value outside the range of the field's
+  width is `ValidationFailed`. Whether an Enum value is a declared member is checked from
+  S07 on; the tests of S05 use declared members.
+- **Null and missing.** `SetNull` of a field that is not nullable is `ValidationFailed`
+  at the call. At `Complete` a nullable field that was never set is null, and a field
+  that is not nullable and was never set is `ValidationFailed`. A `Get…` member and
+  `GetLength` of a null field are `InvalidOperationException`; the caller asks `IsNull`
+  first.
+- **Text.** In a UTF-8 database a String is stored as the UTF-8 of its characters, in a
+  UTF-16 database as its code units. Malformed UTF-16 — a surrogate without its pair — is
+  `ValidationFailed` at `SetString`, nothing is allocated for that value (the counters of
+  the arena are the same before and after the call), no character is substituted, and
+  the writer stays usable. `GetLength` is the number of encoded bytes as stored.
+- **The size of an entity.** What `maxEntitySize` bounds is `FixedSize` plus the encoded
+  bytes of every String and Binary value: it does not depend on where a value went. An
+  entity of exactly `maxEntitySize` bytes is stored; one byte more is `WriteRejected`.
+  The size and the memory of the arena are reported by `Complete`, as the block above
+  says: no `Set…` member fails for either. When `Complete` fails, everything the writer
+  allocated is freed and the counters of the arena are as they were before the writer; an
+  `OutOfMemoryException` of the native allocator passes through in the same state.
+- **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of the same
+  field, any member after `Complete` or `Abandon`, and a second `Complete` are
+  `InvalidOperationException`. `Abandon` after a failed `Complete`, and a second
+  `Abandon`, do nothing. The constructor refuses a null arena or layout with
+  `ArgumentNullException` and a `maxEntitySize` below 1 with
+  `ArgumentOutOfRangeException`.
+- **A reader.** The constructor refuses with `ArgumentException` an address that is not a
+  valid block of the arena, a block whose kind is not `Root`, and a block whose layout
+  version is not the layout's.
+- **`RootStorage.Free`** frees the root block and every block it owns. It does not touch
+  the table of root entries.
+- **The fixture.** The entity types, their counts, their field types, text formats and
+  indexes are those of the table of the engine contract, "Reproducible first fixture";
+  what the table does not give — names it leaves open, identities, the synthetic value
+  sets — is the implementer's and is stated by no test. No field is nullable; an index is
+  unique only where the table says so. The scalar form keeps every index, with every
+  String Plain. `Generate` uses a generator of the program's own, not `System.Random`,
+  whose sequence is not promised across versions of .NET, and yields the records in the
+  same order on every run; a schema that is neither of the two forms is
+  `ArgumentException`. `Digest` is the SHA-256 of the values in an encoding that does not
+  depend on the order in which a Set or a Map enumerates, as lowercase hexadecimal. The
+  test author states that two runs give the same records and the same digest; the digest
+  of seed 42 is recorded in a test by the test author once the implementation has
+  produced it, as the fingerprints of S02 and S03 were.
+- **The measurement.** The implementer writes the development manifest — the processor,
+  the memory, the operating system and the versions of .NET, with no name of the machine
+  or of a user and no path — as a committed file of the measurement project, and the
+  scenario that reports the figure of "Measured"; the program is told the scenario on its
+  command line. The implementer also adds the job of the measurement lane to the
+  workflow, started by hand, which shows that the program runs.
+
 A sprint before S19 measures the scalar form, because the collections and Dictionary
 strings of the full form cannot be stored yet, and before S16 it measures that form
 without its Unique marks, because an entity type with a unique index cannot be written
