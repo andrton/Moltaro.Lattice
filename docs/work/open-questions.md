@@ -76,6 +76,15 @@ in the meantime.
 | **Until answered** | The readings of Q34 stand for S05 |
 | **Decides** | The planner: point 1 before S06 starts, point 2 before S08, point 6 before S09, point 3 before S10, the others before the contracts of their stages |
 
+### Q36. Exception X3 does not name the tests of the reference fixture
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
+| **Question** | The brief of S05 makes `ReferenceFixture` an internal type of the measurement program and asks for a test of its digest. `Moltaro.Lattice.Engine.Tests` therefore references the program and has friend access to it. Exception X3 speaks of the test projects reaching into the engine and of the measurement program reaching into the engine; it does not say that a test project reaches into the measurement program. Is X3 worded to cover it, or does the fixture get another home |
+| **Until answered** | The tests of `Fixture` in `Moltaro.Lattice.Engine.Tests` address `ReferenceFixture` through friend access, as the approved brief of S05 requires; the project file of the program names X3 for it |
+| **Decides** | The owner, with the report of S05; an exception is the owner's to approve |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
