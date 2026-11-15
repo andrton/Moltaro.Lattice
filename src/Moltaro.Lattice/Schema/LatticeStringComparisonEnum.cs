@@ -22,8 +22,10 @@ public enum LatticeStringComparisonEnum : byte
     /// Text is equal whatever its case. Lattice compares with a case table of its own, the simple
     /// uppercase mapping of Unicode 16.0.0, character by character, so the result is the same in
     /// every process, on every node and under every globalization setting. No culture is applied
-    /// and nothing is normalized. For a small number of rare characters the result can differ
-    /// from <see cref="StringComparison.OrdinalIgnoreCase"/> of the running process.
+    /// and nothing is normalized. For a small number of characters the result can differ from
+    /// <see cref="StringComparison.OrdinalIgnoreCase"/> of the running process: among them the
+    /// dotless i (U+0131), which is equal to I and i, and the long s (U+017F), which is equal to S
+    /// and s.
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded
