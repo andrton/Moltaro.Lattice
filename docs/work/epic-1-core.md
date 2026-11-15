@@ -2208,7 +2208,14 @@ manifest is a committed file of this project.
   count. By the planner's answer to point 1 of Q35: a database whose schema declares an
   entity type with a fixed part larger than one block does not open: `InvalidSchema` with
   the entity type named. A database whose schema declares an entity type the engine
-  cannot store yet opens, and its other entity types are read and written.
+  cannot store yet opens, and its other entity types are read and written. By the owner's
+  answer to Q29 a property binds with a set accessor of any accessibility — public,
+  `internal`, `protected`, `private` or `init` — and an entity read from the database has
+  the stored values in such properties. A property without a set accessor, and one whose
+  get accessor is not public, are `BindingFailed` with the property named. A class that
+  overrides only the get accessor of a virtual property binds, and its value is set
+  through the accessor of the base class. A class in which a public field hides a
+  property of its base class is `BindingFailed` with the member named.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2224,6 +2231,26 @@ manifest is a committed file of this project.
 > compared for equality, and nothing else may be concluded from a revision: it has no
 > order, it cannot be turned into a position, and the revision of one entity means
 > nothing for another.
+
+By the owner's answer to Q29 of the [open questions](open-questions.md), carried by this
+sprint under decision O16, the remarks of `ILatticeDatabase.Set<TEntity>()`, where the
+binding of a class is stated once, gain this rule, and it holds for the class of an owned
+type as for the class of an entity type:
+
+> The property of a field has a public get accessor and a set accessor of any
+> accessibility: public, `internal`, `protected`, `private` or `init`. The database sets
+> the value through that accessor when it builds an object, so a class may keep its
+> properties closed for writing by the application. The accessors are those C# sees for
+> the property on the class, inherited ones included: a class that overrides only the get
+> accessor of a virtual property is set through the accessor of its base class. When the
+> public member C# finds on the class by the name of a field is not a property — a public
+> field that hides a property of a base class — the class is refused: the hidden property
+> is not bound in its place.
+
+The first sentence is what the binding does today and gets its tests and its
+documentation; the last two are fixes of the binding in the core library — today the
+overridden getter is `BindingFailed` and the hidden property binds. The tests come first,
+from the test author, as for any change of behavior.
 
 Internal, in the engine assembly:
 
