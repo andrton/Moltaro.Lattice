@@ -5,7 +5,8 @@ namespace Moltaro.Lattice.Tests.Binding;
 // when the enum type is a Flags type. A class whose enum does not agree is refused as a class
 // that does not agree with its entity type is: BindingFailed, with the property named, when
 // the class is bound. Nothing is mapped or guessed. A property declared as the underlying
-// integer holds any value of the field and is not compared with the members.
+// integer is not compared with the members when the class is bound; a value it holds that the
+// enum type does not declare is refused by a write, as EnumValidationTests states.
 public sealed class DotNetEnumAgreementTests
 {
     // Color declares 1 twice, as Red, its canonical name, and as Crimson.

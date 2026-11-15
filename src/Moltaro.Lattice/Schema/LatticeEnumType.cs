@@ -23,7 +23,8 @@ namespace Moltaro.Lattice.Schema;
 /// storing its values is not implemented. Until then no write of an entity type that has a
 /// field of an enum type is carried out: after the checks every write makes of its
 /// arguments and of the entity against the schema, it throws
-/// <see cref="NotSupportedException"/>, whatever the value.
+/// <see cref="NotSupportedException"/>. Whether a value is valid is one of those checks, so a
+/// write with a value that is not is <see cref="LatticeErrorEnum.ValidationFailed"/> first.
 /// </para>
 /// </remarks>
 public sealed class LatticeEnumType

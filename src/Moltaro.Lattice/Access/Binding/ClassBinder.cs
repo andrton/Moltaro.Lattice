@@ -21,11 +21,11 @@ namespace Moltaro.Lattice.Access.Binding;
 //
 // What a write takes of an object is checked as a record is: a null where a position does not
 // allow it, at any depth, a key that a Map holds twice under the comparison of its key
-// declaration, and text that is not well-formed at any depth, are ValidationFailed. Of equal
-// members of a Set the first is kept. The class of an owned type is bound once for every pair of
-// owned type and class, however many positions hold it, so binding grows with the declarations;
-// it ends because an owned type does not contain itself, and it goes no deeper than a declaration
-// may be, see SchemaBuilder.
+// declaration, text that is not well-formed at any depth, and an integer that its enum type does
+// not allow at any depth, are ValidationFailed. Of equal members of a Set the first is kept. The
+// class of an owned type is bound once for every pair of owned type and class, however many
+// positions hold it, so binding grows with the declarations; it ends because an owned type does not
+// contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
 internal sealed class ClassBinder
 {
     private readonly LatticeEntityType _entityType;
@@ -192,12 +192,21 @@ internal sealed class ClassBinder
     }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the
-    // enum type; a .NET enum value is held as its integer.
-    private static Func<object, object> BindEnum(Type type, LatticeValueDeclaration declaration, Place place)
+    // enum type; a .NET enum value is held as its integer. A write refuses an integer that the enum
+    // type does not allow (EnumValues), also one that a .NET enum property holds by a cast: agreeing
+    // with the enum type does not keep a .NET enum from holding a value it does not name.
+    private Func<object, object> BindEnum(Type type, LatticeValueDeclaration declaration, Place place)
     {
+        var enumType = declaration.EnumType!;
+        var entityTypeName = _entityType.Name;
+
+        object Allowed(object integer) => EnumValues.IsValid(enumType, integer)
+            ? integer
+            : throw ValidationFailed(entityTypeName, place.Holds(EnumValues.Undeclared(enumType, integer)));
+
         if (type == declaration.PositionType)
         {
-            return static value => value;
+            return Allowed;
         }
 
         var dotNetEnum = declaration.IsNullable ? Nullable.GetUnderlyingType(type) : type;
@@ -206,7 +215,6 @@ internal sealed class ClassBinder
             throw place.Mismatch();
         }
 
-        var enumType = declaration.EnumType!;
         var differences = DotNetEnumAgreement.Differences(dotNetEnum, enumType);
         if (differences.Count > 0)
         {
@@ -215,7 +223,7 @@ internal sealed class ClassBinder
         }
 
         var stored = declaration.ValueType;
-        return value => Convert.ChangeType(value, stored, CultureInfo.InvariantCulture);
+        return value => Allowed(Convert.ChangeType(value, stored, CultureInfo.InvariantCulture));
     }
 
     // An owned value is an object of the class its owned type names. An owned type without a

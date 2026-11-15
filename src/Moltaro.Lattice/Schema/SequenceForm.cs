@@ -30,6 +30,6 @@ internal abstract class SequenceForm
     public static SequenceForm For(bool isSet, LatticeValueDeclaration element)
     {
         var formType = typeof(SequenceForm<>).MakeGenericType(element.PositionType);
-        return (SequenceForm)Activator.CreateInstance(formType, isSet, element.TextComparer)!;
+        return (SequenceForm)Activator.CreateInstance(formType, isSet, element.TextComparison)!;
     }
 }

@@ -8,7 +8,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // The primary index of one entity type: its keys, each mapped to the handle of the root entry of
 // its live root (decision on index structures, "Selected implementation: Arc.Collections
 // UnorderedMapSlim"). It holds no copy of an object, only the key in the form TKey gives and the
-// 8 bytes of the handle; for a String key a TextKey of 16 bytes.
+// 8 bytes of the handle: a long for an integer key, a Guid, or for a String key a TextKey of 16 bytes
+// (KeyKindEnum). With the hash and the link the package keeps beside them, and its bucket, a slot
+// takes 28 bytes for a long and 36 for a Guid or a TextKey. The equality and the hash of a key are
+// those of TKey, which for a TextKey come from the comparison of the schema.
 //
 // The index takes no lock. Lookups read it under the catalog gate held shared; the thread that
 // executes a write is the only one that changes it, under the catalog gate held exclusively, and

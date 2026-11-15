@@ -27,7 +27,7 @@ namespace Moltaro.Lattice.Storage;
 // reads IsNull and every Get… member of a fixed-width type from it, with no arena and so with no
 // protection: a read copies under the protection of the root and builds its result after releasing
 // it. The values of String and Binary fields lie outside the fixed part; a reader of a copy refuses
-// GetString, GetBinary and StringEquals with InvalidOperationException.
+// GetString, GetBinary and ReadText with InvalidOperationException.
 internal readonly ref struct RootReader
 {
     // Null for a reader of a copy.
@@ -156,10 +156,11 @@ internal readonly ref struct RootReader
     public string GetString(LatticeField field) =>
         StoredText.Read(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(GetString)), _payload, _layout.StringEncoding);
 
-    // Whether the value of a String field is the given text, compared ordinally
-    // (StoredText.EqualsOrdinal). Allocates nothing.
-    public bool StringEquals(LatticeField field, ReadOnlySpan<char> text) =>
-        StoredText.EqualsOrdinal(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(StringEquals)), _payload, text, _layout.StringEncoding);
+    // The text of a String field, to be read as UTF-16 a piece at a time without allocating
+    // (StoredTextReader): what the comparison of the schema compares with a given text. Valid while
+    // this reader is.
+    public StoredTextReader ReadText(LatticeField field) =>
+        new(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(ReadText)), _payload, _layout.StringEncoding);
 
     // The value of a Binary field, as a new array that belongs to the caller. An empty value is the
     // empty array, which every caller shares and none can change.

@@ -26,9 +26,29 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // 268,173,377 bytes, made inside its write and refused for its length before anything reads or
 // copies it, so it is not initialized and its memory is never touched. The class runs alone
 // (LargeValueCollection), so that what it holds is not added to what other tests hold.
+//
+// In a schema of the UTF-16 encoding, where a code unit takes two bytes, the bound is 134,086,688
+// characters: that many pass the validation and one more is ValidationFailed (brief of Epic 1, sprint
+// S07, where such a schema is first written). The pair runs on the engine only, which the placeholder
+// refuses for a UTF-16 schema until S12. Each text is made inside its write, which ends at the
+// validation or at its condition, so the engine never copies it; the one above the bound is refused
+// for its length and its memory is never touched, so the test holds one text of 268 MB.
 [Collection<LargeValueCollection>]
 public sealed class ValueBoundWriteTests
 {
+    private static readonly LatticeSchema Utf16Schema = LatticeSchema.Compile($$"""
+        {
+          "StringEncoding": "Utf16",
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Note", "ClrType": "{{typeof(Note).FullName}}",
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Caption", "Type": "String", "Nullable": true } ],
+              "PrimaryKey": [1]
+            }
+          ]
+        }
+        """);
+
     private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
         {
           "EntityTypes": [
@@ -90,6 +110,22 @@ public sealed class ValueBoundWriteTests
 
         // The write reaches its condition: the key is absent, so it is NotFound.
         await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => notes.ReplaceAsync(new Note { Id = 404, Caption = ValueBound.TextOneByteAboveInUtf8[..^1] }));
+    }
+
+    [Fact]
+    public async Task In_a_UTF16_schema_134086688_characters_pass_the_validation_and_one_more_is_ValidationFailed()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Utf16Schema);
+        var notes = database.Set<Note>();
+        const int Characters = ValueBound.Bytes / 2;
+
+        // One character more than the bound. The text is of NUL characters, which the runtime does not
+        // write when it makes the string, and it is refused for its length before anything reads it, so
+        // its memory is never touched, as that of the Binary value of the first test.
+        await TestData.ExpectValidationFailedAsync("Caption", () => notes.ReplaceAsync(new Note { Id = 404, Caption = new string('\0', Characters + 1) }));
+
+        // Exactly the bound: the write reaches its condition, the key is absent, so it is NotFound.
+        await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => notes.ReplaceAsync(new Note { Id = 404, Caption = new string('a', Characters) }));
     }
 
     private sealed class Note

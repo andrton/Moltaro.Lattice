@@ -16,7 +16,8 @@ already declare more than the placeholder stores: an entity type with a comparis
 ignores case, with Dictionary storage, with an enum field, or with an owned value, a
 List, a Map, a Set or a reference compiles, and so does a schema that declares UTF-16,
 but none of them can be written yet. The native storage engine is being built behind
-the contract: it stores and reads entities of scalar fields on one node, and until it
+the contract: it stores and reads entities of scalar and Enum fields on one node, under
+every key type and both text comparisons, in UTF-8 and UTF-16, and until it
 replaces the placeholder only its tests reach it.
 PostgreSQL persistence and network replication are not implemented yet, and the contract
 may still change.

@@ -22,14 +22,19 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>Building.</b> Adding an operation contacts nothing. The entity or record is copied
 /// when it is added, so later edits of the object are not part of the batch. A batch
-/// takes one operation per entity: adding a second operation for the same entity type and
-/// primary key is an <see cref="ArgumentException"/>, and the batch stays as it was. An
-/// entity that violates the schema is refused when it is added, with
+/// takes one operation per entity. Two operations address the same entity when they name the
+/// same entity type and their primary keys are equal as the schema compares them: an integer
+/// key by its value whatever the width it was given in, a String key under the comparison
+/// declared for the key field. Adding a second operation for the same entity is an
+/// <see cref="ArgumentException"/>, and the batch stays as it was. An entity that violates the
+/// schema is refused when it is added, with
 /// <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not well-formed — a
 /// surrogate without its pair — is refused in the same way, at any depth, and is never stored
-/// and never replaced by another character. A String or Binary value larger than one value
-/// may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
-/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. A key
+/// and never replaced by another character. A String or Binary value of a field of the entity
+/// that is larger than one value may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
+/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// that the enum type of its field does not declare — for a Flags type, a bit that no member
+/// declares — is refused in the same way. A key
 /// given to a delete that is a String which is not well-formed text is an
 /// <see cref="ArgumentException"/>, as a key of another type is. A batch is built by one
 /// caller and is not safe to use from several threads at once.

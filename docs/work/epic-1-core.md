@@ -84,7 +84,15 @@ a gate; reads that allocate the returned copy and nothing else. The scenario tes
 reads and writes run on it beside the placeholder, through an internal entry (exception
 X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
 batch and the queue of writes have no limit of their own, and the validation of the core
-refuses text that is not well-formed on both implementations.
+refuses text that is not well-formed on both implementations. From S07 the engine
+stores every key type of the catalog — the eight integers, String with either
+comparison, Guid —, a String field compared without case, Enum fields and a schema in
+UTF-16, through one comparison and hash service of the schema; the validation of the
+core checks enum values, and a write batch takes one operation per entity as the schema
+compares keys. Text compared without case is compared by a case table of Lattice's own
+in the core, the simple uppercase mapping of Unicode 16.0.0 in version 1 of the table,
+and not by the runtime: keys, Map keys, Set members and the identity of a batch read it
+through one rule. The public entry keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -255,9 +263,22 @@ documentation before this document is removed.
 | S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
 | S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
 | S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
-
 | S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
 | S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
+| S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | Ordinal: p50 400 to 500 ns, p99 1,600 to 2,000 ns. Without case, by the case table, in the stored spelling and in upper case: p50 400 to 500 ns, p99 1,600 to 2,100 ns; with the comparison of .NET before the table, p50 400 to 500 ns, p99 1,600 to 1,900 ns | development-2 | 15 November 2026 |
+
+The figure of S07 comes from the scenario `read-by-text-key`; its keys are 13 ASCII
+characters, and no key outside ASCII was measured by it. One hash and one equality of
+such a key cost about 40 ns by the table against 29 ns by .NET, and 94 ns against 73 ns
+for a key of 15 characters that starts in Cyrillic, in the implementer's own benchmark,
+not under a manifest. The table and `OrdinalIgnoreCase` of .NET 10 disagree on 16
+scalar values under ICU, 1,031 under NLS and 6 under invariant globalization; in every
+case the table holds equal what the runtime holds different. The table adds 17 KiB to
+the core assembly. A long key outside ASCII compared without case reads slower by the
+table than it did by .NET, in the probe of the review and not under a manifest: a key
+of 1,000 UTF-16 units of mixed text 6.4 µs against 3.9 to 4.1 µs, and one of 100,000
+units 0.63 ms against 0.36 to 0.42 ms in UTF-16 and 1.02 ms against 0.77 ms in UTF-8;
+keys of 13 characters and long ASCII keys read as before.
 
 The figures of S06 come from the scenario `read-by-key`
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
@@ -872,7 +893,7 @@ Why this order:
 | S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Done |
-| S07 | Every key type and declared value | Full | Not started |
+| S07 | Every key type and declared value | Full | Done |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
@@ -2666,8 +2687,10 @@ fits, as before; a value that does not fit, a negative one for an unsigned key i
 is `ArgumentException`. A Guid key is given as a `Guid` and as nothing else: no text is
 parsed. A UInt64 key above the largest Int64 works like any other.
 
-A String key compared without case follows `StringComparison.OrdinalIgnoreCase` of .NET,
-the semantic reference Q04 names, with the same result in a UTF-8 and in a UTF-16
+A String key compared without case was first written to follow
+`StringComparison.OrdinalIgnoreCase` of .NET; the owner's decision on Q46, under "Also
+carried by this sprint" below, replaced that with the case table of Lattice's own. It was
+to have, and has, the same result in a UTF-8 and in a UTF-16
 database. Two keys that are equal under it are one key: an insert under another spelling
 of a stored key is `DuplicateKey`; a read, a replace, an upsert and a delete under another
 spelling address the stored entity. The primary key is immutable (accepted decision): the
@@ -2696,7 +2719,66 @@ commit of this sprint that touches those remarks; and the bound in a schema of t
 UTF-16 encoding gets its pair of cases here, where such a schema is first written:
 134,086,688 characters pass and 134,086,689 are `ValidationFailed`. The public "Not implemented yet" remarks on
 `OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
-and are not edited in S07.
+and are not removed in S07; the remarks of `LatticeEnumType` gained the sentence that an
+invalid value is `ValidationFailed` before that refusal, because the validation of the
+core now checks it.
+
+**Carried by this sprint besides its own work**, under decision O16, after its
+implementation commit and tests first: the planner's answer to Q45 of the
+[open questions](open-questions.md). A batch identifies an entity by its entity type and
+its primary key as the schema reads the key, not as the caller spelled it: two operations
+address one entity when their keys are equal after the key is brought to the declared
+key type and compared under the comparison the schema declares for the key field. For a
+String key compared without case "Main" and "MAIN" are one entity, and for an integer
+key 5 given as Int32 and 5 given as Int64 are one entity. The second operation is an
+`ArgumentException` when it is added, and the batch stays as it was. The check lives in
+the core, in the batch, so both implementations refuse alike, and it uses the
+normalization a read by key applies; no second rule of equality is written. The test
+author adds the scenario tests (a String key without case; an integer key of two widths;
+by class and by record; the batch unchanged after the refusal) and writes the remarks of
+`ILatticeWriteBatch` in the same commit, replacing the sentence that begins "A batch
+takes one operation per entity": "A batch takes one operation per entity. Two
+operations address the same entity when they name the same entity type and their primary
+keys are equal as the schema compares them: an integer key by its value whatever the
+width it was given in, a String key under the comparison declared for the key field.
+Adding a second operation for the same entity is an `ArgumentException`, and the batch
+stays as it was." The implementer then changes the check of the batch.
+
+**Also carried by this sprint**, tests first: the owner's decision on Q46 of 15 November
+2026, written out in the decision on strings (`docs/decisions/strings.md`, Q04, the
+addition of that date). Text compared without case is compared by a case table of
+Lattice's own and not by the runtime: two texts are equal without case when they are equal
+scalar value by scalar value after each scalar value is replaced by its simple uppercase
+mapping of one named Unicode version (`UnicodeData.txt`, the one-to-one mapping; no full
+mapping, no folding of several characters, no culture, no normalization); supplementary
+planes are mapped as scalar values, in both encodings. The table ships with the core, is
+the same in every process, globalization mode and runtime version, and has a version, an
+Int32 that starts at 1 and changes whenever the table changes. No call of the runtime
+that depends on the globalization mode is on the path of this comparison or of its hash:
+equality, the hash of a String key and, from S14, the order read the one table, through
+the one rule of `LatticeValueDeclaration.TextComparison`. The version is a fixed rule of
+the schema language, not an option; the Hello of S10 and the saved base of S30 carry it,
+and the planner adds that to their briefs. The public name of the comparison stays; its
+documentation becomes: "Text is equal whatever its case. Lattice compares with a case
+table of its own, the simple uppercase mapping of Unicode [version], character by
+character, so the result is the same in every process, on every node and under every
+globalization setting. No culture is applied and nothing is normalized. For a small
+number of rare characters the result can differ from `StringComparison.OrdinalIgnoreCase`
+of the running process."
+
+The tests: the shipped table equals the simple uppercase mappings of the named Unicode
+version, from the data file kept in the test project; through the public API on both
+implementations, keys and field values equal without case by the table, with one pair the
+modes of the runtime disagree on and one pair of a supplementary plane, in a UTF-8 and in
+a UTF-16 database. A coordinator's note: the Acceptance above says the tests of the
+comparison compute their expectation with .NET; with this decision they compute it from
+the table's rule and data, so that they pass under every globalization mode — the tests
+of this sprint that asked .NET are restated by the test author. The implementer reports
+with figures: the Unicode version chosen (the one the data of .NET 10 uses, unless there
+is a reason against); on how many scalar values the table and `OrdinalIgnoreCase` of .NET
+disagree under ICU, NLS and invariant globalization; and the read by a String key
+compared without case before and after, on the scenario of this sprint. A slower read is
+reported, not accepted silently.
 
 #### S08 · Enumeration under change and the growth of the index
 
@@ -2848,13 +2930,17 @@ be studied: how they do it is to be learned from their source and, in essence, r
   application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
   replaces what the milestone contract names as the initial synchronization, the
   coordinator corrects that section with the sprint and reports it to the owner.
-- **Acceptance, added.** Reads by key on 16 threads complete more in total than on one
-  thread, on the machine of the review; the figure for 1, 2, 4, 8 and 16 threads is
-  reported, with a writer and without, and the owner judges it against the aim of growth
-  close to the number of processors. The model-checked storms and the close cycles of S06
-  pass on the new protection. The scaling is a figure of a measurement and not a test of
-  the default lane; a miss of the first sentence is reported to the owner in the sprint,
-  as an early figure that misses its gate is.
+- **Acceptance, added**, as the owner set it on 15 November 2026 through the planner's
+  session. The total of reads by key grows with the number of reading threads up to the
+  number of processors, with and without a writer; the growth need not be linear. A step
+  at which more threads read less in total, beyond the noise of the measurement, stops
+  the sprint for the owner. The mechanism is one used by an established open-source
+  database or runtime, named in the report; nothing is invented here. The figure for 1,
+  2, 4, 8 and 16 threads is measured on the machine of the review and reported to the
+  owner at the close in any case; when the three conditions hold — every test of the
+  sprint passes, the total grows, the mechanism is a proven one — it does not gate the
+  merge. The model-checked storms and the close cycles of S06 pass on the new protection.
+  The scaling is a figure of a measurement and not a test of the default lane.
 - **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
   and 16 threads, without a writer and with one, before and after the change.
 - If the coordinator judges that this makes the sprint too large for one implementer and

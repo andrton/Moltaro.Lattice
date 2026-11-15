@@ -34,7 +34,8 @@ storage encodings produce the same logical order; equivalent case-insensitive
 values remain tied without a hidden spelling tie-breaker.
 Encoding is selected in Q04.1; dictionary policy and scope are accepted in Q04.2
 and Q04.3; Q04.4 accepts stored-reference counts and deferred reclamation.
-The .NET ordinal comparison
+For comparison without case the addition of 15 November 2026 below replaces the
+reference to .NET with a case table of Lattice's own. The .NET ordinal comparison
 modes are the intended semantic reference, not a requirement to allocate a CLR string
 for every stored-value comparison.
 
@@ -135,6 +136,17 @@ ordering, prefix and substring operations remain in Q07.3.
 an explicit per-field setting. Preserve original text and keep lossless dictionary
 deduplication separate from case-insensitive search. The concrete JSON property
 spelling, encoding, dictionary policy and full ordering API remain separate details.
+
+**Added on 15 November 2026 (owner, Q46):** the comparison without case does not call the
+runtime. What .NET's OrdinalIgnoreCase holds equal depends on the globalization mode of the
+process and on the Unicode data behind it, and a schema has to mean the same on every node.
+Lattice compares with a table of its own: each Unicode scalar value is replaced by its
+simple uppercase mapping of one named Unicode version, and the results are compared
+exactly. The table ships with the core and has a version. It agrees with OrdinalIgnoreCase
+for the letters almost every application uses; for a small number of rare characters it
+can differ from the runtime of a given process. This settles the "effective case-mapping
+behavior/version" the text above left to the compatibility contract: the version is carried
+by the forms that connect or persist databases, and another version is refused there.
 
 <a id="q04.1-how-should-strings-be-encoded-in-storage"></a>
 

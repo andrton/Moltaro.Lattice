@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q47. Does the notice of the Unicode data travel inside the package?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
+| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0. `THIRD-PARTY-NOTICES.md` at the repository root names it, and the Unicode licence asks that its notice appear with copies of the data or in the associated documentation. A package is built with `README.md` only, so the notice is in the repository and not in the package. Is the notices file packed with the core library? |
+| **Until answered** | The notice is in the repository. Nothing has been released, so no package without it exists |
+| **Decides** | The owner, before the first package is published |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -428,3 +437,21 @@ in the meantime.
 | **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes as the initial one, and gate G2 asks for 10,000 reads per second, so no rule was broken. Does the scaling matter, and when is it dealt with? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: reads by key have to scale with threads, and the work is done in S08, where the gate of the index changes anyway, not judged at S25. That more threads read less in total is a very bad signal. The implementer of S08 studies in their source how open-source databases that read fast on many threads protect a read, and repeats a solution that is proven there; how many protections there are and how fine they are is decided by those systems and by measurement, not by a stated preference. The guarantees do not move |
 | **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md); S25 checks the read mix against what S08 reached |
+
+### Q45. A write batch tells two spellings of one key apart
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, tests of Epic 1, sprint S07 |
+| **Question** | A batch takes one operation per entity and refuses a second one for the same key when it is added. It told entities apart by the key as given, so for a String key compared without case "Main" and "MAIN" were accepted as two operations on one entity. Is the second operation refused at adding, under the comparison of the key? |
+| **Answer** | The planner, 15 November 2026, from standing rules: yes. The schema is the authority and declares the comparison of the key; the contract says one operation per entity, not per spelling; and a check that needs no engine belongs to the contract. Two operations address one entity when their keys are equal as the schema compares them, an integer key by its value whatever its width |
+| **Where the rule lives** | The remarks of `ILatticeWriteBatch`, and the brief of S07 in the [document of Epic 1](epic-1-core.md), which carries the change |
+
+### Q46. Which keys are equal without case depends on the globalization mode of the process
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07 |
+| **Question** | A String key compared without case followed `StringComparison.OrdinalIgnoreCase` of .NET, and what .NET holds equal under it differs between ICU, NLS and invariant globalization and with the version of the Unicode data. Nothing recorded the mode, so two nodes, or a saved database and the process that opens it, could hold different entities equal. Is the mode fixed and checked, or does the engine bring a case mapping of its own? |
+| **Answer** | The owner, 15 November 2026, through the planner's session: a case mapping of Lattice's own, a fixed versioned table in the core. *Not chosen:* recording the globalization mode and refusing another; leaving it until S10 |
+| **Where the rule lives** | The decision on strings, Q04, the addition of 15 November 2026; the brief of S07 in the [document of Epic 1](epic-1-core.md) carries the work |

@@ -1,17 +1,25 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access.Values;
+using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
-// A primary key given to a set, turned into the key of the index of its entity type by the rule of
-// the contract: the key type the schema declares, or an integer of another width when it fits;
-// anything else is an ArgumentException (ILatticeSet<TEntity>, remarks), and so is a String key
-// that is not well-formed text. A key of a type the index takes is converted without boxing it, and
-// a String key is checked for well-formed text as the core checks it; any other value goes through
-// the check of the core, FieldValues.NormalizeKey, which accepts what fits and refuses the rest with
-// its message. For an entity type the engine does not store, whose key kind is Other, the key is
-// only checked.
+// A primary key given to a set, turned into the key of the index of its entity type (EntityKey) by
+// the rule of the contract (ILatticeSet<TEntity>, remarks; brief of S07): the key type the schema
+// declares, or for an integer key an integer of any width whose value fits the key type, an unsigned
+// key type taking no negative value. A Guid key is a Guid and nothing else, a String key a string
+// and nothing else: no text is parsed. A String key that is not well-formed text is refused as the
+// core refuses it (the planner's answer to Q41). Anything else is an ArgumentException with the
+// message of the check of the core, FieldValues.NormalizeKey, which refuses exactly what is refused
+// here, so a key is refused alike on both implementations.
+//
+// A key is converted without boxing it when it is given as its own type or as an integer through a
+// class, and the hash of a String key is computed here, before the read or the write takes a gate.
+// An entity type the engine does not store converts its key all the same, and nothing is looked up
+// with it.
 internal static class KeyArgument
 {
     // A key given through a class, as a value of its own type.
@@ -20,18 +28,21 @@ internal static class KeyArgument
     {
         switch (table.KeyKind)
         {
-            case KeyKindEnum.Number:
-                return new EntityKey(Number(table, key));
+            case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
+                return Integer(table, value);
+
+            case KeyKindEnum.Guid when typeof(TKey) == typeof(Guid):
+                return EntityKey.OfGuid(Unsafe.As<TKey, Guid>(ref key));
 
             case KeyKindEnum.Text when typeof(TKey) == typeof(string):
                 // A reference type: the conversion through object is no box.
                 return Text(table, (string)(object)key);
 
-            case KeyKindEnum.Text:
-                return new EntityKey((string)FieldValues.NormalizeKey(table.EntityType, key));
-
             default:
-                return Checked(table, key);
+                // A key of another type, or one outside the range of the key type, given through a
+                // class: the box is the cost of a key that is about to be refused, or of one given
+                // as object.
+                return Of(table, (object)key);
         }
     }
 
@@ -40,40 +51,42 @@ internal static class KeyArgument
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        return table.KeyKind switch
+        switch (table.KeyKind)
         {
-            KeyKindEnum.Number => new EntityKey(key switch
-            {
-                long value => value,
-                int value => value,
-                short value => value,
-                sbyte value => value,
-                uint value => value,
-                ushort value => value,
-                byte value => value,
-                _ => (long)FieldValues.NormalizeKey(table.EntityType, key),
-            }),
-            KeyKindEnum.Text => key is string text ? Text(table, text) : new EntityKey((string)FieldValues.NormalizeKey(table.EntityType, key)),
-            _ => Checked(table, key),
-        };
+            case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
+                return Integer(table, value);
+
+            case KeyKindEnum.Guid when key is Guid guid:
+                return EntityKey.OfGuid(guid);
+
+            case KeyKindEnum.Text when key is string text:
+                return Text(table, text);
+        }
+
+        // The check of the core refuses the key with its message: it accepts no key that is refused
+        // above.
+        FieldValues.NormalizeKey(table.EntityType, key);
+
+        throw new UnreachableException($"The core accepted the key '{key}' for {table.EntityType.Name}, which the engine refused.");
     }
 
-    // The key among the values a write took of an object or a record, which the core checked.
+    // The key among the values a write took of an object or a record, which the core checked: the
+    // value of the type the key field declares, and for a String well-formed text.
     public static EntityKey OfValues(EntityTable table, object?[] values)
     {
         var key = values[table.EntityType.Key.Ordinal]!;
 
         return table.KeyKind switch
         {
-            KeyKindEnum.Number => new EntityKey((long)key),
-            KeyKindEnum.Text => new EntityKey((string)key),
-            _ => default,
+            KeyKindEnum.Integer => Integer(table, IntegerOf(key)!.Value),
+            KeyKindEnum.Guid => EntityKey.OfGuid((Guid)key),
+            _ => EntityKey.OfText((string)key, ValueComparer.TextHash(table.EntityType.Key, (string)key)),
         };
     }
 
-    // An integer of a width that fits Int64 is read as its own type, without a box; any other
-    // value, also a UInt64 beyond Int64, goes to the check of the core.
-    private static long Number<TKey>(EntityTable table, TKey key)
+    // The value of a key given as one of the eight integer types, read as its own type without a box;
+    // null for a key of any other type.
+    private static Int128? IntegerOf<TKey>(TKey key)
         where TKey : notnull
     {
         if (typeof(TKey) == typeof(long))
@@ -96,6 +109,11 @@ internal static class KeyArgument
             return Unsafe.As<TKey, sbyte>(ref key);
         }
 
+        if (typeof(TKey) == typeof(ulong))
+        {
+            return Unsafe.As<TKey, ulong>(ref key);
+        }
+
         if (typeof(TKey) == typeof(uint))
         {
             return Unsafe.As<TKey, uint>(ref key);
@@ -111,24 +129,44 @@ internal static class KeyArgument
             return Unsafe.As<TKey, byte>(ref key);
         }
 
-        return (long)FieldValues.NormalizeKey(table.EntityType, key);
+        return null;
+    }
+
+    // The value of a boxed key of one of the eight integer types; null for a key of any other type.
+    private static Int128? IntegerOf(object key) => key switch
+    {
+        long value => value,
+        int value => value,
+        short value => value,
+        sbyte value => value,
+        ulong value => value,
+        uint value => value,
+        ushort value => value,
+        byte value => value,
+        _ => null,
+    };
+
+    // Whether an integer is a value of the key type: one of another width that fits finds its entity,
+    // and one that does not fit is refused, never cut or wrapped to the width.
+    private static bool Fits(EntityTable table, Int128 value) => IntegerRange.Of(table.EntityType.Key.Declaration.Type).Contains(value);
+
+    // An integer key of the key type, as EntityKey holds it: the bits of a UInt64 as a long, and every
+    // other value as itself.
+    private static EntityKey Integer(EntityTable table, Int128 value)
+    {
+        var type = table.EntityType.Key.Declaration.Type;
+
+        return EntityKey.OfInteger(type, type == LatticeFieldTypeEnum.UInt64 ? unchecked((long)(ulong)value) : (long)value);
     }
 
     // A String key given as itself: text that is not well-formed is an ArgumentException, as the
-    // core refuses it (the planner's answer to Q41); a check of one pass that allocates nothing.
+    // core refuses it (the planner's answer to Q41); a check of one pass that allocates nothing, and the
+    // hash under the comparison of the key.
     private static EntityKey Text(EntityTable table, string text)
     {
         ArgumentNullException.ThrowIfNull(text, "key");
         FieldValues.ThrowIfNotWellFormed(table.EntityType.Key, text, "key");
 
-        return new EntityKey(text);
-    }
-
-    // Checks a key of an entity type the engine does not store; nothing is looked up with it.
-    private static EntityKey Checked(EntityTable table, object key)
-    {
-        _ = FieldValues.NormalizeKey(table.EntityType, key);
-
-        return default;
+        return EntityKey.OfText(text, ValueComparer.TextHash(table.EntityType.Key, text));
     }
 }

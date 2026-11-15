@@ -94,7 +94,9 @@ public enum LatticeFieldTypeEnum : byte
     /// loaded with them, but storing their values is not implemented. Until then no write of
     /// an entity type that has an Enum field is carried out: after the checks every write
     /// makes of its arguments and of the entity against the schema, it throws
-    /// <see cref="NotSupportedException"/>, whatever the value.
+    /// <see cref="NotSupportedException"/>. Whether a value is one its enum type allows, see
+    /// <see cref="LatticeEnumType.IsValid"/>, is one of those checks, so a write with a value
+    /// the enum type does not allow is <see cref="LatticeErrorEnum.ValidationFailed"/> first.
     /// </remarks>
     Enum = 20,
 

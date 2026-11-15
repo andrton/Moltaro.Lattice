@@ -166,7 +166,8 @@ internal ref struct RootWriter
     // Sets the value of a field of a signed integer type, Int8 to Int64, or of an Enum field whose
     // enum type has a signed underlying type, at the width of that type. A value outside its range
     // is ValidationFailed; it is never cut, wrapped or widened to make it fit (Q03.1). Whether an
-    // Enum value is a declared member is checked from S07 on.
+    // Enum value is one its enum type allows is checked by the validation of the core before a write
+    // reaches the engine (Access.Values.EnumValues), not here.
     public void SetInteger(LatticeField field, long value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.SignedInteger, nameof(SetInteger));

@@ -62,9 +62,9 @@ public sealed class LatticeValueDeclaration
         Value = value;
 
         ScalarType = enumType?.UnderlyingType ?? target?.Key.Type ?? type;
-        TextComparer = type == LatticeFieldTypeEnum.String
-            ? (comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
-            : target?.Key.TextComparer;
+        TextComparison = type == LatticeFieldTypeEnum.String
+            ? (comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? TextComparison.WithoutCase : TextComparison.Ordinal)
+            : target?.Key.TextComparison;
 
         if (type is LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set)
         {
@@ -254,9 +254,15 @@ public sealed class LatticeValueDeclaration
     // bound.
     internal int Depth { get; }
 
-    // How text at this position is compared: the comparison of a String, or of the key of the
-    // target of a Reference, which compares as that key. Null for any other type.
-    internal StringComparer? TextComparer { get; }
+    // How text at this position is compared: the comparison of a String, or of the key of the target
+    // of a Reference, which compares as that key. Null for any other type. The one place where a
+    // declared comparison gets its meaning, the one rule of equality and hash for text
+    // (TextComparison): Ordinal is the equality of the code units, OrdinalIgnoreCase the case table of
+    // Lattice's own. The comparers of a Map key, a Set element and the key of an entity in a write
+    // batch take it from here, and so does the comparison of stored text in the engine,
+    // Engine.Comparison.ValueComparer: the engine references the core, and the core cannot reference
+    // the engine.
+    internal TextComparison? TextComparison { get; }
 
     // The entity type a Reference refers to; null for any other type.
     internal ReferenceTarget? Target { get; }

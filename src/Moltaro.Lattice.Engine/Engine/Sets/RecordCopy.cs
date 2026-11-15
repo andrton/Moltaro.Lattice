@@ -48,10 +48,11 @@ internal struct RecordCopy : IRootCopy<LatticeRecord>
     {
     }
 
-    // The value of a field that is not null, boxed in the exact type a record holds for it.
+    // The value of a field that is not null, boxed in the exact type a record holds for it: for an
+    // Enum field the integer of the underlying type of its enum type (LatticeValueDeclaration.ScalarType).
     private static object Value(LatticeField field, in RootReader reader)
     {
-        switch (field.Declaration.Type)
+        switch (field.Declaration.ScalarType)
         {
             case LatticeFieldTypeEnum.Boolean:
                 return reader.GetBoolean(field);

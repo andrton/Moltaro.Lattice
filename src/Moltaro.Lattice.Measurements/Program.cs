@@ -31,12 +31,13 @@ IReadOnlyList<string>? results = scenario switch
 {
     RootBytesScenario.Name => RootBytesScenario.Run(),
     ReadByKeyScenario.Name => ReadByKeyScenario.Run(),
+    ReadByTextKeyScenario.Name => ReadByTextKeyScenario.Run(),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}.");
 }
 
 var finished = DateTimeOffset.UtcNow;

@@ -1,21 +1,18 @@
-using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
 
-// Text as a root stores it, in the encoding of the database (Q04.1): how many bytes it takes, the
-// string it reads back as, and whether it equals a given text. Only well-formed text is stored, in
-// both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check of the
-// core, WellFormedText), so decoding stored text needs no check of its own and finds no malformed
-// sequence. A UTF-16 database keeps the code units in the byte order of
-// the machine, as everything in native memory is.
+// Text as a root stores it, in the encoding of the database (Q04.1): how many bytes it takes and the
+// string it reads back as. Whether it equals a given text is the comparison of the schema's
+// (Engine.Comparison.ValueComparer), which reads it through StoredTextReader. Only well-formed text is
+// stored, in both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check
+// of the core, WellFormedText), so decoding stored text needs no check of its own and finds no
+// malformed sequence. A UTF-16 database keeps the code units in the byte order of the machine, as
+// everything in native memory is.
 internal static class StoredText
 {
-    // The bytes of UTF-8 that EqualsOrdinal encodes on the stack at a time.
-    private const int ComparedAtOnce = 256;
-
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
     // code unit. For text of at most ValueBlocks.MostValueBytes code units, which RootWriter checks
     // first: three bytes for each at most, so the count fits an int. Longer text is above the bound
@@ -61,43 +58,14 @@ internal static class StoredText
             DecodeChunks(value.arena, ValueBlocks.Directory(value.arena, value.descriptor), characters));
     }
 
-    // Whether the stored text of a String value is the given text, compared ordinally, code unit by
-    // code unit: what a primary key compared with Ordinal needs (S07 brings the one comparison of the
-    // schema, ValueComparer, for every comparison and both encodings). In a UTF-8 database the text
-    // is encoded on the stack, a piece at a time, and each piece is compared with the stored bytes at
-    // its place, so nothing is allocated, whatever the length. Text that is not well-formed is never
-    // stored, so it equals no stored text.
-    public static bool EqualsOrdinal(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
+    // The bytes of the UTF-8 character that begins with this lead byte: 1 to 4.
+    public static int SequenceLength(byte lead) => lead switch
     {
-        if (encoding == LatticeStringEncodingEnum.Utf16)
-        {
-            var units = MemoryMarshal.AsBytes(text);
-
-            return units.Length == descriptor.Length && ValueBlocks.RangeEquals(arena, descriptor, rootPayload, 0, units);
-        }
-
-        Span<byte> piece = stackalloc byte[ComparedAtOnce];
-        var position = 0L;
-
-        while (!text.IsEmpty)
-        {
-            // A piece ends between two characters: the encoder stops before a character that does
-            // not fit whole, and the text is never cut inside a surrogate pair.
-            var status = System.Text.Unicode.Utf8.FromUtf16(text, piece, out var read, out var written, replaceInvalidSequences: false);
-
-            if (status == OperationStatus.InvalidData
-                || position + written > descriptor.Length
-                || !ValueBlocks.RangeEquals(arena, descriptor, rootPayload, position, piece[..written]))
-            {
-                return false;
-            }
-
-            position += written;
-            text = text[read..];
-        }
-
-        return position == descriptor.Length;
-    }
+        < 0x80 => 1,
+        < 0xE0 => 2,
+        < 0xF0 => 3,
+        _ => 4,
+    };
 
     // Decodes the UTF-8 of a chunked value into the destination and returns the number of its
     // characters; with an empty destination it only counts them, so that the string can be made at
@@ -164,13 +132,4 @@ internal static class StoredText
     }
 
     private static bool IsContinuation(byte value) => (value & 0xC0) == 0x80;
-
-    // The bytes of the character that begins with this lead byte.
-    private static int SequenceLength(byte lead) => lead switch
-    {
-        < 0x80 => 1,
-        < 0xE0 => 2,
-        < 0xF0 => 3,
-        _ => 4,
-    };
 }
