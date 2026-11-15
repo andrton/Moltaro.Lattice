@@ -30,6 +30,6 @@ internal abstract class MapForm
     public static MapForm For(LatticeValueDeclaration key, LatticeValueDeclaration value)
     {
         var formType = typeof(MapForm<,>).MakeGenericType(key.PositionType, value.PositionType);
-        return (MapForm)Activator.CreateInstance(formType, key.TextComparer)!;
+        return (MapForm)Activator.CreateInstance(formType, key.TextComparison)!;
     }
 }

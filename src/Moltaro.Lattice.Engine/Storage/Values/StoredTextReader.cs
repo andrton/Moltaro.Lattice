@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Storage.Values;
 
 // Reads the text of one stored String value as UTF-16 code units, a piece at a time and in its order,
 // into memory of the caller, without allocating: what a comparison of stored text with a given text
-// needs, which hands every piece to a comparison of .NET (Engine.Comparison.ValueComparer). Text of a
+// needs, which compares every piece by the rule of the schema (Engine.Comparison.ValueComparer). Text of a
 // UTF-8 database is decoded and text of a UTF-16 database copied, from wherever the value lies:
 // inline in the root block, in a block of its own, or in chunks, which are read one after the other.
 //

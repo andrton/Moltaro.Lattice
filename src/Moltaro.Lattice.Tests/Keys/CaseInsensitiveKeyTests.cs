@@ -58,7 +58,7 @@ public sealed class CaseInsensitiveKeyTests
         Assert.All(Spellings, spelling => Assert.True(CaseRule.Equal(spelling.Stored, spelling.Other) && CaseRule.Equal(spelling.Stored, spelling.Third)));
     }
 
-    [Theory(Skip = NotImplemented.CaseTable)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Entity_is_found_under_every_spelling_of_its_key_and_under_no_other_text(LatticeStringEncodingEnum encoding)

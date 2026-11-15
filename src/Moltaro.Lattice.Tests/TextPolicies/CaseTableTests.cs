@@ -21,7 +21,7 @@ public sealed class CaseTableTests
     // How many scalar values a failure lists.
     private const int Listed = 20;
 
-    [Fact(Skip = NotImplemented.CaseTable)]
+    [Fact]
     public void Case_table_has_version_1()
     {
         var table = CaseTable();
@@ -30,7 +30,7 @@ public sealed class CaseTableTests
         Assert.Equal(1, Assert.IsType<int>(version));
     }
 
-    [Fact(Skip = NotImplemented.CaseTable)]
+    [Fact]
     public void Case_table_maps_every_scalar_value_to_its_simple_uppercase_mapping_of_Unicode_16_0_0()
     {
         var toUpper = CaseTable().GetMethod("ToUpper", Static, [typeof(int)])!.CreateDelegate<Func<int, int>>();

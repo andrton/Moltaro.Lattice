@@ -23,8 +23,7 @@ public enum LatticeStringComparisonEnum : byte
     /// uppercase mapping of Unicode 16.0.0, character by character, so the result is the same in
     /// every process, on every node and under every globalization setting. No culture is applied
     /// and nothing is normalized. For a small number of rare characters the result can differ
-    /// from <see cref="StringComparison.OrdinalIgnoreCase"/> of the running process. It is not
-    /// language-aware, and it does not remove accents, trim whitespace or normalize the text.
+    /// from <see cref="StringComparison.OrdinalIgnoreCase"/> of the running process.
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded

@@ -56,7 +56,7 @@ public sealed class EqualityWithoutCaseTests
         Assert.All(Pairs, pair => Assert.Equal(pair.Value.Equal, CaseRule.Equal(pair.Value.Left, pair.Value.Right)));
     }
 
-    [Theory(Skip = NotImplemented.CaseTable)]
+    [Theory]
     [MemberData(nameof(EncodingsAndPairs))]
     public async Task Two_texts_are_one_key_exactly_when_the_case_table_holds_them_equal(LatticeStringEncodingEnum encoding, string pairName)
     {
@@ -88,7 +88,7 @@ public sealed class EqualityWithoutCaseTests
         }
     }
 
-    [Theory(Skip = NotImplemented.CaseTable)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Write_batch_takes_one_operation_for_two_texts_exactly_when_the_case_table_holds_them_equal(DatabaseImplementationEnum implementation)
     {
@@ -112,7 +112,7 @@ public sealed class EqualityWithoutCaseTests
         }
     }
 
-    [Fact(Skip = NotImplemented.CaseTable)]
+    [Fact]
     public void Map_keys_and_Set_members_compared_without_case_are_one_exactly_when_the_case_table_holds_them_equal()
     {
         Assert.True(Schema.TryGetEntityType("Holder", out var holder));
