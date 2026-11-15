@@ -16,9 +16,10 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     private readonly LatticeSchema _schema;
     private readonly List<WriteBatchOperation> _operations = [];
 
-    // The entities the batch already addresses. A key is normalized to the key type of its
-    // entity type, so equal keys are equal objects here.
-    private readonly HashSet<(LatticeEntityType EntityType, object Key)> _identities = [];
+    // The entities the batch already addresses, told apart as the schema compares their keys
+    // (WriteBatchEntity). A key is normalized to the key type of its entity type before it is
+    // added, so an integer key is one entity in whatever width it was given.
+    private readonly HashSet<WriteBatchEntity> _identities = [];
     private bool _submitted;
 
     public WriteBatch(LatticeSchema schema)
@@ -109,7 +110,8 @@ internal sealed class WriteBatch : ILatticeWriteBatch
     {
         ThrowIfSubmitted();
 
-        if (!_identities.Add((operation.EntityType, operation.Key)))
+        // Checked before the operation is kept: a refused operation leaves the batch as it was.
+        if (!_identities.Add(new WriteBatchEntity(operation.EntityType, operation.Key)))
         {
             throw new ArgumentException(
                 $"The batch already has an operation for {operation.EntityType.Name} '{operation.Key}'. A batch takes one operation per entity.");

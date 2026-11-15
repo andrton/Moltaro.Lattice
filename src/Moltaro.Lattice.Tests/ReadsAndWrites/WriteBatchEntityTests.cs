@@ -36,7 +36,7 @@ public sealed class WriteBatchEntityTests
         }
         """);
 
-    [Theory(Skip = NotImplemented.BatchKeyComparison)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Two_spellings_of_a_key_compared_without_case_are_one_entity(DatabaseImplementationEnum implementation)
     {

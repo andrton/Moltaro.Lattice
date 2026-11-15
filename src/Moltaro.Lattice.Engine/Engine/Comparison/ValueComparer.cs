@@ -16,8 +16,10 @@ namespace Moltaro.Lattice.Engine.Comparison;
 //   two Guids when their 16 bytes are the same (Entities.EntityTable says how each is held);
 // - a String follows the comparison its field declares, StringComparison.Ordinal or
 //   StringComparison.OrdinalIgnoreCase of .NET exactly (Q04: the .NET ordinal comparisons are the
-//   semantic reference), with the same result in a UTF-8 and in a UTF-16 database. Here, and nowhere
-//   else.
+//   semantic reference), with the same result in a UTF-8 and in a UTF-16 database. Which comparison
+//   of .NET a declared comparison means is the schema's, LatticeValueDeclaration.TextComparison, from
+//   which the core takes its comparers of Map keys, Set elements and the keys of a write batch as
+//   well; a key is compared with stored text here, and nowhere else.
 //
 // How a stored text is compared with a given one. The stored text is read as UTF-16, a piece of
 // PieceLength code units at a time, into a buffer on the stack (StoredTextReader), and each piece is
@@ -86,6 +88,7 @@ internal static class ValueComparer
         }
     }
 
-    private static StringComparison ComparisonOf(LatticeField field) =>
-        field.Declaration.Comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    // The comparison of .NET that the declared comparison of a String field means, as the schema
+    // gives it to the core and to the engine alike (LatticeValueDeclaration.TextComparison).
+    private static StringComparison ComparisonOf(LatticeField field) => field.Declaration.TextComparison!.Value;
 }

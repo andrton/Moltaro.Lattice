@@ -62,9 +62,10 @@ public sealed class LatticeValueDeclaration
         Value = value;
 
         ScalarType = enumType?.UnderlyingType ?? target?.Key.Type ?? type;
-        TextComparer = type == LatticeFieldTypeEnum.String
-            ? (comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
-            : target?.Key.TextComparer;
+        TextComparison = type == LatticeFieldTypeEnum.String
+            ? (comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+            : target?.Key.TextComparison;
+        TextComparer = TextComparison is { } textComparison ? StringComparer.FromComparison(textComparison) : null;
 
         if (type is LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set)
         {
@@ -254,8 +255,16 @@ public sealed class LatticeValueDeclaration
     // bound.
     internal int Depth { get; }
 
-    // How text at this position is compared: the comparison of a String, or of the key of the
-    // target of a Reference, which compares as that key. Null for any other type.
+    // How text at this position is compared, as a comparison of .NET: the comparison of a String,
+    // or of the key of the target of a Reference, which compares as that key. Null for any other
+    // type. The one place where a declared comparison gets its meaning (Q04: the .NET ordinal
+    // comparisons are the semantic reference). The comparers of the core, TextComparer, and the
+    // comparison of stored text in the engine, Engine.Comparison.ValueComparer, both take it from
+    // here: the engine references the core, and the core cannot reference the engine.
+    internal StringComparison? TextComparison { get; }
+
+    // TextComparison as a comparer of strings, for a Map key, a Set element and the key of an entity
+    // in a write batch. Null for any other type than those TextComparison has.
     internal StringComparer? TextComparer { get; }
 
     // The entity type a Reference refers to; null for any other type.
