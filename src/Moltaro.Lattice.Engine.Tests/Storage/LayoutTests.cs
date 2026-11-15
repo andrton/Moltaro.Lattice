@@ -3,12 +3,13 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage;
 
-// The layout of the two structs the engine holds in bulk, measured on the running runtime and
+// The layout of the structs the engine holds in bulk, measured on the running runtime and
 // compared with the milestone contract ("Native layout and allocation"), which asks that the
 // actual layout be asserted and not assumed: the 32-byte header at the start of every block in
-// native memory, and the 48-byte root entry in the managed pages of the root table. The sizes are
-// those the runtime uses for a value of the type, and each offset is measured between a reference
-// to a value and a reference to its field, so nothing is taken from the declarations.
+// native memory, the 48-byte root entry in the managed pages of the root table, and the 16-byte
+// descriptor of a String or Binary value in the fixed part of a root. The sizes are those the
+// runtime uses for a value of the type, and each offset is measured between a reference to a
+// value and a reference to its field, so nothing is taken from the declarations.
 public sealed class LayoutTests
 {
     [Fact]
@@ -65,6 +66,31 @@ public sealed class LayoutTests
         Assert.Equal(36, OffsetOf(ref entry, ref entry.TypeId));
         Assert.Equal(40, OffsetOf(ref entry, ref entry.State));
         Assert.Equal(44, OffsetOf(ref entry, ref entry.ClaimCount));
+    }
+
+    [Fact]
+    public void A_value_descriptor_takes_16_bytes()
+    {
+        Assert.Equal(16, Unsafe.SizeOf<ValueDescriptor>());
+    }
+
+    [Fact]
+    public void The_fields_of_a_value_descriptor_lie_where_the_specification_puts_them()
+    {
+        var descriptor = new ValueDescriptor();
+
+        // Kind and flags (4), length or count (4), relative address or stable text handle (8).
+        Assert.Equal(4, Unsafe.SizeOf<DescriptorKindEnum>());
+        Assert.Equal(0, OffsetOf(ref descriptor, ref descriptor.Kind));
+        Assert.Equal(4, OffsetOf(ref descriptor, ref descriptor.Length));
+        Assert.Equal(8, OffsetOf(ref descriptor, ref descriptor.Location));
+    }
+
+    [Fact]
+    public void A_descriptor_of_all_zero_bytes_is_the_descriptor_of_a_null_value()
+    {
+        // The descriptor of a null String or Binary is all zero (brief of S05, "Where a value goes").
+        Assert.Equal(DescriptorKindEnum.Null, default(ValueDescriptor).Kind);
     }
 
     // How many bytes after the start of the value its field begins.

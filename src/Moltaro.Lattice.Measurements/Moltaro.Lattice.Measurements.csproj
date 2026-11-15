@@ -10,4 +10,9 @@
     <!-- The engine, and through it the contract. -->
     <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The tests of the reference fixture reach its internal class; see exception X3 in
+         docs/work/exceptions.md. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
+  </ItemGroup>
 </Project>

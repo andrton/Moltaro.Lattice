@@ -1,13 +1,14 @@
 using Moltaro.Lattice.Storage.Allocation;
 
-namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
+namespace Moltaro.Lattice.Engine.Tests.Storage;
 
-// The native allocator of an arena under test (exception X3: a fault point). It obtains and returns
-// memory through the native allocator, as the arena's default does, and keeps account of it: how
-// many requests it served, how many returns it took and which memory is still outstanding. Memory
-// returned that it did not give out, or that came back already, fails the test, and is not handed
-// to the native allocator. When FailNextAllocation is set, the next request fails as the native
-// allocator fails, with OutOfMemoryException, obtains nothing and clears the setting.
+// The native allocator of an arena under test (exception X3: a fault point), for the tests of the
+// arena and of the values stored in it. It obtains and returns memory through the native allocator,
+// as the arena's default does, and keeps account of it: how many requests it served, how many
+// returns it took and which memory is still outstanding. Memory returned that it did not give out,
+// or that came back already, fails the test, and is not handed to the native allocator. When
+// FailNextAllocation is set, the next request fails as the native allocator fails, with
+// OutOfMemoryException, obtains nothing and clears the setting.
 internal sealed class CountingNativeAllocator : NativeAllocator
 {
     private readonly HashSet<nint> _outstanding = [];
