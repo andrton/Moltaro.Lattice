@@ -2589,44 +2589,108 @@ twice.
 - **To read.** [Index preparation and traversal, comparison and hash](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [primary-key types, enum and Flags rules](../decisions/schema-and-types.md);
   [Q04](../decisions/strings.md); [floating-point special values](../decisions/queries.md).
-- **Acceptance.** Every key type of the catalog is a primary key by class and by name:
-  the eight integers, String and Guid. A String key compared without case finds its
-  entity under any spelling, and the stored spelling is kept when the entity is replaced
-  through an equal key in another spelling. Two databases, one in UTF-8 and one in
-  UTF-16, compare the same keys alike. A write with an undeclared enum value or an
-  unknown Flags bit is refused with `ValidationFailed`; zero is a valid Flags value. A
-  missing required value and a null in a non-nullable field are refused in the same way,
-  by class and by name. Comparing a key allocates no string.
+- **Acceptance.** Rewritten by the planner on 15 November 2026, before the sprint started,
+  against the engine as S06 left it. Every key type of the catalog is a primary key by
+  class and by name: the eight integers, String and Guid; an entity is inserted, read,
+  replaced, upserted, deleted and enumerated under each. A key given as an integer of
+  another width that fits finds its entity; one that does not fit, a text for a Guid key
+  and a key of another type are `ArgumentException`. A UInt64 key above the largest Int64
+  and an empty String key work.
+
+  A String key compared without case finds its entity under any spelling, and what it
+  finds agrees with `string.Equals` under `StringComparison.OrdinalIgnoreCase` for letters
+  with and without case, outside ASCII and outside the basic plane; the test computes its
+  expectation with .NET. An insert under another spelling of a stored key is
+  `DuplicateKey`. A replace and an upsert through another spelling keep the stored
+  spelling of the key and replace the other fields; a delete through another spelling
+  deletes. A String key of 100,000 characters is found with either comparison. All of it
+  holds alike in a UTF-8 and in a UTF-16 database, and an entity written to a UTF-16
+  database reads back equal, by class and by name.
+
+  An entity type with a String field compared without case and one with an Enum field,
+  ordinary or Flags, nullable or not, are written and read back equal. A write with an
+  integer its enum type does not declare, or with a Flags bit no member declares, is
+  `ValidationFailed` with the field named, by class and by name, through a set and when
+  added to a batch, on both implementations and before any other refusal of the write;
+  zero is a valid Flags value. A missing required value and a null in a field that is not
+  nullable are refused in the same way.
+
+  Comparing a key allocates nothing that outlives the read.
+
+  The sprint ends refusals that tests of S02, S03 and S06 state, and the test author
+  changes those tests in the tests commit. In `NotStoredYetTests` the cases of the seven
+  other integer keys, of the Guid key, of the String key compared without case, of the
+  text compared without case, of the schema in UTF-16 and of the Enum field are removed;
+  the cases of Dictionary storage, of the unique index and of the field types of S03
+  stay. `ValidationBeforeRefusalTests.Integer_that_its_enum_type_does_not_declare_is_not_refused_yet_and_the_write_ends_as_not_implemented`
+  is replaced by its opposite: such an integer is `ValidationFailed` before the write is
+  refused as not implemented. Between the tests commit and the implementation commit the
+  removed cases are stated by nothing, which is the state of a refusal that is about to
+  end. The tests of `TextPolicyAndEnumWriteTests` and the tests of
+  `MalformedTextWriteTests` and `ValueBoundWriteTests` that open the placeholder state
+  what the placeholder does and stay until S12; where one of them also opens the engine
+  with a schema this sprint makes storable, the test author moves its engine case to the
+  tests of this sprint. A test the sprint breaks outside this list is reported to the
+  coordinator, who enters it in the brief, and is then edited in the same way.
 - **Measured.** Asserted: a read by a String key allocates the returned copy and nothing
-  else, with and without case. Reported: read time by a String key compared with and
-  without case.
+  else, with and without case, after a first read with a key of that length, which may
+  reserve the workspace of the comparison. Reported: read time by a String key compared
+  with and without case.
 - **Out of scope.** Enumeration while entities change and the growth of the index (S08).
   Secondary indexes (S14).
 
-**Types and members of S07.** No public member. Internal, namespace `Moltaro.Lattice.Storage`:
+**Types and members of S07.** Replaced by the planner on 15 November 2026: the block this
+brief had, `ComparisonScratch` and `ValueComparer`, was written before there was an engine
+and did not fit it — a stored text is not one span but is reached through its descriptor,
+the index of S06 looks a key up with the caller's text, and order belongs to the secondary
+indexes. No public member, and no internal type that the tests address: everything this
+sprint delivers is stated through the public API, by class and by name, and the tests of
+the allocation of a read are written as in S06. The milestone contract asks for one
+comparison and hash service of the schema. In this sprint that is one place in the engine
+that knows the equality and the hash of a primary key under the comparison its field
+declares and in the encoding of the database; the primary index uses it and nothing else
+compares a key with stored text. Its members are the implementer's. The contract of S14
+adds the order of values and the other types, and names what its tests address; S19 uses
+the same service for Map and Set.
 
-```csharp
-// Reusable UTF-16 workspace for comparing UTF-8 text without case. The caller reserves it
-// before it takes a gate; a comparison never allocates.
-internal sealed class ComparisonScratch
-{
-    public ComparisonScratch(int characters);
-    public void EnsureCapacity(int characters);
-}
+From this sprint the engine stores an entity type with any key type of the catalog — the
+eight integers, String with either comparison, Guid —, with a String field compared
+without case, with an Enum field, and in a schema of the UTF-16 encoding. It still
+refuses, as S06 says: Dictionary storage until S13, a unique index until S16, the field
+types of S03 until S18 and S19. The placeholder is not changed: it keeps refusing a
+comparison without case, an Enum field and UTF-16 until it goes in S12, so the tests of
+those three run on the engine only, and the tests of the key types run on both.
 
-// The one equality, order and hash of one declared position, bound once.
-internal sealed class ValueComparer
-{
-    public ValueComparer(LatticeValueDeclaration declaration, LatticeStringEncodingEnum encoding);
-    public bool Equals(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, ComparisonScratch scratch);
-    public int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, ComparisonScratch scratch);
-    public int GetHashCode(ReadOnlySpan<byte> value, ComparisonScratch scratch);
-}
-```
+A key is given as the type its field declares, or as an integer of another width when it
+fits, as before; a value that does not fit, a negative one for an unsigned key included,
+is `ArgumentException`. A Guid key is given as a `Guid` and as nothing else: no text is
+parsed. A UInt64 key above the largest Int64 works like any other.
 
-The spans hold one value in its stored form. `Compare` of two floating-point values
-follows `CompareTo` of .NET, and `Equals` with `GetHashCode` agree for NaN and for the two
-zeros, as the milestone contract requires.
+A String key compared without case follows `StringComparison.OrdinalIgnoreCase` of .NET,
+the semantic reference Q04 names, with the same result in a UTF-8 and in a UTF-16
+database. Two keys that are equal under it are one key: an insert under another spelling
+of a stored key is `DuplicateKey`; a read, a replace, an upsert and a delete under another
+spelling address the stored entity. The primary key is immutable (accepted decision): the
+spelling the entity was created with stays, a replace or an upsert through another
+spelling replaces every other field, and the entity reads back with the spelling it was
+created with, by class and by name. An empty String is a key like any other.
+
+Whether an integer is a value its enum type declares is checked by the validation of the
+core from this sprint on, with every other validation of a value and in the order of Q25,
+on both implementations: a value an ordinary enum type does not declare, and for a Flags
+type a bit that no member declares, is `ValidationFailed` with the field named; for a
+Flags type zero is valid, for an ordinary enum type only when it is declared; null is
+valid where the field is nullable. It is checked at a write and at adding to a write
+batch, not when a value is set into a record. A .NET enum property can hold a value its
+type does not name, by a cast, and is checked in the same way. `LatticeEnumType.IsValid`
+is the rule. The remarks that list `ValidationFailed` gain one sentence: "An integer that
+the enum type of its field does not declare — for a Flags type, a bit that no member
+declares — is refused in the same way."
+
+Positions, revisions, states, the lookup claim, enumeration until S08 and the counters are
+as S06 has them and S07 does not touch them. The public "Not implemented yet" remarks on
+`OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
+and are not edited in S07.
 
 #### S08 · Enumeration under change and the growth of the index
 
