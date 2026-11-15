@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 //
 // Each call is measured alone, with GC.GetAllocatedBytesForCurrentThread around it. The same steps
 // run first on another arena, so that every path is taken once before it is measured, and the
-// tests run in the collection that keeps garbage collections out of the measured windows.
+// tests run in the test collection that keeps garbage collection out of the measured windows.
 [Collection<ManagedAllocationCollection>]
 public sealed class ManagedAllocationPathTests
 {
@@ -26,7 +26,10 @@ public sealed class ManagedAllocationPathTests
         FreeEverySegment(reservedSegments);
         var frees = FreeEverySegment(reservedSegments);
 
-        Assert.All(frees, call => Assert.Equal(0L, call.ManagedBytes));
+        foreach (var call in frees)
+        {
+            ManagedAllocationAssert.Nothing(call, call.ManagedBytes);
+        }
 
         // Every Free ended the use of a segment: without a reserve it freed the segment, with a
         // reserve that has room for all of them it put the segment into the reserve.
@@ -41,7 +44,10 @@ public sealed class ManagedAllocationPathTests
         Churn();
         var frees = Churn().Where(call => !call.Allocation).ToList();
 
-        Assert.All(frees, call => Assert.Equal(0L, call.ManagedBytes));
+        foreach (var call in frees)
+        {
+            ManagedAllocationAssert.Nothing(call, call.ManagedBytes);
+        }
 
         // The churn took both paths that end a segment's use.
         Assert.Contains(frees, call => call.After.Segments < call.Before.Segments);
@@ -55,7 +61,10 @@ public sealed class ManagedAllocationPathTests
         var allocations = Churn().Where(call => call.Allocation).ToList();
         var withoutNewSegment = allocations.Where(call => call.After.Segments == call.Before.Segments).ToList();
 
-        Assert.All(withoutNewSegment, call => Assert.Equal(0L, call.ManagedBytes));
+        foreach (var call in withoutNewSegment)
+        {
+            ManagedAllocationAssert.Nothing(call, call.ManagedBytes);
+        }
 
         // The churn took every path that needs no new segment: a free slot of the class, a free
         // region and a reserved segment.

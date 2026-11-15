@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Roots;
 // allocates only when it adds a page, also when it gives out a released slot again. Each call is
 // measured alone, with GC.GetAllocatedBytesForCurrentThread around it; the same steps run first on
 // another table, so that every path is taken once before it is measured, and the test runs in the
-// collection that keeps garbage collections out of the measured windows.
+// test collection that keeps garbage collection out of the measured windows.
 [Collection<ManagedAllocationCollection>]
 public sealed class RootTableAllocationTests
 {
@@ -19,8 +19,14 @@ public sealed class RootTableAllocationTests
         Run();
         var calls = Run();
 
-        Assert.All(calls.Where(call => !call.Add), call => Assert.Equal(0L, call.ManagedBytes));
-        Assert.All(calls.Where(call => call.Add && call.PagesAfter == call.PagesBefore), call => Assert.Equal(0L, call.ManagedBytes));
+        // Every Release, and every Add that added no page.
+        foreach (var call in calls)
+        {
+            if (!call.Add || call.PagesAfter == call.PagesBefore)
+            {
+                ManagedAllocationAssert.Nothing(call, call.ManagedBytes);
+            }
+        }
 
         // Some of the measured lifetimes took a released slot again.
         Assert.Contains(calls, call => call.Add && call.Handle.Generation > 1);

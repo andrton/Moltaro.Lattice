@@ -4,24 +4,31 @@ using Xunit.v3;
 
 namespace Moltaro.Lattice.Engine.Tests;
 
-// Runs each test it applies to inside a region without garbage collections (GC.TryStartNoGCRegion):
-// from Before to After the runtime starts no collection, neither a blocking nor a background one,
-// while the whole process allocates less than Budget. Starting the region collects once, before
-// the test, and waits for a collection already under way. After ends the region; when the process
-// went beyond the budget, a collection ran during the test, and After fails it, because its
-// measurement of managed allocation was not protected. Nothing is retried.
+// Runs each test it applies to inside a region without garbage collection (GC.TryStartNoGCRegion):
+// from Before to After the runtime starts no garbage collection, neither a blocking nor a
+// background one, while the whole process allocates less than Budget. Starting the region runs one
+// garbage collection before the test and waits for one already under way. After ends the region;
+// when the process went beyond the budget, a garbage collection ran during the test, and After
+// fails the test, because its measurement of managed allocation was not protected. Nothing is
+// retried.
+//
+// What the region needs from the host: starting it raised the private memory of the test process
+// by 131 MiB, about twice the budget (Windows, .NET 10; another measurement found about 122 MiB).
+// With a heap limit (DOTNET_GCHeapHardLimit) of 144 MiB or less the region cannot start, and the
+// tests fail in Before with its message; a limit of 152 MiB was enough.
 [AttributeUsage(AttributeTargets.Class)]
-public sealed class WithoutCollectionsAttribute : BeforeAfterTestAttribute
+public sealed class WithoutGarbageCollectionAttribute : BeforeAfterTestAttribute
 {
-    // Far more than a test of the collection allocates, a few MiB at most, with the test runner's
-    // own allocations while it runs.
+    // Between Before and After of one test the whole process allocated at most 4.3 MiB, the test
+    // runner's allocations included (RootTableAllocationTests, GC.GetTotalAllocatedBytes, Windows,
+    // .NET 10): the budget is about fifteen times that.
     private const long Budget = 64L * 1024 * 1024;
 
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
     {
         if (!GC.TryStartNoGCRegion(Budget))
         {
-            throw new InvalidOperationException("The runtime could not set up a region without garbage collections for the test.");
+            throw new InvalidOperationException("The runtime could not set up a region without garbage collection for the test.");
         }
     }
 
