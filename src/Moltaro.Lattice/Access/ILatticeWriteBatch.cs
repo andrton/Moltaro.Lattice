@@ -25,8 +25,11 @@ namespace Moltaro.Lattice.Access;
 /// takes one operation per entity: adding a second operation for the same entity type and
 /// primary key is an <see cref="ArgumentException"/>, and the batch stays as it was. An
 /// entity that violates the schema is refused when it is added, with
-/// <see cref="LatticeErrorEnum.ValidationFailed"/>. A batch is built by one caller and is
-/// not safe to use from several threads at once.
+/// <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not well-formed — a
+/// surrogate without its pair — is refused in the same way, at any depth, and is never stored
+/// and never replaced by another character. A key given to a delete that is a String which
+/// is not well-formed text is an <see cref="ArgumentException"/>, as a key of another type
+/// is. A batch is built by one caller and is not safe to use from several threads at once.
 /// </para>
 /// <para>
 /// <b>Executing.</b> The master checks every operation against the state at the moment of
@@ -157,7 +160,8 @@ public interface ILatticeWriteBatch
     /// <typeparam name="TEntity">A .NET class named by a <c>ClrType</c> in the schema.</typeparam>
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <exception cref="ArgumentException">
-    /// The batch already has an operation for this entity, or the key has another type.
+    /// The batch already has an operation for this entity, or the key has another type or is
+    /// text that is not well-formed.
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
@@ -174,7 +178,8 @@ public interface ILatticeWriteBatch
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <param name="expectedRevision">The revision read together with the entity.</param>
     /// <exception cref="ArgumentException">
-    /// The batch already has an operation for this entity, or the key has another type.
+    /// The batch already has an operation for this entity, or the key has another type or is
+    /// text that is not well-formed.
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
@@ -190,7 +195,8 @@ public interface ILatticeWriteBatch
     /// <param name="entityName">The entity type name declared in the schema.</param>
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <exception cref="ArgumentException">
-    /// The batch already has an operation for this entity, or the key has another type.
+    /// The batch already has an operation for this entity, or the key has another type or is
+    /// text that is not well-formed.
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
@@ -205,7 +211,8 @@ public interface ILatticeWriteBatch
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <param name="expectedRevision">The revision read together with the record.</param>
     /// <exception cref="ArgumentException">
-    /// The batch already has an operation for this entity, or the key has another type.
+    /// The batch already has an operation for this entity, or the key has another type or is
+    /// text that is not well-formed.
     /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.

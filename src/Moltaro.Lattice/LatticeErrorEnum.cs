@@ -19,6 +19,10 @@ public enum LatticeErrorEnum
     BindingFailed = 2,
 
     /// <summary>The submitted entity violates the schema. Nothing was written.</summary>
+    /// <remarks>
+    /// Text that is not well-formed — a surrogate without its pair — is refused in the same
+    /// way, at any depth, and is never stored and never replaced by another character.
+    /// </remarks>
     ValidationFailed = 3,
 
     /// <summary>Insert found an existing entity with the same primary key. Nothing was written.</summary>

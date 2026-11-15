@@ -50,7 +50,8 @@ namespace Moltaro.Lattice.Access;
 /// </para>
 /// <para>
 /// A primary key argument has the key type declared in the schema; an integer of another
-/// width is accepted when it fits. Any other key type is an <see cref="ArgumentException"/>.
+/// width is accepted when it fits. Any other key type is an <see cref="ArgumentException"/>,
+/// and so is a String key that is not well-formed text, with a surrogate without its pair.
 /// </para>
 /// <para>
 /// Cancellation takes effect only while an operation is waiting or has not started
@@ -75,15 +76,18 @@ namespace Moltaro.Lattice.Access;
 /// allowed in a collection or an owned value, two Map keys that the key declaration holds
 /// equal, or an array whose elements the runtime would read as other values, at any depth,
 /// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
-/// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Which arrays those
-/// are, and that an array of a class derived from the declared element type is valid, is
-/// stated at <see cref="LatticeRecord.this[string]"/>, which refuses them in the same way.
-/// Both come before a write is refused as not implemented, for every entity type whose
-/// writes are refused until a feature of its schema is implemented, such as a unique index,
-/// an enum field or an owned value: only a write that passes them ends in
-/// <see cref="NotSupportedException"/>. A check that belongs to what is not implemented is
-/// not made yet: whether an integer is a declared value of its enum type, and whether a
-/// unique index already holds the key.
+/// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not
+/// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
+/// is never stored and never replaced by another character. Which arrays the runtime would
+/// read as other values, and that an array of a class derived from the declared element type
+/// is valid, is stated at <see cref="LatticeRecord.this[string]"/>, which refuses such arrays
+/// in the same way. Both come before the conditions of the write are looked at, whether the
+/// key exists and whether the entity has the expected revision, and before a write is
+/// refused as not implemented, for every entity type whose writes are refused until a
+/// feature of its schema is implemented, such as a unique index, an enum field or an owned
+/// value: only a write that passes them ends in <see cref="NotSupportedException"/>. A check
+/// that belongs to what is not implemented is not made yet: whether an integer is a declared
+/// value of its enum type, and whether a unique index already holds the key.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until
