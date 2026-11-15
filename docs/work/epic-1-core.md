@@ -558,8 +558,8 @@ it has any effect. *Not chosen:* 128 operations and 8 MiB by default; a size lim
 from the budget. Shapes S09 and S17 and the contracts of the later stages; it rode in the
 branch of S06 under O16, with the engine contract, the decision on the document model,
 the architecture, `README.md` and the documentation of `ILatticeWriteBatch`. Principle 5
-of `AGENTS.md` still calls a batch "bounded"; the planner reported that sentence to the
-owner, and it is not changed without the owner's word.
+of `AGENTS.md` called a batch "bounded"; the owner approved the sentence without those
+words with decision O19.
 
 **O19. An entity has no size limit of its own.** Decided on 15 November 2026 and given
 through the planner's session, after decision O18 and for the same reason: how large an
@@ -572,8 +572,8 @@ named. *Not chosen:* keeping the option without a default. Shapes S06 and S09, r
 back into S05, whose `RootWriter` loses `maxEntitySize`, and forward into every brief
 that sized a buffer or a test by "1 MiB per entity", which the planner words with its
 stage. With the decision the owner approved principle 5 of `AGENTS.md` without the words
-"which is bounded"; the coordinator makes that edit on the owner's own word in its
-session, because `AGENTS.md` is the instruction file of the agents.
+"which is bounded"; the coordinator made that edit on the owner's own word in its
+session, given on the same day, because `AGENTS.md` is the instruction file of the agents.
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),

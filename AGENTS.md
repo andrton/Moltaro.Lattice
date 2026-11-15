@@ -72,8 +72,8 @@ These hold across the contract, the placeholder and the future engine.
 4. **One master executes writes; children follow.** Application code uses a master and a
    child through the same interface and does not branch on the role.
 5. **Atomicity is explicit.** One write is atomic for one entity. Several writes are
-   atomic only when they are submitted together as one write batch, which is bounded,
-   may address several entity types and stays inside one database. Separate calls are
+   atomic only when they are submitted together as one write batch, which may address
+   several entity types and stays inside one database. Separate calls are
    never atomic together, there is no transaction that spans application code, and
    nothing spans two databases or an external one.
 6. **Three identities stay separate.** A revision identifies one state of one entity, a
