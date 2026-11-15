@@ -29,8 +29,8 @@ internal sealed class SetOperations
 
     public EntityTable Table { get; }
 
-    // A read by key: the copy under the protection of the root, then the result built from it, outside
-    // every gate and the close barrier, only when the entity exists. Null when it does not.
+    // A read by key: the copy inside the read gate, then the result built from it, outside the gate,
+    // only when the entity exists. Null when it does not.
     public TResult? TryRead<TCopy, TResult>(in EntityKey key, TCopy copy, out LatticeRevision revision, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
@@ -62,7 +62,7 @@ internal sealed class SetOperations
     }
 
     // The lazy enumeration of EntityTable.TryReadNext, a new copy for every item, each built outside
-    // every gate and the close barrier before it is returned.
+    // the read gate before it is returned.
     public IEnumerable<TResult> Enumerate<TCopy, TResult>(TCopy prototype)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
@@ -110,8 +110,7 @@ internal sealed class SetOperations
         }
     }
 
-    // The next item of an enumeration, built from its copy outside every gate and the close barrier;
-    // null at the end.
+    // The next item of an enumeration, built from its copy outside the read gate; null at the end.
     private TResult? TryReadNext<TCopy, TResult>(ref EntityCursor cursor, TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class

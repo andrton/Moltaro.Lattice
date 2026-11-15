@@ -9,8 +9,8 @@ namespace Moltaro.Lattice.Storage;
 // A generation is local lifetime protection, not a second key of an entity and not a durable
 // revision: a handle is local to one process, never persisted and never returned through the
 // public API (milestone contract, "Native layout and allocation"). A matching generation alone
-// does not make an access safe either; that takes the claims and the root protection of the
-// arena protocol ("Lock and lifetime order").
+// does not make an access safe either; that takes the protection of the reads of the database
+// (Engine.Protection.ReadGate).
 internal readonly struct RootHandle : IEquatable<RootHandle>
 {
     // The packed handle: the generation in the high 32 bits, the slot in the low 32 bits.

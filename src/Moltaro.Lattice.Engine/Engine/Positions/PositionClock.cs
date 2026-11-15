@@ -43,9 +43,9 @@ internal sealed class PositionClock
     // The position of a sequence of this history.
     public LatticePosition At(ulong sequence) => new(History, sequence);
 
-    // Publishes a sequence. The write calls it while it holds the gates under which its change is
-    // seen, so that a read that sees the change reads this sequence or a later one; it wakes the
-    // waiters with Wake after it has released them.
+    // Publishes a sequence. The write calls it where its change is published, so that a read that
+    // sees the change reads this sequence or a later one (EntityTable); it wakes the waiters with Wake
+    // after it has let the reads in again.
     public void Publish(ulong sequence) => Volatile.Write(ref _sequence, sequence);
 
     // Lets every wait look at the sequence again.

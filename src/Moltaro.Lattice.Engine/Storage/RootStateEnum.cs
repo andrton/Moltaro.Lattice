@@ -14,9 +14,9 @@ internal enum RootStateEnum : uint
     // root yet. Every new entry starts here.
     Prepared = 2,
 
-    // The deletion of the root is published: a lookup that still holds a claim on the entry sees
-    // absence. Its owner releases the slot only after the last claim has drained (arena protocol,
-    // "Lock and lifetime order").
+    // The deletion of the root is published. The engine sets it while the reads are excluded, when
+    // the key leaves the index, and releases the entry as soon as the reads are admitted again, since
+    // no read that comes later finds the key (Engine.Protection.ReadGate); no read sees it.
     Deleted = 3,
 
     // The slot was released at generation uint.MaxValue. It is never given out again.

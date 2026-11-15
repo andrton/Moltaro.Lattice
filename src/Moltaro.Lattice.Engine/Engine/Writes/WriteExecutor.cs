@@ -9,8 +9,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // Executes the writes of one entity of a master: insert, replace, upsert and delete, with or
 // without an expected revision (decision on mutation commands, Q13). In S06 writes are executed one
 // after another, under the lock of the writes; the write coordinator, which prepares writes at the
-// same time, comes with S09. Readers read while a write is executed, and a write waits only for the
-// gates of what it publishes.
+// same time, comes with S09. Readers read while a write is executed; a write waits for them only
+// where the read gate says (Protection.ReadGate).
 //
 // A write, in its order. Before it reaches this class the set has checked its arguments and the
 // core has validated the entity against the schema (Q25), text that is not well-formed (Q41) and the
@@ -20,15 +20,19 @@ namespace Moltaro.Lattice.Engine.Writes;
 // 3. Under the lock of the writes it looks the key up and checks the condition of the write: an
 //    expected revision, then that an insert finds no entity and a replace finds one. A failed
 //    condition changes nothing.
-// 4. It prepares what it publishes outside the gates: a new root of prepared blocks, whose writer
+// 4. It prepares what it publishes outside the gate: a new root of prepared blocks, whose writer
 //    guards the stored form with the same checks of text and of the bound, and for an insert a new
 //    root entry and room in the index. A failure frees all of it, so nothing of a refused write is
 //    left in any counter (the planner's answer to Q30). An entity has no size limit of its own;
 //    only the memory of the arena refuses one (decision O19).
-// 5. It publishes under the gates of what changes, in their order (RootGates): the root's stripe
-//    for the root, the catalog gate for the index. Publication only installs what was prepared,
-//    makes its blocks live and advances the position, so it allocates nothing and cannot fail
-//    halfway; a replaced or deleted root is freed in the same exclusive scope of its stripe.
+// 5. It publishes. An insert and a delete change the index in place, so they exclude the reads for
+//    that change; a replace installs its new root while reads go on (EntityTable.InstallRoot).
+//    Publication only installs what was prepared, makes its blocks live and advances the position,
+//    so it allocates nothing and cannot fail halfway.
+// 6. It frees what no read can reach any more, before it returns: the root a replace replaced once
+//    the reads that were inside the gate have left, and the root and the entry of a delete once the
+//    reads are admitted again, since no read that comes later finds the key. So no block is retired,
+//    and a write that has returned leaves nothing for a read to release.
 //
 // Every write that passes its condition and its preparation is published at a position of its own,
 // also a delete of an absent key, which changes no entity (the owner's answer to Q39). A revision
@@ -37,16 +41,16 @@ namespace Moltaro.Lattice.Engine.Writes;
 // entity has a new one (brief of S06, "Position and revision").
 internal sealed class WriteExecutor
 {
-    // The lock of the writes, the first in the order of RootGates: one write at a time, held for the
-    // synchronous work of steps 3 to 5 and for nothing else. The database takes it as well, to read
-    // its counters between two writes.
+    // The lock of the writes, taken after the close barrier and before the read gate (ReadGate, "The
+    // order"): one write at a time, held for the synchronous work of steps 3 to 6 and for nothing
+    // else. The database takes it as well, to read its counters between two writes.
     private readonly Lock _writes;
 
     private readonly Arena _arena;
 
-    private readonly RootGates _gates;
+    private readonly ReadGate _gate;
 
-    private readonly LookupClaims _claims;
+    private readonly RootTable _roots;
 
     private readonly PositionClock _clock;
 
@@ -55,12 +59,12 @@ internal sealed class WriteExecutor
     // How long a write waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    public WriteExecutor(Lock writes, Arena arena, RootGates gates, LookupClaims claims, PositionClock clock, CloseBarrier barrier, TimeSpan synchronizationTimeout)
+    public WriteExecutor(Lock writes, Arena arena, ReadGate gate, RootTable roots, PositionClock clock, CloseBarrier barrier, TimeSpan synchronizationTimeout)
     {
         _writes = writes;
         _arena = arena;
-        _gates = gates;
-        _claims = claims;
+        _gate = gate;
+        _roots = roots;
         _clock = clock;
         _barrier = barrier;
         _synchronizationTimeout = synchronizationTimeout;
@@ -104,7 +108,7 @@ internal sealed class WriteExecutor
         return result;
     }
 
-    // Steps 3 to 5.
+    // Steps 3 to 6.
     private LatticeWriteResult Execute(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values, LatticeRevision? expectedRevision)
     {
         LatticeWriteResult result;
@@ -162,15 +166,17 @@ internal sealed class WriteExecutor
     }
 
     private LatticeRevision RevisionOf(RootHandle handle) =>
-        new(_clock.History, _claims.Table.Entry(handle).LastMutationSequence);
+        new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
-    // Safe by its structure: from Begin to the moment the index maps the key, one finally withdraws
+    // Safe by its structure: from Add to the moment the index maps the key, one finally withdraws
     // whatever was taken when an exception passes, the new root if it was written and the lifetime.
     // After that moment the root and its entry are the database's, and nothing is withdrawn.
     private LatticeWriteResult Insert(EntityTable table, in EntityKey key, object?[] values, ulong sequence)
     {
         var layout = table.Layout!;
-        var handle = _claims.Begin((uint)table.EntityType.Id);
+
+        // No read reaches the new entry before the index maps the key to it.
+        var handle = _roots.Add((uint)table.EntityType.Id);
         var root = default(ArenaAddress);
         var published = false;
 
@@ -179,14 +185,12 @@ internal sealed class WriteExecutor
             root = Prepare(table, handle, values);
             table.Reserve();
 
-            // The new root has no stripe to take: no lookup reaches its entry before the index maps
-            // the key to it, and the index is changed under the catalog gate, which every lookup
-            // holds.
-            _gates.Catalog.EnterWriteLock();
+            // The index changes in place, which no read may see halfway.
+            _gate.ExcludeReads();
 
             try
             {
-                ref var entry = ref _claims.Table.Entry(handle);
+                ref var entry = ref _roots.Entry(handle);
 
                 RootStorage.Publish(_arena, layout, root);
                 entry.Root = root;
@@ -198,7 +202,7 @@ internal sealed class WriteExecutor
             }
             finally
             {
-                _gates.Catalog.ExitWriteLock();
+                _gate.AdmitReads();
             }
         }
         finally
@@ -226,46 +230,21 @@ internal sealed class WriteExecutor
 
         try
         {
-            var stripe = _gates.Root(handle.Slot);
+            // Its blocks are live before a read can find the root: the install that follows is a
+            // release, which a read that finds the new root reads with acquire.
+            RootStorage.Publish(_arena, layout, root);
 
-            // The index of String keys compares with the text in the root block of an indexed entry
-            // under the catalog gate, so for such an entity type the root block changes under it too.
-            var catalog = table.KeyKind == KeyKindEnum.Text ? _gates.Catalog : null;
+            var replaced = table.InstallRoot(handle, root, sequence);
 
-            stripe.EnterWriteLock();
+            installed = true;
 
-            try
-            {
-                ArenaAddress replaced;
-
-                catalog?.EnterWriteLock();
-
-                try
-                {
-                    ref var entry = ref _claims.Table.Entry(handle);
-
-                    replaced = entry.Root;
-                    RootStorage.Publish(_arena, layout, root);
-                    entry.Root = root;
-                    installed = true;
-                    entry.LastMutationSequence = sequence;
-                    _clock.Publish(sequence);
-                }
-                finally
-                {
-                    catalog?.ExitWriteLock();
-                }
-
-                // No reader holds the stripe, and nothing reaches the replaced root any more: its
-                // blocks are freed at once, and none of them is retired. The write is published, so
-                // a fault of Free here leaves the replaced root allocated while the caller gets the
-                // exception: the Faulted case of a write, which S09 owns.
-                RootStorage.Free(_arena, layout, replaced);
-            }
-            finally
-            {
-                stripe.ExitWriteLock();
-            }
+            // A read that was inside the gate may still copy the replaced root; one that passes it
+            // from now on finds the new root. Once those have left, nothing reaches the replaced root,
+            // and its blocks are freed at once, none of them retired. The write is published, so a
+            // fault of Free here leaves the replaced root allocated while the caller gets the
+            // exception: the Faulted case of a write, which S09 owns.
+            _gate.WaitForReads();
+            RootStorage.Free(_arena, layout, replaced);
         }
         finally
         {
@@ -287,49 +266,37 @@ internal sealed class WriteExecutor
             RootStorage.Free(_arena, layout, root);
         }
 
-        _claims.Abandon(handle);
+        _roots.Release(handle);
     }
 
     private LatticeWriteResult Delete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
     {
-        var stripe = _gates.Root(handle.Slot);
+        ArenaAddress deleted;
 
-        stripe.EnterWriteLock();
+        // The index changes in place, which no read may see halfway; and once the reads are admitted
+        // again, no read finds the key, while those that were inside have left.
+        _gate.ExcludeReads();
 
         try
         {
-            ArenaAddress deleted;
+            ref var entry = ref _roots.Entry(handle);
 
-            _gates.Catalog.EnterWriteLock();
-
-            try
-            {
-                ref var entry = ref _claims.Table.Entry(handle);
-
-                table.Remove(key);
-                deleted = entry.Root;
-                entry.Root = default;
-                entry.LastMutationSequence = sequence;
-                entry.State = RootStateEnum.Deleted;
-                _clock.Publish(sequence);
-
-                // Last: the entry may be released here, and the reference to it ends with it.
-                _claims.EndDeleted(handle);
-            }
-            finally
-            {
-                _gates.Catalog.ExitWriteLock();
-            }
-
-            // A lookup that still holds a claim sees the entry Deleted and never reads the root. As
-            // after a replace, a fault of Free here comes after the delete is published: the
-            // Faulted case of a write, which S09 owns.
-            RootStorage.Free(_arena, table.Layout!, deleted);
+            table.Remove(key);
+            deleted = entry.Root;
+            entry.LastMutationSequence = sequence;
+            entry.State = RootStateEnum.Deleted;
+            _clock.Publish(sequence);
         }
         finally
         {
-            stripe.ExitWriteLock();
+            _gate.AdmitReads();
         }
+
+        // No read reaches the entry or the root any more: the entry is released for a later lifetime,
+        // with the next generation, and the blocks are freed. As after a replace, a fault of Free here
+        // comes after the delete is published: the Faulted case of a write, which S09 owns.
+        _roots.Release(handle);
+        RootStorage.Free(_arena, table.Layout!, deleted);
 
         return new LatticeWriteResult(_clock.At(sequence), changed: true);
     }
