@@ -753,7 +753,7 @@ Why this order:
 | --- | --- | --- | --- |
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
 | S02 | Schema: identities, text policies, enums | Full | Done |
-| S03 | Schema and values: owned types, collections, references | Full | Not started |
+| S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Not started |
 | S05 | Root layout and values | Full | Not started |
 | S06 | Reads and writes of one entity | Full | Not started |
