@@ -93,8 +93,10 @@ internal sealed class RootTable
     }
 
     // A reference to the entry of the lifetime the handle names, in its managed page. It stays a
-    // reference to that entry while pages are added. ArgumentException when the handle is not
-    // current.
+    // reference to that entry while pages are added, and it refers to the lifetime only until
+    // Release of the handle: after that the entry is free, or the entry of a later lifetime, and a
+    // caller that kept the reference and writes through it damages the table, the list of its free
+    // slots included. ArgumentException when the handle is not current.
     public ref RootEntry Entry(RootHandle handle)
     {
         if (!IsCurrent(handle))

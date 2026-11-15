@@ -10,6 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // rounds leave empty, so that the measured rounds obtain no segment from the native allocator:
 // they measure blocks, not segments. GC.GetAllocatedBytesForCurrentThread counts what this thread
 // allocates on the managed heap, and the rounds themselves allocate nothing there.
+[Collection<ManagedAllocationCollection>]
 public sealed class ManagedAllocationTests
 {
     private const int WarmUpRounds = 10;

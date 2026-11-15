@@ -35,7 +35,9 @@ internal struct RootEntry
     // it carries this generation.
     public uint Generation;
 
-    // The identity of the root's entity type in the schema.
+    // The identity of the root's entity type in the schema. In a free entry, which holds no root, it
+    // is the link of the root table's list of free slots instead (RootTable): the next free slot
+    // plus one, 0 at the end. RootTable.Add writes the type of the new lifetime over it.
     public uint TypeId;
 
     // Where the slot and its lifetime stand.

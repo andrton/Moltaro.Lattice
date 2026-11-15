@@ -6,7 +6,9 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Roots;
 // control entries": the table grows by adding arrays). Release allocates nothing, and Add
 // allocates only when it adds a page, also when it gives out a released slot again. Each call is
 // measured alone, with GC.GetAllocatedBytesForCurrentThread around it; the same steps run first on
-// another table, so that every path is taken once before it is measured.
+// another table, so that every path is taken once before it is measured, and the test runs in the
+// collection that keeps garbage collections out of the measured windows.
+[Collection<ManagedAllocationCollection>]
 public sealed class RootTableAllocationTests
 {
     private const int Lifetimes = 3 * RootTable.EntriesPerPage;

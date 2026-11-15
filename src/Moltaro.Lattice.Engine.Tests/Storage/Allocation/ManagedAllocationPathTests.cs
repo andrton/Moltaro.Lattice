@@ -8,11 +8,33 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // a segment or puts one into the reserve. TryAllocate allocates none unless it obtains a segment,
 // whether it takes a free slot of its class, a free region or a reserved segment.
 //
-// Each call is measured alone, with GC.GetAllocatedBytesForCurrentThread around it, in a churn
-// with a fixed seed that grows the arena and empties it again. The same churn runs first on
-// another arena, so that every path is taken once before it is measured.
+// Each call is measured alone, with GC.GetAllocatedBytesForCurrentThread around it. The same steps
+// run first on another arena, so that every path is taken once before it is measured, and the
+// tests run in the collection that keeps garbage collections out of the measured windows.
+[Collection<ManagedAllocationCollection>]
 public sealed class ManagedAllocationPathTests
 {
+    // Segments of one region each, so that every block of the largest class takes a segment of its
+    // own and every Free of such a block ends the use of a segment.
+    private const int SegmentsHeld = 40;
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(SegmentsHeld)]
+    public void Free_allocates_no_managed_memory_also_after_the_arena_has_held_many_segments(int reservedSegments)
+    {
+        FreeEverySegment(reservedSegments);
+        var frees = FreeEverySegment(reservedSegments);
+
+        Assert.All(frees, call => Assert.Equal(0L, call.ManagedBytes));
+
+        // Every Free ended the use of a segment: without a reserve it freed the segment, with a
+        // reserve that has room for all of them it put the segment into the reserve.
+        Assert.All(frees, call => Assert.True(reservedSegments == 0
+            ? call.After.Segments == call.Before.Segments - 1
+            : call.After.ReservedSegments == call.Before.ReservedSegments + 1));
+    }
+
     [Fact]
     public void Free_allocates_no_managed_memory_also_when_it_frees_a_segment_or_puts_one_into_the_reserve()
     {
@@ -87,6 +109,33 @@ public sealed class ManagedAllocationPathTests
 
                 calls.Add(new Call(Allocation: false, managedBytes, before, arena.Counters));
             }
+        }
+
+        return calls;
+    }
+
+    // Fills SegmentsHeld segments with one block of the largest class each, many more segments than
+    // the arena holds at first, and frees every block. Returns each Free with what it allocated on
+    // the managed heap and the counters around it.
+    private static List<Call> FreeEverySegment(int reservedSegments)
+    {
+        var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 2L * SegmentsHeld * Arena.MaxBlockSize, ReservedSegments = reservedSegments };
+        using var arena = new Arena(options);
+        var blocks = Arenas.AllocateUntilSegments(arena, SegmentsHeld);
+        var calls = new List<Call>();
+
+        Assert.Equal(SegmentsHeld, blocks.Count);
+
+        foreach (var block in blocks)
+        {
+            var before = arena.Counters;
+            var start = GC.GetAllocatedBytesForCurrentThread();
+
+            arena.Free(block);
+
+            var managedBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+
+            calls.Add(new Call(Allocation: false, managedBytes, before, arena.Counters));
         }
 
         return calls;

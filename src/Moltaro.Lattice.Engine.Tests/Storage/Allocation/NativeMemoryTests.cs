@@ -173,6 +173,37 @@ public sealed class NativeMemoryTests
         Assert.Equal(arena.Counters.Segments, allocator.Outstanding);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void After_failed_requests_for_a_segment_the_next_segment_gets_the_number_it_would_have_got(int segmentsBefore)
+    {
+        Assert.Equal(
+            NumberOfNextSegment(segmentsBefore, failedRequests: 0),
+            NumberOfNextSegment(segmentsBefore, failedRequests: 3));
+    }
+
+    // The segment number of the next block of the largest class, in an arena that holds
+    // segmentsBefore full segments and saw failedRequests requests for the next one fail. Each
+    // segment is one region, so every block of the largest class needs a segment of its own.
+    private static uint NumberOfNextSegment(int segmentsBefore, int failedRequests)
+    {
+        var allocator = new CountingNativeAllocator();
+        var options = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 8L * Arena.MaxBlockSize };
+        using var arena = new Arena(options, allocator);
+
+        Arenas.AllocateUntilSegments(arena, segmentsBefore);
+
+        for (var request = 0; request < failedRequests; request++)
+        {
+            allocator.FailNextAllocation = true;
+
+            Assert.Throws<OutOfMemoryException>(() => TryAllocateLargest(arena));
+        }
+
+        return Arenas.Allocate(arena, SpecifiedSizeClasses.LargestPayload).Segment;
+    }
+
     private static bool TryAllocateLargest(Arena arena) => TryAllocateLargest(arena, out _);
 
     private static bool TryAllocateLargest(Arena arena, out ArenaAddress address) =>

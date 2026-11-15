@@ -35,9 +35,9 @@ public sealed class NativeSegmentTests
         var live = new HashSet<ArenaAddress>();
         var given = new List<ArenaAddress>();
 
-        // Blocks of 1,040 and 3,328 bytes do not fill their space exactly and leave room behind
-        // their last slot; the blocks of 3,328 bytes are all freed again, which leaves space that
-        // served a class and holds no block.
+        // Payloads of 1,008 and 3,296 bytes take blocks of 1,280 and 3,328 bytes, which do not fill
+        // their space exactly and leave room behind their last slot; the blocks of 3,328 bytes are
+        // all freed again, which leaves space that served a class and holds no block.
         int[] payloadLengths = [0, 100, 1008, 3296, 30_000, SpecifiedSizeClasses.LargestPayload];
 
         foreach (var payloadLength in payloadLengths)
