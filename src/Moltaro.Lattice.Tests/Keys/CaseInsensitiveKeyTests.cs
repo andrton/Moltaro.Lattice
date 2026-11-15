@@ -26,6 +26,13 @@ namespace Moltaro.Lattice.Tests.Keys;
 // The hash has to agree with the comparison: a hash of the code units under an equality that ignores
 // case finds no other spelling.
 //
+// Which texts .NET holds equal depends on the globalization the process runs with: ICU by default,
+// NLS on Windows when the process asks for it, or the invariant mode. Under NLS, for example, the
+// Deseret letters above are different texts. So a test takes a text for another spelling of a key
+// only where string.Equals(…, StringComparison.OrdinalIgnoreCase) holds them equal in the process it
+// runs in, and leaves out a spelling that it holds different there; the measurements above are those
+// of ICU. Spellings in ASCII are equal under every globalization.
+//
 // Engine only: the placeholder refuses an entity type with a comparison without case until S12.
 public sealed class CaseInsensitiveKeyTests
 {
@@ -43,8 +50,13 @@ public sealed class CaseInsensitiveKeyTests
         "𝐚", "Mai", "Main ", "ΟΔΟ",
     ];
 
-    // A stored key and another spelling of it: ASCII, outside ASCII, and outside the basic plane.
-    private static readonly (string Stored, string Other)[] Spellings = [("Main", "mAIN"), ("Été", "éTÉ"), ("𐐀𐐩", "𐐨𐐁")];
+    // A stored key and two other spellings of it: ASCII, outside ASCII, and outside the basic plane;
+    // each where .NET holds all three one key in this process.
+    private static readonly (string Stored, string Other, string Third)[] Spellings =
+    [
+        .. new[] { ("Main", "mAIN", "MAIN"), ("Été", "éTÉ", "ÉTÉ"), ("𐐀𐐩", "𐐨𐐁", "𐐀𐐁") }
+            .Where(spelling => IsSameKey(spelling.Item1, spelling.Item2) && IsSameKey(spelling.Item1, spelling.Item3)),
+    ];
 
     [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
@@ -108,14 +120,25 @@ public sealed class CaseInsensitiveKeyTests
         var notes = database.Set<Note>();
         var records = database.Set("Note");
 
-        foreach (var (stored, _) in Spellings)
+        foreach (var (stored, _, _) in Spellings)
         {
             await notes.InsertAsync(new Note { Name = stored, Body = "first" });
         }
 
-        await TestData.ExpectErrorAsync(LatticeErrorEnum.DuplicateKey, () => notes.InsertAsync(new Note { Name = Spellings[0].Other, Body = "second" }));
-        await TestData.ExpectErrorAsync(LatticeErrorEnum.DuplicateKey, () => records.InsertAsync(RecordOf(records, Spellings[1].Other, "second")));
-        await TestData.ExpectErrorAsync(LatticeErrorEnum.DuplicateKey, () => notes.InsertAsync(new Note { Name = Spellings[2].Other, Body = "second" }));
+        // Through the class and by name, in turn.
+        for (var index = 0; index < Spellings.Length; index++)
+        {
+            var other = Spellings[index].Other;
+
+            if (index % 2 == 0)
+            {
+                await TestData.ExpectErrorAsync(LatticeErrorEnum.DuplicateKey, () => notes.InsertAsync(new Note { Name = other, Body = "second" }));
+            }
+            else
+            {
+                await TestData.ExpectErrorAsync(LatticeErrorEnum.DuplicateKey, () => records.InsertAsync(RecordOf(records, other, "second")));
+            }
+        }
 
         // The stored entities are as they were.
         Assert.Equal(Spellings.Select(spelling => spelling.Stored).Order(StringComparer.Ordinal), notes.Enumerate().Select(note => note.Name).Order(StringComparer.Ordinal));
@@ -131,29 +154,31 @@ public sealed class CaseInsensitiveKeyTests
         var notes = database.Set<Note>();
         var records = database.Set("Note");
 
-        foreach (var (stored, other) in Spellings)
+        foreach (var spelling in Spellings)
         {
+            var (stored, other, third) = spelling;
+
             await notes.InsertAsync(new Note { Name = stored, Body = "created" });
 
             // A replace through the class.
             await notes.ReplaceAsync(new Note { Name = other, Body = "replaced" });
 
-            ExpectStored(notes, records, stored, "replaced");
+            ExpectStored(notes, records, spelling, "replaced");
 
             // A replace by name with the revision read under another spelling.
             Assert.True(records.TryGet(other, out _, out var revision));
             await records.ReplaceAsync(RecordOf(records, other, "replaced again"), revision);
 
-            ExpectStored(notes, records, stored, "replaced again");
+            ExpectStored(notes, records, spelling, "replaced again");
 
             // An upsert by name and one through the class.
             await records.UpsertAsync(RecordOf(records, other, "upserted"));
 
-            ExpectStored(notes, records, stored, "upserted");
+            ExpectStored(notes, records, spelling, "upserted");
 
-            await notes.UpsertAsync(new Note { Name = other.ToUpperInvariant(), Body = "upserted again" });
+            await notes.UpsertAsync(new Note { Name = third, Body = "upserted again" });
 
-            ExpectStored(notes, records, stored, "upserted again");
+            ExpectStored(notes, records, spelling, "upserted again");
         }
 
         // One entity for each key, with the spelling it was created with.
@@ -169,18 +194,29 @@ public sealed class CaseInsensitiveKeyTests
         var notes = database.Set<Note>();
         var records = database.Set("Note");
 
-        foreach (var (stored, _) in Spellings)
+        foreach (var (stored, _, _) in Spellings)
         {
             await notes.InsertAsync(new Note { Name = stored, Body = "first" });
         }
 
-        // Through the class, by name, and by name with the revision read under the stored spelling.
-        Assert.True(notes.TryGet(Spellings[2].Stored, out _, out var revision));
-        Assert.True((await notes.DeleteAsync(Spellings[0].Other)).Changed);
-        Assert.True((await records.DeleteAsync(Spellings[1].Other)).Changed);
-        Assert.True((await records.DeleteAsync(Spellings[2].Other, revision)).Changed);
+        // Through the class, by name, and by name with the revision read under the stored spelling, in
+        // turn.
+        for (var index = 0; index < Spellings.Length; index++)
+        {
+            var (stored, other, _) = Spellings[index];
+            Assert.True(notes.TryGet(stored, out _, out var revision));
 
-        foreach (var (stored, other) in Spellings)
+            var deleted = (index % 3) switch
+            {
+                0 => await notes.DeleteAsync(other),
+                1 => await records.DeleteAsync(other),
+                _ => await records.DeleteAsync(other, revision),
+            };
+
+            Assert.True(deleted.Changed);
+        }
+
+        foreach (var (stored, other, _) in Spellings)
         {
             Assert.Null(notes.Get(stored));
             Assert.False((await notes.DeleteAsync(other)).Changed);
@@ -192,11 +228,16 @@ public sealed class CaseInsensitiveKeyTests
     private static ValueTask<ILatticeDatabase> OpenAsync(LatticeStringEncodingEnum encoding) =>
         TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, StringKeySchema.Of(encoding, LatticeStringComparisonEnum.OrdinalIgnoreCase));
 
+    // Whether .NET holds the two texts one key in this process.
+    private static bool IsSameKey(string key, string other) => string.Equals(key, other, StringComparison.OrdinalIgnoreCase);
+
     // The entity of the key has the spelling it was created with and the body, through the class and
-    // by name, under that spelling and under its upper case.
-    private static void ExpectStored(ILatticeSet<Note> notes, ILatticeSet records, string stored, string body)
+    // by name, under each of its spellings.
+    private static void ExpectStored(ILatticeSet<Note> notes, ILatticeSet records, (string Stored, string Other, string Third) spelling, string body)
     {
-        foreach (var text in new[] { stored, stored.ToUpperInvariant() })
+        var stored = spelling.Stored;
+
+        foreach (var text in new[] { stored, spelling.Other, spelling.Third })
         {
             var note = notes.Get(text);
             var record = records.Get(text);
