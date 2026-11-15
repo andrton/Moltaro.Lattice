@@ -36,18 +36,20 @@ internal static class ValueBlocks
     // source: one block of kind Value up to SingleBlockLimit bytes, else a directory and its chunks.
     // Every block carries the root's handle and the layout version; a chunk names its directory as
     // its parent at once, while the parent of the value block or of the directory is the root block,
-    // which does not exist yet: RootWriter.Complete names it with Adopt.
+    // which does not exist yet: RootWriter.Complete names it with Adopt. The caller has checked that
+    // the value needs no more chunks than MostChunks.
     //
-    // The descriptor in place names the value block, or the directory as soon as it is allocated and
-    // before any chunk is, and a directory is zeroed before its chunks are allocated, so the value is
-    // reachable from its descriptor at every step: when the arena refuses a block for its budget, the
-    // method returns false, and when the native allocator fails, its OutOfMemoryException passes
-    // through; either way Free, given the same descriptor, frees what was allocated. The caller has
-    // checked that the value needs no more chunks than MostChunks.
+    // A value is stored whole or not at all. When it is stored, the descriptor in place names it and
+    // the method returns true. When the arena refuses a block for its budget, the method returns
+    // false, and when the native allocator fails, its OutOfMemoryException passes through; either way
+    // the blocks already allocated for the value are freed first and place is left as it was. The
+    // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
+    // or nothing (brief of S05, "The size of an entity").
     public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, int length, ref ValueSource source, scoped Span<byte> place)
     {
         if (length <= RootLayout.SingleBlockLimit)
         {
+            // One block: it is allocated or, when the allocation fails, nothing is.
             if (!TryAllocate(arena, length, BlockKindEnum.Value, root, layoutVersion, default, 0, out var block))
             {
                 return false;
@@ -66,26 +68,42 @@ internal static class ValueBlocks
             return false;
         }
 
+        var stored = new ValueDescriptor { Kind = DescriptorKindEnum.Chunked, Length = (uint)length, Location = directory.Value };
+
         // The payload of a block stays where it is while the block is allocated, so the span over the
-        // entries holds while the chunks are allocated.
+        // entries holds while the chunks are allocated. The entries start zero, so that Free, given the
+        // descriptor of a value whose chunks are not all allocated yet, frees those that are.
         var entries = arena.Payload(directory);
 
         entries.Clear();
-        Write(place, new ValueDescriptor { Kind = DescriptorKindEnum.Chunked, Length = (uint)length, Location = directory.Value });
 
-        for (var chunk = 0; chunk < chunks; chunk++)
+        try
         {
-            var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
-            var entryOffset = chunk * DescriptorSize;
-
-            if (!TryAllocate(arena, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+            for (var chunk = 0; chunk < chunks; chunk++)
             {
-                return false;
-            }
+                var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
+                var entryOffset = chunk * DescriptorSize;
 
-            Write(entries[entryOffset..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
-            source.Fill(arena.Payload(block));
+                if (!TryAllocate(arena, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                {
+                    Free(arena, stored);
+
+                    return false;
+                }
+
+                Write(entries[entryOffset..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)chunkLength, Location = block.Value });
+                source.Fill(arena.Payload(block));
+            }
         }
+        catch (OutOfMemoryException)
+        {
+            // The chunks allocated so far and the directory go before the failure passes on.
+            Free(arena, stored);
+
+            throw;
+        }
+
+        Write(place, stored);
 
         return true;
     }
@@ -104,9 +122,9 @@ internal static class ValueBlocks
     }
 
     // Frees every block of a value: its value block, or its chunks and then their directory. A
-    // directory entry that is still zero names no chunk: the chunk was never allocated, because the
-    // writer stopped before it. A value inline or null owns no block, and text of kind Text belongs
-    // to its text entry, not to the root.
+    // directory entry that is still zero names no chunk: TryStore stopped before it allocated that
+    // chunk, and frees the rest of the value through this method. A value inline or null owns no
+    // block, and text of kind Text belongs to its text entry, not to the root.
     public static void Free(Arena arena, in ValueDescriptor descriptor)
     {
         switch (descriptor.Kind)

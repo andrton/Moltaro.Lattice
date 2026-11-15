@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
 
@@ -10,21 +12,24 @@ namespace Moltaro.Lattice.Storage.Values;
 // be exactly as long as the encoded value; RootWriter measures that length before it places the
 // value.
 //
-// A Binary value and text of a UTF-16 database are copied as they are. Text of a UTF-8 database is
-// encoded from its characters straight into native memory, without an intermediate string or array.
+// A Binary value and text of a UTF-16 database are copied as they are, text one place at a time, so
+// that no span over all the bytes of a text is ever formed: such a span could not hold text of 2^30
+// characters or more, which a place never comes near. Text of a UTF-8 database is encoded from its
+// characters straight into native memory, without an intermediate string or array.
 // A chunk is full when the next character does not fit whole: the character is then split, its
 // first bytes end this chunk and the rest begins the next, because a chunk boundary is not a
 // boundary of the value (milestone contract, "Native layout and allocation"). The text is
 // well-formed, which RootWriter checked first, so no character is ever replaced.
 internal ref struct ValueSource
 {
-    // The bytes not handed out yet, of a Binary value or of UTF-16 code units.
+    // The bytes not handed out yet, of a Binary value.
     private ReadOnlySpan<byte> _bytes;
 
-    // The characters not encoded yet, of text for a UTF-8 database.
+    // The characters not handed out yet, of text.
     private ReadOnlySpan<char> _characters;
 
-    private readonly bool _encodesUtf8;
+    // The encoding of text; null for a Binary value.
+    private readonly LatticeStringEncodingEnum? _encoding;
 
     // The bytes of a split character that did not fit the end of the last place, the first of them
     // in the lowest byte: at most three, since a character takes at most four.
@@ -32,29 +37,40 @@ internal ref struct ValueSource
 
     private int _pendingCount;
 
-    private ValueSource(ReadOnlySpan<byte> bytes, ReadOnlySpan<char> characters, bool encodesUtf8)
+    private ValueSource(ReadOnlySpan<byte> bytes, ReadOnlySpan<char> characters, LatticeStringEncodingEnum? encoding)
     {
         _bytes = bytes;
         _characters = characters;
-        _encodesUtf8 = encodesUtf8;
+        _encoding = encoding;
     }
 
-    // The bytes as they are: a Binary value, or the code units of text in a UTF-16 database, in the
-    // byte order of the machine.
-    public static ValueSource Bytes(ReadOnlySpan<byte> bytes) => new(bytes, default, encodesUtf8: false);
+    // The bytes of a Binary value as they are.
+    public static ValueSource Bytes(ReadOnlySpan<byte> bytes) => new(bytes, default, encoding: null);
 
-    // Well-formed text, encoded as UTF-8 as it is handed out.
-    public static ValueSource Utf8(ReadOnlySpan<char> characters) => new(default, characters, encodesUtf8: true);
+    // Well-formed text in the encoding of the database: its code units in the byte order of the
+    // machine for UTF-16, encoded as it is handed out for UTF-8.
+    public static ValueSource Text(ReadOnlySpan<char> characters, LatticeStringEncodingEnum encoding) => new(default, characters, encoding);
 
     // Fills the place with the next bytes of the value.
     public void Fill(Span<byte> place)
     {
-        if (!_encodesUtf8)
+        switch (_encoding)
         {
-            _bytes[..place.Length].CopyTo(place);
-            _bytes = _bytes[place.Length..];
+            case null:
+                _bytes[..place.Length].CopyTo(place);
+                _bytes = _bytes[place.Length..];
 
-            return;
+                return;
+
+            // Every place of UTF-16 text holds whole code units: an inline value and a value block hold
+            // the whole text, and every chunk but the last holds ChunkPayload bytes, an even number.
+            case LatticeStringEncodingEnum.Utf16:
+                var units = place.Length / sizeof(char);
+
+                MemoryMarshal.AsBytes(_characters[..units]).CopyTo(place);
+                _characters = _characters[units..];
+
+                return;
         }
 
         var filled = TakePending(place);

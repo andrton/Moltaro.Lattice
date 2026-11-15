@@ -48,8 +48,9 @@ internal static class StoredText
     }
 
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
-    // code unit. Counted as a long, because text near the length of a span takes more bytes than an
-    // int holds.
+    // code unit. Counted as a long in both encodings, because text of 2^30 characters or more takes
+    // more bytes than an int holds; such text is over every limit of an entity, and RootWriter
+    // refuses it in Complete, without forming a span over its bytes (ValueSource).
     public static long EncodedLength(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
     {
         if (encoding == LatticeStringEncodingEnum.Utf16)
@@ -117,7 +118,9 @@ internal static class StoredText
     // Decodes the UTF-8 of a chunked value into the destination and returns the number of its
     // characters; with an empty destination it only counts them, so that the string can be made at
     // its length first. A character split by a chunk boundary is put together from the end of one
-    // chunk and the start of the next, and every other byte is decoded where it lies.
+    // chunk and the start of the next, and every other byte is decoded where it lies. Counting and
+    // decoding are two passes, kept apart on purpose until a measurement shows that one pass over a
+    // buffer that grows would be worth its code.
     private static int DecodeChunks(Arena arena, ReadOnlySpan<byte> entries, Span<char> destination)
     {
         Span<byte> split = stackalloc byte[4];

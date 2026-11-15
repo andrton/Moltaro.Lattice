@@ -4,9 +4,10 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.ManagedMemory;
 
 // A write of one entity allocates no managed memory once it is warmed up: the constructor of the
 // writer, every Set… member and Complete together, also when a value is chunked or text is encoded
-// across a chunk boundary, and so does Abandon and RootStorage.Free of the root (brief of S05, "the
-// writer and the reader work on spans over native memory, without an allocation per field"). The
-// warm-up is what the arena of S04 needs for its segments: the first write obtains the segment, and
+// across a chunk boundary, and so do Abandon and RootStorage.Free of the root. The brief of S05 says
+// so in the coordinator's note on managed memory, under "What the members do", and the engine zone
+// of AGENTS.md puts memory and speed right after correctness: no allocation per entity on the paths
+// that store and free it. The warm-up is what the arena of S04 needs for its segments: the first write obtains the segment, and
 // the arena keeps it in its reserve when the root is freed, so the measured writes obtain none; it
 // also gives the writer the array it collects the root block in, which it borrows for every write.
 // The entity has a field of every type; see EveryValue.

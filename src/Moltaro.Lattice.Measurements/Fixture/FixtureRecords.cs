@@ -6,7 +6,8 @@ namespace Moltaro.Lattice.Measurements.Fixture;
 
 // The records of the reference fixture (milestone contract, "Reproducible first fixture"), for a
 // schema of either form: the users first, then the groups, the roles and the settings, each type by
-// its identity from 1, all drawn from one FixtureRandom of the seed in that order.
+// its identity from 1, all drawn in that order from one FixtureRandom of the seed, which every
+// enumeration starts afresh.
 //
 // The text formats are those of the table, the digits being the identity of the record: Login
 // user-00000001, Email u00000001@example.test, DisplayName User 00000001, group-00001, role-0001,
@@ -44,7 +45,8 @@ internal static class FixtureRecords
 
     // The records for a schema of the full form when collections is true, of the scalar form
     // otherwise; ReferenceFixture has checked which form it is. The entity types are found at the call,
-    // the records made while they are enumerated.
+    // the records made while they are enumerated. Every enumeration starts a generator of its own from
+    // the seed, so every enumeration of the returned sequence yields the same records.
     public static IEnumerable<LatticeRecord> Generate(LatticeSchema schema, bool collections, ulong seed)
     {
         var user = EntityType(schema, "User");
@@ -52,7 +54,7 @@ internal static class FixtureRecords
         var role = EntityType(schema, "Role");
         var setting = EntityType(schema, "Setting");
 
-        return Records(user, group, role, setting, collections, new FixtureRandom(seed));
+        return Records(user, group, role, setting, collections, seed);
     }
 
     private static IEnumerable<LatticeRecord> Records(
@@ -61,8 +63,12 @@ internal static class FixtureRecords
         LatticeEntityType role,
         LatticeEntityType setting,
         bool collections,
-        FixtureRandom random)
+        ulong seed)
     {
+        // Made when the enumeration starts, not when Generate is called: a generator shared by two
+        // enumerations would give the second the values after the first.
+        var random = new FixtureRandom(seed);
+
         for (var id = 1; id <= Users; id++)
         {
             yield return User(user, id, collections, random);

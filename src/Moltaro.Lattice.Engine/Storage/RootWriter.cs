@@ -31,7 +31,10 @@ namespace Moltaro.Lattice.Storage;
 // bounded settings"). An entity of exactly maxEntitySize bytes is stored; one byte more is
 // refused. Only Complete reports the size and the memory of the arena: no Set… member fails for
 // either. An OutOfMemoryException of the native allocator passes through whichever member meets
-// it; the caller then calls Abandon, which frees everything.
+// it. Met inside Complete, it is a failed Complete: everything is freed before it passes. Met inside
+// a Set… member, it passes after the member has freed everything it allocated for that value: the
+// field is not set, as after any refused call, and the writer stays usable, so the caller may set
+// the field again, complete or abandon.
 //
 // A writer ends in one of two ways. Complete checks the root as a whole and returns the address of
 // its root block; the root then belongs to the caller, who publishes it (S06) and frees it later
@@ -46,10 +49,10 @@ namespace Moltaro.Lattice.Storage;
 // root block is known only when every value is placed, so the root block itself is allocated by
 // Complete, which copies the image into it. A value too long to lie inline is copied into native
 // memory at its Set… member, into its value block or its chunks, because the span it comes in lives
-// only for that call; its descriptor in the image names those blocks from the moment they exist, so
-// that a failure at any point leaves everything the writer allocated reachable from the image, and
-// Complete or Abandon frees it from there. Once the entity is over its limit, or the arena refused a
-// block, the writer allocates nothing more: Complete refuses the entity anyway.
+// only for that call. A value is stored whole or not at all (ValueBlocks.TryStore), so a descriptor
+// in the image names a whole value or nothing, and everything the writer holds is reachable from
+// the image, where Complete or Abandon frees it. Once the entity is over its limit, or the arena
+// refused a block, the writer allocates nothing more: Complete refuses the entity anyway.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
@@ -305,15 +308,15 @@ internal ref struct RootWriter
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
 
         // The whole text is checked before anything is placed: a lone surrogate at its end must not
-        // be found after its first chunks were allocated.
+        // be found after its first chunks were allocated. Checking, counting and, in a UTF-8 database,
+        // encoding are three passes over the text, kept apart on purpose: Q04.5 asks to combine them
+        // where possible, and that is done when a measurement shows it is worth the code.
         if (!StoredText.IsWellFormed(value))
         {
             throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The text for the field {Name(field)} is not well-formed: it has a surrogate without its pair.");
         }
 
-        var source = _layout.StringEncoding == LatticeStringEncodingEnum.Utf8
-            ? ValueSource.Utf8(value)
-            : ValueSource.Bytes(MemoryMarshal.AsBytes(value));
+        var source = ValueSource.Text(value, _layout.StringEncoding);
 
         PlaceValue(stored, StoredText.EncodedLength(value, _layout.StringEncoding), ref source);
     }
@@ -465,14 +468,15 @@ internal ref struct RootWriter
     private readonly Span<byte> Place(scoped in StoredField stored) => Image.Slice(stored.Offset, stored.Width);
 
     // Places a String or Binary value of length encoded bytes: inline, in its blocks, or not at all
-    // when Complete will refuse the entity anyway. The field is set when the call returns.
+    // when Complete will refuse the entity anyway. The field is set, and its bytes counted, when the
+    // call returns; when an OutOfMemoryException passes through, the writer is as it was before the
+    // call.
     private void PlaceValue(in StoredField stored, long length, ref ValueSource source)
     {
         var descriptor = Place(stored);
+        var entitySize = _entitySize + length;
 
-        _entitySize += length;
-
-        if (_entitySize > _maxEntitySize || _refusedByArena || _tooManyChunks)
+        if (entitySize > _maxEntitySize || _refusedByArena || _tooManyChunks)
         {
             // Nothing more is allocated for an entity that Complete refuses.
         }
@@ -491,6 +495,7 @@ internal ref struct RootWriter
             _refusedByArena = true;
         }
 
+        _entitySize = entitySize;
         MarkSet(stored, isNull: false);
     }
 

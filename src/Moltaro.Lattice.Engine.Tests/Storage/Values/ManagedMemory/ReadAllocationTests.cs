@@ -3,8 +3,9 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.ManagedMemory;
 
-// A read allocates the value it returns and nothing else (brief of S05: a value that is read is the
-// only thing a Get… member allocates). The constructor of the reader, IsNull, GetLength and every
+// A read allocates the value it returns and nothing else, as the coordinator's note on managed
+// memory in the brief of S05 ("What the members do") states, and as the engine zone of AGENTS.md
+// asks of a read path: no needless copy or allocation. The constructor of the reader, IsNull, GetLength and every
 // member that returns a scalar allocate nothing. GetString and GetBinary allocate as much as a new
 // string or array of the length they return, whether the value lay inline, in a block of its own or
 // in chunks, and nothing for an empty value, which is the shared empty string or array. What a new
