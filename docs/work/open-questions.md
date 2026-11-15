@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q46. Which keys are equal without case depends on the globalization mode of the process
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07 |
+| **Question** | A String key compared without case follows `StringComparison.OrdinalIgnoreCase` of .NET, as decision Q04 names it. What .NET holds equal under it is not the same in every process: with every Unicode scalar value inserted as a one-character key, 1,494 were refused as `DuplicateKey` under ICU, the default, 997 under NLS (`DOTNET_SYSTEM_GLOBALIZATION_USENLS=1`) and 1,499 under invariant globalization, on one machine and one runtime; the version of ICU and of Unicode moves it as well. From S07 such keys are stored. Nothing records the mode, so a master and a child in different modes would hold different entities equal, and a saved database opened under another mode could hold two entities under what is now one key. Principle 9 says a schema has to mean the same on every node, and the decision on strings leaves the case-mapping version to "the eventual compatibility contract". Is the mode fixed, recorded and checked between nodes and at open, or does the engine bring a case mapping of its own? |
+| **Until answered** | The engine and the tests follow .NET in whatever mode the process runs; on one node in memory that is consistent. The same holds for a String field compared without case once it is indexed (S14, S16) |
+| **Decides** | The planner, and the owner where it is a choice, before S10 starts, where a child first holds the keys of a master |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
