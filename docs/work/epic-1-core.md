@@ -141,7 +141,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R23 | Operation identities: a token kept before submission, a retained outcome, safe repetition for 15 minutes by default, never a second execution | [Q13](../decisions/mutation-commands.md#operation-identity-and-retained-results-accepted-for-v1), [retry protocol](../design/operation-retry-protocol.md) | Must | Absent | S26, S28–S29, S31 |
 | R24 | Durable is the default mode and MemoryOnly is explicit; the mode is chosen when the instance opens; children are MemoryOnly and never connect to PostgreSQL | [Q09.5](../decisions/persistence-modes.md), [Q09.6](../decisions/persistence-backends.md) | Must | Options exist; Durable refuses | S27 |
 | R25 | A Durable write succeeds after its durable admission, its PostgreSQL commit and its coherent publication; an uncertain commit is reported as uncertain | [Q09.1](../decisions/write-acknowledgment.md), [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S28–S29 |
-| R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are retained within bounds | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
+| R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are bounded when the application sets a limit, and shrink back after load in any case | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
 | R27 | Recovery: an offline reopen rebuilds one arena and its indexes from the base and the committed tail; nothing partial is replayed; damaged or incompatible data is refused | [Q09.2](../decisions/checkpoint-and-journal.md), [Q16](../decisions/physical-storage.md) | Release | Absent | S30–S31, S32 |
 | R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works inside one process | S10–S11, S33 |
 | R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works inside one process | S12 |
@@ -469,9 +469,10 @@ as the only tested and stated version. S25 writes the manifest of the single-nod
 and S40 the manifest of the topology; the owner approves each before its first gate run.
 
 **O12. Two limits the design did not give.** A MemoryOnly master keeps operation outcomes
-within a limit that is an option, by default the smaller of 32 MiB and 10% of the
-instance budget; when it is full new writes are refused, and an unexpired outcome is
-never dropped. The time limit of a traversal counts only time inside the engine, not the
+without a limit of their own, by the owner's decision O20 of 15 November 2026: they are
+counted in the instance budget, and an unexpired outcome is never dropped (the limit this
+decision first gave them, the smaller of 32 MiB and 10% of the instance budget, is gone).
+The time limit of a traversal, when an application sets one, counts only time inside the engine, not the
 time the caller spends between two items. Shapes S26, S08.
 
 **O13. Code shared by the test projects has a project of its own.** Decided while S01 was
@@ -551,7 +552,7 @@ as a share of the memory budget: the size of a batch is the application's choice
 task of the database is to store it atomically. A batch has no limit on the number of its
 operations and none on its size, and no option for one; it is refused only when a
 resource cannot hold it — the memory budget of the instance, the hard limit of the
-journal. The rule that follows: a bounded buffer bounds what accumulates and never
+journal, when one is set. The rule that follows: a bounded buffer bounds what accumulates and never
 refuses one transaction for its own size; what a transaction needs is reserved in the
 instance budget before it is committed, and one the budget cannot hold is refused before
 it has any effect. *Not chosen:* 128 operations and 8 MiB by default; a size limit derived
@@ -574,6 +575,27 @@ that sized a buffer or a test by "1 MiB per entity", which the planner words wit
 stage. With the decision the owner approved principle 5 of `AGENTS.md` without the words
 "which is bounded"; the coordinator made that edit on the owner's own word in its
 session, given on the same day, because `AGENTS.md` is the instruction file of the agents.
+
+**O20. No default turns ordinary load into a refusal.** Decided on 15 November 2026 and
+given through the planner's session, as the general form of O18 and O19, and confirmed to
+the coordinator for `AGENTS.md`. A limit exists only where the engine cannot work without
+it or a resource cannot hold the work; the database does not cap what an application
+chooses to do, and where it can it waits or slows down instead of refusing. An
+application that meets an error in production has a problem, and one that meets slowness
+changes how it writes. Three limits lose their limit altogether: the queue of writes
+(1,024 requests and 16 MiB), the read budget as a default (8 MiB and 5 seconds) and the
+memory of retained outcomes on a MemoryOnly master (32 MiB); what they held is counted in
+the memory budget of the instance. Two keep an option that is not set by default: the
+hard limit of the journal and the budget of the receipts, both 1 GiB before; without a
+hard limit the time of a recovery grows with the unapplied tail. The read budget stays as
+an option an application may set. *What stays as it is:* the memory budget of the
+instance and its refusal (O17, Q14); every timeout of a wait, because a wait has to be
+finite and its error means a real failure; the rules of the schema language; the bound of
+one value in the storage format; internal tuning that never refuses; the limits of
+delivery to children, which cost a slow child a reload and an application nothing. Shapes
+S08, S09, S17, S26, S31 and S32; principle 9 of `AGENTS.md` carries the rule. Gate G6 was
+written for a queue that refuses: the planner words it again with the manifest of S41 and
+brings it to the owner then.
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
@@ -607,7 +629,8 @@ continue; on a child every read waits within the reload bound. A migration is pl
 a stop of writes for the whole database. Shapes S37–S38.
 
 **D2. Journal triggers.** The milestone contract starts with 64 MiB or 5 seconds of
-unapplied journal and a 1 GiB hard cap; the
+unapplied journal and, by the owner's decision of 15 November 2026, no hard limit unless
+an application sets one; the
 [journal decision](../decisions/checkpoint-and-journal.md) and the historical part of the
 performance requirements name 256 MiB and 30 minutes as a trial value that was not
 approved. *The milestone contract prevails*; S31 uses its values and reports how they
@@ -2547,18 +2570,22 @@ zeros, as the milestone contract requires.
 
 - **Goal.** An enumeration stays correct and bounded while entities change, and the
   primary index grows and reuses its entries without stopping or misleading a reader.
-- **Contract.** Options for the read budget — 8 MiB and 5 seconds by default, the time
-  counted only inside the engine — with an override for one enumeration, and an error
-  that says which budget a read ran out of.
+- **Contract.** Options for the read budget, none set by default: an application may
+  limit the temporary memory and the engine time of a read, for the database or for one
+  enumeration; and an error that says which budget a read ran out of (the owner's
+  decision O20; the time is counted only inside the engine).
 - **To read.** [Index preparation and traversal](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [primary index, selected implementation](../decisions/index-structures.md);
   [Q07.1, Q07.1.1, Q07.3.5](../decisions/queries.md);
   [arena protocol, lock and lifetime order](../design/arena-protocol.md#lock-and-lifetime-order).
 - **Acceptance.** An enumeration during inserts, replaces and delete-and-reinsert returns
-  no identity twice and every unchanged entity. One that exceeds its memory or its time
+  no identity twice and every unchanged entity. With a limit set, one that exceeds its
+  memory or its time
   fails with the budget named: the items it returned before stay valid, and it never
   ends as if it were complete; a caller that is slow
-  between two items does not use up the time budget. The primary index grows by building
+  between two items does not use up the time budget. Without a limit an enumeration of
+  any length runs to its end, and its temporary memory is counted in the instance
+  budget. The primary index grows by building
   a replacement table while readers use the old one, and both tables are counted until
   the old one is released. A deleted entry is reused only after its claims are gone, and
   an old claim never follows a key that was created again.
@@ -2583,8 +2610,8 @@ IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, LatticeReadLimi
 namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
-public long ReadMemoryLimit { get; init; } = 8 * 1024 * 1024;           // bytes
-public TimeSpan ReadTimeLimit { get; init; } = TimeSpan.FromSeconds(5); // time inside the engine
+public long? ReadMemoryLimit { get; init; }                             // bytes of temporary memory; null: no limit
+public TimeSpan? ReadTimeLimit { get; init; }                           // time inside the engine; null: no limit
 
 // LatticeErrorEnum gains
 ReadLimitExceeded = 14,
@@ -2600,7 +2627,7 @@ public enum LatticeLimitEnum
 public LatticeLimitEnum? Limit { get; init; }
 ```
 
-`Validate` refuses a limit that is not positive. A limit of `LatticeReadLimits` that is
+`Validate` refuses a limit that is set and not positive. A limit of `LatticeReadLimits` that is
 not positive is `ArgumentOutOfRangeException`. An enumeration that exceeds a limit throws
 `LatticeException` with `ReadLimitExceeded` and the `Limit` it exceeded, from the
 `MoveNext` that would exceed it; what was returned before stays valid, and the
@@ -2616,9 +2643,8 @@ table being built while the primary index grows.
 
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
-- **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process),
-  the queued write input (1,024 requests and the smaller
-  of 16 MiB and 10% of the budget), the number of preparing workers (2). `WriteRejected`
+- **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process)
+  and the number of preparing workers (2). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
   at once in MemoryOnly; it is internal.
 - **To read.** [Write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -2630,8 +2656,11 @@ table being built while the primary index grows.
   one order of positions. Writes to one entity execute in the order they were admitted.
   A group holds at most 32 operations or 8 MiB and waits at most 1 ms to fill.
   Cancellation before dispatch withdraws the write and confirms that it did not run;
-  after dispatch the call returns the real outcome. A write over a limit is refused
-  before it has any effect and never runs later. A preparation that fails releases
+  after dispatch the call returns the real outcome. A write the memory budget cannot hold
+  is refused before it has any effect and never runs later. Writes submitted faster than
+  they complete are not refused: 10,000 writes submitted at once all complete, and those
+  to one entity in the order they were admitted; what waits is counted in the memory
+  budget. A preparation that fails releases
   everything it reserved, shown by the counters. A failure injected during publication
   puts the instance into `Faulted`; no reader sees a partial state, and operations
   report `Unavailable` until a new instance is opened. Inconsistent options are refused
@@ -2640,9 +2669,7 @@ table being built while the primary index grows.
   reviews; the size of a group is asserted through the counters. An instance opened
   without `MemoryLimit` has half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as
   its limit, and one opened with it has the given value; the limits that are shares of the budget follow
-  the limit in force. A single write larger than the limit of queued input is admitted and
-  executed when nothing else is queued; with other input queued it is refused with
-  `WriteRejected` and `WriteQueueMemory`.
+  the limit in force.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2655,14 +2682,10 @@ namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
 public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory the runtime reports as available
-public int WriteQueueLimit { get; init; } = 1024;              // writes admitted and not yet completed
-public long? WriteQueueMemoryLimit { get; init; }              // null: the smaller of 16 MiB and 10% of MemoryLimit
 public int PrepareWorkers { get; init; } = 2;
 
 // LatticeLimitEnum gains
-WriteQueue = 3,
-WriteQueueMemory = 4,
-Memory = 5,
+Memory = 3,
 ```
 
 By the owner's decision of 15 November 2026, given through the planner's session: the
@@ -2671,25 +2694,27 @@ instance opens. By the owner's answer to Q37 the default is defined by that figu
 not by the limit of the container: on a machine without limits it is the physical memory,
 in a container by default three quarters of the container's limit, and a configured heap
 hard limit of the collector lowers it. The limit in force is fixed at open and does not
-follow later changes. Every limit that is a share of the budget — the queued write input
-here, the retained outcomes of S26, the pending replication of S33 — is taken from the
+follow later changes. Every limit that is a share of the budget — the pending
+replication of S33 — is taken from the
 limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
 `EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
 the default. The documentation of the option says in plain words the three cases above,
 that the default is per instance, that a process with several instances, production and
 anyone who limits the heap of the collector set the value explicitly, and that the budget
-counts what the engine holds, not the managed heap of the application. `Validate`
-compares `WriteQueueMemoryLimit` with the limit in force — the given
-`MemoryLimit`, or the computed default when it is null. The limit in force is computed
-once, when the instance opens, and the validation of that open uses the same value. By
-decision O18: the limit on queued write input bounds the writes that wait behind others.
-It never refuses a write for its own size: a write or a batch larger than the limit is
-admitted when no other input is queued and the memory budget can hold it.
+counts what the engine holds, not the managed heap of the application. The limit in force is computed
+once, when the instance opens, and the validation of that open uses the same value.
+
+By the owner's decision O20 the queue of writes has no limit of its own: the options
+`WriteQueueLimit` and `WriteQueueMemoryLimit` and the members `WriteQueue` and
+`WriteQueueMemory` of `LatticeLimitEnum` that an earlier form of this brief had are gone.
+After O19 and O20 the enum has `ReadMemory = 1`, `ReadTime = 2` and `Memory = 3`; nothing
+was released, so the numbers are free. A write waits for its turn, what waits is counted
+in the memory budget, and a write is refused only when the budget cannot hold it.
 
 By decision O19 there is no option for the size of an entity, no member of
 `LatticeLimitEnum` for it, and nothing for `Validate` to check of it.
 
-`Validate` refuses: a limit that is not positive; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
+`Validate` refuses: a limit that is not positive; `PrepareWorkers` below 1 or
 above 64.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena and the queued write input: a write the arena cannot hold
@@ -3126,7 +3151,7 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value
   another member takes. A failing member refuses the whole batch and reports its number.
   A batch has no limit of its own: one of 10,000 small entities is executed as one, and
-  so is one that is larger than the limit of queued write input and than an internal
+  so is one that is larger than an internal
   group. A batch that the memory budget cannot hold is refused with `WriteRejected` and
   `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
@@ -3375,8 +3400,8 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   status query that answers pending, committed with the original result and position,
   rejected with the original error, expired or unknown; errors for a changed request
   under a used identity and for an expired one; the option for the window, 15 minutes
-  by default; the option for the memory of retained outcomes on a MemoryOnly master, by
-  default the smaller of 32 MiB and 10% of the instance budget. The session and the
+  by default. By the owner's decision O20 there is no option for the memory of retained
+  outcomes. The session and the
   identity travel in one value, so that the write members do not multiply; the planner
   writes the types and members before the stage begins.
 - **To read.** [Operation retry protocol](../design/operation-retry-protocol.md);
@@ -3392,9 +3417,9 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   not extend the window; an identity of another history is refused. A repeat through a
   child still waits for that child to apply the original position. A session never moves
   backward on a replayed result. The fingerprint covers schema version, operations,
-  identities, ordered commands, values and conditions. The retained outcomes stay within
-  their bound; when it is full, new admissions are refused and no unexpired outcome is
-  dropped. The retained outcomes of a MemoryOnly master are counted in the memory budget of
+  identities, ordered commands, values and conditions. The retained outcomes have no
+  bound of their own: no unexpired outcome is dropped, they are counted in the memory
+  budget, and a write is refused only when the budget cannot hold it. The retained outcomes of a MemoryOnly master are counted in the memory budget of
   S24. A change of the configured window applies to operations admitted after
   it and never shortens the window of one admitted before. A clock that moves backward
   does not revive an expired identity. An identity that names a generation closed for
@@ -3540,11 +3565,12 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
 
 **Track:** full · **Needs:** S30 · **Decisions:** D2, O9 · **Owner:** E06 · **Closes:** R26
 
-- **Goal.** What the store keeps stays within its bounds for as long as the database
+- **Goal.** What the store keeps shrinks back for as long as the database
   runs: applied journal is removed, outcomes are retired when their time has passed, and
-  a journal that cannot be applied stops writes before it grows without limit.
-- **Contract.** Options of the storage for the journal trigger (64 MiB or 5 seconds), its
-  hard limit (1 GiB) and the receipt budget (1 GiB).
+  an application that sets a hard limit has its writes stopped at it.
+- **Contract.** Options of the storage for the journal trigger (64 MiB or 5 seconds) and,
+  unset by default, for a hard limit of the journal and for a budget of the receipts
+  (the owner's decision O20).
 - **To read.** [Independent base, journal and recovery](../design/milestone-1-engine-contract.md#independent-base-journal-and-recovery);
   [transient background application failure, triggers and hard limit](../decisions/checkpoint-and-journal.md);
   [expiry, cleanup and crash ordering](../design/operation-retry-protocol.md#expiry-cleanup-and-crash-ordering).
@@ -3552,12 +3578,13 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   are retained on their own schedule, independent of the journal, and retired in
   generation order; the retired boundary is durable before or with the deletion. The
   retirement of receipts never turns an old identity into a new write: an identity of a
-  retired generation is refused. While the applier fails, foreground writes continue
-  until the hard limit and are then refused before commit; when it recovers it catches
-  up and writes resume. A receipt budget that is full refuses new admissions and drops no
+  retired generation is refused. While the applier fails, foreground writes continue;
+  with a hard limit set they continue until it and are then refused before commit; when
+  the applier recovers it catches up and writes resume. A receipt budget, when one is
+  set and full, refuses new admissions and drops no
   unexpired receipt. Cleanup and retirement check the leadership number in the
   transaction that makes their change. After a run of writes that stops, the journal and
-  the receipts return within their bounds without a restart.
+  the receipts shrink back without a restart.
 - **Measured.** Reported: size of the retained journal and of the receipts over the write
   trace at 200 changes/s and after it stops.
 - **Out of scope.** Killing processes (S32). Shrinking the files of PostgreSQL, which is

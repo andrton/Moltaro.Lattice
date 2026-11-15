@@ -88,7 +88,10 @@ These hold across the contract, the placeholder and the future engine.
 9. **Waiting is finite and outside locks.** No lock is held across I/O or an `await`.
    Every wait has a timeout and honors cancellation. A timeout or a limit that an
    application can observe is an option with a default, validated when the instance
-   opens; it is never a constant in the code. This speaks of a running instance. What a
+   opens; it is never a constant in the code. A limit exists only where the engine cannot
+   work without it or a resource cannot hold the work. The database does not cap what an
+   application chooses to do: no default turns ordinary load into a refusal, and where it
+   can the database waits or slows down instead of refusing. This speaks of a running instance. What a
    schema may declare is a rule of the schema language: it is fixed, stated in the
    contract and the same in every process, because a schema has to mean the same on every
    node. A type that takes more than one lock documents the order.

@@ -499,6 +499,9 @@ native memory the engine needs. The budget is enforced in either case. A
 timeout or a limit below that an
 application can observe is an option with this starting value as its default, never a
 constant in the code; "configurable" in a row is not the complete list of such options.
+By the owner's decision of 15 November 2026 a limit exists only where the engine cannot
+work without it or a resource cannot hold the work: no default turns ordinary load into a
+refusal, and where it can the database waits or slows down instead of refusing.
 
 | Limit / setting | Starting value |
 | --- | --- |
@@ -506,17 +509,17 @@ constant in the code; "configurable" in a row is not the complete list of such o
 | Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
 | Active prepare workers | 2; configurable and bounded |
 | Internal group | Up to 32 operations / 8 MiB / 1 ms collection delay; never split a WriteBatch |
-| Queued write input | 1,024 requests and min(16 MiB, 10% instance budget) |
+| Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
 | Session synchronization / reload readiness wait | 10 s / 30 s, configurable; cancellation allowed for read waits |
-| Scan/query temporary memory and execution | 8 MiB / 5 s per request, configurable; only time inside the engine counts, not the time a caller spends between two items |
+| Scan/query temporary memory and execution | No limit by default, by the owner's decision of 15 November 2026. An application may set a limit on the temporary memory and on the engine time of a read, for the database or for one call; only time inside the engine counts, not the time a caller spends between two items. The temporary memory of reads is counted in the instance budget |
 | Child open | 30 s from the open call to Ready, configurable; then the open fails with Unavailable |
 | Master leadership | Taken at open; a second master on the same store is refused at once. The leadership number is checked in every transaction that changes the store; the leadership session every 5 s, configurable |
-| Retained operation outcomes of a MemoryOnly master | min(32 MiB, 10% instance budget), configurable; new writes are refused when it is full, an unexpired outcome is never dropped |
+| Retained operation outcomes of a MemoryOnly master | No limit of its own, by the owner's decision of 15 November 2026: counted in the instance budget; an unexpired outcome is never dropped, and a write is refused only when the budget cannot hold it |
 | Empty native reserve / compaction headroom | One 4-MiB segment / one 64-KiB move plus metadata |
 | Base application | Up to 256 transactions / 8 MiB effects per batch, 32 MiB working set; <=100 ms idle cadence, immediate continuation when behind |
-| Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; 1 GiB hard cap, configurable |
-| Durable receipt budget | 1 GiB estimated table/index usage; conservative admission reservation and periodic actual-size reconciliation |
+| Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; no hard limit by default, by the owner's decision of 15 November 2026. An application may set one, and appends beyond it are then refused. Without one the time of a recovery grows with the unapplied tail |
+| Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
 | Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
 | Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |

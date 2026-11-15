@@ -58,6 +58,11 @@ it was not executed. An expired request that never started must not execute late
 when storage returns. The waiting deadline is not reset by unsuccessful recovery
 attempts. Resolving the dequeue-versus-cancel race is implementation work.
 
+**Added by the owner on 15 November 2026:** the queue of pending writes has no limit of
+its own on the number of requests or on their bytes. Its bytes are bounded by the instance
+budget, and "if the queue has no capacity" means that the budget cannot hold the request.
+The finite deadline of the wait for storage stays.
+
 The accepted [cancellation boundary](mutation-commands.md#cancellation-at-the-commit-boundary)
 also covers preparation before dispatch. Once work is handed off for storage,
 caller cancellation does not abort execution; engine-owned finite failure deadlines

@@ -1433,6 +1433,10 @@ No-op revision/position accounting is now fixed by the [milestone contract](../d
 decision separately rejects repeated roots in an explicit WriteBatch; repeating
 the token of that batch is still governed by this operation-result contract.
 
+**Added by the owner on 15 November 2026:** retained results have no memory or storage
+limit by default. On a MemoryOnly master they are counted in the instance budget; on a
+Durable master the receipt budget is an option that is not set by default.
+
 Receipts establish durable commit. Normal write success still requires coherent
 master publication or recovery; they do not prove replica freshness. An absent
 receipt while the original transaction may still complete means Pending/Unknown,

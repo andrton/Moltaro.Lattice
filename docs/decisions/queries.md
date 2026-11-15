@@ -299,6 +299,10 @@ master-authority contract. No latency or throughput ratio has been measured.
 The database configuration supplies defaults. A query can explicitly override
 them, for example to allow a longer analytical scan or a larger sort. Exact
 configuration syntax and any host-enforced maximum remain separate API details.
+
+**Added by the owner on 15 November 2026:** a read has no limit on its temporary memory or
+on its time by default; the budgets are options an application may set.
+
 The two accepted limits are:
 
 - **Execution time:** a cooperative deadline for engine query execution, including
