@@ -1862,7 +1862,14 @@ of the [open questions](open-questions.md), 15 November 2026. The tests state th
   `SegmentSize`, the reserve included. Any further condition on `SegmentSize` is the
   implementer's and is documented at the option; the tests use the default.
 - **Counters.** `LiveBytes` is the header plus the payload length of every allocated
-  block, as given at allocation; `ClassSlackBytes` is the rest of their slots. `Segments`
+  block, as given at allocation; `ClassSlackBytes` is the rest of their slots. A
+  coordinator's note: nothing in S04 changes the length of a live block, and the arena
+  keeps no length of its own for a slot — the specification puts the logical length into
+  the header and only class, capacity and state into the allocator's metadata. So no test
+  states how the two counters divide the slot of a block after a caller wrote another
+  `PayloadLength` through `Header`; by the planner's answer a caller does not do that, and
+  S20 gives the arena the member that changes a length and the counters with it. `Payload`
+  still reads the length from the header and guards the capacity of the slot. `Segments`
   counts reserved segments too; `FreeRegions` does not count the regions of reserved
   segments.
 - **Order and timing.** `TryAllocate` takes a free slot of the class, then a free region,
