@@ -149,7 +149,7 @@ Account for operation peaks, not just final net growth; reuse eligible free capa
 and reserve segments within budget. Existing PostgreSQL-outage waiting, root atomicity,
 no-lock-during-I/O and post-commit uncertainty/recovery contracts remain unchanged.
 This is controlled admission failure, not a claim that every process-wide allocation
-failure can be safely caught. No numeric defaults or performance guarantee are selected.
+failure can be safely caught. No numeric defaults or performance guarantee are selected by this decision; the default of the instance budget was added on 15 November 2026, below.
 
 #### Scope and budget
 
@@ -169,7 +169,13 @@ Caller-retained copies, the runtime, other embedded application code and allocat
 overhead also need deployment headroom. The .NET
 [GC heap hard limit](https://learn.microsoft.com/en-us/dotnet/core/runtime-config/garbage-collector#heap-hard-limit)
 covers the GC heap and its bookkeeping; it is not a budget for the native arena or
-the whole embedded process. No runtime setting or numerical memory default is chosen.
+the whole embedded process. No runtime setting is chosen, and no numerical memory default was chosen with this decision; the owner's addition of 15 November 2026 below gives the default.
+
+**Added by the owner on 15 November 2026:** the default of the instance budget is half of
+the memory available to the process — the limit of its container, or the physical memory
+of the machine — computed when the instance opens. The budget is enforced as accepted
+above. An application that prefers to run into swap rather than have writes refused sets
+the budget above physical memory; nothing else changes for it.
 
 A mutation needs capacity for its preparation/publication peak, not merely its final
 net growth. A replacement with a smaller final document can still need temporary

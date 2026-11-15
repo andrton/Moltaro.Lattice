@@ -1,0 +1,26 @@
+name: Measurements
+
+# The measurement lane (docs/work/epic-1-core.md, "Test lanes"), started by hand only. It builds
+# the measurement program and runs its scenarios to show that the program runs. It is not a
+# required check and judges no figure: a figure counts only under its manifest, on the machine the
+# manifest names, and the runner of this job is not that machine.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: src
+
+jobs:
+  measurements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: src/global.json
+      - run: dotnet build Moltaro.Lattice.Measurements --configuration Release
+      - run: dotnet run --configuration Release --no-build --project Moltaro.Lattice.Measurements -- root-bytes development

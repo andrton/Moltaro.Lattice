@@ -30,6 +30,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
 | `src/*.Tests` | Tests, one project per library. `Moltaro.Lattice.Engine.Tests` may also test internal mechanisms of the engine |
 | `src/Moltaro.Lattice.TestSupport` | Code shared by the test projects; never shipped |
+| `src/Moltaro.Lattice.Measurements` | The measurement program: the reference fixture, the scenarios and their manifests. Started by hand; never shipped and not a test project |
 | `docs` | Product documentation; `docs/work` holds the epics in progress |
 | `docs/design`, `docs/decisions` | Durable engine design reference, accepted decisions, evidence and planning input |
 | `src/Prototypes` | Isolated synthetic experiments; not part of the product solution or shipped packages. A prototype may pin its own package versions |
@@ -224,7 +225,8 @@ Writing code:
   an invariant written in a decision record or in the engine contract, never how the code
   happens to be built. Two programs that are never shipped, the node program of the
   cluster tests and the measurement program, have the same access under the same
-  condition.
+  condition. The tests of the engine also address the reference fixture inside the
+  measurement program, to state that it does not change.
 - Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
   and is not copied between them. That project is never shipped and contains no tests.
   What only one test project uses stays in that project.

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The measurement program of the engine: the reference fixture, the scenarios that report
+         figures and the manifests they run under; in later sprints also the managed reference, the
+         load profiles and the check of the machine. Started by hand; not a test project, and never
+         shipped. -->
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The engine, and through it the contract. -->
+    <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The manifests are committed files that a run names; the program reads them next to itself. -->
+    <None Include="Manifests\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The tests of the reference fixture reach its internal class; see exception X3 in
+         docs/work/exceptions.md. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
+  </ItemGroup>
+</Project>

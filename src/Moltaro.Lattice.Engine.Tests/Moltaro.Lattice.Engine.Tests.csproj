@@ -8,6 +8,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
+    <!-- The measurement program, for the tests of its reference fixture. -->
+    <ProjectReference Include="..\Moltaro.Lattice.Measurements\Moltaro.Lattice.Measurements.csproj" />
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>

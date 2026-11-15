@@ -31,15 +31,6 @@ in the meantime.
 
 ## Open
 
-### Q29. Does a property bind when its set accessor is not public?
-
-| | |
-| --- | --- |
-| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
-| **Question** | By the answer to Q14 the property of a field is "an instance property with get and set". The binding requires the get accessor to be public and accepts any set accessor: private, protected or `init`. So a class with `{ get; private set; }` or `{ get; init; }` binds, and the database sets the value through an accessor the application cannot call. It was so before the epic, and no test states it. Is a set accessor that is not public accepted, which lets an application keep its entity classes closed for writing, or is a public set required? |
-| **Until answered** | Any set accessor binds; the documentation of `ILatticeDatabase.Set<TEntity>()` says "a public get and a set" and does not promise more. The review of S03 found two more edges of "the property C# finds by that name" that the brief does not settle and that belong to the same answer: a class that overrides only the getter of a virtual property is `BindingFailed`, although C# sees a get and a set there; and a public field that hides a property of the base class is not seen, so the property of the base class binds |
-| **Decides** | The planner, before the contracts of the stage with typed views (S22), whose generator has to know which properties of a class it may use |
-
 ### Q31. Native bytes that no counter of the arena shows
 
 | | |
@@ -49,15 +40,6 @@ in the meantime.
 | **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
 | **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
 
-### Q32. When does S06 release the entry of a deleted root?
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
-| **Question** | The brief of S06 says, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08: "A deleted entry is reused only after its claims are gone". The brief of S04 leaves who may release, and when, to the caller "with S06 to S08". So the agents of S06 cannot tell from that sentence what S06 does with the entry of a root whose delete was published, while lookup claims do not exist yet: release it at once, or keep it `Deleted` until S08 |
-| **Until answered** | The sentence stands as the planner gave it. Nothing in S04 or S05 depends on it |
-| **Decides** | The planner, before S06 starts; the coordinator does not start S06 with this entry open |
-
 ### Q33. What an application sees when the table of root entries is full
 
 | | |
@@ -66,6 +48,24 @@ in the meantime.
 | **Question** | The table of root entries ends at 2^31 − 4,096 slots, a limit of its structure and not an option. `RootTable.Add` then throws `InvalidOperationException` and leaves the table as it was. No brief says which error a write of an application gets when the engine reaches that limit, or a retired slot count that makes it nearer; the resource errors of the contract come with S08, S09, S17 and S24 |
 | **Until answered** | The internal exception stands; no test can reach the limit, which needs about 96 GiB of root entries |
 | **Decides** | The planner, with the resource errors of the memory budget (S24) |
+
+### Q35. What the root layout of S05 leaves to later sprints
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
+| **Question** | Six points of entry Q34 and of the review of S05 reach into later sprints and need the planner's word there. (1) S06: `RootLayout.Compile` refuses an entity type with a field it cannot store yet, and the engine contract wants an oversized fixed part reported before data is admitted, while the brief of S06 refuses at a write; when does the engine compile a layout, and when does an application see `InvalidSchema`? (2) S08 and S09: is the size of an entity, as an application's limit counts it, the fixed part plus the encoded bytes of its String and Binary values, and is `PreparedWrite.EncodedSize` the same number? (3) S10: a value in a root is stored in the byte order of the machine; which order have the blocks a child receives? (4) S20: an inline descriptor holds an offset and a length and no capacity; where does the capacity that a partial update needs live? (5) S37: every layout has `LayoutVersion` 1; how is a changed layout numbered? A root of another entity type passes the check of a reader as long as every layout has version 1. (6) S09: one String or Binary value holds at most 4,094 chunks of 65,504 bytes, 268,173,376 bytes, the bound of one directory block; when `MaxEntitySize` becomes an option, a larger setting still gets `WriteRejected` for such a value. Is that bound stated with the option, or is the directory to grow? |
+| **Until answered** | The readings of Q34 stand for S05. Point 1 is answered by the planner, 15 November 2026, and written into the brief of S06: the engine compiles the layout of every entity type when the database opens; a fixed part larger than one block fails the open with `InvalidSchema`; an entity type the engine cannot store yet gets no layout and does not fail the open |
+| **Decides** | The planner: point 2 before S08, point 6 before S09, point 3 before S10, points 4 and 5 before the contracts of their stages |
+
+### Q37. From which source the engine reads the memory available to the process
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
+| **Question** | By decision O17 the default of the instance memory budget is half of the memory available to the process: the limit of its container, or the physical memory of the machine. The brief of S09 named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as the source. Measured on .NET 10: on a host without settings it reports the physical memory; in a container limited to 1 GiB it reports 805,306,368, which is 75% of the limit, the default heap limit of the garbage collector; with `DOTNET_GCHeapHardLimit` or `GCHeapHardLimitPercent` it reports what that setting gives. So the default budget in a 1 GiB container would be 384 MiB and not 512 MiB, and a GC heap setting would scale the budget of the native arena, which the decision on write admission says it is not. Does the engine read the limit of the container itself, or does the owner accept what the runtime reports and the three sentences of O17 say so? Two smaller points of the same texts: the sentences "No numeric defaults … are selected" and "No runtime setting or numerical memory default is chosen" of the decision on write admission stand above the owner's addition and read as contradicted; and `Validate` of S09 compares `MaxEntitySize` and `WriteQueueMemoryLimit` with `MemoryLimit` without saying that it is the limit in force when `MemoryLimit` is null |
+| **Until answered** | The brief of S09 states the decision and leaves the source open. Nothing before S09 reads the memory of the process. The two smaller points are answered by the planner, 15 November 2026, and entered: the two sentences of the decision on write admission point forward to the owner's addition, and `Validate` compares with the limit in force |
+| **Decides** | The owner, to whom the planner put it on 15 November 2026 with two ways out: the engine reads the limit of the container itself, with platform code of its own, or the default is defined as half of what the runtime reports and the decision, the engine contract and the option say what that is. Before S09 starts; the coordinator does not start S09 with this entry open |
 
 ## Answered
 
@@ -329,3 +329,39 @@ in the meantime.
 | **Question** | The brief of S04 names the types and members of the arena and leaves open what several of them do: when a root handle is current and where generations start; which state a new root entry has; what a new block holds; which exception each refusal is; what the constructor of `Arena` refuses and what the memory limit bounds; what each counter counts; in which order space is taken and when an emptied segment is freed. `RootHandle` had no constructor, so the test of an exhausted generation could not name its slot. Later sprints were touched too: what `DescriptorOffset` counts from, who moves the state of a root entry, what `LastMutationSequence` is |
 | **Answer** | The planner, 15 November 2026, from the engine contract, the arena protocol and Q17, reported to the owner in the planner's session. The readings are written out in the brief of S04; `RootHandle` gets the constructor `RootHandle(uint generation, uint slot)`. Three of them are nearest to a choice: the payload of a new block is not zeroed, the memory limit is required, and an emptied segment beyond the reserve is freed inside `Free` until S23 brings the background release. Two things wait for the contracts of their stages and are the planner's to place: in S13 a shared-text block carries the handle of its text entry in `BlockHeader.Root`, told apart by `Kind`; in S20 a member of the arena changes the length of a live block and the counters with it |
 | **Where the rule lives** | The briefs of S04, S05 and S06 in the [document of Epic 1](epic-1-core.md) |
+
+### Q34. What the members of the root layout do where the brief of S05 does not say
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
+| **Question** | The brief of S05 names the types and members of the root layout and of the reference fixture and leaves open what the tests have to state: the formula of the fixed part, what `Compile` does with a field it cannot store yet, where a value of each size goes and what a directory holds, which member serves an Enum with an unsigned underlying type, the errors of a wrong field, of a value out of range and of reading a null, null against missing at `Complete`, the stored encoding of text and the byte order, what the size limit of an entity counts, the life of a writer, what a reader checks, what `LayoutVersion` is, and what of the fixture the engine contract does not give |
+| **Answer** | The coordinator, 15 November 2026, from the engine contract and the decisions named in the brief; the planner's session could not be reached, and the readings are reported to the owner with the close of S05. They are written out in the brief of S05. Nearest to a choice: the fixed part is packed without padding; an entity is measured as its fixed part plus the encoded bytes of its String and Binary values, and one of exactly the limit is stored; a field is set once; `Compile` refuses an entity type with a field S05 cannot store with `NotSupportedException`; `LayoutVersion` is 1 |
+| **Where the rule lives** | The brief of S05 in the [document of Epic 1](epic-1-core.md). What the readings leave to later sprints is entry Q35 |
+
+### Q32. When does S06 release the entry of a deleted root?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
+| **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
+
+### Q36. Exception X3 does not name the tests of the reference fixture
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
+| **Question** | The brief of S05 makes `ReferenceFixture` an internal type of the measurement program and asks for a test of its digest. `Moltaro.Lattice.Engine.Tests` therefore references the program and has friend access to it. Exception X3 spoke of the test projects reaching into the engine and of the measurement program reaching into the engine; it did not say that a test project reaches into the measurement program. Is X3 worded to cover it, or does the fixture get another home? |
+| **Answer** | The owner, 15 November 2026, through the planner's session: X3 is extended, and the fixture stays where the brief of S05 put it. The other option, moving the fixture into the shared test project, would have made the measurement program depend on a project meant for tests only |
+| **Where the rule lives** | Exception X3 in the [exceptions to the rules](exceptions.md), mirrored in `AGENTS.md`, "Tests And Samples" |
+
+### Q29. Does a property bind when its set accessor is not public?
+
+| | |
+| --- | --- |
+| **Found** | 14 November 2026, documentation of Epic 1, sprint S03 |
+| **Question** | By the answer to Q14 the property of a field is "an instance property with get and set". The binding requires the get accessor to be public and accepts any set accessor: private, protected or `init`. Is a set accessor that is not public accepted, which lets an application keep its entity classes closed for writing, or is a public set required? The review of S03 found two more edges of "the property C# finds by that name": a class that overrides only the getter of a virtual property is `BindingFailed`, although C# sees a get and a set there; and a public field that hides a property of the base class is not seen, so the property of the base class binds |
+| **Answer** | The owner, 15 November 2026, through the planner's session: a property binds with a set accessor of any accessibility, and that becomes a promise of the contract. *Not chosen:* a public set, a shorter rule that would stop immutable classes and records with `init` from binding. The planner, as consequences of Q14: a class that overrides only the get accessor of a virtual property binds and is set through the accessor of its base class; a class in which a public field hides a property of its base class is `BindingFailed`. The generator of typed views (S22) reads and never sets, so nothing more follows for its contract |
+| **Where the rule lives** | The remarks of `ILatticeDatabase.Set<TEntity>()` and the brief of S06 in the [document of Epic 1](epic-1-core.md), which carries the change under decision O16 |

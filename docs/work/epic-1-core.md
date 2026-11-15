@@ -72,7 +72,11 @@ child completes when that child has applied it; waiting for a position with a ti
 `Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
-with generations (S04).
+with generations (S04); the root layout compiled from an entity type of scalar fields,
+with the writer and the reader of a root — fixed fields at their declared width, String
+and Binary values inline, in a block of their own or in chunks (S05). The measurement
+program `Moltaro.Lattice.Measurements` holds the reference fixture, its first scenario
+and the development manifest (S05).
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -238,7 +242,17 @@ documentation before this document is removed.
 
 | Sprint | Figure | Value | Manifest | Date |
 | --- | --- | --- | --- | --- |
-| — | Nothing measured yet | | | |
+| S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
+| S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
+| S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
+
+The figures of S05 come from the scenario `root-bytes` of the measurement program
+(`dotnet run -c Release --project Moltaro.Lattice.Measurements -- root-bytes development`,
+from `src`) and were the same on Windows and on Linux. They are for comparison between
+sprints, not a gate: G1 is judged in S25 against the managed reference. What they show
+already is where the bytes of a small entity go — the 32-byte header of the root block
+and a 16-byte descriptor for every String, 64 bytes of descriptors for the 57 bytes of
+text a user has — and the coordinator reported it to the owner with the close of S05.
 
 ## Open questions
 
@@ -513,6 +527,16 @@ documentation of the write batch and of `Set<TEntity>()` (Q6); and the texts tha
 owner's answers added to the briefs of S03, S04 and S37 and to the document of Epic 2
 (Q3, Q4, Q5, Q9, Q10, Q11).
 
+**O17. The default of the instance memory budget is computed.** Decided on 15 November
+2026 and given through the planner's session, when the owner learned that the limit of the
+arena is required. The budget is an option whose default is half of the memory available
+to the process when the instance opens — the limit of its container, or the physical
+memory of the machine — and it is enforced as Q14 accepts. An application that prefers
+to run into swap sets the budget above physical memory. *Not chosen:* the fixed 256 MiB,
+far too small for real data; all of the memory; no limit unless one is set. Shapes S09;
+it rode in the branch of S05 under O16, with one sentence of the engine contract and a
+note in the decision on write admission.
+
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
 with what the code does in the meantime. The coordinator names the new entries when a
@@ -761,7 +785,7 @@ Why this order:
 | S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Done |
-| S05 | Root layout and values | Full | Not started |
+| S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Not started |
 | S07 | Every key type and declared value | Full | Not started |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
@@ -2031,6 +2055,133 @@ internal static class ReferenceFixture
 }
 ```
 
+**What the members do where the block above does not say.** The coordinator's readings
+of 15 November 2026, entry Q34 of the [open questions](open-questions.md), from the
+engine contract and the decisions named under "To read"; the planner's session could not
+be reached, so they are reported to the owner at the close of the sprint. The tests state
+them.
+
+- **The fixed part.** `FixedSize` = the 32 bytes of the block header + a null bitmap of
+  ⌈n/8⌉ bytes for the n nullable fields + the fixed fields at the widths of the scalar
+  catalog, in field-identity order, without padding + one 16-byte descriptor for every
+  String and Binary field, in field-identity order. A Boolean is one byte, 0 or 1. An
+  Enum field has the width of its underlying type. A nullable fixed field keeps its place
+  when it is null. A value of more than one byte is stored in the byte order of the
+  machine, as the block header and the descriptors are; the byte order of the durable and
+  the wire forms belongs to their sprints (Q35 of the open questions). No test states a
+  byte order. Packing without padding is chosen because memory comes before speed
+  in the engine and no measurement speaks against it; an implementer who wants alignment
+  brings the number. `Compile` refuses with `InvalidSchema` a `FixedSize` above
+  `Arena.MaxBlockSize`, with the entity type named.
+- **What `Compile` does not lay out yet.** An entity type with a field S05 cannot store —
+  Owned, List, Map, Set, Reference, a String with Dictionary storage — is
+  `NotSupportedException` with the field named; S13, S18 and S19 extend it. An entity
+  type that is not of the given schema is `ArgumentException`. `LayoutVersion` is 1 for
+  every layout of S05 and is written into the header of every block of the root; how a
+  changed layout is numbered belongs to S37.
+- **Where a value goes.** A String or Binary value of at most `InlineLimit` encoded bytes
+  is stored in the root block after the fixed part, when the root block still fits one
+  block; an empty value is inline with length 0. Any other value of at most
+  `SingleBlockLimit` bytes has one block of its own. A longer one is chunked: blocks of
+  `ChunkPayload` bytes, every chunk but the last full, and one directory block of 16-byte
+  descriptors, one per chunk; a value that needs more chunks than one directory block
+  holds is `WriteRejected`, reported by `Complete`. A descriptor's `Location` of an inline value is its offset
+  from the start of the root block. The parent of a value block and of a directory is the
+  root; the parent of a chunk is its directory. A null String or Binary is null in the
+  bitmap and its descriptor is all zero. No member of the contract shows where a value
+  went. The tests written before the implementation see it through the counters of the
+  arena and state no more than they show; the implementer's tests of ownership — the
+  parent, the descriptor offset and the layout version of every block, the zero
+  descriptor of a null — read the blocks through the arena, at the offsets this part
+  gives.
+- **Which member serves which field.** `SetInteger` and `GetInteger`: Int8 to Int64 and
+  an Enum whose underlying type is signed. `SetUnsigned` and `GetUnsigned`: UInt8 to
+  UInt64 and an Enum whose underlying type is unsigned. `SetNull` and `IsNull` serve
+  every field, `GetLength` a String and a Binary field, and every other member the one
+  field type of its name. A member called for a field of another type, or for a field of
+  another entity type, is `ArgumentException`. A value outside the range of the field's
+  width is `ValidationFailed`. Whether an Enum value is a declared member is checked from
+  S07 on; the tests of S05 use declared members.
+- **Null and missing.** `SetNull` of a field that is not nullable is `ValidationFailed`
+  at the call. At `Complete` a nullable field that was never set is null, and a field
+  that is not nullable and was never set is `ValidationFailed`. A `Get…` member and
+  `GetLength` of a null field are `InvalidOperationException`; the caller asks `IsNull`
+  first.
+- **Text.** In a UTF-8 database a String is stored as the UTF-8 of its characters, in a
+  UTF-16 database as its code units. Malformed UTF-16 — a surrogate without its pair — is
+  `ValidationFailed` at `SetString`, nothing is allocated for that value (the counters of
+  the arena are the same before and after the call), no character is substituted, and
+  the writer stays usable. `GetLength` is the number of encoded bytes as stored.
+- **The size of an entity.** What `maxEntitySize` bounds is `FixedSize` plus the encoded
+  bytes of every String and Binary value: it does not depend on where a value went. An
+  entity of exactly `maxEntitySize` bytes is stored; one byte more is `WriteRejected`.
+  The size and the memory of the arena are reported by `Complete`, as the block above
+  says: no `Set…` member fails for either. When `Complete` fails, everything the writer
+  allocated is freed: `LiveBytes` and `ClassSlackBytes` are as they were before the
+  writer; a segment the arena obtained for the writer may stay in the reserve, so
+  `Segments` and `ReservedSegments` may differ. An `OutOfMemoryException` of the native
+  allocator passes through whichever member meets it. Met inside `Complete`, it is a
+  failed `Complete`: everything is freed already. Met inside a `Set…` member, it passes
+  through after the member has freed everything it allocated for that value: the field is
+  not set, as after any refused call, and the writer stays usable — the caller may set the
+  field again, complete or abandon (decided after review round 1, which showed that a
+  half-stored value left in the writer leaks or makes a null field name a block).
+- **Managed memory.** A coordinator's note, after review round 1: after warm-up a write —
+  the constructor, every `Set…` member, `Complete`, `Abandon` — and `RootStorage.Free`
+  allocate no managed memory, and a reader allocates nothing but the string or the array
+  that `GetString` or `GetBinary` returns. The implementer's tests assert both, in the
+  test collection of remark 9.
+- **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of a field
+  that was set is `InvalidOperationException`. A call that was refused — malformed text,
+  a value out of range, `SetNull` of a field that is not nullable — did not set the
+  field, and a valid value may follow. After `Complete`, whether it returned or failed,
+  and after `Abandon`, every `Set…` member, `SetNull` and `Complete` are
+  `InvalidOperationException`. `Abandon` after a `Complete` that returned is
+  `InvalidOperationException` as well: the root belongs to the caller then. `Abandon`
+  after a failed `Complete`, and a second `Abandon`, do nothing. The constructor refuses a null arena or layout with
+  `ArgumentNullException` and a `maxEntitySize` below 1 with
+  `ArgumentOutOfRangeException`.
+- **A reader.** The constructor refuses with `ArgumentException` an address that is not a
+  valid block of the arena, a block whose kind is not `Root`, and a block whose layout
+  version is not the layout's.
+- **`RootStorage.Free`** frees the root block and every block it owns. It does not touch
+  the table of root entries. It refuses what a reader's constructor refuses, with
+  `ArgumentException` and before it frees anything.
+- **The fixture.** The entity types, their counts, their field types, text formats and
+  indexes are those of the table of the engine contract, "Reproducible first fixture";
+  what the table does not give — names it leaves open, identities, the synthetic value
+  sets — is the implementer's and is stated by no test. No field is nullable; an index is
+  unique only where the table says so. The scalar form keeps every index, with every
+  String Plain. `Generate` uses a generator of the program's own, not `System.Random`,
+  whose sequence is not promised across versions of .NET, and yields the records in the
+  same order on every run; a schema that is neither of the two forms is
+  `ArgumentException`. `Digest` is the SHA-256 of the values in an encoding that does not
+  depend on the order in which a Set or a Map enumerates, as lowercase hexadecimal. The
+  test author states that two runs give the same records and the same digest; the digest
+  of seed 42 is recorded in a test by the test author once the implementation has
+  produced it, as the fingerprints of S02 and S03 were: a recorded value cannot be
+  written before the code that produces it, so this one test follows the implementation.
+- **The measurement.** The implementer writes the development manifest — it names the
+  machine by its processor and its memory, the operating system and the versions of
+  .NET, with no host name, no name of a user and no path — as a committed file of the measurement project, and the
+  scenario that reports the figure of "Measured"; the program is told the scenario on its
+  command line. The implementer also adds the job of the measurement lane to the
+  workflow, started by hand, which shows that the program runs.
+
+**Carried by this sprint besides its own work.** While S05 was open the owner asked why
+the solution has a project `Moltaro.Lattice.Engine` and, in the core library, a folder
+`Engine`, with `Storage` and `Replication` beside it under the names the engine project
+uses. Those folders were the placeholder. The coordinator answered that it would give
+them one folder that says so unless the owner objected, and had it done in commit
+`548224e`: the placeholder is `src/Moltaro.Lattice/Placeholder`, with `Placeholder/Storage`
+and `Placeholder/Replication`; every type moved is internal, the public surface is
+unchanged, and S12 deletes the folder whole. `StoredEntity` and `WriteKindEnum` stay in
+`src/Moltaro.Lattice/Storage`, because the sets and the write batch use them. This is more
+than decision O16 lists as a small change — it moves source files — and it is named here
+for that reason. The branch also carries what the owner and the planner answered while it
+was open: decision O17 with the brief of S09, the answers to Q29 and Q32 and to point 1
+of Q35 with the brief of S06, and the answer to Q36 with the extension of exception X3.
+
 A sprint before S19 measures the scalar form, because the collections and Dictionary
 strings of the full form cannot be stored yet, and before S16 it measures that form
 without its Unique marks, because an entity type with a unique index cannot be written
@@ -2075,7 +2226,21 @@ manifest is a committed file of this project.
   [open questions](open-questions.md): when every write has returned and no read is in
   progress, `PreparedBytes` and `RetiredBytes` are 0 and the counters of the arena equal
   an independent tally of what the entities hold; after a write that failed validation or
-  was refused, nothing of it is left in any counter.
+  was refused, nothing of it is left in any counter. By the planner's answer to Q32: a
+  read that found an entity which is deleted before the read reaches it returns absence,
+  never the values of another entity; after the deletes have returned and no read is in
+  progress, the table of root entries holds no entry of a deleted entity, shown by its
+  count. By the planner's answer to point 1 of Q35: a database whose schema declares an
+  entity type with a fixed part larger than one block does not open: `InvalidSchema` with
+  the entity type named. A database whose schema declares an entity type the engine
+  cannot store yet opens, and its other entity types are read and written. By the owner's
+  answer to Q29 a property binds with a set accessor of any accessibility — public,
+  `internal`, `protected`, `private` or `init` — and an entity read from the database has
+  the stored values in such properties. A property without a set accessor, and one whose
+  get accessor is not public, are `BindingFailed` with the property named. A class that
+  overrides only the get accessor of a virtual property binds, and its value is set
+  through the accessor of the base class. A class in which a public field hides a
+  property of its base class is `BindingFailed` with the member named.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2091,6 +2256,26 @@ manifest is a committed file of this project.
 > compared for equality, and nothing else may be concluded from a revision: it has no
 > order, it cannot be turned into a position, and the revision of one entity means
 > nothing for another.
+
+By the owner's answer to Q29 of the [open questions](open-questions.md), carried by this
+sprint under decision O16, the remarks of `ILatticeDatabase.Set<TEntity>()`, where the
+binding of a class is stated once, gain this rule, and it holds for the class of an owned
+type as for the class of an entity type:
+
+> The property of a field has a public get accessor and a set accessor of any
+> accessibility: public, `internal`, `protected`, `private` or `init`. The database sets
+> the value through that accessor when it builds an object, so a class may keep its
+> properties closed for writing by the application. The accessors are those C# sees for
+> the property on the class, inherited ones included: a class that overrides only the get
+> accessor of a virtual property is set through the accessor of its base class. When the
+> public member C# finds on the class by the name of a field is not a property — a public
+> field that hides a property of a base class — the class is refused: the hidden property
+> is not bound in its place.
+
+The first sentence is what the binding does today and gets its tests and its
+documentation; the last two are fixes of the binding in the core library — today the
+overridden getter is `BindingFailed` and the hidden property binds. The tests come first,
+from the test author, as for any change of behavior.
 
 Internal, in the engine assembly:
 
@@ -2117,7 +2302,15 @@ By the planner's answer to Q30 of the [open questions](open-questions.md): a blo
 allocated for a write that is prepared and not yet published is valid from its
 allocation: `IsValid` means allocated and not freed in every state. S06 moves the state
 of a root entry: `Prepared` to `Live` when an insert is published, `Live` to `Deleted`
-when a delete is published; `Release` follows when the claims of S07 are gone.
+when a delete is published. By the planner's answer to Q32: a read by key uses the lookup
+claim of the milestone contract: it claims the entry under the catalog gate, releases
+that gate, takes the protection of the root, checks the generation and the state again,
+and drops the claim after it released the protection of the root; it never waits for a
+root while it holds the catalog gate. The entry of a root whose delete was published is
+released when no claim is held on it: at once when there is none, otherwise by the reader
+that drops the last one. S08 adds the claims of an enumeration and the tests of reuse
+while entities change; its sentence that a deleted entry is reused only after its claims
+are gone holds for reads by key from this sprint on.
 `RootEntry.LastMutationSequence` is the sequence of the position of the last published
 mutation of the root; the specification's "last mutation position" is the same eight
 bytes, because the history of a position is the database's and is not repeated per root.
@@ -2137,6 +2330,20 @@ beyond the listed ones to the implementer, and they do not change what the membe
 do. In S06 a write is executed alone and published at once, so a prepared block is not
 observable between writes; the rule is stated here because S06 is the first sprint with
 the transition, and S09 and the Durable sprints rely on it when prepared writes wait.
+
+By the planner's answer to point 1 of Q35: the engine compiles the root layout of every
+entity type when the database opens, before any data is admitted. An entity type whose
+fixed part does not fit one block makes the open fail with `InvalidSchema`, with the
+entity type named. An entity type that has a field the engine cannot store yet does not
+fail the open: it gets no layout, every write of it is refused with
+`NotSupportedException` as this brief says, a read of it by key finds nothing and an
+enumeration of it is empty, because nothing of it can be stored. The size of its fixed
+part is checked from the sprint in which the engine can store it.
+
+A coordinator's note from the review of S05: a `RootWriter` is a mutable `ref struct`
+that holds a pooled array and the blocks it allocated. It is passed by `ref`, never by
+value, also into helpers: a copy that is ended as well returns the array to the pool
+twice.
 
 #### S07 · Every key type and declared value
 
@@ -2263,7 +2470,7 @@ table being built while the primary index grows.
 
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
-- **Contract.** Options: the instance memory budget (256 MiB by default for development),
+- **Contract.** Options: the instance memory budget (by default half of the memory available to the process),
   the entity size limit (1 MiB), the queued write input (1,024 requests and the smaller
   of 16 MiB and 10% of the budget), the number of preparing workers (2). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
@@ -2284,7 +2491,10 @@ table being built while the primary index grows.
   report `Unavailable` until a new instance is opened. Inconsistent options are refused
   at open. Publication performs no I/O, no allocation of pool capacity and no user code. That
   preparation runs concurrently and that a group waits at most 1 ms are checked by the
-  reviews; the size of a group is asserted through the counters.
+  reviews; the size of a group is asserted through the counters. An instance opened
+  without `MemoryLimit` has half of the memory available to the process as its limit, and
+  one opened with it has the given value; the limits that are shares of the budget follow
+  the limit in force.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2296,7 +2506,7 @@ table being built while the primary index grows.
 namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
-public long MemoryLimit { get; init; } = 256L * 1024 * 1024;   // bytes for the whole instance
+public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory available to the process
 public int MaxEntitySize { get; init; } = 1024 * 1024;         // encoded bytes of one entity with all it owns
 public int WriteQueueLimit { get; init; } = 1024;              // writes admitted and not yet completed
 public long? WriteQueueMemoryLimit { get; init; }              // null: the smaller of 16 MiB and 10% of MemoryLimit
@@ -2309,8 +2519,28 @@ WriteQueueMemory = 5,
 Memory = 6,
 ```
 
-`Validate` refuses: a limit that is not positive; `MaxEntitySize` above `MemoryLimit`;
-`WriteQueueMemoryLimit` above `MemoryLimit`; `PrepareWorkers` below 1 or above 64.
+By the owner's decision of 15 November 2026, given through the planner's session: the
+memory available to the process is the limit of its container where there is one and the
+physical memory of the machine otherwise, read when the instance opens. From which source
+the engine reads it is open, entry Q37 of the [open questions](open-questions.md): the
+planner first named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, and the review of
+S05 measured that it reports what the garbage collector may use — the physical memory on
+a host without settings, in a container 75% of the limit by default, and whatever a GC
+heap setting says — which is not what the decision gives. S09 does not start with Q37 open. The limit in force is fixed at open and does not
+follow later changes. Every limit that is a share of the budget — the queued write input
+here, the retained outcomes of S26, the pending replication of S33 — is taken from the
+limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
+`EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
+the default. The documentation of the option says in plain words that the default is per
+instance, that a process with several instances sets it explicitly, and that the budget
+counts what the engine holds, not the managed heap of the application. `Validate`
+compares `MaxEntitySize` and `WriteQueueMemoryLimit` with the limit in force — the given
+`MemoryLimit`, or the computed default when it is null. The limit in force is computed
+once, when the instance opens, and the validation of that open uses the same value.
+
+`Validate` refuses: a limit that is not positive; `MaxEntitySize` above the limit in
+force; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
+above 64.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena and the queued write input: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
