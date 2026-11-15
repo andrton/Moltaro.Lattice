@@ -58,6 +58,15 @@ in the meantime.
 | **Until answered** | The sentence stands as the planner gave it. Nothing in S04 or S05 depends on it |
 | **Decides** | The planner, before S06 starts; the coordinator does not start S06 with this entry open |
 
+### Q33. What an application sees when the table of root entries is full
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The table of root entries ends at 2^31 − 4,096 slots, a limit of its structure and not an option. `RootTable.Add` then throws `InvalidOperationException` and leaves the table as it was. No brief says which error a write of an application gets when the engine reaches that limit, or a retired slot count that makes it nearer; the resource errors of the contract come with S08, S09, S17 and S24 |
+| **Until answered** | The internal exception stands; no test can reach the limit, which needs about 96 GiB of root entries |
+| **Decides** | The planner, with the resource errors of the memory budget (S24) |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

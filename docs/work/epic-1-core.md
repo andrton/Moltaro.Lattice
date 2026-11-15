@@ -760,7 +760,7 @@ Why this order:
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
 | S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Done |
-| S04 | Arena | Full | Not started |
+| S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Not started |
 | S06 | Reads and writes of one entity | Full | Not started |
 | S07 | Every key type and declared value | Full | Not started |
@@ -842,6 +842,14 @@ way, when its sprint is prepared.
    `LatticeErrorEnum.UniqueConstraintViolation` and to the remarks of
    `ILatticeSet<TEntity>`. S16 implements unique indexes and removes the three sentences;
    the planner enters it in the brief of S16.
+9. S04 gave `Moltaro.Lattice.Engine.Tests` a test collection for the tests that measure
+   managed allocation: it runs alone and inside a region in which the runtime starts no
+   garbage collection, because a collection caused by another test moves the counter of
+   the measuring thread. Every later test that asserts an exact amount of managed
+   allocation joins it. S06 and S07 assert the allocation of reads; if such a test lands
+   in `Moltaro.Lattice.Tests`, the collection and its attribute move to
+   `Moltaro.Lattice.TestSupport` in that sprint, as decision O13 says of code that two
+   test projects need, and the brief given to the test author says so.
 
 ### Stage 0. Ground
 
