@@ -52,7 +52,7 @@ public sealed class EntitySizeTests
         Assert.Equal(first, records.Get(2L)!["Body"]);
     }
 
-    [Fact(Skip = NotImplemented.ValueBound)]
+    [Fact]
     public async Task Write_of_a_value_whose_encoding_is_above_the_bound_of_one_value_is_ValidationFailed_with_the_field_named()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema());

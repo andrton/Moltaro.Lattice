@@ -12,10 +12,6 @@ namespace Moltaro.Lattice.Storage.Values;
 // the machine, as everything in native memory is.
 internal static class StoredText
 {
-    // The most characters counted in one call of Encoding.GetByteCount: three bytes each at most, so
-    // the count of one call always fits an int.
-    private const int CountedAtOnce = int.MaxValue / 3;
-
     // The bytes of UTF-8 that EqualsOrdinal encodes on the stack at a time.
     private const int ComparedAtOnce = 256;
 
@@ -51,34 +47,11 @@ internal static class StoredText
     }
 
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
-    // code unit. Counted as a long in both encodings, because text of 2^30 characters or more takes
-    // more bytes than an int holds; such text is above the bound of one value, and RootWriter
-    // refuses it without forming a span over its bytes (ValueSource).
-    public static long EncodedLength(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
-    {
-        if (encoding == LatticeStringEncodingEnum.Utf16)
-        {
-            return 2L * text.Length;
-        }
-
-        var length = 0L;
-
-        while (text.Length > 0)
-        {
-            var counted = Math.Min(text.Length, CountedAtOnce);
-
-            // A piece never ends between the two halves of a surrogate pair.
-            if (counted < text.Length && char.IsHighSurrogate(text[counted - 1]))
-            {
-                counted--;
-            }
-
-            length += Encoding.UTF8.GetByteCount(text[..counted]);
-            text = text[counted..];
-        }
-
-        return length;
-    }
+    // code unit. For text of at most ValueBlocks.MostValueBytes code units, which RootWriter checks
+    // first: three bytes for each at most, so the count fits an int. Longer text is above the bound
+    // of one value in either encoding and is refused before it is counted.
+    public static int EncodedLength(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding) =>
+        encoding == LatticeStringEncodingEnum.Utf16 ? 2 * text.Length : Encoding.UTF8.GetByteCount(text);
 
     // The text of a String value as a new string: the one allocation of a read of text.
     public static string Read(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)

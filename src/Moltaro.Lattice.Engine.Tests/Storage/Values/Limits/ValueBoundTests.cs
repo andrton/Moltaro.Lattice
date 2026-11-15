@@ -25,7 +25,7 @@ public sealed class ValueBoundTests
     // One byte more than the bound. Nothing reads its bytes, so they are not initialized.
     private static readonly Lazy<byte[]> OneByteAbove = new(() => GC.AllocateUninitializedArray<byte>(ValueBound.Bytes + 1));
 
-    [Fact(Skip = NotImplemented.ValueBound)]
+    [Fact]
     public void Binary_value_above_the_bound_is_ValidationFailed_by_SetBinary_with_the_field_named_and_the_writer_stays_usable()
     {
         using var item = RootArena.Of(Fields);
@@ -45,7 +45,7 @@ public sealed class ValueBoundTests
         Assert.Equal(payload, item.Reader(writer.Complete()).GetBinary(item.Field("Payload")));
     }
 
-    [Fact(Skip = NotImplemented.ValueBound)]
+    [Fact]
     public void String_value_whose_encoding_is_above_the_bound_is_ValidationFailed_by_SetString_with_the_field_named_and_the_writer_stays_usable()
     {
         // After a value in chunks, which the writer has stored already.

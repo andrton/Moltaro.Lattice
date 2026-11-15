@@ -22,21 +22,21 @@ namespace Moltaro.Lattice.Storage;
 // is refused with ArgumentException. A value outside the range of the field's width is refused
 // with LatticeException, ValidationFailed, at the call. A field is set once: a second Set… or
 // SetNull of a field that was set is InvalidOperationException. A call that was refused, for
-// malformed text, a value out of range or SetNull of a field that is not nullable, did not set
-// the field, and a valid value may follow.
+// malformed text, a value out of range, a value above the bound of one value or SetNull of a field
+// that is not nullable, did not set the field, and a valid value may follow.
 //
 // An entity has no size limit of its own: only the memory of the arena bounds it (decision O19 of
 // Epic 1). Only Complete reports the memory of the arena, with WriteRejected: no Set… member fails
 // for it. One String or Binary value is bounded by the storage format: one directory block holds
 // ValueBlocks.MostChunks chunks of ChunkPayload bytes, so a value takes at most 268,173,376 bytes of
-// its encoding. A larger value is refused by its Set… member with LatticeException,
-// ValidationFailed, with the field named, as every other validation of a value: a fixed rule of
-// the format, the same on every node, and not a WriteRejected of Complete. An OutOfMemoryException
-// of the native allocator passes through whichever member meets it. Met inside Complete, it is a
-// failed Complete: everything is freed before it passes. Met inside a Set… member, it passes after
-// the member has freed everything it allocated for that value: the field is not set, as after any
-// refused call, and the writer stays usable, so the caller may set the field again, complete or
-// abandon.
+// its encoding, ValueBlocks.MostValueBytes. A larger value is refused by its Set… member with
+// LatticeException, ValidationFailed, with the field named, as every other validation of a value,
+// before anything is allocated for it: a fixed rule of the format, the same on every node, and not
+// a WriteRejected of Complete. An OutOfMemoryException of the native allocator passes through
+// whichever member meets it. Met inside Complete, it is a failed Complete: everything is freed
+// before it passes. Met inside a Set… member, it passes after the member has freed everything it
+// allocated for that value: the field is not set, as after any refused call, and the writer stays
+// usable, so the caller may set the field again, complete or abandon.
 //
 // The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
 // prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
@@ -84,11 +84,9 @@ internal ref struct RootWriter
     // The bytes of the root block so far: the fixed part and the inline values placed.
     private int _rootBytes;
 
-    // The arena refused a block for its budget.
+    // The arena refused a block for its budget: Complete refuses the entity, so nothing more is
+    // allocated for it.
     private bool _refusedByArena;
-
-    // A value needs more chunks than one directory block holds.
-    private bool _tooManyChunks;
 
     private WriterStateEnum _state;
 
@@ -317,6 +315,14 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
 
+        // A code unit takes one byte at least in UTF-8 and two in UTF-16, so text of more code units
+        // than the bound has bytes is above it in either encoding: it is refused before it is
+        // scanned, and the text that is counted below has an encoded length that fits an int.
+        if (value.Length > ValueBlocks.MostValueBytes)
+        {
+            throw AboveTheBound(stored.Field);
+        }
+
         // The whole text is checked before anything is placed: a lone surrogate at its end must not
         // be found after its first chunks were allocated. Checking, counting and, in a UTF-8 database,
         // encoding are three passes over the text, kept apart on purpose: Q04.5 asks to combine them
@@ -367,11 +373,6 @@ internal ref struct RootWriter
 
                 throw Refuse(LatticeErrorEnum.ValidationFailed, $"The field {Name(field)} is not nullable and was not set.");
             }
-        }
-
-        if (_tooManyChunks)
-        {
-            throw Refuse(LatticeErrorEnum.WriteRejected, $"A value of the entity of {_layout.EntityType.Name} needs more than the {ValueBlocks.MostChunks} chunks one directory holds.");
         }
 
         if (_refusedByArena)
@@ -480,28 +481,30 @@ internal ref struct RootWriter
     private readonly Span<byte> Place(scoped in StoredField stored) => Image.Slice(stored.Offset, stored.Width);
 
     // Places a String or Binary value of length encoded bytes: inline, in its blocks, or not at all
-    // when Complete will refuse the entity anyway. The field is set, and its bytes counted, when the
-    // call returns; when an OutOfMemoryException passes through, the writer is as it was before the
-    // call.
-    private void PlaceValue(in StoredField stored, long length, ref ValueSource source)
+    // when the arena refused a block before and Complete refuses the entity anyway. A value above the
+    // bound of one value is refused first, with ValidationFailed: nothing is allocated for it and the
+    // field is not set. Otherwise the field is set when the call returns; when an
+    // OutOfMemoryException passes through, the writer is as it was before the call.
+    private void PlaceValue(in StoredField stored, int length, ref ValueSource source)
     {
+        if (length > ValueBlocks.MostValueBytes)
+        {
+            throw AboveTheBound(stored.Field);
+        }
+
         var descriptor = Place(stored);
 
-        if (_refusedByArena || _tooManyChunks)
+        if (_refusedByArena)
         {
             // Nothing more is allocated for an entity that Complete refuses.
         }
         else if (length <= RootLayout.InlineLimit && _rootBytes + length <= Arena.MaxBlockSize)
         {
-            source.Fill(Image.Slice(_rootBytes, (int)length));
+            source.Fill(Image.Slice(_rootBytes, length));
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
-            _rootBytes += (int)length;
+            _rootBytes += length;
         }
-        else if (ValueBlocks.ChunkCount(length) > ValueBlocks.MostChunks)
-        {
-            _tooManyChunks = true;
-        }
-        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, (int)length, ref source, descriptor))
+        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor))
         {
             _refusedByArena = true;
         }
@@ -560,6 +563,10 @@ internal ref struct RootWriter
     }
 
     private readonly string Name(LatticeField field) => $"{_layout.EntityType.Name}.{field.Name}";
+
+    // The refusal of a String or Binary value above the bound of one value.
+    private readonly LatticeException AboveTheBound(LatticeField field) =>
+        new(LatticeErrorEnum.ValidationFailed, $"The value for the field {Name(field)} takes more than the {ValueBlocks.MostValueBytes} bytes one value may take.");
 
     private readonly LatticeException OutOfRange<TValue>(LatticeField field, TValue value) =>
         new(LatticeErrorEnum.ValidationFailed, $"The value {value} is outside the range of the field {Name(field)}, which is {field.Declaration.ScalarType}.");

@@ -76,7 +76,7 @@ public sealed class FailedWriteTests
         }
     }
 
-    [Fact(Skip = NotImplemented.ValueBound)]
+    [Fact]
     public async Task Write_of_a_value_above_the_bound_of_one_value_leaves_nothing_in_any_counter()
     {
         await using var database = await PieceSchema.OpenAsync();

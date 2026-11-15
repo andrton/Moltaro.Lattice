@@ -21,8 +21,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    condition changes nothing.
 // 4. It prepares what it publishes outside the gates: a new root of prepared blocks, which also
 //    checks that the text is well-formed and every String and Binary value within the bound of
-//    one value, and for an insert a new root entry and room in the index. A failure frees all of it, so nothing of a refused write is
-//    left in any counter (the planner's answer to Q30).
+//    one value, and for an insert a new root entry and room in the index. A failure frees all of
+//    it, so nothing of a refused write is left in any counter (the planner's answer to Q30). An
+//    entity has no size limit of its own; only the memory of the arena refuses one (decision O19).
 // 5. It publishes under the gates of what changes, in their order (RootGates): the root's stripe
 //    for the root, the catalog gate for the index. Publication only installs what was prepared,
 //    makes its blocks live and advances the position, so it allocates nothing and cannot fail

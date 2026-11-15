@@ -12,10 +12,9 @@ namespace Moltaro.Lattice.Storage.Values;
 // be exactly as long as the encoded value; RootWriter measures that length before it places the
 // value.
 //
-// A Binary value and text of a UTF-16 database are copied as they are, text one place at a time, so
-// that no span over all the bytes of a text is ever formed: such a span could not hold text of 2^30
-// characters or more, which a place never comes near. Text of a UTF-8 database is encoded from its
-// characters straight into native memory, without an intermediate string or array.
+// A Binary value and text of a UTF-16 database are copied as they are, one place at a time. Text of
+// a UTF-8 database is encoded from its characters straight into native memory, without an
+// intermediate string or array.
 // A chunk is full when the next character does not fit whole: the character is then split, its
 // first bytes end this chunk and the rest begins the next, because a chunk boundary is not a
 // boundary of the value (milestone contract, "Native layout and allocation"). The text is

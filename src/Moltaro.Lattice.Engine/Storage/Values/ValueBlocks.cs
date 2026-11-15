@@ -21,6 +21,11 @@ internal static class ValueBlocks
     // The most chunks one directory block holds: the largest payload of a block, in descriptors.
     public const int MostChunks = RootLayout.ChunkPayload / DescriptorSize;
 
+    // The bound of one value: the most bytes of its stored encoding, MostChunks full chunks,
+    // 268,173,376 bytes. A fixed rule of the format, not an option (decision O19 of Epic 1);
+    // RootWriter refuses a larger value.
+    public const int MostValueBytes = MostChunks * RootLayout.ChunkPayload;
+
     // How many chunks a value of this many bytes takes.
     public static long ChunkCount(long length) => (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
 
@@ -37,7 +42,7 @@ internal static class ValueBlocks
     // Every block carries the root's handle and the layout version; a chunk names its directory as
     // its parent at once, while the parent of the value block or of the directory is the root block,
     // which does not exist yet: RootWriter.Complete names it with Adopt. The caller has checked that
-    // the value needs no more chunks than MostChunks.
+    // the value is within MostValueBytes, so that it needs no more chunks than MostChunks.
     //
     // A value is stored whole or not at all. When it is stored, the descriptor in place names it and
     // the method returns true. When the arena refuses a block for its budget, the method returns

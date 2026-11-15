@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // each field, by LatticeField.Ordinal, in the form LatticeValueDeclaration.ValueType gives. The
 // core took them and checked them against the schema (EntityBinding.Capture, LatticeRecord.Capture),
 // so every value has the type its field needs and a field without a value is nullable; what the
-// root writer checks beyond that, well-formed text and the size of the entity, it reports itself.
+// root writer checks beyond that, well-formed text and the bound of one value, it reports itself.
 internal static class RootValues
 {
     // The writer is passed by reference: it is never copied (RootWriter).
