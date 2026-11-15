@@ -162,7 +162,9 @@ The epic is done when all of the following hold.
    `NotSupportedException`, and no test of `Moltaro.Lattice.Tests` is skipped.
 2. The tests that were written ahead — the skipped tests of `IndexTests`,
    `UniqueIndexTests` and `WriteBatchTests` — pass with their assertions unchanged. So do
-   the tests written in each sprint of this plan. The four tests that assert a refusal,
+   the tests written in each sprint of this plan. One assertion of an older test changes,
+   by the owner's decision of 15 November 2026 on the position of a write that changes
+   nothing: the brief of S12 names it. The four tests that assert a refusal,
    such as `Durable_persistence_is_not_implemented_yet`, are gone.
 3. The placeholder is gone. The samples run to the end against the engine, and the code in
    `README.md` compiles.
@@ -2249,7 +2251,12 @@ manifest is a committed file of this project.
   get accessor is not public, are `BindingFailed` with the property named. A class that
   overrides only the get accessor of a virtual property binds, and its value is set
   through the accessor of the base class. A class in which a public field hides a
-  property of its base class is `BindingFailed` with the member named.
+  property of its base class is `BindingFailed` with the member named. By the owner's
+  answer to Q39 on the position of a write that changes nothing: a delete of an absent
+  key returns `Changed` false and a position of its own — not the position before it, and
+  then the position of the database — and the revision of no entity changes. The
+  placeholder keeps what it does and is not changed; a test of this runs on the engine
+  only, until S12.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2334,8 +2341,8 @@ contract author found. The tests state them.
   a close it is `ObjectDisposedException`. A close waits for the reads in progress before
   it frees the arena.
 - **Position and revision.** A new random non-zero history at each MemoryOnly open;
-  sequence 0, plus 1 for each published write (whether a delete that deleted nothing is
-  one is Q39). A revision is the history and the root
+  sequence 0, plus 1 for each published write, also one that changed nothing (Q39). A
+  revision is the history and the root
   entry's `LastMutationSequence`: in S06 every position changes one entity, so the
   revision of one entity never satisfies a condition on another and a recreated entity
   has a new one. `LatticeRevision` is two opaque 64-bit values, so its composition is
@@ -2373,10 +2380,13 @@ contract author found. The tests state them.
   no sleep: a writer replaces one entity with states whose fields are derived from one
   counter, a String above 64 bytes and one above 4 KiB among them, and readers by class
   and by name see exactly one written state each time.
-- **A delete that deleted nothing.** Whether it moves the position is the owner's, entry
-  Q39 of the open questions: `ConsistencyTests.Every_result_carries_a_position` says it
-  does not, and the accepted decisions say a successful no-op gets a position of its own.
-  Until the answer no test of S06 states the position of such a delete.
+- **A write that changes nothing.** By the owner's answer to Q39 of the open questions:
+  every write the engine accepts and executes is published at a position of its own,
+  whether it changed the database or not; `PublishedSequence` grows by one for a delete
+  that deleted nothing. The placeholder keeps what it does and is not changed: a position
+  that advances without a change would also have to reach its children, or a session
+  waiting for it on a child would never be served; that is stand-in logic, and the
+  placeholder goes in S12.
 
 By the planner's answer to Q30 of the [open questions](open-questions.md): a block
 allocated for a write that is prepared and not yet published is valid from its
@@ -2873,7 +2883,18 @@ A complete entity is encoded from the arena through `RootReader` and decoded thr
   [initial loading, last paragraph](../design/milestone-1-engine-contract.md#replication-transport-and-initial-loading).
 - **Acceptance.** `MasterAndChildTests`, `ConsistencyTests` and every other test that
   runs today pass on the engine with their assertions unchanged, as do the tests of the
-  dependency injection package and the running tests of the Identity package. A write
+  dependency injection package and the running tests of the Identity package. One
+  assertion changes, by the owner's decision of 15 November 2026 (Q39 of the
+  [open questions](open-questions.md)): in
+  `ConsistencyTests.Every_result_carries_a_position` the position of the delete that
+  deleted nothing is no longer the position before it. The test author changes it in the
+  tests commit of S12, with the decision named in the commit message:
+  `Assert.NotEqual(inserted.Position, nothingDeleted.Position)`, and the comment above
+  the last assertions becomes "Every write moves the position, also one that changed
+  nothing." The engine-only test of S06 is removed in the same commit, because the test
+  of the contract states it from then on. In the contract commit of S12 the documentation
+  of `LatticeWriteResult.Position` gains the sentence "A write that changed nothing has a
+  position of its own as well." A write
   through a child returns after that child applied it, and does not wait for other
   children. A timeout after the master committed reports `SynchronizationTimeout` with
   the committed position and does not roll back. A wait has a fixed target and does not

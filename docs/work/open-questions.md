@@ -58,15 +58,6 @@ in the meantime.
 | **Until answered** | The readings of Q34 stand for S05. Point 1 is answered by the planner, 15 November 2026, and written into the brief of S06: the engine compiles the layout of every entity type when the database opens; a fixed part larger than one block fails the open with `InvalidSchema`; an entity type the engine cannot store yet gets no layout and does not fail the open |
 | **Decides** | The planner: point 2 before S08, point 6 before S09, point 3 before S10, points 4 and 5 before the contracts of their stages |
 
-### Q39. Does a delete that deleted nothing move the position?
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, contract of Epic 1, sprint S06 |
-| **Question** | `ConsistencyTests.Every_result_carries_a_position`, written for the placeholder before the design was transferred, asserts that a delete of an absent key returns the position the database had (`Assert.Equal(inserted.Position, nothingDeleted.Position)`), and the plan requires that test unchanged in S12. The decision on mutation commands ("assigns successful no-ops a retained result and stream position"), the engine contract ("receive a durable result and stream position") and the retry protocol say a successful no-op advances the position, and S11 has `EffectKindEnum.Unchanged`. It is a disagreement between a test of the contract and an accepted decision, which `AGENTS.md` makes a finding for the owner. The planner recommends the accepted decision: a no-op gets a position of its own and the revision of the entity stays, which changes one assertion of that test, by the test author, with the owner's word |
-| **Until answered** | No test of S06 states the position of a delete that deleted nothing; the engine of S06 may do either. The test of the placeholder stands |
-| **Decides** | The owner, to whom the planner put it on 15 November 2026; before S11 starts |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -383,3 +374,12 @@ in the meantime.
 | **Question** | The brief of S06 leaves open what the tests have to state: which of the tests of the three classes run on the engine; what `Create` does with options the engine does not serve; the states of an instance; what a position and a revision are; the limits before S09 makes them options; everything the engine refuses until a later sprint and at which call; how an enumeration behaves until S08; sessions and the write batch on a master; what "the returned copy" of a read is. Two statements of the Acceptance could not be read by a test: the count of the table of root entries, and the sequence of a position, which is internal to the core |
 | **Answer** | The planner, 15 November 2026, from the engine contract, the retry protocol and the decision on mutation commands: the contract author's readings stand as proposed and are written out in the brief; `EngineCounters` gains `RootEntries` and `PublishedSequence`; what an application sees of a position is stated by a scenario test through the public API, and the numbers by a test of the engine under X3, with no friend access added. One point was not a gap but a disagreement between a test and an accepted decision and went to the owner as Q39 |
 | **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
+
+### Q39. Does a delete that deleted nothing move the position?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S06 |
+| **Question** | `ConsistencyTests.Every_result_carries_a_position`, written for the placeholder before the design was transferred, asserts that a delete of an absent key returns the position the database had (`Assert.Equal(inserted.Position, nothingDeleted.Position)`), and the plan requires that test unchanged in S12. The decision on mutation commands ("assigns successful no-ops a retained result and stream position"), the engine contract ("receive a durable result and stream position") and the retry protocol say a successful no-op advances the position, and S11 has `EffectKindEnum.Unchanged`. It is a disagreement between a test of the contract and an accepted decision, which `AGENTS.md` makes a finding for the owner. The planner recommends the accepted decision: a no-op gets a position of its own and the revision of the entity stays, which changes one assertion of that test, by the test author, with the owner's word |
+| **Answer** | The owner, 15 November 2026, through the planner's session: a write that changes nothing has a position of its own, as the accepted decision says. Every accepted operation has its place in the history, a retry returns its own position, and the retry protocol stands as it was checked on PostgreSQL; the cost is an empty entry in the journal and one changed assertion. *Not chosen:* the position stays and the retry protocol is reworked for a receipt without a position. The placeholder is left as it is until S12 removes it |
+| **Where the rule lives** | The briefs of S06 and S12 in the [document of Epic 1](epic-1-core.md): the engine publishes such a write at a position of its own from S06 on, a test of it runs on the engine only until S12, and S12 changes the one assertion of `ConsistencyTests.Every_result_carries_a_position` and the documentation of `LatticeWriteResult.Position` |
