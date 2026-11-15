@@ -53,9 +53,7 @@ internal sealed class EntityTable
 
     // The index for the key kind of the entity type, when the engine stores it; the others are null.
     // What each holds of a key is said by KeyKindEnum and EntityKey.
-    private readonly PrimaryIndex<int>? _byInteger32;
-
-    private readonly PrimaryIndex<long>? _byInteger64;
+    private readonly PrimaryIndex<long>? _byInteger;
 
     private readonly PrimaryIndex<Guid>? _byGuid;
 
@@ -83,8 +81,7 @@ internal sealed class EntityTable
 
         if (layout is not null)
         {
-            _byInteger32 = KeyKind == KeyKindEnum.Integer32 ? new PrimaryIndex<int>() : null;
-            _byInteger64 = KeyKind == KeyKindEnum.Integer64 ? new PrimaryIndex<long>() : null;
+            _byInteger = KeyKind == KeyKindEnum.Integer ? new PrimaryIndex<long>() : null;
             _byGuid = KeyKind == KeyKindEnum.Guid ? new PrimaryIndex<Guid>() : null;
             _byText = KeyKind == KeyKindEnum.Text ? new PrimaryIndex<TextKey>() : null;
         }
@@ -102,10 +99,10 @@ internal sealed class EntityTable
     public KeyKindEnum KeyKind { get; }
 
     // The version of the index: it changes with every insert, delete and growth of the index.
-    public int IndexVersion => _byInteger32?.Version ?? _byInteger64?.Version ?? _byGuid?.Version ?? _byText?.Version ?? 0;
+    public int IndexVersion => _byInteger?.Version ?? _byGuid?.Version ?? _byText?.Version ?? 0;
 
     // What the primary index holds, in bytes.
-    public long IndexBytes => _byInteger32?.Bytes ?? _byInteger64?.Bytes ?? _byGuid?.Bytes ?? _byText?.Bytes ?? 0;
+    public long IndexBytes => _byInteger?.Bytes ?? _byGuid?.Bytes ?? _byText?.Bytes ?? 0;
 
     // The table of an entity type of the schema, when the database opens. The root layout is
     // compiled here, before any data is admitted; an entity type whose fixed part does not fit one
@@ -144,8 +141,7 @@ internal sealed class EntityTable
     // the write executor, the only one that changes the index, reads it without the gate.
     public bool TryFind(in EntityKey key, out RootHandle handle) => KeyKind switch
     {
-        KeyKindEnum.Integer32 => _byInteger32!.TryFind(unchecked((int)key.Integer), out handle),
-        KeyKindEnum.Integer64 => _byInteger64!.TryFind(key.Integer, out handle),
+        KeyKindEnum.Integer => _byInteger!.TryFind(key.Integer, out handle),
         KeyKindEnum.Guid => _byGuid!.TryFind(key.Guid, out handle),
         _ => _byText!.TryFind(TextKey.Lookup(key.Text!, key.TextHash), out handle),
     };
@@ -156,8 +152,7 @@ internal sealed class EntityTable
     {
         var hasRoom = KeyKind switch
         {
-            KeyKindEnum.Integer32 => _byInteger32!.HasRoom,
-            KeyKindEnum.Integer64 => _byInteger64!.HasRoom,
+            KeyKindEnum.Integer => _byInteger!.HasRoom,
             KeyKindEnum.Guid => _byGuid!.HasRoom,
             _ => _byText!.HasRoom,
         };
@@ -171,8 +166,7 @@ internal sealed class EntityTable
 
         try
         {
-            _byInteger32?.Reserve();
-            _byInteger64?.Reserve();
+            _byInteger?.Reserve();
             _byGuid?.Reserve();
             _byText?.Reserve();
         }
@@ -188,11 +182,8 @@ internal sealed class EntityTable
     {
         switch (KeyKind)
         {
-            case KeyKindEnum.Integer32:
-                _byInteger32!.Add(unchecked((int)key.Integer), handle);
-                break;
-            case KeyKindEnum.Integer64:
-                _byInteger64!.Add(key.Integer, handle);
+            case KeyKindEnum.Integer:
+                _byInteger!.Add(key.Integer, handle);
                 break;
             case KeyKindEnum.Guid:
                 _byGuid!.Add(key.Guid, handle);
@@ -209,11 +200,8 @@ internal sealed class EntityTable
     {
         switch (KeyKind)
         {
-            case KeyKindEnum.Integer32:
-                _byInteger32!.Remove(unchecked((int)key.Integer));
-                break;
-            case KeyKindEnum.Integer64:
-                _byInteger64!.Remove(key.Integer);
+            case KeyKindEnum.Integer:
+                _byInteger!.Remove(key.Integer);
                 break;
             case KeyKindEnum.Guid:
                 _byGuid!.Remove(key.Guid);
@@ -236,7 +224,7 @@ internal sealed class EntityTable
     {
         var key = EntityType.Key;
 
-        if (key.Declaration.Comparison != LatticeStringComparisonEnum.OrdinalIgnoreCase)
+        if (key.Declaration.TextComparison is not { IgnoresCase: true })
         {
             return;
         }
@@ -336,8 +324,7 @@ internal sealed class EntityTable
 
                 var found = KeyKind switch
                 {
-                    KeyKindEnum.Integer32 => _byInteger32!.TryFindNext(ref cursor.Position, out handle),
-                    KeyKindEnum.Integer64 => _byInteger64!.TryFindNext(ref cursor.Position, out handle),
+                    KeyKindEnum.Integer => _byInteger!.TryFindNext(ref cursor.Position, out handle),
                     KeyKindEnum.Guid => _byGuid!.TryFindNext(ref cursor.Position, out handle),
                     _ => _byText!.TryFindNext(ref cursor.Position, out handle),
                 };
@@ -374,8 +361,7 @@ internal sealed class EntityTable
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
     {
         LatticeFieldTypeEnum.Int8 or LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.Int16 or LatticeFieldTypeEnum.UInt16
-            or LatticeFieldTypeEnum.Int32 or LatticeFieldTypeEnum.UInt32 => KeyKindEnum.Integer32,
-        LatticeFieldTypeEnum.Int64 or LatticeFieldTypeEnum.UInt64 => KeyKindEnum.Integer64,
+            or LatticeFieldTypeEnum.Int32 or LatticeFieldTypeEnum.UInt32 or LatticeFieldTypeEnum.Int64 or LatticeFieldTypeEnum.UInt64 => KeyKindEnum.Integer,
         LatticeFieldTypeEnum.Guid => KeyKindEnum.Guid,
         LatticeFieldTypeEnum.String => KeyKindEnum.Text,
         _ => throw new UnreachableException($"The schema declares the key {key.Name} of {key.Declaration.Type}, which no primary key is."),

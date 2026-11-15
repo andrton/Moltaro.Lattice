@@ -28,7 +28,7 @@ internal static class KeyArgument
     {
         switch (table.KeyKind)
         {
-            case KeyKindEnum.Integer32 or KeyKindEnum.Integer64 when IntegerOf(key) is { } value && Fits(table, value):
+            case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
                 return Integer(table, value);
 
             case KeyKindEnum.Guid when typeof(TKey) == typeof(Guid):
@@ -53,7 +53,7 @@ internal static class KeyArgument
 
         switch (table.KeyKind)
         {
-            case KeyKindEnum.Integer32 or KeyKindEnum.Integer64 when IntegerOf(key) is { } value && Fits(table, value):
+            case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
                 return Integer(table, value);
 
             case KeyKindEnum.Guid when key is Guid guid:
@@ -78,7 +78,7 @@ internal static class KeyArgument
 
         return table.KeyKind switch
         {
-            KeyKindEnum.Integer32 or KeyKindEnum.Integer64 => Integer(table, IntegerOf(key)!.Value),
+            KeyKindEnum.Integer => Integer(table, IntegerOf(key)!.Value),
             KeyKindEnum.Guid => EntityKey.OfGuid((Guid)key),
             _ => EntityKey.OfText((string)key, ValueComparer.TextHash(table.EntityType.Key, (string)key)),
         };
