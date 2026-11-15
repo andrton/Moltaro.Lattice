@@ -43,7 +43,7 @@ indexes, comparison rules, coherent publication or durability.
 - A [configurable root-size cap](../decisions/write-admission.md#configurable-root-object-size-limit)
   covers owned data, excluding the contents of referenced roots. Oversized mutations
   fail before commit. The numerical threshold is to be measured; the cap is separate
-  from the instance memory budget and bounded WriteBatch.
+  from the instance memory budget and from the WriteBatch.
   **Changed by the owner on 15 November 2026:** an entity has no size limit of its own; it
   is refused only when the memory budget cannot hold it.
 - An explicit WriteBatch is atomic within one database; since 15 November 2026 it has no

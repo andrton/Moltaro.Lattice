@@ -261,7 +261,9 @@ documentation before this document is removed.
 
 The figures of S06 come from the scenario `read-by-key`
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
-from `src`). They are given as the range of three runs, because the runs differ more
+from `src`). They are given as the range of three runs, and a single run can lie well
+outside it — the review measured a p50 of 1,700 ns by class alone in one of two runs —
+because the runs differ more
 than the series do: the processor of the development machine has cores of two kinds and
 the threads are not pinned. The manifest `development-2` is the development manifest
 with a `Run` sentence that is true of a series with a writer; the figures of S05 stay
@@ -2342,10 +2344,15 @@ manifest is a committed file of this project.
   sprint holds it on every machine the tests run on). One String or Binary value above
   268,173,376 bytes, the capacity of one directory block of chunks, is `ValidationFailed`
   with the field named: a fixed rule of the storage format, the same on every node, which
-  a retry never helps. A coordinator's note: the bound is checked by the engine, in the
-  `Set…` member of `RootWriter`, as every other validation of a value; the placeholder,
-  which goes in S12, gets no stand-in check, so the test of the bound runs on the engine
-  only. Whether the bound holds for each element of a collection and each field of an
+  a retry never helps. A coordinator's note, corrected after the second review of S06,
+  which showed that a check of the engine alone stands after the conditions of a write
+  and leaves the public entry storing what the documentation forbids: the bound is a
+  validation of the contract, by the planner's reasons for Q41. The validation of the
+  core checks it at a write and at adding to a batch, on the placeholder and on the
+  engine alike, before the conditions of the write and before a write is refused as not
+  implemented; it needs no pass over the text unless the text is long enough to reach the
+  bound. The root writer keeps its own refusal as the guard of the stored form.
+  Whether the bound holds for each element of a collection and each field of an
   owned value is the planner's, with the contracts of S18 and S19 (Q35, point 7). By the
   planner's answer to Q41: a write of an entity with text that is not well-formed is
   `ValidationFailed` with the field named whatever else is wrong with the write: with the
