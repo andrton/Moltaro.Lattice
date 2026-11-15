@@ -76,6 +76,15 @@ in the meantime.
 | **Until answered** | The gates stay as the engine contract prescribes. S08, which changes the index and its gate, reports reads by key per second on 1, 4 and 16 threads next to the figure of S06; S25 reports the scaling with the read mix and brings it to the owner before any change |
 | **Decides** | The owner, on the figures of S25; the planner worded the two briefs |
 
+### Q43. A large value is copied once more than it has to be on its way into the engine
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, implementation of Epic 1, sprint S06 |
+| **Question** | The engine copies a value once, into native memory. Before that the access layer of the core copies a Binary value again: by class the capture of an object clones the array, and by name the record copied it when it was set, as the contract says, and the submission clones it a second time. A write of an entity with a 32 MiB Binary value therefore allocates 32.5 MiB of managed memory that nothing keeps. The placeholder and the write batch need the copy, because they keep the values after the call; the engine does not, as long as the input of a write is not changed before the write completes. With no size limit of an entity (decision O19) such values are an ordinary case. Does the engine get a capture of its own without the copy, and what does the contract say of an input that is changed while its write runs? Two smaller observations of the same review, for the write path of S09: an insert takes the catalog gate exclusively up to three times, each stopping every lookup, and the encoding of the values runs under the lock of the writes |
+| **Until answered** | The copies stay; a write is correct and allocates more than it needs for large Binary values |
+| **Decides** | The planner, before S09 starts, which rebuilds the path of a write |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
