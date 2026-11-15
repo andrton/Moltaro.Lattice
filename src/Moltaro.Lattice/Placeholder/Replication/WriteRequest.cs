@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Replication;
+namespace Moltaro.Lattice.Placeholder.Replication;
 
 // One write as it is handed to the master. MinPosition is the position the caller depends
 // on: the master executes the write only after it has published at least that much.

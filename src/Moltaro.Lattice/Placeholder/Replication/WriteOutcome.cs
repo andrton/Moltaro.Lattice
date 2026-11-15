@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Replication;
+namespace Moltaro.Lattice.Placeholder.Replication;
 
 // What the master reports for a completed write. Position includes the write; for a write
 // that had nothing to do it is the position the master was at.

@@ -4,11 +4,12 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Sets;
-using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Placeholder.Replication;
+using Moltaro.Lattice.Placeholder.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine;
+namespace Moltaro.Lattice.Placeholder;
 
 // One database instance: its lifecycle and role, and how reads and writes are routed.
 // A master executes writes here and passes them to its children; a child forwards writes

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Replication;
+namespace Moltaro.Lattice.Placeholder.Replication;
 
 // Connects children to masters opened in the same process. It stands in for the network
 // transport, which does not exist yet.

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Replication;
+namespace Moltaro.Lattice.Placeholder.Replication;
 
 // What a child needs from its master.
 internal interface IReplicationMaster

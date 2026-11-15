@@ -1,7 +1,7 @@
+using Moltaro.Lattice.Placeholder.Storage;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Replication;
+namespace Moltaro.Lattice.Placeholder.Replication;
 
 // What a master needs from each of its children.
 internal interface IReplicationChild

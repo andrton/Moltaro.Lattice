@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Placeholder.Storage;
 
 // The local data of one database instance: for every entity type, its entities by primary
 // key. Placeholder for the native arena and its primary indexes.
