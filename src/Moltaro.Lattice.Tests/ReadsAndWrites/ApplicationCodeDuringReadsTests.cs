@@ -19,8 +19,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // work.
 //
 // Every wait is bounded, so that code that cannot complete fails the test instead of hanging the
-// run. The placeholder holds no lock while it builds an object, so the tests run on it too; on the
-// engine they wait for the rule, except the one of an exception, which holds already.
+// run. The placeholder holds no lock while it builds an object, so the tests run on it too.
 public sealed class ApplicationCodeDuringReadsTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
@@ -56,13 +55,13 @@ public sealed class ApplicationCodeDuringReadsTests
         from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
         from hook in Hooks
         from action in Actions
-        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, hook, action) { Skip = SkipOnTheEngine(implementation) };
+        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, hook, action);
 
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string, string>> ReadsAndActions =>
         from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
         from read in Reads
         from action in new[] { "reads the entity being read", "replaces the entity being read" }
-        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, read, action) { Skip = SkipOnTheEngine(implementation) };
+        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, read, action);
 
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndHooks =>
         from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
@@ -211,9 +210,6 @@ public sealed class ApplicationCodeDuringReadsTests
             await database.DisposeAsync().AsTask().WaitAsync(Bound);
         }
     }
-
-    private static string? SkipOnTheEngine(DatabaseImplementationEnum implementation) =>
-        implementation == DatabaseImplementationEnum.Engine ? NotImplemented.ApplicationCodeOutsideGates : null;
 
     private static void Arm(string hook, Action code)
     {

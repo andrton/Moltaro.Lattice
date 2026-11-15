@@ -31,7 +31,7 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
                 throw new ArgumentException($"Index '{index.Name}': field '{field.Name}' is never null.", nameof(key));
             }
 
-            equal[part] = value is null ? null : FieldValues.Normalize(field, value, nameof(key));
+            equal[part] = value is null ? null : FieldValues.NormalizeArgument(field, value, nameof(key));
         }
 
         if (key.From is null && key.To is null)
@@ -48,7 +48,7 @@ internal sealed record IndexCriteria(LatticeIndex Index, object?[] Equal, Lattic
         return new IndexCriteria(index, equal, rangeField, Normalize(rangeField, key.From), Normalize(rangeField, key.To));
 
         static Bound? Normalize(LatticeField field, IndexBound? bound) =>
-            bound is null ? null : new Bound(FieldValues.Normalize(field, bound.Value, nameof(key)), bound.IsInclusive);
+            bound is null ? null : new Bound(FieldValues.NormalizeArgument(field, bound.Value, nameof(key)), bound.IsInclusive);
     }
 
     internal readonly record struct Bound(object Value, bool IsInclusive);

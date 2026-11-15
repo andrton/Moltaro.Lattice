@@ -31,18 +31,10 @@ internal sealed class RecordSet : ILatticeSet
     public bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
-        var copy = new RecordCopy(EntityType);
 
-        if (!_operations.Table.TryRead<RecordCopy, LatticeRecord>(entityKey, ref copy, out revision, out _))
-        {
-            record = null;
+        record = _operations.TryRead<RecordCopy, LatticeRecord>(entityKey, new RecordCopy(EntityType), out revision, out _);
 
-            return false;
-        }
-
-        record = copy.Result!;
-
-        return true;
+        return record is not null;
     }
 
     public ValueTask<LatticeReadResult<LatticeRecord>> GetAsync(object key, LatticeSession session, CancellationToken cancellationToken = default)

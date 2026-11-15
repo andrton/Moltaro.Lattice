@@ -46,7 +46,7 @@ public sealed class MalformedTextWriteTests
         from depth in Depths.Keys
         select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, depth);
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Write_of_text_that_is_not_well_formed_is_ValidationFailed_with_the_field_named_whatever_else_is_wrong_with_it(DatabaseImplementationEnum implementation)
     {
@@ -94,7 +94,7 @@ public sealed class MalformedTextWriteTests
         Assert.Null(users.Get(404));
     }
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(ImplementationsAndForms))]
     public async Task Every_form_of_a_surrogate_without_its_pair_is_refused_and_a_pair_in_its_order_is_stored(DatabaseImplementationEnum implementation, string form)
     {
@@ -115,7 +115,7 @@ public sealed class MalformedTextWriteTests
         Assert.Equal("a😀b", users.Get(4)!.Email);
     }
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Text_that_is_not_well_formed_in_a_schema_of_the_UTF16_encoding_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation)
     {
@@ -123,7 +123,7 @@ public sealed class MalformedTextWriteTests
         await ExpectValidatedBeforeTheRefusalAsync(database);
     }
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Text_that_is_not_well_formed_in_an_entity_type_that_is_not_stored_yet_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation)
     {
@@ -132,7 +132,7 @@ public sealed class MalformedTextWriteTests
         await ExpectValidatedBeforeTheRefusalAsync(database);
     }
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(ImplementationsAndDepths))]
     public async Task Text_that_is_not_well_formed_at_any_depth_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation, string depth)
     {

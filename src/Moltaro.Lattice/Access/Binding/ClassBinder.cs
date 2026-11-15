@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -19,11 +20,12 @@ namespace Moltaro.Lattice.Access.Binding;
 // property named, and nothing here ends in another exception.
 //
 // What a write takes of an object is checked as a record is: a null where a position does not
-// allow it, at any depth, and a key that a Map holds twice under the comparison of its key
-// declaration, are ValidationFailed. Of equal members of a Set the first is kept. The class of
-// an owned type is bound once for every pair of owned type and class, however many positions
-// hold it, so binding grows with the declarations; it ends because an owned type does not
-// contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
+// allow it, at any depth, a key that a Map holds twice under the comparison of its key
+// declaration, and text that is not well-formed at any depth, are ValidationFailed. Of equal
+// members of a Set the first is kept. The class of an owned type is bound once for every pair of
+// owned type and class, however many positions hold it, so binding grows with the declarations;
+// it ends because an owned type does not contain itself, and it goes no deeper than a declaration
+// may be, see SchemaBuilder.
 internal sealed class ClassBinder
 {
     private readonly LatticeEntityType _entityType;
@@ -173,9 +175,21 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
         LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
+        LatticeFieldTypeEnum.String when type == typeof(string) => BindText(place),
         _ when type == declaration.PositionType => static value => value,
         _ => throw place.Mismatch(),
     };
+
+    // Text is taken as it is, after one pass that refuses text that is not well-formed, a surrogate
+    // without its pair, at any depth (the planner's answer to Q41).
+    private Func<object, object> BindText(Place place)
+    {
+        var entityTypeName = _entityType.Name;
+
+        return value => WellFormedText.IsWellFormed((string)value)
+            ? value
+            : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
+    }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the
     // enum type; a .NET enum value is held as its integer.

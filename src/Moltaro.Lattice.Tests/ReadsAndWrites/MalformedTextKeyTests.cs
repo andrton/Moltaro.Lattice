@@ -12,7 +12,7 @@ public sealed class MalformedTextKeyTests
 {
     private const string Bad = "urg\uD83Dent";
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Key_field_of_a_written_entity_that_is_not_well_formed_is_ValidationFailed_with_the_field_named(DatabaseImplementationEnum implementation)
     {
@@ -35,7 +35,7 @@ public sealed class MalformedTextKeyTests
         Assert.Empty(tags.Enumerate());
     }
 
-    [Theory(Skip = NotImplemented.TextValidation)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Key_argument_that_is_not_well_formed_is_ArgumentException(DatabaseImplementationEnum implementation)
     {

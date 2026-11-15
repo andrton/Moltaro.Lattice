@@ -42,7 +42,7 @@ public sealed class ApplicationCodeTests
         }
         select new TheoryDataRow<string, string>(hook, action);
 
-    [Theory(Skip = NotImplemented.ApplicationCodeOutsideGates)]
+    [Theory]
     [MemberData(nameof(HooksAndActions))]
     public async Task After_code_of_the_application_used_the_database_during_a_read_nothing_is_prepared_retired_or_claimed(string hook, string action)
     {

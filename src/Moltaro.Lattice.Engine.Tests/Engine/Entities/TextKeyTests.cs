@@ -9,8 +9,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 // of the text. A key is found whatever its length, whether it lies in the root block, in a block of
 // its own or in chunks (brief of S05, "Where a value goes"), and with characters of more than one
 // byte; keys that differ in one code unit, case included, are different entities; text that is not
-// well-formed is never stored, so such a key finds nothing. A read by a String key is coherent while
-// the entity is replaced, as a read by an Int64 key is (brief of S06, Acceptance).
+// well-formed is never stored, and given as a key to a read it is refused as an argument (the
+// planner's answer to Q41). A read by a String key is coherent while the entity is replaced, as a
+// read by an Int64 key is (brief of S06, Acceptance).
 public sealed class TextKeyTests
 {
     private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
@@ -84,25 +85,28 @@ public sealed class TextKeyTests
     }
 
     [Fact]
-    public async Task Key_that_is_not_well_formed_is_never_stored_and_finds_nothing()
+    public async Task Key_that_is_not_well_formed_is_never_stored_and_is_refused_as_an_argument()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);
         var notes = database.Set<Note>();
         var records = database.Set("Note");
 
-        // A high surrogate without its low one, at the end and inside the text.
+        // A high surrogate without its low one, at the end and at the start, and a low one alone.
         foreach (var key in new[] { "a\uD83D", "\uD83Da", "\uDE00" })
         {
-            await Assert.ThrowsAsync<LatticeException>(async () => await notes.InsertAsync(new Note { Name = key, Counter = 1, Body = "" }));
+            var refused = await Assert.ThrowsAsync<LatticeException>(async () => await notes.InsertAsync(new Note { Name = key, Counter = 1, Body = "" }));
 
-            Assert.Null(notes.Get(key));
-            Assert.Null(records.Get(key));
+            Assert.Equal(LatticeErrorEnum.ValidationFailed, refused.Error);
+            Assert.Contains("Name", refused.Message, StringComparison.Ordinal);
+            Assert.Throws<ArgumentException>(() => notes.Get(key));
+            Assert.Throws<ArgumentException>(() => records.Get(key));
         }
 
-        // A key whose text, with replacement characters, would be the one stored.
+        // The text a replacement character would make of such a key is a key like any other, and the
+        // refused keys left nothing in the table of root entries.
         await notes.InsertAsync(new Note { Name = "a�", Counter = 1, Body = "" });
 
-        Assert.Null(notes.Get("a\uD83D"));
+        Assert.Equal(1, notes.Get("a�")!.Counter);
         Assert.Equal(1, database.Counters.RootEntries);
     }
 

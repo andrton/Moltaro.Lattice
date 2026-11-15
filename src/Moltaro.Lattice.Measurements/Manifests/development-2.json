@@ -1,0 +1,15 @@
+{
+  "Name": "development-2",
+  "Purpose": "The figures of the sprints before the gates, for comparison between sprints only, from Epic 1, sprint S06 on: the same machine and versions as the manifest development, with a run that may have one writer beside the measured reads. No figure under this manifest judges a gate, and the manifest needs no approval (docs/work/epic-1-core.md, Acceptance, rules for every measurement).",
+  "Machine": {
+    "Processor": "Intel Core i9-13900H, 14 cores, 20 logical processors",
+    "Memory": "64 GiB DDR5, two modules of 32 GiB at 5,200 MT/s"
+  },
+  "OperatingSystem": "Windows 11 Pro 10.0.26300, x64",
+  "Virtualization": "None: the program runs on the operating system, in no container and no virtual machine",
+  "DotNet": {
+    "Sdk": "10.0.404",
+    "Runtime": "10.0.15"
+  },
+  "Run": "One process, started by hand from src with dotnet run in the Release configuration, on a machine without other heavy work; the measured reads of a scenario run on one thread, and a series may run one writer on a thread of its own beside them"
+}

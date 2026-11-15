@@ -21,15 +21,23 @@ namespace Moltaro.Lattice.Storage;
 // under root protection, and neither a span nor an address escapes it (arena protocol, "Lock and
 // lifetime order"). As a readonly ref struct the reader lives on the stack of the read: it cannot
 // be kept on the heap or across an await.
+//
+// A reader of a copy. CopyFixedPart copies the fixed part of the root block, the null bitmap, the
+// fixed fields and the descriptors, into memory of the caller, and a reader made over that copy
+// reads IsNull and every Get… member of a fixed-width type from it, with no arena and so with no
+// protection: a read copies under the protection of the root and builds its result after releasing
+// it. The values of String and Binary fields lie outside the fixed part; a reader of a copy refuses
+// GetString, GetBinary and StringEquals with InvalidOperationException.
 internal readonly ref struct RootReader
 {
-    private readonly Arena _arena;
+    // Null for a reader of a copy.
+    private readonly Arena? _arena;
 
     private readonly RootLayout _layout;
 
-    // The payload of the root block: the fixed part after the header, then the inline values. The
-    // layout counts its offsets from the start of the block, header included, so a field at offset
-    // o lies at o - BlockHeader.Size here.
+    // The payload of the root block: the fixed part after the header, then the inline values; for a
+    // reader of a copy, the copy of the fixed part. The layout counts its offsets from the start of
+    // the block, header included, so a field at offset o lies at o - BlockHeader.Size here.
     private readonly ReadOnlySpan<byte> _payload;
 
     // Reads the root whose root block is at the address, written with the layout. Refuses with
@@ -43,6 +51,30 @@ internal readonly ref struct RootReader
         _arena = arena;
         _layout = layout;
     }
+
+    // Reads a copy of the fixed part of a root written with the layout, which CopyFixedPart made. A
+    // span of another length than FixedPartLength of the layout is refused with ArgumentException.
+    public RootReader(RootLayout layout, ReadOnlySpan<byte> fixedPart)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        if (fixedPart.Length != FixedPartLength(layout))
+        {
+            throw new ArgumentException($"A copy of the fixed part of a root of {layout.EntityType.Name} has {FixedPartLength(layout)} bytes, not {fixedPart.Length}.", nameof(fixedPart));
+        }
+
+        _payload = fixedPart;
+        _arena = null;
+        _layout = layout;
+    }
+
+    // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
+    // copies.
+    public static int FixedPartLength(RootLayout layout) => layout.FixedSize - BlockHeader.Size;
+
+    // Copies the fixed part of the root block into the destination, which has FixedPartLength bytes
+    // at least, for a reader of a copy.
+    public void CopyFixedPart(Span<byte> destination) => _payload[..FixedPartLength(_layout)].CopyTo(destination);
 
     // Whether the value of the field is null.
     public bool IsNull(LatticeField field) => HoldsNull(_layout.StoredFieldOf(field));
@@ -122,17 +154,18 @@ internal readonly ref struct RootReader
     // boundary inside a character does not damage it: the decoder carries the state of a character
     // across chunks (milestone contract, "Native layout and allocation").
     public string GetString(LatticeField field) =>
-        StoredText.Read(_arena, Descriptor(field, StoredTypeEnum.String, nameof(GetString)), _payload, _layout.StringEncoding);
+        StoredText.Read(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(GetString)), _payload, _layout.StringEncoding);
 
     // Whether the value of a String field is the given text, compared ordinally
     // (StoredText.EqualsOrdinal). Allocates nothing.
     public bool StringEquals(LatticeField field, ReadOnlySpan<char> text) =>
-        StoredText.EqualsOrdinal(_arena, Descriptor(field, StoredTypeEnum.String, nameof(StringEquals)), _payload, text, _layout.StringEncoding);
+        StoredText.EqualsOrdinal(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(StringEquals)), _payload, text, _layout.StringEncoding);
 
     // The value of a Binary field, as a new array that belongs to the caller. An empty value is the
     // empty array, which every caller shares and none can change.
     public byte[] GetBinary(LatticeField field)
     {
+        var arena = ArenaOfValues();
         var descriptor = Descriptor(field, StoredTypeEnum.Binary, nameof(GetBinary));
 
         if (descriptor.Length == 0)
@@ -142,7 +175,7 @@ internal readonly ref struct RootReader
 
         var bytes = GC.AllocateUninitializedArray<byte>((int)descriptor.Length);
 
-        ValueBlocks.CopyTo(_arena, descriptor, _payload, bytes);
+        ValueBlocks.CopyTo(arena, descriptor, _payload, bytes);
 
         return bytes;
     }
@@ -160,6 +193,10 @@ internal readonly ref struct RootReader
 
         return (int)ValueBlocks.Read(NotNull(stored)).Length;
     }
+
+    // The arena the values of String and Binary fields lie in; a reader of a copy has none of them.
+    private Arena ArenaOfValues() =>
+        _arena ?? throw new InvalidOperationException($"A reader of a copy of the fixed part of a root of {_layout.EntityType.Name} holds no String or Binary value.");
 
     private bool HoldsNull(in StoredField stored) =>
         stored.IsNullable && (_payload[RootLayout.NullBitmapOffset - BlockHeader.Size + stored.NullBit / 8] & (1 << (stored.NullBit % 8))) != 0;

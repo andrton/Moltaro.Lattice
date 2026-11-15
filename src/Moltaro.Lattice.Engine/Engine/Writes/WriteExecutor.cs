@@ -162,99 +162,124 @@ internal sealed class WriteExecutor
     private LatticeRevision RevisionOf(RootHandle handle) =>
         new(_clock.History, _claims.Table.Entry(handle).LastMutationSequence);
 
+    // Safe by its structure: from Begin to the moment the index maps the key, one finally withdraws
+    // whatever was taken when an exception passes, the new root if it was written and the lifetime.
+    // After that moment the root and its entry are the database's, and nothing is withdrawn.
     private LatticeWriteResult Insert(EntityTable table, in EntityKey key, object?[] values, ulong sequence)
     {
         var layout = table.Layout!;
         var handle = _claims.Begin((uint)table.EntityType.Id);
-        ArenaAddress root;
+        var root = default(ArenaAddress);
+        var published = false;
 
         try
         {
             root = Prepare(table, handle, values);
-        }
-        catch
-        {
-            _claims.Abandon(handle);
-            throw;
-        }
-
-        try
-        {
             table.Reserve();
-        }
-        catch
-        {
-            RootStorage.Free(_arena, layout, root);
-            _claims.Abandon(handle);
-            throw;
-        }
 
-        // The new root has no stripe to take: no lookup reaches its entry before the index maps the
-        // key to it, and the index is changed under the catalog gate, which every lookup holds.
-        _gates.Catalog.EnterWriteLock();
-
-        try
-        {
-            ref var entry = ref _claims.Table.Entry(handle);
-
-            RootStorage.Publish(_arena, layout, root);
-            entry.Root = root;
-            entry.LastMutationSequence = sequence;
-            entry.State = RootStateEnum.Live;
-            table.Add(key, handle);
-            _clock.Publish(sequence);
-        }
-        finally
-        {
-            _gates.Catalog.ExitWriteLock();
-        }
-
-        return new LatticeWriteResult(_clock.At(sequence), changed: true);
-    }
-
-    private LatticeWriteResult Replace(EntityTable table, RootHandle handle, object?[] values, ulong sequence)
-    {
-        var layout = table.Layout!;
-        var root = Prepare(table, handle, values);
-        var stripe = _gates.Root(handle.Slot);
-
-        // The index of String keys compares with the text in the root block of an indexed entry
-        // under the catalog gate, so for such an entity type the root block changes under it too.
-        var catalog = table.KeyKind == KeyKindEnum.Text ? _gates.Catalog : null;
-
-        stripe.EnterWriteLock();
-
-        try
-        {
-            ArenaAddress replaced;
-
-            catalog?.EnterWriteLock();
+            // The new root has no stripe to take: no lookup reaches its entry before the index maps
+            // the key to it, and the index is changed under the catalog gate, which every lookup
+            // holds.
+            _gates.Catalog.EnterWriteLock();
 
             try
             {
                 ref var entry = ref _claims.Table.Entry(handle);
 
-                replaced = entry.Root;
                 RootStorage.Publish(_arena, layout, root);
                 entry.Root = root;
                 entry.LastMutationSequence = sequence;
+                entry.State = RootStateEnum.Live;
+                table.Add(key, handle);
+                published = true;
                 _clock.Publish(sequence);
             }
             finally
             {
-                catalog?.ExitWriteLock();
+                _gates.Catalog.ExitWriteLock();
             }
-
-            // No reader holds the stripe, and nothing reaches the replaced root any more: its blocks
-            // are freed at once, and none of them is retired.
-            RootStorage.Free(_arena, layout, replaced);
         }
         finally
         {
-            stripe.ExitWriteLock();
+            if (!published)
+            {
+                Withdraw(layout, handle, root);
+            }
         }
 
         return new LatticeWriteResult(_clock.At(sequence), changed: true);
+    }
+
+    // Safe by its structure as Insert is: until the entry holds the new root, one finally frees the
+    // new root when an exception passes; after that the replaced root is the one to free.
+    private LatticeWriteResult Replace(EntityTable table, RootHandle handle, object?[] values, ulong sequence)
+    {
+        var layout = table.Layout!;
+        var root = Prepare(table, handle, values);
+        var installed = false;
+
+        try
+        {
+            var stripe = _gates.Root(handle.Slot);
+
+            // The index of String keys compares with the text in the root block of an indexed entry
+            // under the catalog gate, so for such an entity type the root block changes under it too.
+            var catalog = table.KeyKind == KeyKindEnum.Text ? _gates.Catalog : null;
+
+            stripe.EnterWriteLock();
+
+            try
+            {
+                ArenaAddress replaced;
+
+                catalog?.EnterWriteLock();
+
+                try
+                {
+                    ref var entry = ref _claims.Table.Entry(handle);
+
+                    replaced = entry.Root;
+                    RootStorage.Publish(_arena, layout, root);
+                    entry.Root = root;
+                    installed = true;
+                    entry.LastMutationSequence = sequence;
+                    _clock.Publish(sequence);
+                }
+                finally
+                {
+                    catalog?.ExitWriteLock();
+                }
+
+                // No reader holds the stripe, and nothing reaches the replaced root any more: its
+                // blocks are freed at once, and none of them is retired.
+                RootStorage.Free(_arena, layout, replaced);
+            }
+            finally
+            {
+                stripe.ExitWriteLock();
+            }
+        }
+        finally
+        {
+            if (!installed)
+            {
+                RootStorage.Free(_arena, layout, root);
+            }
+        }
+
+        return new LatticeWriteResult(_clock.At(sequence), changed: true);
+    }
+
+    // Gives back what an insert took and did not publish: the new root, when it was written, and the
+    // lifetime, to which no index ever mapped a key.
+    private void Withdraw(RootLayout layout, RootHandle handle, ArenaAddress root)
+    {
+        if (!root.IsNull)
+        {
+            RootStorage.Free(_arena, layout, root);
+        }
+
+        _claims.Abandon(handle);
     }
 
     private LatticeWriteResult Delete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)

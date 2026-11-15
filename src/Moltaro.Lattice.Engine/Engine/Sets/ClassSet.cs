@@ -9,10 +9,12 @@ namespace Moltaro.Lattice.Engine.Sets;
 
 // The entities of one entity type as objects of a .NET class, on the engine. It behaves as the
 // contract of ILatticeSet<TEntity> says, as the set of the core does; it is the engine's own so that
-// a read by key converts its key without boxing it and copies the root into the object without an
-// array of values: a read allocates the returned object, with what is reachable from it, and
-// nothing else (brief of S06, "The allocation of a read"). A write takes the values of the object
-// through the binding of the core, which checks them against the schema at every depth.
+// a read by key converts its key without boxing it and copies the root into the object through
+// pooled scratch, without boxing a value: a read allocates the returned object, with what is
+// reachable from it, and nothing else (brief of S06, "The allocation of a read"). The constructor and
+// the set accessors of the class run after the read released every gate (ClassCopier). A write takes
+// the values of the object through the binding of the core, which checks them against the schema at
+// every depth.
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     where TEntity : class
 {
@@ -27,7 +29,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         _operations = operations;
         _binding = binding;
-        _copier = operations.Table.Layout is null ? null : new ClassCopier<TEntity>(binding);
+        _copier = operations.Table.Layout is { } layout ? new ClassCopier<TEntity>(binding, layout) : null;
     }
 
     public LatticeEntityType EntityType => _binding.EntityType;
@@ -47,18 +49,10 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
         where TKey : notnull
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
-        var copy = new ClassCopy<TEntity>(_copier!);
 
-        if (!_operations.Table.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, ref copy, out revision, out _))
-        {
-            entity = null;
+        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(_copier!), out revision, out _);
 
-            return false;
-        }
-
-        entity = copy.Result!;
-
-        return true;
+        return entity is not null;
     }
 
     public ValueTask<LatticeReadResult<TEntity>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)

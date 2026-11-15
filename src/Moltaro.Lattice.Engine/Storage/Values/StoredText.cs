@@ -5,46 +5,16 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
 
-// Text as a root stores it, in the encoding of the database (Q04.1): whether text may be stored at
-// all, how many bytes it takes, and the string it reads back as. Only well-formed text is stored, in
-// both encodings, and nothing is ever replaced (Q04.5), so decoding stored text needs no check of its
-// own and finds no malformed sequence. A UTF-16 database keeps the code units in the byte order of
+// Text as a root stores it, in the encoding of the database (Q04.1): how many bytes it takes, the
+// string it reads back as, and whether it equals a given text. Only well-formed text is stored, in
+// both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check of the
+// core, WellFormedText), so decoding stored text needs no check of its own and finds no malformed
+// sequence. A UTF-16 database keeps the code units in the byte order of
 // the machine, as everything in native memory is.
 internal static class StoredText
 {
     // The bytes of UTF-8 that EqualsOrdinal encodes on the stack at a time.
     private const int ComparedAtOnce = 256;
-
-    // Every surrogate, high and low, U+D800 to U+DFFF, for a vectorized search. It is immutable and
-    // made once, so it is shared by every writer of every arena. It stands in for IndexOfAnyInRange,
-    // which until the JIT has optimized it boxes its bounds on every call, so that a write would not
-    // be free of managed allocation from its first calls on.
-    private static readonly SearchValues<char> Surrogates =
-        SearchValues.Create([.. Enumerable.Range(0xD800, 0x800).Select(code => (char)code)]);
-
-    // Whether the text is well-formed UTF-16: every high surrogate is followed by a low one, and every
-    // low surrogate follows a high one. The search for surrogates is vectorized, so text without them,
-    // the common case, is checked at the speed of a scan.
-    public static bool IsWellFormed(ReadOnlySpan<char> text)
-    {
-        var index = text.IndexOfAny(Surrogates);
-
-        while (index >= 0)
-        {
-            if (!char.IsHighSurrogate(text[index]) || index + 1 == text.Length || !char.IsLowSurrogate(text[index + 1]))
-            {
-                return false;
-            }
-
-            index += 2;
-
-            var next = text[index..].IndexOfAny(Surrogates);
-
-            index = next < 0 ? -1 : index + next;
-        }
-
-        return true;
-    }
 
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
     // code unit. For text of at most ValueBlocks.MostValueBytes code units, which RootWriter checks

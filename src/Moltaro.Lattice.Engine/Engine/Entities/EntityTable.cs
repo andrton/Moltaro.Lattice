@@ -18,14 +18,16 @@ namespace Moltaro.Lattice.Engine.Entities;
 // A read by key, in its order (the planner's answer to Q32):
 // 1. Under the catalog gate, shared, it finds the key in the index and claims the entry the key
 //    maps to (LookupClaims). It releases the gate; it never waits for a root while it holds it.
-// 2. It makes the empty copy, outside every gate.
-// 3. Under the root's stripe, shared, it checks the entry again. A root whose delete was published
+// 2. Under the root's stripe, shared, it checks the entry again. A root whose delete was published
 //    meanwhile is absent, never the values of another root: the claim kept the slot from being
 //    given to another lifetime, and the entry is not followed to a recreated key. A live root is
-//    copied whole, with every block it owns: a write installs a new root only while it holds the
-//    stripe exclusively, so the copy is one state (Q06.1).
-// 4. It drops the claim, after it released the stripe.
-// It allocates the copy and nothing else.
+//    copied whole, with every block it owns, into memory of the engine (IRootCopy.Copy): a write
+//    installs a new root only while it holds the stripe exclusively, so the copy is one state
+//    (Q06.1).
+// 3. It drops the claim, after it released the stripe, and leaves the close barrier.
+// The caller then builds its result from the copy (IRootCopy.Build), and only then does code of the
+// application run, outside every gate and the barrier. A read allocates the returned copy and
+// nothing else.
 //
 // The position of an answer is the sequence the read sees under the gate that showed it the
 // answer: for a root it copied, the sequence under the root's stripe, which no write of that root
@@ -363,16 +365,14 @@ internal sealed class EntityTable
     private NotSupportedException IndexChanged() => new(
         $"Entities of {EntityType.Name} were inserted or deleted while they were enumerated. Until an enumeration under change is implemented, such an enumeration fails instead of returning entities it cannot vouch for; what it returned before stays valid. Start a new enumeration.");
 
-    // Steps 2 to 4 of a read: makes the copy, copies the root under its stripe if it is still live,
-    // and drops the claim the caller took.
+    // Steps 2 and 3 of a read: copies the root under its stripe if it is still live, and drops the
+    // claim the caller took.
     private bool TryReadClaimed<TCopy, TResult>(RootHandle handle, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            copy.Create();
-
             var gate = _gates.Root(handle.Slot);
 
             gate.EnterReadLock();
@@ -391,7 +391,7 @@ internal sealed class EntityTable
                     return false;
                 }
 
-                copy.Fill(new RootReader(_arena, Layout!, entry.Root));
+                copy.Copy(new RootReader(_arena, Layout!, entry.Root));
                 revision = new LatticeRevision(_clock.History, entry.LastMutationSequence);
                 sequence = _clock.Sequence;
 

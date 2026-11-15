@@ -3,16 +3,19 @@ namespace Moltaro.Lattice.Engine.Protection;
 // The gates of one database (milestone contract, "Reader protection, publication and compaction";
 // arena protocol, "Lock and lifetime order"): the protection of the roots, in 1,024 stripes, and the
 // catalog gate. Each is a ReaderWriterLockSlim, as the milestone contract starts with. A gate is
-// held only for short synchronous work in memory: never across I/O or an await, and never while
-// waiting for anything else than another gate in the order below.
+// held only for short synchronous work in memory: never across I/O or an await, never while
+// waiting for anything else than another gate in the order below, and never while code of the
+// application runs (ClassCopier).
 //
 // What each gate protects:
 // - A root stripe protects the roots whose slot in the table of root entries falls on it, slot
 //   modulo StripeCount: one logical protection for a root and every block it owns (Q06.1). A read
-//   holds it shared while it checks the root entry and copies the root; a write holds it
-//   exclusively while it installs a new root block in the entry, changes the entry's state and its
-//   last mutation, and frees the blocks the root no longer uses. Roots that share a stripe can
-//   contend; that bounds the memory of the gates (1,024 of them for any number of roots).
+//   holds it shared while it checks the root entry and copies the root; a replace or a delete holds
+//   it exclusively while it installs a new root block in a live entry or marks the entry deleted,
+//   sets its last mutation, and frees the blocks the root no longer uses. An insert takes no
+//   stripe: it fills an entry that no lookup reaches before the index maps the key to it, and
+//   publishes under the catalog gate alone. Roots that share a stripe can contend; that bounds the
+//   memory of the gates (1,024 of them for any number of roots).
 // - The catalog gate protects the primary index of every entity type and the list of free slots of
 //   the table of root entries: a lookup holds it shared while it finds a key and claims the entry
 //   it maps to, and a write holds it exclusively while it changes an index, grows one, or takes or

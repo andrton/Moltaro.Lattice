@@ -6,10 +6,12 @@ namespace Moltaro.Lattice.Engine.Sets;
 
 // A primary key given to a set, turned into the key of the index of its entity type by the rule of
 // the contract: the key type the schema declares, or an integer of another width when it fits;
-// anything else is an ArgumentException (ILatticeSet<TEntity>, remarks). A key of a type the index
-// takes is converted without boxing it; any other value goes through the check of the core,
-// FieldValues.NormalizeKey, which accepts what fits and refuses the rest with its message. For an
-// entity type the engine does not store, whose key kind is Other, the key is only checked.
+// anything else is an ArgumentException (ILatticeSet<TEntity>, remarks), and so is a String key
+// that is not well-formed text. A key of a type the index takes is converted without boxing it, and
+// a String key is checked for well-formed text as the core checks it; any other value goes through
+// the check of the core, FieldValues.NormalizeKey, which accepts what fits and refuses the rest with
+// its message. For an entity type the engine does not store, whose key kind is Other, the key is
+// only checked.
 internal static class KeyArgument
 {
     // A key given through a class, as a value of its own type.
@@ -23,11 +25,7 @@ internal static class KeyArgument
 
             case KeyKindEnum.Text when typeof(TKey) == typeof(string):
                 // A reference type: the conversion through object is no box.
-                var text = (string)(object)key;
-
-                ArgumentNullException.ThrowIfNull(text, nameof(key));
-
-                return new EntityKey(text);
+                return Text(table, (string)(object)key);
 
             case KeyKindEnum.Text:
                 return new EntityKey((string)FieldValues.NormalizeKey(table.EntityType, key));
@@ -55,7 +53,7 @@ internal static class KeyArgument
                 byte value => value,
                 _ => (long)FieldValues.NormalizeKey(table.EntityType, key),
             }),
-            KeyKindEnum.Text => new EntityKey(key as string ?? (string)FieldValues.NormalizeKey(table.EntityType, key)),
+            KeyKindEnum.Text => key is string text ? Text(table, text) : new EntityKey((string)FieldValues.NormalizeKey(table.EntityType, key)),
             _ => Checked(table, key),
         };
     }
@@ -114,6 +112,16 @@ internal static class KeyArgument
         }
 
         return (long)FieldValues.NormalizeKey(table.EntityType, key);
+    }
+
+    // A String key given as itself: text that is not well-formed is an ArgumentException, as the
+    // core refuses it (the planner's answer to Q41); a check of one pass that allocates nothing.
+    private static EntityKey Text(EntityTable table, string text)
+    {
+        ArgumentNullException.ThrowIfNull(text, "key");
+        FieldValues.ThrowIfNotWellFormed(table.EntityType.Key, text, "key");
+
+        return new EntityKey(text);
     }
 
     // Checks a key of an entity type the engine does not store; nothing is looked up with it.

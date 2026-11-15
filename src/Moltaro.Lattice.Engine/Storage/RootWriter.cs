@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -311,6 +312,11 @@ internal ref struct RootWriter
     // writer stays usable. Text whose encoding takes more than the 268,173,376 bytes of one value is
     // refused in the same way, ValidationFailed with the field named. An empty string is a value,
     // not null.
+    //
+    // The refusal of text that is not well-formed is the guard of the stored form, for whoever calls
+    // the writer inside the engine; it is not a second validation of the contract. The validation of
+    // the core refuses such text before a write reaches the engine (the planner's answer to Q41), with
+    // the same check, WellFormedText.
     public void SetString(LatticeField field, ReadOnlySpan<char> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
@@ -327,7 +333,7 @@ internal ref struct RootWriter
         // be found after its first chunks were allocated. Checking, counting and, in a UTF-8 database,
         // encoding are three passes over the text, kept apart on purpose: Q04.5 asks to combine them
         // where possible, and that is done when a measurement shows it is worth the code.
-        if (!StoredText.IsWellFormed(value))
+        if (!WellFormedText.IsWellFormed(value))
         {
             throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The text for the field {Name(field)} is not well-formed: it has a surrogate without its pair.");
         }
