@@ -1751,6 +1751,7 @@ internal readonly struct ArenaAddress : IEquatable<ArenaAddress>
 // Generation in the high 32 bits, slot in the low 32 bits.
 internal readonly struct RootHandle : IEquatable<RootHandle>
 {
+    public RootHandle(uint generation, uint slot);
     public uint Generation { get; }
     public uint Slot { get; }
 }
@@ -1819,6 +1820,55 @@ internal sealed class RootTable
 }
 ```
 
+**What the members do where the block above does not say.** The planner's answers to Q30
+of the [open questions](open-questions.md), 15 November 2026. The tests state them.
+
+- **A current handle.** A handle is current when `Add` gave it out with this generation
+  and it was not released since. A released slot is not current, whether it became free or
+  was retired. The first generation of a slot is 1, so `default(RootHandle)` is never
+  current. A slot released at generation `uint.MaxValue` is retired: never given out
+  again and not counted by `Count`. The test of the exhausted generation sets
+  `Entry(handle).Generation` through the ref, because it cannot be reached otherwise, and
+  names the slot with the constructor of `RootHandle`; no test reinterprets a `ulong`.
+- **A new entry.** `Add` writes the generation and the type id, zeroes the other fields
+  and gives the entry the state `Prepared`: an entry that was given out belongs to a write
+  that has not published it yet. `Release` leaves it `Free`, or `Retired` when the
+  generation is exhausted. `Release` does not look at `ClaimCount` or at `State`; who may
+  release and when is the caller's, with S06 to S08. `Release` of a handle that is not
+  current is `ArgumentException`.
+- **A block.** In S04 a block is allocated or free: `IsValid` means allocated and not
+  freed, and `PreparedBytes` and `RetiredBytes` are 0 until the sprints that add those
+  transitions. `TryAllocate` writes the whole header, also in a reused slot: root, kind
+  and payload length as given, every other field zero. The payload is not initialized;
+  the caller writes every byte it later reads, and no test states what a new payload
+  holds. `TryAllocate` does not check the kind or the root handle.
+- **Lengths.** `BlockSizeFor` and `TryAllocate` refuse a negative length, and one that
+  does not fit `MaxBlockSize` with the header, with `ArgumentOutOfRangeException`;
+  `TryAllocate` returns false only for the budget. A payload length of 0 is allowed; its
+  block is 32 bytes, the smallest class. The largest payload is `MaxBlockSize` − 32 =
+  65,504 bytes, the chunk payload of the specification. `Payload` spans the header's
+  `PayloadLength` and never beyond the capacity of the slot: a header whose length
+  exceeds it is `InvalidOperationException` before anything is dereferenced. That is the
+  test of "an invalid length is refused before it is dereferenced".
+- **Refusals.** `Free` of an invalid address, or of a block already freed, is
+  `ArgumentException`. After `Dispose` the other members throw `ObjectDisposedException`;
+  a second `Dispose` does nothing.
+- **Options.** The constructor of `Arena` refuses null options with
+  `ArgumentNullException`, and with `ArgumentOutOfRangeException` a `MemoryLimit` smaller
+  than one segment, a `SegmentSize` smaller than `MaxBlockSize` and a negative
+  `ReservedSegments`. The limit is required: there is no "0 means unlimited", so the
+  default is refused. `MemoryLimit` bounds the native capacity obtained, `Segments` ×
+  `SegmentSize`, the reserve included. Any further condition on `SegmentSize` is the
+  implementer's and is documented at the option; the tests use the default.
+- **Counters.** `LiveBytes` is the header plus the payload length of every allocated
+  block, as given at allocation; `ClassSlackBytes` is the rest of their slots. `Segments`
+  counts reserved segments too; `FreeRegions` does not count the regions of reserved
+  segments.
+- **Order and timing.** `TryAllocate` takes a free slot of the class, then a free region,
+  then a reserved segment, then a new segment. An emptied segment enters the reserve when
+  it has room and is freed at once otherwise, inside `Free`; the background release of
+  Q17 comes with S23.
+
 #### S05 · Root layout and values
 
 **Track:** full, engine component · **Needs:** S03, S04 · **Decisions:** D7 · **Owners:** E01, E05
@@ -1854,6 +1904,12 @@ internal sealed class RootTable
 
 **Types and members of S05.** Internal, namespace `Moltaro.Lattice.Storage`. A root is written
 and read field by field, so that neither a class nor a record has to box its values.
+
+By the planner's answer to Q30 of the [open questions](open-questions.md):
+`BlockHeader.DescriptorOffset` of an owned block is the byte offset of its descriptor from
+the start of the parent block, header included, as `RootLayout.FixedSize` counts; an
+inline `Location` is counted from the same start. A root has `Parent` null and
+`DescriptorOffset` 0.
 
 ```csharp
 internal enum DescriptorKindEnum : uint { Null = 0, Inline = 1, Block = 2, Chunked = 3, Text = 4 }
@@ -2015,6 +2071,15 @@ In the test project, written by the test author: one helper, `TestDatabases`, th
 a database of the placeholder and of the engine for the same test. `Moltaro.Lattice.Tests` gets a
 reference to the engine assembly in this sprint, and the engine assembly grants it friend
 access.
+
+By the planner's answer to Q30 of the [open questions](open-questions.md): a block
+allocated for a write that is prepared and not yet published is valid from its
+allocation: `IsValid` means allocated and not freed in every state. S06 moves the state
+of a root entry: `Prepared` to `Live` when an insert is published, `Live` to `Deleted`
+when a delete is published; `Release` follows when the claims of S07 are gone.
+`RootEntry.LastMutationSequence` is the sequence of the position of the last published
+mutation of the root; the specification's "last mutation position" is the same eight
+bytes, because the history of a position is the database's and is not repeated per root.
 
 #### S07 · Every key type and declared value
 
