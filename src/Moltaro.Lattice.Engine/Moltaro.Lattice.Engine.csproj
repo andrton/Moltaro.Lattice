@@ -26,5 +26,8 @@
   <ItemGroup>
     <!-- The tests of engine mechanisms reach inside the engine; see exception X3 in docs/work/exceptions.md. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
+    <!-- So does the measurement program, which is never shipped: it uses internal types of the
+         engine and reads its counters, under the same exception X3. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Measurements" />
   </ItemGroup>
 </Project>
