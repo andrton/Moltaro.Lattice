@@ -2201,7 +2201,14 @@ manifest is a committed file of this project.
   [open questions](open-questions.md): when every write has returned and no read is in
   progress, `PreparedBytes` and `RetiredBytes` are 0 and the counters of the arena equal
   an independent tally of what the entities hold; after a write that failed validation or
-  was refused, nothing of it is left in any counter.
+  was refused, nothing of it is left in any counter. By the planner's answer to Q32: a
+  read that found an entity which is deleted before the read reaches it returns absence,
+  never the values of another entity; after the deletes have returned and no read is in
+  progress, the table of root entries holds no entry of a deleted entity, shown by its
+  count. By the planner's answer to point 1 of Q35: a database whose schema declares an
+  entity type with a fixed part larger than one block does not open: `InvalidSchema` with
+  the entity type named. A database whose schema declares an entity type the engine
+  cannot store yet opens, and its other entity types are read and written.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2243,7 +2250,15 @@ By the planner's answer to Q30 of the [open questions](open-questions.md): a blo
 allocated for a write that is prepared and not yet published is valid from its
 allocation: `IsValid` means allocated and not freed in every state. S06 moves the state
 of a root entry: `Prepared` to `Live` when an insert is published, `Live` to `Deleted`
-when a delete is published; `Release` follows when the claims of S07 are gone.
+when a delete is published. By the planner's answer to Q32: a read by key uses the lookup
+claim of the milestone contract: it claims the entry under the catalog gate, releases
+that gate, takes the protection of the root, checks the generation and the state again,
+and drops the claim after it released the protection of the root; it never waits for a
+root while it holds the catalog gate. The entry of a root whose delete was published is
+released when no claim is held on it: at once when there is none, otherwise by the reader
+that drops the last one. S08 adds the claims of an enumeration and the tests of reuse
+while entities change; its sentence that a deleted entry is reused only after its claims
+are gone holds for reads by key from this sprint on.
 `RootEntry.LastMutationSequence` is the sequence of the position of the last published
 mutation of the root; the specification's "last mutation position" is the same eight
 bytes, because the history of a position is the database's and is not repeated per root.
@@ -2263,6 +2278,15 @@ beyond the listed ones to the implementer, and they do not change what the membe
 do. In S06 a write is executed alone and published at once, so a prepared block is not
 observable between writes; the rule is stated here because S06 is the first sprint with
 the transition, and S09 and the Durable sprints rely on it when prepared writes wait.
+
+By the planner's answer to point 1 of Q35: the engine compiles the root layout of every
+entity type when the database opens, before any data is admitted. An entity type whose
+fixed part does not fit one block makes the open fail with `InvalidSchema`, with the
+entity type named. An entity type that has a field the engine cannot store yet does not
+fail the open: it gets no layout, every write of it is refused with
+`NotSupportedException` as this brief says, a read of it by key finds nothing and an
+enumeration of it is empty, because nothing of it can be stored. The size of its fixed
+part is checked from the sprint in which the engine can store it.
 
 A coordinator's note from the review of S05: a `RootWriter` is a mutable `ref struct`
 that holds a pooled array and the blocks it allocated. It is passed by `ref`, never by

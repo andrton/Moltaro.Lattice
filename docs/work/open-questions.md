@@ -49,15 +49,6 @@ in the meantime.
 | **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
 | **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
 
-### Q32. When does S06 release the entry of a deleted root?
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
-| **Question** | The brief of S06 says, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08: "A deleted entry is reused only after its claims are gone". The brief of S04 leaves who may release, and when, to the caller "with S06 to S08". So the agents of S06 cannot tell from that sentence what S06 does with the entry of a root whose delete was published, while lookup claims do not exist yet: release it at once, or keep it `Deleted` until S08 |
-| **Until answered** | The sentence stands as the planner gave it. Nothing in S04 or S05 depends on it |
-| **Decides** | The planner, before S06 starts; the coordinator does not start S06 with this entry open |
-
 ### Q33. What an application sees when the table of root entries is full
 
 | | |
@@ -73,8 +64,8 @@ in the meantime.
 | --- | --- |
 | **Found** | 15 November 2026, contract of Epic 1, sprint S05 |
 | **Question** | Six points of entry Q34 and of the review of S05 reach into later sprints and need the planner's word there. (1) S06: `RootLayout.Compile` refuses an entity type with a field it cannot store yet, and the engine contract wants an oversized fixed part reported before data is admitted, while the brief of S06 refuses at a write; when does the engine compile a layout, and when does an application see `InvalidSchema`? (2) S08 and S09: is the size of an entity, as an application's limit counts it, the fixed part plus the encoded bytes of its String and Binary values, and is `PreparedWrite.EncodedSize` the same number? (3) S10: a value in a root is stored in the byte order of the machine; which order have the blocks a child receives? (4) S20: an inline descriptor holds an offset and a length and no capacity; where does the capacity that a partial update needs live? (5) S37: every layout has `LayoutVersion` 1; how is a changed layout numbered? A root of another entity type passes the check of a reader as long as every layout has version 1. (6) S09: one String or Binary value holds at most 4,094 chunks of 65,504 bytes, 268,173,376 bytes, the bound of one directory block; when `MaxEntitySize` becomes an option, a larger setting still gets `WriteRejected` for such a value. Is that bound stated with the option, or is the directory to grow? |
-| **Until answered** | The readings of Q34 stand for S05 |
-| **Decides** | The planner: point 1 before S06 starts, point 2 before S08, point 6 before S09, point 3 before S10, the others before the contracts of their stages |
+| **Until answered** | The readings of Q34 stand for S05. Point 1 is answered by the planner, 15 November 2026, and written into the brief of S06: the engine compiles the layout of every entity type when the database opens; a fixed part larger than one block fails the open with `InvalidSchema`; an entity type the engine cannot store yet gets no layout and does not fail the open |
+| **Decides** | The planner: point 2 before S08, point 6 before S09, point 3 before S10, points 4 and 5 before the contracts of their stages |
 
 ### Q36. Exception X3 does not name the tests of the reference fixture
 
@@ -356,3 +347,12 @@ in the meantime.
 | **Question** | The brief of S05 names the types and members of the root layout and of the reference fixture and leaves open what the tests have to state: the formula of the fixed part, what `Compile` does with a field it cannot store yet, where a value of each size goes and what a directory holds, which member serves an Enum with an unsigned underlying type, the errors of a wrong field, of a value out of range and of reading a null, null against missing at `Complete`, the stored encoding of text and the byte order, what the size limit of an entity counts, the life of a writer, what a reader checks, what `LayoutVersion` is, and what of the fixture the engine contract does not give |
 | **Answer** | The coordinator, 15 November 2026, from the engine contract and the decisions named in the brief; the planner's session could not be reached, and the readings are reported to the owner with the close of S05. They are written out in the brief of S05. Nearest to a choice: the fixed part is packed without padding; an entity is measured as its fixed part plus the encoded bytes of its String and Binary values, and one of exactly the limit is stored; a field is set once; `Compile` refuses an entity type with a field S05 cannot store with `NotSupportedException`; `LayoutVersion` is 1 |
 | **Where the rule lives** | The brief of S05 in the [document of Epic 1](epic-1-core.md). What the readings leave to later sprints is entry Q35 |
+
+### Q32. When does S06 release the entry of a deleted root?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
+| **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
