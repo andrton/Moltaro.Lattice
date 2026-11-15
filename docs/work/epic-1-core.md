@@ -2043,8 +2043,8 @@ them.
   String and Binary field, in field-identity order. A Boolean is one byte, 0 or 1. An
   Enum field has the width of its underlying type. A nullable fixed field keeps its place
   when it is null. A value of more than one byte is stored in the byte order of the
-  machine, as the block header and the descriptors are; native memory is never a durable
-  or a wire form, and the order of those forms belongs to their sprints. No test states a
+  machine, as the block header and the descriptors are; the byte order of the durable and
+  the wire forms belongs to their sprints (Q35 of the open questions). No test states a
   byte order. Packing without padding is chosen because memory comes before speed
   in the engine and no measurement speaks against it; an implementer who wants alignment
   brings the number. `Compile` refuses with `InvalidSchema` a `FixedSize` above
@@ -2093,8 +2093,9 @@ them.
   allocated is freed: `LiveBytes` and `ClassSlackBytes` are as they were before the
   writer; a segment the arena obtained for the writer may stay in the reserve, so
   `Segments` and `ReservedSegments` may differ. An `OutOfMemoryException` of the native
-  allocator passes through whichever member meets it; the caller then calls `Abandon`,
-  which frees everything as after any other failure.
+  allocator passes through whichever member meets it. Met inside `Complete`, it is a
+  failed `Complete`: everything is freed already. Met inside a `Set…` member, the caller
+  then calls `Abandon`, which frees everything.
 - **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of a field
   that was set is `InvalidOperationException`. A call that was refused — malformed text,
   a value out of range, `SetNull` of a field that is not nullable — did not set the
