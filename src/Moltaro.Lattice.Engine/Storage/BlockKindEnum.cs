@@ -1,0 +1,22 @@
+namespace Moltaro.Lattice.Storage;
+
+// What a block holds, as the Kind field of its header says. Zero is no kind, so a header that is
+// all zeros does not pass for a block of any kind.
+internal enum BlockKindEnum : ushort
+{
+    // The fixed part of one entity, which its root entry points to. A root has no parent.
+    Root = 1,
+
+    // One owned variable value of an entity, held whole in one block outside its root.
+    Value = 2,
+
+    // One bounded piece of a large value. A chunk boundary is not a boundary of the value: a
+    // character or an element may continue in the next chunk.
+    Chunk = 3,
+
+    // The bounded directory of the chunks of one large value.
+    ChunkDirectory = 4,
+
+    // Text of the database-wide dictionary. It belongs to a text entry instead of a root.
+    SharedText = 5,
+}
