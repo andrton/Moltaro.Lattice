@@ -2,8 +2,8 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 
-// What the writer does when the arena has no room for the entity, or a value needs more chunks than
-// one directory block holds (brief of S05, "Where a value goes" and "The size of an entity"):
+// What the writer does when the arena has no room for the entity (brief of S05, "Where a value goes"
+// and "The size of an entity"; the memory of the arena is the only bound of an entity, decision O19):
 // Complete is WriteRejected, no Set… member fails for it, and everything the writer allocated is
 // freed, so LiveBytes and ClassSlackBytes are as they were before the writer. Segments and
 // ReservedSegments may differ and are not read. An OutOfMemoryException of the native allocator
@@ -37,34 +37,14 @@ public sealed class ArenaMemoryTests
     [Fact]
     public void A_value_larger_than_the_arena_refuses_the_entity_at_Complete_and_frees_what_was_allocated()
     {
-        // An arena of one 4 MiB segment and a value of 5 MiB under a limit of 8 MiB: only the memory
-        // of the arena stands in the way.
+        // An arena of one 4 MiB segment and a value of 5 MiB: the memory of the arena stands in the
+        // way.
         using var item = new RootArena(ItemSchema.Compile(Fields), memoryLimit: RootArena.SegmentSize);
         var before = StoredBytes.In(item.Arena);
 
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), Filled(5 * 1024 * 1024));
-
-        WriterAssert.CompleteRefused(ref writer, LatticeErrorEnum.WriteRejected);
-        Assert.Equal(before, StoredBytes.In(item.Arena));
-    }
-
-    [Fact]
-    public void A_value_that_needs_more_chunks_than_one_directory_block_holds_is_WriteRejected_by_Complete()
-    {
-        // A directory block holds ChunkPayload / 16 = 4,094 descriptors. One byte more than 4,094
-        // full chunks needs a 4,095th. Neither the limit of the entity nor the memory of the arena
-        // stands in the way.
-        var mostChunks = RootLayout.ChunkPayload / 16;
-        var length = mostChunks * RootLayout.ChunkPayload + 1;
-        using var item = new RootArena(ItemSchema.Compile(Fields), memoryLimit: 80L * RootArena.SegmentSize);
-        var value = GC.AllocateUninitializedArray<byte>(length);
-        var before = StoredBytes.In(item.Arena);
-
-        var writer = item.Writer();
-        writer.SetInteger(item.Field("Id"), 1);
-        writer.SetBinary(item.Field("Payload"), value);
 
         WriterAssert.CompleteRefused(ref writer, LatticeErrorEnum.WriteRejected);
         Assert.Equal(before, StoredBytes.In(item.Arena));

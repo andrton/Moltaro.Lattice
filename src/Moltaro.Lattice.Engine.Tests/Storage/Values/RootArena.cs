@@ -10,10 +10,6 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values;
 // fails the native allocator gives the arena a CountingNativeAllocator (exception X3).
 internal sealed class RootArena : IDisposable
 {
-    // The starting value of the limit on the encoded size of one root (milestone contract,
-    // "Initial bounded settings"), which becomes an option of the database in S09.
-    public const int StartingEntityLimit = 1024 * 1024;
-
     // The handle every root of these tests carries. The writer puts it into the headers of the
     // blocks of the root; it does not look it up in a root table.
     public static readonly RootHandle Handle = new(1, 1);

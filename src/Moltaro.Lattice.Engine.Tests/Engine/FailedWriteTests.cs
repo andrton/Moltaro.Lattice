@@ -9,15 +9,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // The segments are not among them: a segment the arena obtained for a write that failed may stay in
 // its reserve, so Segments, ReservedSegments and FreeRegions may differ (brief of S05, "The size of
 // an entity").
+//
+// By decision O19 an entity has no size limit, so no write is refused for its size. What is left
+// of WriteRejected is the refusal for the memory of the arena, which the engine cannot be brought to
+// here: until S09 gives the option, its arena gets half of the memory the runtime reports. A value
+// above the bound of one value is ValidationFailed.
 public sealed class FailedWriteTests
 {
-    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
-
-    // The starting limit on the size of one entity, 1 MiB, until S09 makes it an option (brief of
-    // S06, "The limits before S09").
-    private const int EntityLimit = 1024 * 1024;
-
-    [Fact(Skip = RemovedByO19)]
+    [Fact]
     public async Task Write_that_fails_validation_or_is_refused_leaves_nothing_in_any_counter()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -44,17 +43,16 @@ public sealed class FailedWriteTests
         nameless["Name"] = null;
         await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => records.UpsertAsync(nameless));
 
+        // Validation by the root writer: in Note, text with a surrogate without its pair, after the
+        // value of Name in chunks.
+        await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => pieces.InsertAsync(new PieceSchema.Piece { Id = 3, Name = new string('n', 70_000), Note = "a\uD800b" }));
+
         // Refused by the state of the database, each with values in chunks.
         await ExpectNothingLeftAsync(LatticeErrorEnum.DuplicateKey, () => pieces.InsertAsync(PieceSchema.Of(2, name: 70_000, data: 70_000)));
         await ExpectNothingLeftAsync(LatticeErrorEnum.NotFound, () => pieces.ReplaceAsync(PieceSchema.Of(404, name: 70_000)));
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => pieces.ReplaceAsync(PieceSchema.Of(1, name: 70_000), stale));
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => records.DeleteAsync(1L, stale));
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => pieces.ReplaceAsync(PieceSchema.Of(404, name: 70_000), stale));
-
-        // Refused for its size: the fixed part and the encoded values above 1 MiB, as a new entity and
-        // as a new state of one that exists.
-        await ExpectNothingLeftAsync(LatticeErrorEnum.WriteRejected, () => pieces.InsertAsync(PieceSchema.Of(5, name: 1, data: EntityLimit)));
-        await ExpectNothingLeftAsync(LatticeErrorEnum.WriteRejected, () => pieces.UpsertAsync(PieceSchema.Of(1, name: EntityLimit)));
 
         // Refused as not stored yet, and by the check of its arguments.
         var holder = new LatticeRecord(holders.EntityType) { ["Id"] = 1L, ["Lines"] = new[] { new string('l', 70_000) } };
@@ -73,6 +71,36 @@ public sealed class FailedWriteTests
 
         void ExpectAsBefore()
         {
+            Assert.Equal(before, CountersOf(database));
+            tally.ExpectHeldBy(database);
+        }
+    }
+
+    [Fact(Skip = NotImplemented.ValueBound)]
+    public async Task Write_of_a_value_above_the_bound_of_one_value_leaves_nothing_in_any_counter()
+    {
+        await using var database = await PieceSchema.OpenAsync();
+        var pieces = database.Set<PieceSchema.Piece>();
+        var records = database.Set("Piece");
+        var tally = new PieceTally();
+        var kept = PieceSchema.Of(1, name: 70_000, data: 5_000);
+        await pieces.InsertAsync(kept);
+        tally.Written(kept);
+        var before = CountersOf(database);
+
+        // In Note, after the value of Name in chunks: as a new entity through the class, and by name
+        // as a new state of one that exists.
+        var text = ValueBound.TextOneByteAboveInUtf8;
+        await ExpectValidationFailedAsync(() => pieces.InsertAsync(new PieceSchema.Piece { Id = 2, Name = new string('n', 70_000), Note = text }));
+        var record = PieceSchema.RecordOf(records.EntityType, 1, name: 70_000);
+        record["Note"] = text;
+        await ExpectValidationFailedAsync(() => records.ReplaceAsync(record));
+
+        async Task ExpectValidationFailedAsync(Func<ValueTask<LatticeWriteResult>> write)
+        {
+            var exception = await Assert.ThrowsAsync<LatticeException>(async () => await write());
+
+            Assert.Equal(LatticeErrorEnum.ValidationFailed, exception.Error);
             Assert.Equal(before, CountersOf(database));
             tally.ExpectHeldBy(database);
         }

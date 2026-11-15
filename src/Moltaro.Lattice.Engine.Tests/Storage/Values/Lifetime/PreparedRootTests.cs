@@ -10,8 +10,6 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 // whose Complete is refused, leaves nothing prepared.
 public sealed class PreparedRootTests
 {
-    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
-
     private const string Fields = """
         { 'Id': 2, 'Name': 'Login', 'Type': 'String' },
         { 'Id': 3, 'Name': 'Note', 'Type': 'String', 'Nullable': true },
@@ -61,7 +59,7 @@ public sealed class PreparedRootTests
         Assert.Equal(Photo, reader.GetBinary(item.Field("Photo")));
     }
 
-    [Fact(Skip = RemovedByO19)]
+    [Fact]
     public void Abandoned_or_refused_prepared_writer_leaves_nothing_prepared()
     {
         using var item = RootArena.Of(Fields);
@@ -75,16 +73,18 @@ public sealed class PreparedRootTests
 
         Assert.Equal(0, item.Arena.Counters.PreparedBytes);
 
-        // Over the limit of the entity: Complete is refused and frees what was prepared.
-        var refused = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
-        refused.SetInteger(item.Field("Id"), 1);
-        refused.SetString(item.Field("Login"), Login);
-        refused.SetString(item.Field("Note"), Note);
-        refused.SetBinary(item.Field("Photo"), Photo);
+        // An arena of one 4 MiB segment has no room for a photo of 5 MiB: Complete is refused for the
+        // memory of the arena and frees what was prepared.
+        using var small = new RootArena(ItemSchema.Compile(Fields), memoryLimit: RootArena.SegmentSize);
+        var refused = new RootWriter(small.Arena, small.Layout, RootArena.Handle, prepared: true);
+        refused.SetInteger(small.Field("Id"), 1);
+        refused.SetString(small.Field("Login"), Login);
+        refused.SetString(small.Field("Note"), Note);
+        refused.SetBinary(small.Field("Photo"), Payloads.Bytes(5 * 1024 * 1024));
 
         WriterAssert.CompleteRefused(ref refused, LatticeErrorEnum.WriteRejected);
-        Assert.Equal(0, item.Arena.Counters.PreparedBytes);
-        Assert.Equal(StoredBytes.Zero, StoredBytes.In(item.Arena));
+        Assert.Equal(0, small.Arena.Counters.PreparedBytes);
+        Assert.Equal(StoredBytes.Zero, StoredBytes.In(small.Arena));
     }
 
     private static ArenaAddress Write(ref RootWriter writer, RootArena item)

@@ -10,11 +10,9 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 // Set… member, SetNull and Complete are InvalidOperationException. Abandon after a Complete that
 // returned is InvalidOperationException as well, because the root belongs to the caller then;
 // Abandon after a failed Complete, and a second Abandon, do nothing. Abandon frees everything the
-// writer allocated. The constructor refuses a null arena or layout and a maxEntitySize below 1.
+// writer allocated. The constructor refuses a null arena or layout.
 public sealed class WriterLifeTests
 {
-    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
-
     [Fact]
     public void A_field_that_was_set_cannot_be_set_again()
     {
@@ -154,23 +152,13 @@ public sealed class WriterLifeTests
         Assert.True(item.Arena.IsValid(kept));
     }
 
-    [Fact(Skip = RemovedByO19)]
-    public void The_constructor_refuses_a_null_arena_or_layout_and_a_limit_below_one_byte()
+    [Fact]
+    public void The_constructor_refuses_a_null_arena_or_layout()
     {
         using var item = EveryType.Open();
 
         Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(null!, item.Layout, RootArena.Handle); });
         Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(item.Arena, null!, RootArena.Handle); });
-
-        foreach (var limit in new[] { 0, -1, int.MinValue })
-        {
-            Assert.Throws<ArgumentOutOfRangeException>(() => { _ = new RootWriter(item.Arena, item.Layout, RootArena.Handle); });
-        }
-
-        // A limit of one byte is a limit, refused only by Complete.
-        var tiny = item.Writer();
-        EveryType.SetRequired(ref tiny, item);
-        WriterAssert.CompleteRefused(ref tiny, LatticeErrorEnum.WriteRejected);
     }
 
     // The member that serves the field, with a valid value.
