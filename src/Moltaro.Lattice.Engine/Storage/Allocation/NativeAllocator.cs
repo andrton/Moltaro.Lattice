@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Allocation;
 
 // Where the arena obtains the native memory of a segment and where it returns it: the native
 // allocator, through NativeMemory, aligned to ArenaSegment.Alignment.

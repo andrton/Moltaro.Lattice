@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Allocation;
 
 // One native segment of the arena and the allocator metadata of its regions. The segment is
 // divided into regions of RegionSize bytes; each region serves one size class at a time and is

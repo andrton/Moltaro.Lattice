@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Allocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 

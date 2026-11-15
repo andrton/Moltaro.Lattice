@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Allocation;
 
 // The allocator metadata of one region: a part of a segment, ArenaSegment.RegionSize bytes long,
 // that serves one size class at a time and is divided into slots of that class (Q17, "Size

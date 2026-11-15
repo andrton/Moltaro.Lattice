@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Allocation;
 
 // The size classes of blocks, header included (milestone contract, "Native layout and
 // allocation"): 16-byte steps from 32 bytes through 1 KiB, 256-byte steps through 4 KiB, then

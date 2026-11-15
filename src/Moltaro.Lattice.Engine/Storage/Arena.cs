@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Storage.Allocation;
+
 namespace Moltaro.Lattice.Storage;
 
 // The native memory of one database (milestone contract, "Native layout and allocation"; Q17,
