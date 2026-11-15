@@ -2,6 +2,9 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
+    <!-- The tests of the engine database read and write through the public interfaces as the scenario
+         tests do; like them, they do not thread the test cancellation token through every call. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
@@ -13,7 +16,8 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Using Include="Moltaro.Lattice.TestSupport" />
+    <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
+    <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

@@ -2,10 +2,11 @@ namespace Moltaro.Lattice.Tests.Database;
 
 public sealed class OpeningAndClosingTests
 {
-    [Fact]
-    public async Task Opened_database_is_ready_and_closed_database_is_closed()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Opened_database_is_ready_and_closed_database_is_closed(DatabaseImplementationEnum implementation)
     {
-        var database = await TestData.OpenMasterAsync();
+        var database = await TestDatabases.OpenMasterAsync(implementation);
         Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
 
         await database.CloseAsync();
@@ -16,11 +17,12 @@ public sealed class OpeningAndClosingTests
         await database.DisposeAsync();
     }
 
-    [Fact]
-    public async Task Database_can_be_created_first_and_opened_later()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Database_can_be_created_first_and_opened_later(DatabaseImplementationEnum implementation)
     {
         // The object exists and can be handed around before the database is open.
-        await using var database = LatticeDatabase.Create(new LatticeDatabaseOptions
+        await using var database = TestDatabases.Create(implementation, new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -37,10 +39,11 @@ public sealed class OpeningAndClosingTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await database.OpenAsync());
     }
 
-    [Fact]
-    public async Task Database_closed_before_opening_cannot_be_opened()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Database_closed_before_opening_cannot_be_opened(DatabaseImplementationEnum implementation)
     {
-        var database = LatticeDatabase.Create(new LatticeDatabaseOptions
+        var database = TestDatabases.Create(implementation, new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -72,10 +75,11 @@ public sealed class OpeningAndClosingTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
     }
 
-    [Fact]
-    public async Task Closed_database_refuses_reads_and_writes_but_returned_entities_stay_valid()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Closed_database_refuses_reads_and_writes_but_returned_entities_stay_valid(DatabaseImplementationEnum implementation)
     {
-        var database = await TestData.OpenMasterAsync();
+        var database = await TestDatabases.OpenMasterAsync(implementation);
         var users = database.Users();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         Assert.True(users.TryGet(1, out var user));
@@ -89,23 +93,25 @@ public sealed class OpeningAndClosingTests
         await Assert.ThrowsAsync<ObjectDisposedException>(async () => await users.InsertAsync(new User { Id = 2 }));
     }
 
-    [Fact]
-    public async Task Memory_only_database_starts_empty_every_time()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Memory_only_database_starts_empty_every_time(DatabaseImplementationEnum implementation)
     {
-        var first = await TestData.OpenMasterAsync();
+        var first = await TestDatabases.OpenMasterAsync(implementation);
         await first.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
         await first.CloseAsync();
 
-        await using var second = await TestData.OpenMasterAsync();
+        await using var second = await TestDatabases.OpenMasterAsync(implementation);
 
         Assert.Empty(second.Users().Enumerate());
     }
 
-    [Fact]
-    public async Task Durable_persistence_is_not_implemented_yet()
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Durable_persistence_is_not_implemented_yet(DatabaseImplementationEnum implementation)
     {
         var options = new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost" };
 
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await LatticeDatabase.OpenAsync(options));
+        await Assert.ThrowsAsync<NotSupportedException>(async () => await TestDatabases.OpenAsync(implementation, options));
     }
 }

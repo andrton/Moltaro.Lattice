@@ -18,7 +18,7 @@
     <Using Include="Microsoft.Extensions.Hosting" />
     <Using Include="Moltaro.Lattice.Access" />
     <Using Include="Moltaro.Lattice.Schema" />
-    <Using Include="Moltaro.Lattice.TestSupport" />
+    <Using Include="Moltaro.Lattice.TestSupport.Replication" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

@@ -29,5 +29,7 @@
     <!-- So does the measurement program, which is never shipped: it uses internal types of the
          engine and reads its counters, under the same exception X3. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Measurements" />
+    <!-- The scenario tests of the contract open the engine through its internal entry until S12; see exception X4 in docs/work/exceptions.md. -->
+    <InternalsVisibleTo Include="Moltaro.Lattice.Tests" />
   </ItemGroup>
 </Project>

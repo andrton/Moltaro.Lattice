@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
-namespace Moltaro.Lattice.TestSupport;
+namespace Moltaro.Lattice.TestSupport.Dependencies;
 
 // What a built assembly of the solution depends on, for the dependency tests. Each of those tests
 // says which cases its check sees and which it does not.

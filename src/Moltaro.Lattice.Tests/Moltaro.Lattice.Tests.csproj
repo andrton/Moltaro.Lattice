@@ -10,12 +10,16 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+    <!-- The engine, which the scenario tests open through its internal entry until S12 (exception X4). -->
+    <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Moltaro.Lattice.Access" />
     <Using Include="Moltaro.Lattice.Schema" />
-    <Using Include="Moltaro.Lattice.TestSupport" />
+    <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
+    <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
+    <Using Include="Moltaro.Lattice.TestSupport.Replication" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

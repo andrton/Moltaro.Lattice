@@ -4,6 +4,7 @@ var schema = SchemaSample.Run();
 SchemaDeclarationsSample.Run();
 
 await BasicCrudSample.RunAsync(schema);
+await ClosedPropertiesSample.RunAsync();
 await DynamicAccessSample.RunAsync(schema);
 await MasterAndChildSample.RunAsync(schema);
 await DependencyInjectionSample.RunAsync(schema);
