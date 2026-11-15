@@ -171,6 +171,12 @@ overhead also need deployment headroom. The .NET
 covers the GC heap and its bookkeeping; it is not a budget for the native arena or
 the whole embedded process. No runtime setting or numerical memory default is chosen.
 
+**Added by the owner on 15 November 2026:** the default of the instance budget is half of
+the memory available to the process — the limit of its container, or the physical memory
+of the machine — computed when the instance opens. The budget is enforced as accepted
+above. An application that prefers to run into swap rather than have writes refused sets
+the budget above physical memory; nothing else changes for it.
+
 A mutation needs capacity for its preparation/publication peak, not merely its final
 net growth. A replacement with a smaller final document can still need temporary
 memory. A deletion is not automatically allocation-free: journal, index and command

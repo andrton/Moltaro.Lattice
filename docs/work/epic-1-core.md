@@ -517,6 +517,16 @@ documentation of the write batch and of `Set<TEntity>()` (Q6); and the texts tha
 owner's answers added to the briefs of S03, S04 and S37 and to the document of Epic 2
 (Q3, Q4, Q5, Q9, Q10, Q11).
 
+**O17. The default of the instance memory budget is computed.** Decided on 15 November
+2026 and given through the planner's session, when the owner learned that the limit of the
+arena is required. The budget is an option whose default is half of the memory available
+to the process when the instance opens — the limit of its container, or the physical
+memory of the machine — and it is enforced as Q14 accepts. An application that prefers
+to run into swap sets the budget above physical memory. *Not chosen:* the fixed 256 MiB,
+far too small for real data; all of the memory; no limit unless one is set. Shapes S09;
+it rode in the branch of S05 under O16, with one sentence of the engine contract and a
+note in the decision on write admission.
+
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
 with what the code does in the meantime. The coordinator names the new entries when a
@@ -2384,7 +2394,7 @@ table being built while the primary index grows.
 
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
-- **Contract.** Options: the instance memory budget (256 MiB by default for development),
+- **Contract.** Options: the instance memory budget (by default half of the memory available to the process),
   the entity size limit (1 MiB), the queued write input (1,024 requests and the smaller
   of 16 MiB and 10% of the budget), the number of preparing workers (2). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
@@ -2405,7 +2415,10 @@ table being built while the primary index grows.
   report `Unavailable` until a new instance is opened. Inconsistent options are refused
   at open. Publication performs no I/O, no allocation of pool capacity and no user code. That
   preparation runs concurrently and that a group waits at most 1 ms are checked by the
-  reviews; the size of a group is asserted through the counters.
+  reviews; the size of a group is asserted through the counters. An instance opened
+  without `MemoryLimit` has half of the memory available to the process as its limit, and
+  one opened with it has the given value; the limits that are shares of the budget follow
+  the limit in force.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2417,7 +2430,7 @@ table being built while the primary index grows.
 namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
-public long MemoryLimit { get; init; } = 256L * 1024 * 1024;   // bytes for the whole instance
+public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory available to the process
 public int MaxEntitySize { get; init; } = 1024 * 1024;         // encoded bytes of one entity with all it owns
 public int WriteQueueLimit { get; init; } = 1024;              // writes admitted and not yet completed
 public long? WriteQueueMemoryLimit { get; init; }              // null: the smaller of 16 MiB and 10% of MemoryLimit
@@ -2429,6 +2442,18 @@ WriteQueue = 4,
 WriteQueueMemory = 5,
 Memory = 6,
 ```
+
+By the owner's decision of 15 November 2026, given through the planner's session: the
+memory available to the process is what the runtime reports when the instance opens,
+`GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`: the limit of the container where there
+is one, the physical memory otherwise. The limit in force is fixed at open and does not
+follow later changes. Every limit that is a share of the budget — the queued write input
+here, the retained outcomes of S26, the pending replication of S33 — is taken from the
+limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
+`EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
+the default. The documentation of the option says in plain words that the default is per
+instance, that a process with several instances sets it explicitly, and that the budget
+counts what the engine holds, not the managed heap of the application.
 
 `Validate` refuses: a limit that is not positive; `MaxEntitySize` above `MemoryLimit`;
 `WriteQueueMemoryLimit` above `MemoryLimit`; `PrepareWorkers` below 1 or above 64.
