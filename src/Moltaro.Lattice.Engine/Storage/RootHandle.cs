@@ -1,9 +1,10 @@
 namespace Moltaro.Lattice.Storage;
 
 // Names one lifetime of one root: the generation of its slot in the high 32 bits and the slot of
-// its entry in the root table in the low 32 bits. When a released slot is reused its generation
-// advances, so a handle of the earlier lifetime no longer matches the slot and cannot reach the
-// root that lives there now (RootTable.IsCurrent).
+// its entry in the root table in the low 32 bits. The first generation of a slot is 1, and every
+// reuse of the slot advances it, so a handle of an earlier lifetime no longer matches the slot
+// and cannot reach the root that lives there now. The default value, generation 0, is never
+// current (RootTable.IsCurrent).
 //
 // A generation is local lifetime protection, not a second key of an entity and not a durable
 // revision: a handle is local to one process, never persisted and never returned through the
@@ -17,6 +18,11 @@ internal readonly struct RootHandle : IEquatable<RootHandle>
 #pragma warning disable CS0169 // Never used until the arena of S04 is implemented.
     private readonly ulong _value;
 #pragma warning restore CS0169
+
+    // Packs a generation and a slot. It does not check that such a lifetime exists: only the root
+    // table can tell, through RootTable.IsCurrent.
+    public RootHandle(uint generation, uint slot) =>
+        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
 
     // The generation the slot had when this lifetime began.
     public uint Generation =>

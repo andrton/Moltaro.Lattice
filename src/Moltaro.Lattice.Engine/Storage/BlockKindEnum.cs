@@ -1,7 +1,6 @@
 namespace Moltaro.Lattice.Storage;
 
-// What a block holds, as the Kind field of its header says. Zero is no kind, so a header that is
-// all zeros does not pass for a block of any kind.
+// What a block holds, as the Kind field of its header says. No kind has the value zero.
 internal enum BlockKindEnum : ushort
 {
     // The fixed part of one entity, which its root entry points to. A root has no parent.
