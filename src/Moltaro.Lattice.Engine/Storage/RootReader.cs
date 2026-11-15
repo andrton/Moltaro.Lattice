@@ -2,9 +2,14 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage;
 
-// Reads one root in place: each member decodes one field from the root block, or from the blocks
-// the root owns, where its RootLayout places it, and copies nothing else of the root. A root is
-// written and read field by field, so that neither a class nor a record has to box its values.
+// Reads one root in place: each member reads one field from the root block, or from the blocks the
+// root owns, where its RootLayout places it. A root is written and read field by field, so that
+// neither a class nor a record has to box its values.
+//
+// Every member reads one field of the entity type of the layout, and each Get… member a field of
+// the type it serves; a field of another type, or of another entity type, is refused with
+// ArgumentException. A Get… member, and GetLength, of a field whose value is null is
+// InvalidOperationException: the caller asks IsNull first.
 //
 // Valid only while the caller holds the protection of that root: owned blocks are accessed only
 // under root protection, and neither a span nor an address escapes it (arena protocol, "Lock and
@@ -12,7 +17,9 @@ namespace Moltaro.Lattice.Storage;
 // be kept on the heap or across an await.
 internal readonly ref struct RootReader
 {
-    // Reads the root whose root block is at the address, written with the layout.
+    // Reads the root whose root block is at the address, written with the layout. Refuses with
+    // ArgumentException an address that is not a valid block of the arena, a block whose kind is not
+    // Root, and a block whose layout version is not that of the layout.
     public RootReader(Arena arena, RootLayout layout, ArenaAddress root) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
@@ -24,11 +31,13 @@ internal readonly ref struct RootReader
     public bool GetBoolean(LatticeField field) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
-    // The value of a field that RootWriter.SetInteger sets: a signed integer type or an Enum.
+    // The value of a field of a signed integer type, Int8 to Int64, or of an Enum field whose enum
+    // type has a signed underlying type.
     public long GetInteger(LatticeField field) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
-    // The value of a field that RootWriter.SetUnsigned sets: an unsigned integer type.
+    // The value of a field of an unsigned integer type, UInt8 to UInt64, or of an Enum field whose
+    // enum type has an unsigned underlying type.
     public ulong GetUnsigned(LatticeField field) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
@@ -75,8 +84,8 @@ internal readonly ref struct RootReader
     public byte[] GetBinary(LatticeField field) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
-    // The encoded bytes of the value of a String or Binary field: for a String, its bytes in the
-    // database encoding, UTF-8 or UTF-16.
+    // The number of encoded bytes of the value of a String or Binary field, as stored: for a String,
+    // its bytes in the database encoding, UTF-8 or UTF-16.
     public int GetLength(LatticeField field) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 }

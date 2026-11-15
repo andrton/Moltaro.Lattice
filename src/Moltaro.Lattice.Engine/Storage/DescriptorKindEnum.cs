@@ -2,25 +2,27 @@ namespace Moltaro.Lattice.Storage;
 
 // Where a variable value of a root lies, as the Kind of its ValueDescriptor says, and with it what
 // the Length and the Location of the descriptor mean (milestone contract, "Native layout and
-// allocation"). RootLayout says which value takes which kind. Null is zero, so a descriptor whose
-// bytes are all zero holds no value.
+// allocation"). RootLayout says which value takes which kind.
 internal enum DescriptorKindEnum : uint
 {
-    // The value is null. Length and Location describe nothing.
+    // The value is null, and the nullable bitmap of the root says so too. The descriptor of a null
+    // value is all zero.
     Null = 0,
 
-    // The value lies in the tail of the root block, after its fixed part. Length is its encoded
-    // bytes; Location is the offset of its first byte from the start of the root block, the block
-    // header included, as RootLayout.FixedSize counts.
+    // The value lies in the root block, after its fixed part. Length is its encoded bytes; Location
+    // is its offset from the start of the root block, the block header included, as
+    // RootLayout.FixedSize counts. An empty value is inline with length 0.
     Inline = 1,
 
-    // The value lies whole in one block of kind Value. Length is its encoded bytes; Location is the
-    // relative address of that block, as ArenaAddress.Value gives it.
+    // The value lies whole in one block of its own, of kind Value, whose parent is the root block.
+    // Length is its encoded bytes; Location is the relative address of that block, as
+    // ArenaAddress.Value gives it.
     Block = 2,
 
     // The value lies in chunks, blocks of kind Chunk, in the order of its bytes. Length is its
-    // encoded bytes; Location is the relative address of its chunk directory, the block of kind
-    // ChunkDirectory that lists the chunks.
+    // encoded bytes; Location is the relative address of its chunk directory, one block of kind
+    // ChunkDirectory whose parent is the root block and which holds one 16-byte descriptor for
+    // each chunk. The parent of a chunk is its directory.
     Chunked = 3,
 
     // The value is text that a text entry of the database holds, not the root. Location is the

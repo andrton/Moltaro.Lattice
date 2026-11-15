@@ -2,11 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Storage;
 
-// The 16 bytes that stand in the fixed part of a root for one variable value: a String or a Binary
-// in S05, a collection from S18 on. The fields, their widths and their order are those of the
-// milestone contract ("Native layout and allocation"): kind and flags (4), length or count (4),
-// relative address or stable text handle (8); a test asserts the size. What Length and Location
-// mean depends on the kind; DescriptorKindEnum says it for each.
+// The 16 bytes that stand in the fixed part of a root for one String or Binary value. The fields,
+// their widths and their order are those of the milestone contract ("Native layout and
+// allocation"): kind and flags (4), length or count (4), relative address or stable text handle
+// (8); a test asserts the size. What Length and Location mean depends on the kind;
+// DescriptorKindEnum says it for each.
 //
 // Sequential layout, because the declared order is the order of the bytes in the root block. No
 // Pack: in this order every field already sits on its natural boundary, so natural alignment adds
