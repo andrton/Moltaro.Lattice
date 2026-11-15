@@ -68,7 +68,7 @@ entity types of scalar fields with the default text policies: read, enumerate, i
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
-**In the engine, not behind the contract yet.** Internal mechanisms of
+**In the engine, not behind the contract yet.** Mechanisms of
 `Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
@@ -76,7 +76,15 @@ with generations (S04); the root layout compiled from an entity type of scalar f
 with the writer and the reader of a root — fixed fields at their declared width, String
 and Binary values inline, in a block of their own or in chunks (S05). The measurement
 program `Moltaro.Lattice.Measurements` holds the reference fixture, its first scenario
-and the development manifest (S05).
+and the development manifest (S05). The engine database: a MemoryOnly master that
+inserts, reads, replaces, upserts and deletes entities of scalar fields by primary key,
+by class and by name, with revisions, positions and sessions; layouts compiled at open;
+the lookup claim and the protection of a root, with no code of the application inside
+a gate; reads that allocate the returned copy and nothing else. The scenario tests of
+reads and writes run on it beside the placeholder, through an internal entry (exception
+X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
+batch and the queue of writes have no limit of their own, and the validation of the core
+refuses text that is not well-formed on both implementations.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -247,6 +255,19 @@ documentation before this document is removed.
 | S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
 | S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
 | S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
+
+| S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
+| S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
+
+The figures of S06 come from the scenario `read-by-key`
+(`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
+from `src`). They are given as the range of three runs, because the runs differ more
+than the series do: the processor of the development machine has cores of two kinds and
+the threads are not pinned. The manifest `development-2` is the development manifest
+with a `Run` sentence that is true of a series with a writer; the figures of S05 stay
+under `development`. Reads by key on several threads were measured by the review of S06
+and not under a manifest: they do not scale with threads, which is entry Q42 of the
+[open questions](open-questions.md), reported in S08 and judged with the figures of S25.
 
 The figures of S05 come from the scenario `root-bytes` of the measurement program
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- root-bytes development`,

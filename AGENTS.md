@@ -24,7 +24,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
 | `src/Moltaro.Lattice` | The core library. No package dependencies |
-| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; internal mechanisms only so far, nothing behind the contract yet |
+| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; it reads and writes entities of scalar fields on one node, and `LatticeDatabase` opens the placeholder until the engine replaces it |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
