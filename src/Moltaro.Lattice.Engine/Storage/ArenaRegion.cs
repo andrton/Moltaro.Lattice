@@ -23,6 +23,8 @@ internal struct ArenaRegion
     // its last.
     public ushort Allocated;
 
-    // The index of the size class the region serves (SizeClasses), while Allocated is above zero.
+    // The index of the size class the region serves (SizeClasses), while Allocated is above zero. A
+    // region that serves none keeps the class it served last, or 0 if it never served one; it is
+    // still a class, which is all Arena.Locate needs before the slot bit refuses the address.
     public byte SizeClass;
 }

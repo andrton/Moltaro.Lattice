@@ -6,7 +6,9 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // asks that an invalid length be rejected before it is used. The arena keeps no length of its own
 // (brief of S04, "Counters"), so Free takes the length for LiveBytes from the header. A length
 // beyond the capacity of the slot is refused by Free with InvalidOperationException, as Payload
-// refuses it, and the block stays allocated, so that a damaged header never damages the counters.
+// refuses it, and the block stays allocated with the counters as they were. A length within the
+// slot that differs from the one given would shift bytes between LiveBytes and ClassSlackBytes;
+// a caller does not write the length through the header, and no test here does that.
 public sealed class DamagedHeaderTests
 {
     [Fact]

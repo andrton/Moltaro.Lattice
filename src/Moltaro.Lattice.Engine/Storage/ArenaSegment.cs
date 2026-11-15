@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Numerics;
-using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Storage;
 
@@ -10,8 +9,9 @@ namespace Moltaro.Lattice.Storage;
 // that an address is checked against this metadata and never against the memory it points to
 // (milestone contract: slot class, capacity and state live in allocator metadata).
 //
-// The segment owns its native memory from its construction until Release. Only the arena calls
-// Release: when the segment is left empty and the reserve has no room for it, and when the arena
+// The segment owns its native memory from its construction, which obtains it from the arena's
+// NativeAllocator, until Release, which returns it there. Only the arena calls Release, once per
+// segment: when the segment is left empty and the reserve has no room for it, and when the arena
 // is disposed. Like the arena, it takes no lock and is used by one thread at a time in S04.
 internal sealed unsafe class ArenaSegment
 {
@@ -34,14 +34,14 @@ internal sealed unsafe class ArenaSegment
     // because each block clears its bit when it is freed.
     private readonly ulong[] _slotBits;
 
-    public ArenaSegment(int size)
+    public ArenaSegment(int size, NativeAllocator allocator)
     {
         Regions = new ArenaRegion[size / RegionSize];
         _slotBits = new ulong[Regions.Length * SlotWordsPerRegion];
 
         // The native memory comes last. If the metadata cannot be allocated, nothing native is held
         // yet; if the native allocation fails, the metadata is left to the collector.
-        Memory = (byte*)NativeMemory.AlignedAlloc((nuint)size, Alignment);
+        Memory = (byte*)allocator.Allocate(size);
     }
 
     // The start of the segment's memory, null after Release. The memory is not initialized: the
@@ -57,6 +57,9 @@ internal sealed unsafe class ArenaSegment
     // Marks the lowest free slot among the first slotCount slots of the region as allocated and
     // returns its index. The arena calls this only for a region that has a free slot; a region of
     // the smallest class searches at most SlotWordsPerRegion words, one of 1 KiB or more one word.
+    //
+    // The bits beyond the last slot of the class are clear too, but they are higher than every slot,
+    // so the lowest clear bit is the lowest free slot as long as the region has one.
     public int TakeSlot(int region, int slotCount)
     {
         var words = _slotBits.AsSpan(region * SlotWordsPerRegion, (slotCount + 63) / 64);
@@ -64,14 +67,6 @@ internal sealed unsafe class ArenaSegment
         for (var index = 0; index < words.Length; index++)
         {
             var free = ~words[index];
-
-            // The bits beyond the last slot of the class name no slot.
-            var slotsInWord = slotCount - index * 64;
-
-            if (slotsInWord < 64)
-            {
-                free &= (1UL << slotsInWord) - 1;
-            }
 
             if (free != 0)
             {
@@ -98,11 +93,11 @@ internal sealed unsafe class ArenaSegment
     public bool IsAllocated(int region, int slot) =>
         (_slotBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;
 
-    // Returns the native memory to the native allocator. Every address into it is then refused by
-    // the arena, which no longer holds this segment.
-    public void Release()
+    // Returns the native memory to the allocator it came from. Every address into it is then refused
+    // by the arena, which no longer holds this segment.
+    public void Release(NativeAllocator allocator)
     {
-        NativeMemory.AlignedFree(Memory);
+        allocator.Free((nint)Memory);
         Memory = null;
     }
 }

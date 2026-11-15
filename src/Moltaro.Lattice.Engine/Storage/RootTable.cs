@@ -9,6 +9,10 @@ namespace Moltaro.Lattice.Storage;
 // slot is 1, and every reuse advances it, so a handle of an earlier lifetime never reaches a later
 // one. A slot released at generation uint.MaxValue is retired for good.
 //
+// The table holds at most MostPages pages, 2^31 - 4,096 slots, because Count and the slot numbers
+// are counted in an int. Add that would need one more page throws InvalidOperationException, and
+// the table stays as it was.
+//
 // In S04 the table takes no lock, and one thread at a time uses it. The claims and the protection
 // of the arena protocol, which make lookup, deletion and reuse safe together, come with S06 to
 // S08.
@@ -16,6 +20,9 @@ internal sealed class RootTable
 {
     // The number of entries in one page.
     public const int EntriesPerPage = 4096;
+
+    // The most pages the table holds: as many whole pages as an int can count slots of.
+    private const int MostPages = int.MaxValue / EntriesPerPage;
 
     // The pages in the order they were added; the directory holds references to them, and growing
     // the directory copies those references, never an entry. Only the first Pages are pages.
@@ -25,18 +32,32 @@ internal sealed class RootTable
     // page never were; their entries are as the page was allocated, Free at generation 0.
     private int _nextUnusedSlot;
 
-    // Released slots that Add gives out again, the last released first. A retired slot is never
-    // here. The stack holds four bytes per free slot, beside the 48 of its entry.
-    private readonly Stack<uint> _freeSlots = new();
+    // The list of released slots that Add gives out again, the last released first: the first slot
+    // plus one, 0 when no slot is free. A free entry has no entity type, so its TypeId holds the
+    // next slot of the list in the same form; Add overwrites it with the type of the new lifetime
+    // and zeroes every other field. The list takes no memory beyond the entries, and Release
+    // allocates nothing. A retired slot is never in the list.
+    private uint _freeSlots;
 
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
     // handle, which carries the slot's next generation. When no slot is free, the table adds a
     // page; adding a page copies no existing entry. The entry gets the generation and typeId,
     // every other field zero, and the state Prepared: it belongs to a write that has not published
-    // it yet.
+    // it yet. InvalidOperationException when the table would need more than MostPages pages.
     public RootHandle Add(uint typeId)
     {
-        var slot = _freeSlots.Count > 0 ? _freeSlots.Pop() : TakeUnusedSlot();
+        uint slot;
+
+        if (_freeSlots != 0)
+        {
+            slot = _freeSlots - 1;
+            _freeSlots = EntryAt(slot).TypeId;
+        }
+        else
+        {
+            slot = TakeUnusedSlot();
+        }
+
         ref var entry = ref EntryAt(slot);
 
         // A released slot keeps the generation of its last lifetime, and a slot never given out has
@@ -99,9 +120,9 @@ internal sealed class RootTable
         }
         else
         {
-            // The slot is pushed first: if the stack cannot grow, the lifetime is still current.
-            _freeSlots.Push(handle.Slot);
             entry.State = RootStateEnum.Free;
+            entry.TypeId = _freeSlots;
+            _freeSlots = handle.Slot + 1;
         }
 
         Count--;
@@ -120,7 +141,7 @@ internal sealed class RootTable
     // The lowest slot never given out, after adding a page when every slot of the table was.
     private uint TakeUnusedSlot()
     {
-        if (_nextUnusedSlot == checked(Pages * EntriesPerPage))
+        if (_nextUnusedSlot == Pages * EntriesPerPage)
         {
             AddPage();
         }
@@ -132,6 +153,11 @@ internal sealed class RootTable
     // leaves the table as it was.
     private void AddPage()
     {
+        if (Pages == MostPages)
+        {
+            throw new InvalidOperationException($"The root table holds its most slots, {MostPages * EntriesPerPage}.");
+        }
+
         var page = new RootEntry[EntriesPerPage];
 
         if (Pages == _pages.Length)

@@ -29,6 +29,59 @@ public sealed class NativeSegmentTests
     }
 
     [Fact]
+    public void Anywhere_in_a_segment_only_the_addresses_of_live_blocks_are_valid()
+    {
+        using var arena = Arenas.Open();
+        var live = new HashSet<ArenaAddress>();
+        var given = new List<ArenaAddress>();
+
+        // Blocks of 1,040 and 3,328 bytes do not fill their space exactly and leave room behind
+        // their last slot; the blocks of 3,328 bytes are all freed again, which leaves space that
+        // served a class and holds no block.
+        int[] payloadLengths = [0, 100, 1008, 3296, 30_000, SpecifiedSizeClasses.LargestPayload];
+
+        foreach (var payloadLength in payloadLengths)
+        {
+            for (var block = 0; block < 40; block++)
+            {
+                given.Add(Arenas.Allocate(arena, payloadLength));
+            }
+        }
+
+        for (var index = 0; index < given.Count; index++)
+        {
+            var freed = payloadLengths[index / 40] == 3296 || index % 3 == 0;
+
+            if (freed)
+            {
+                arena.Free(given[index]);
+            }
+            else
+            {
+                live.Add(given[index]);
+            }
+        }
+
+        // Every block starts on a 16-byte boundary, so every address that could name one is tried.
+        var wrong = 0;
+
+        foreach (var segment in given.Select(address => address.Segment).Distinct())
+        {
+            for (var offset = 0u; offset < (uint)Arenas.SegmentSize; offset += 16)
+            {
+                var address = new ArenaAddress(segment, offset);
+
+                if (arena.IsValid(address) != live.Contains(address))
+                {
+                    wrong++;
+                }
+            }
+        }
+
+        Assert.Equal(0, wrong);
+    }
+
+    [Fact]
     public void A_segment_size_that_is_not_a_whole_multiple_of_MaxBlockSize_is_refused()
     {
         int[] sizes = [Arena.MaxBlockSize + 1, Arena.MaxBlockSize * 3 / 2, Arenas.SegmentSize + 16, int.MaxValue];

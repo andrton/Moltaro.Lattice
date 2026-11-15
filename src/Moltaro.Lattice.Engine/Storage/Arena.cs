@@ -9,9 +9,12 @@ namespace Moltaro.Lattice.Storage;
 // relative address, which the arena checks against its own metadata before it reads anything
 // through it.
 //
-// The arena owns every segment it holds, in use or reserved, and returns its native memory in
-// exactly two places: in Free, when a segment is left empty and the reserve has no room for it,
-// and in Dispose, for everything still held.
+// The arena owns every segment it holds, in use or reserved. It obtains their native memory through
+// its NativeAllocator and returns each segment's memory there exactly once, in one of two places:
+// in Free, when a segment is left empty and the reserve has no room for it, and in Dispose, for
+// everything still held. Whoever owns the arena disposes it; from S06 on that is the database, when
+// it closes. The arena has no finalizer, so an arena that is never disposed keeps its native memory
+// until the process ends.
 //
 // In S04 a block is either allocated or free. The arena takes no lock, and one thread at a time
 // uses it; the protection of the arena protocol, under which readers and writers share its
@@ -32,6 +35,8 @@ internal sealed unsafe class Arena : IDisposable
     private readonly long _memoryLimit;
 
     private readonly int _reserveLimit;
+
+    private readonly NativeAllocator _allocator;
 
     // The segments by their slot, which is the segment of an ArenaAddress; null where no segment
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
@@ -72,6 +77,14 @@ internal sealed unsafe class Arena : IDisposable
     // segment, a SegmentSize smaller than MaxBlockSize or not a whole multiple of it, and a
     // negative ReservedSegments.
     public Arena(ArenaOptions options)
+        : this(options, new NativeAllocator())
+    {
+    }
+
+    // The same, with the allocator through which the arena obtains and returns the native memory of
+    // its segments. Only a test of the engine passes another than NativeAllocator itself (exception
+    // X3).
+    internal Arena(ArenaOptions options, NativeAllocator allocator)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -89,6 +102,7 @@ internal sealed unsafe class Arena : IDisposable
         _regionsPerSegment = options.SegmentSize / ArenaSegment.RegionSize;
         _memoryLimit = options.MemoryLimit;
         _reserveLimit = options.ReservedSegments;
+        _allocator = allocator;
     }
 
     // The largest size class, header included. The largest payload is therefore MaxBlockSize
@@ -168,10 +182,11 @@ internal sealed unsafe class Arena : IDisposable
     // refused with ArgumentException before anything is read through it.
     //
     // LiveBytes and ClassSlackBytes lose what the block's header says, because the arena keeps no
-    // length of its own; nothing in S04 changes the length of a live block (S20 adds the member
-    // that does). A header whose length exceeds the capacity of the slot is refused with
-    // InvalidOperationException, as Payload refuses it, and the block stays allocated, so that a
-    // damaged header never damages the counters.
+    // length of its own. A header whose length exceeds the capacity of the slot is refused with
+    // InvalidOperationException, as Payload refuses it, and the block stays allocated. A length
+    // within the slot that differs from the one given at allocation shifts bytes between the two
+    // counters, and their sum stays right; a caller does not write the length through the header,
+    // and S20 brings the member that changes it.
     public void Free(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -294,7 +309,7 @@ internal sealed unsafe class Arena : IDisposable
 
         foreach (var segment in _segments)
         {
-            segment?.Release();
+            segment?.Release(_allocator);
         }
 
         Array.Clear(_segments);
@@ -326,12 +341,12 @@ internal sealed unsafe class Arena : IDisposable
         regionIndex = 0;
         slot = 0;
 
-        // Slot 0 of the table never holds a segment, so the null address fails here as well.
         if (address.Segment >= (uint)_segments.Length || address.Offset >= (uint)_segmentSize)
         {
             return null;
         }
 
+        // Slot 0 of the table never holds a segment, so the null address fails here.
         var segment = _segments[address.Segment];
 
         if (segment is null)
@@ -340,21 +355,16 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         regionIndex = (int)(address.Offset / ArenaSegment.RegionSize);
-        ref var region = ref segment.Regions[regionIndex];
 
-        // A region without blocks serves no class: none of its offsets names a block. This holds
-        // for every region of a reserved segment.
-        if (region.Allocated == 0)
-        {
-            return null;
-        }
-
-        var blockSize = SizeClasses.SizeOf(region.SizeClass);
+        // The class of a region that serves none is the one it served last, or 0 for a region never
+        // used; any class gives a slot within the region's bits, and every bit of such a region is
+        // clear, so the bit refuses its offsets. The bit of an offset in the tail of a region, too
+        // short for a slot, is clear as well.
+        var blockSize = SizeClasses.SizeOf(segment.Regions[regionIndex].SizeClass);
         var (slotInRegion, remainder) = Math.DivRem((int)(address.Offset % ArenaSegment.RegionSize), blockSize);
 
-        // An offset inside a slot, or in the tail of the region that is too short for a slot,
-        // names no block.
-        if (remainder != 0 || slotInRegion >= ArenaSegment.RegionSize / blockSize)
+        // An offset inside a slot names no block.
+        if (remainder != 0)
         {
             return null;
         }
@@ -399,10 +409,11 @@ internal sealed unsafe class Arena : IDisposable
         return true;
     }
 
-    // Obtains a new segment from the native allocator, puts it into the table and returns its slot.
-    // Everything that can fail comes first: growing the table, the segment's metadata and its native
-    // memory. Only then does the arena change, so a failure leaves it as it was and holds nothing it
-    // obtained.
+    // Obtains a new segment through the allocator, puts it into the table and returns its slot: the
+    // slot of a segment freed before when there is one, so that the table does not grow with the
+    // number of segments ever obtained. Everything that can fail comes first: growing the table, the
+    // segment's metadata and its native memory. Only then does the arena change, so a failure leaves
+    // it as it was and holds nothing it obtained.
     private int ObtainSegment()
     {
         var reuseSlot = _freedSegmentSlots.Count > 0;
@@ -413,7 +424,7 @@ internal sealed unsafe class Arena : IDisposable
             GrowSegmentTable();
         }
 
-        var segment = new ArenaSegment(_segmentSize);
+        var segment = new ArenaSegment(_segmentSize, _allocator);
 
         if (reuseSlot)
         {
@@ -447,7 +458,6 @@ internal sealed unsafe class Arena : IDisposable
     // free region, and the first is returned for the class that needs it.
     private long PutInUse(int segmentSlot)
     {
-        // From the last to the second, so that the second region is the next free region taken.
         for (var regionIndex = _regionsPerSegment - 1; regionIndex > 0; regionIndex--)
         {
             AddFreeRegion(RegionNumber(segmentSlot, regionIndex));
@@ -487,11 +497,11 @@ internal sealed unsafe class Arena : IDisposable
         }
 
         // Nothing refers to the segment any more: no block, no list and, after this, no slot of the
-        // table. Its native memory goes back to the native allocator.
+        // table. Its native memory goes back to the allocator, and its slot to the next new segment.
         _segments[segmentSlot] = null;
         _freedSegmentSlots.Push(segmentSlot);
         _segmentCount--;
-        segment.Release();
+        segment.Release(_allocator);
     }
 
     private void AddFreeRegion(long regionNumber)
