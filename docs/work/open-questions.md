@@ -67,15 +67,6 @@ in the meantime.
 | **Until answered** | The readings of Q34 stand for S05. Point 1 is answered by the planner, 15 November 2026, and written into the brief of S06: the engine compiles the layout of every entity type when the database opens; a fixed part larger than one block fails the open with `InvalidSchema`; an entity type the engine cannot store yet gets no layout and does not fail the open |
 | **Decides** | The planner: point 2 before S08, point 6 before S09, point 3 before S10, points 4 and 5 before the contracts of their stages |
 
-### Q36. Exception X3 does not name the tests of the reference fixture
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
-| **Question** | The brief of S05 makes `ReferenceFixture` an internal type of the measurement program and asks for a test of its digest. `Moltaro.Lattice.Engine.Tests` therefore references the program and has friend access to it. Exception X3 speaks of the test projects reaching into the engine and of the measurement program reaching into the engine; it does not say that a test project reaches into the measurement program. Is X3 worded to cover it, or does the fixture get another home |
-| **Until answered** | The tests of `Fixture` in `Moltaro.Lattice.Engine.Tests` address `ReferenceFixture` through friend access, as the approved brief of S05 requires; the project file of the program names X3 for it |
-| **Decides** | The owner, with the report of S05; an exception is the owner's to approve |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -356,3 +347,12 @@ in the meantime.
 | **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
 | **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
 | **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
+
+### Q36. Exception X3 does not name the tests of the reference fixture
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
+| **Question** | The brief of S05 makes `ReferenceFixture` an internal type of the measurement program and asks for a test of its digest. `Moltaro.Lattice.Engine.Tests` therefore references the program and has friend access to it. Exception X3 spoke of the test projects reaching into the engine and of the measurement program reaching into the engine; it did not say that a test project reaches into the measurement program. Is X3 worded to cover it, or does the fixture get another home? |
+| **Answer** | The owner, 15 November 2026, through the planner's session: X3 is extended, and the fixture stays where the brief of S05 put it. The other option, moving the fixture into the shared test project, would have made the measurement program depend on a project meant for tests only |
+| **Where the rule lives** | Exception X3 in the [exceptions to the rules](exceptions.md), mirrored in `AGENTS.md`, "Tests And Samples" |

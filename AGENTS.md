@@ -225,7 +225,8 @@ Writing code:
   an invariant written in a decision record or in the engine contract, never how the code
   happens to be built. Two programs that are never shipped, the node program of the
   cluster tests and the measurement program, have the same access under the same
-  condition.
+  condition. The tests of the engine also address the reference fixture inside the
+  measurement program, to state that it does not change.
 - Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
   and is not copied between them. That project is never shipped and contains no tests.
   What only one test project uses stays in that project.
