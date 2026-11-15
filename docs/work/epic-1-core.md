@@ -2729,6 +2729,42 @@ width it was given in, a String key under the comparison declared for the key fi
 Adding a second operation for the same entity is an `ArgumentException`, and the batch
 stays as it was." The implementer then changes the check of the batch.
 
+**Also carried by this sprint**, tests first: the owner's decision on Q46 of 15 November
+2026, written out in the decision on strings (`docs/decisions/strings.md`, Q04, the
+addition of that date). Text compared without case is compared by a case table of
+Lattice's own and not by the runtime: two texts are equal without case when they are equal
+scalar value by scalar value after each scalar value is replaced by its simple uppercase
+mapping of one named Unicode version (`UnicodeData.txt`, the one-to-one mapping; no full
+mapping, no folding of several characters, no culture, no normalization); supplementary
+planes are mapped as scalar values, in both encodings. The table ships with the core, is
+the same in every process, globalization mode and runtime version, and has a version, an
+Int32 that starts at 1 and changes whenever the table changes. No call of the runtime
+that depends on the globalization mode is on the path of this comparison or of its hash:
+equality, the hash of a String key and, from S14, the order read the one table, through
+the one rule of `LatticeValueDeclaration.TextComparison`. The version is a fixed rule of
+the schema language, not an option; the Hello of S10 and the saved base of S30 carry it,
+and the planner adds that to their briefs. The public name of the comparison stays; its
+documentation becomes: "Text is equal whatever its case. Lattice compares with a case
+table of its own, the simple uppercase mapping of Unicode [version], character by
+character, so the result is the same in every process, on every node and under every
+globalization setting. No culture is applied and nothing is normalized. For a small
+number of rare characters the result can differ from `StringComparison.OrdinalIgnoreCase`
+of the running process."
+
+The tests: the shipped table equals the simple uppercase mappings of the named Unicode
+version, from the data file kept in the test project; through the public API on both
+implementations, keys and field values equal without case by the table, with one pair the
+modes of the runtime disagree on and one pair of a supplementary plane, in a UTF-8 and in
+a UTF-16 database. A coordinator's note: the Acceptance above says the tests of the
+comparison compute their expectation with .NET; with this decision they compute it from
+the table's rule and data, so that they pass under every globalization mode — the tests
+of this sprint that asked .NET are restated by the test author. The implementer reports
+with figures: the Unicode version chosen (the one the data of .NET 10 uses, unless there
+is a reason against); on how many scalar values the table and `OrdinalIgnoreCase` of .NET
+disagree under ICU, NLS and invariant globalization; and the read by a String key
+compared without case before and after, on the scenario of this sprint. A slower read is
+reported, not accepted silently.
+
 #### S08 · Enumeration under change and the growth of the index
 
 **Track:** full · **Needs:** S07 · **Decisions:** O12 · **Owners:** E03, E04

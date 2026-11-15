@@ -136,6 +136,17 @@ an explicit per-field setting. Preserve original text and keep lossless dictiona
 deduplication separate from case-insensitive search. The concrete JSON property
 spelling, encoding, dictionary policy and full ordering API remain separate details.
 
+**Added on 15 November 2026 (owner, Q46):** the comparison without case does not call the
+runtime. What .NET's OrdinalIgnoreCase holds equal depends on the globalization mode of the
+process and on the Unicode data behind it, and a schema has to mean the same on every node.
+Lattice compares with a table of its own: each Unicode scalar value is replaced by its
+simple uppercase mapping of one named Unicode version, and the results are compared
+exactly. The table ships with the core and has a version. It agrees with OrdinalIgnoreCase
+for the letters almost every application uses; for a small number of rare characters it
+can differ from the runtime of a given process. This settles the "effective case-mapping
+behavior/version" the text above left to the compatibility contract: the version is carried
+by the forms that connect or persist databases, and another version is refused there.
+
 <a id="q04.1-how-should-strings-be-encoded-in-storage"></a>
 
 ## Q04.1: How should strings be encoded in storage?
