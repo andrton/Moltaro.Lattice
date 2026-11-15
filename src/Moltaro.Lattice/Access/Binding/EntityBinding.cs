@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -62,7 +63,9 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Entity -> values to store, in the form a record holds and checked against the schema at
-    // every depth. The result shares nothing mutable with the entity.
+    // every depth. The result shares nothing mutable with the entity. The value of every field of
+    // the entity is checked against the bound of one value before it is copied; a String or Binary
+    // value inside a collection or an owned value is not, as RecordValues.Submit says why.
     public object?[] Capture(TEntity entity)
     {
         var values = new object?[_properties.Length];
@@ -71,6 +74,11 @@ internal sealed class EntityBinding<TEntity>
             var value = property.Get(entity);
             if (value is not null)
             {
+                if (!ValueBound.Holds(property.Field, value, EntityType.StringEncoding))
+                {
+                    throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType.Name}.{property.Field.Name} {ValueBound.Problem}");
+                }
+
                 values[property.Field.Ordinal] = property.ToRecord(value);
             }
             else if (!property.Field.Declaration.IsNullable)

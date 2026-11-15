@@ -33,11 +33,16 @@ namespace Moltaro.Lattice.Storage;
 // its encoding, ValueBlocks.MostValueBytes. A larger value is refused by its Set… member with
 // LatticeException, ValidationFailed, with the field named, as every other validation of a value,
 // before anything is allocated for it: a fixed rule of the format, the same on every node, and not
-// a WriteRejected of Complete. An OutOfMemoryException of the native allocator passes through
-// whichever member meets it. Met inside Complete, it is a failed Complete: everything is freed
-// before it passes. Met inside a Set… member, it passes after the member has freed everything it
-// allocated for that value: the field is not set, as after any refused call, and the writer stays
-// usable, so the caller may set the field again, complete or abandon.
+// a WriteRejected of Complete. As the refusal of text that is not well-formed, this refusal is the
+// guard of the stored form, for whoever calls the writer inside the engine, and not a second
+// validation of the contract: the validation of the core refuses such a value before a write
+// reaches the engine, by the same number (Access.Values.ValueBound).
+//
+// An OutOfMemoryException of the native allocator passes through whichever member meets it. Met
+// inside Complete, it is a failed Complete: everything is freed before it passes. Met inside a Set…
+// member, it passes after the member has freed everything it allocated for that value: the field is
+// not set, as after any refused call, and the writer stays usable, so the caller may set the field
+// again, complete or abandon.
 //
 // The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
 // prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
@@ -53,7 +58,10 @@ namespace Moltaro.Lattice.Storage;
 //
 // How it works. The fixed part and the inline values are collected in an image of the root block, a
 // byte array rented from ArrayPool<byte>.Shared when the writer starts and returned when it ends, so
-// that a write allocates no managed memory once the pool holds an array of its size. The size of the
+// that a write allocates no managed memory once the pool holds an array of its size. The array goes
+// back as it is: the bytes of the last root stay in it until its next user overwrites them. They are
+// bytes and reference nothing, so they keep no memory alive, and the pool is the process's own, so
+// clearing them would protect nothing (the coordinator's decision after the second review of S06). The size of the
 // root block is known only when every value is placed, so the root block itself is allocated by
 // Complete, which copies the image into it. A value too long to lie inline is copied into native
 // memory at its Set… member, into its value block or its chunks, because the span it comes in lives
@@ -313,10 +321,10 @@ internal ref struct RootWriter
     // refused in the same way, ValidationFailed with the field named. An empty string is a value,
     // not null.
     //
-    // The refusal of text that is not well-formed is the guard of the stored form, for whoever calls
-    // the writer inside the engine; it is not a second validation of the contract. The validation of
-    // the core refuses such text before a write reaches the engine (the planner's answer to Q41), with
-    // the same check, WellFormedText.
+    // Both refusals are the guard of the stored form, for whoever calls the writer inside the engine;
+    // they are not a second validation of the contract. The validation of the core refuses such text
+    // before a write reaches the engine, with the same check, WellFormedText (the planner's answer to
+    // Q41), and the same bound, ValueBound (after the second review of S06).
     public void SetString(LatticeField field, ReadOnlySpan<char> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
@@ -347,7 +355,7 @@ internal ref struct RootWriter
     // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
     // LatticeException, ValidationFailed, with the field named, at the call: nothing is allocated
     // for it, the field is not set, and the writer stays usable. An empty value is a value, not null
-    // (Q03.4.1, "Binary fields").
+    // (Q03.4.1, "Binary fields"). The refusal is the guard of the stored form, as that of SetString.
     public void SetBinary(LatticeField field, ReadOnlySpan<byte> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Binary, nameof(SetBinary));

@@ -58,7 +58,8 @@ namespace Moltaro.Lattice.Engine;
 // read at open, as an internal value that S09 turns into an option; a write the arena cannot hold
 // is WriteRejected, without a Limit until S09. An entity has no size limit of its own (decision
 // O19 of Epic 1); one String or Binary value above 268,173,376 bytes, the capacity of one directory
-// block of chunks, is ValidationFailed with the field named, a fixed rule of the storage format.
+// block of chunks, is ValidationFailed with the field named, a fixed rule of the storage format,
+// which the validation of the core checks before a write reaches the engine.
 //
 // Sessions and the write batch. On a master the members that take a session, and
 // WaitForPositionAsync, are served: a master has applied every position it gave out.

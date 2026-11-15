@@ -22,12 +22,13 @@ internal static class ValueBlocks
     public const int MostChunks = RootLayout.ChunkPayload / DescriptorSize;
 
     // The bound of one value: the most bytes of its stored encoding, MostChunks full chunks,
-    // 268,173,376 bytes. A fixed rule of the format, not an option (decision O19 of Epic 1);
-    // RootWriter refuses a larger value.
+    // 268,173,376 bytes. A fixed rule of the format, not an option (decision O19 of Epic 1); the
+    // validation of the core states it as Access.Values.ValueBound.Bytes, the same number, and
+    // RootWriter refuses a larger value as the guard of the stored form.
     public const int MostValueBytes = MostChunks * RootLayout.ChunkPayload;
 
-    // How many chunks a value of this many bytes takes.
-    public static long ChunkCount(long length) => (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
+    // How many chunks a value of this many bytes takes, for a value within MostValueBytes.
+    public static int ChunkCount(int length) => (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
 
     public static ValueDescriptor Read(ReadOnlySpan<byte> place) => MemoryMarshal.Read<ValueDescriptor>(place);
 
@@ -68,7 +69,7 @@ internal static class ValueBlocks
             return true;
         }
 
-        var chunks = (int)ChunkCount(length);
+        var chunks = ChunkCount(length);
 
         if (!TryAllocate(arena, chunks * DescriptorSize, BlockKindEnum.ChunkDirectory, root, layoutVersion, prepared, default, 0, out var directory))
         {

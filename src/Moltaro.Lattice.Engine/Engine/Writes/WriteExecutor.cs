@@ -13,17 +13,18 @@ namespace Moltaro.Lattice.Engine.Writes;
 // gates of what it publishes.
 //
 // A write, in its order. Before it reaches this class the set has checked its arguments and the
-// core has validated the entity against the schema (Q25).
+// core has validated the entity against the schema (Q25), text that is not well-formed (Q41) and the
+// bound of one value (after the second review of S06) included.
 // 1. An entity type the engine does not store yet is refused with NotSupportedException.
 // 2. With a session it waits for the position the session depends on, outside every lock.
 // 3. Under the lock of the writes it looks the key up and checks the condition of the write: an
 //    expected revision, then that an insert finds no entity and a replace finds one. A failed
 //    condition changes nothing.
-// 4. It prepares what it publishes outside the gates: a new root of prepared blocks, which also
-//    checks that the text is well-formed and every String and Binary value within the bound of
-//    one value, and for an insert a new root entry and room in the index. A failure frees all of
-//    it, so nothing of a refused write is left in any counter (the planner's answer to Q30). An
-//    entity has no size limit of its own; only the memory of the arena refuses one (decision O19).
+// 4. It prepares what it publishes outside the gates: a new root of prepared blocks, whose writer
+//    guards the stored form with the same checks of text and of the bound, and for an insert a new
+//    root entry and room in the index. A failure frees all of it, so nothing of a refused write is
+//    left in any counter (the planner's answer to Q30). An entity has no size limit of its own;
+//    only the memory of the arena refuses one (decision O19).
 // 5. It publishes under the gates of what changes, in their order (RootGates): the root's stripe
 //    for the root, the catalog gate for the index. Publication only installs what was prepared,
 //    makes its blocks live and advances the position, so it allocates nothing and cannot fail
@@ -71,8 +72,9 @@ internal sealed class WriteExecutor
     // started executing. Refusals: NotSupportedException for an entity type the engine does not
     // store; for the session, HistoryMismatch, SynchronizationTimeout and Unavailable; then
     // ObjectDisposedException after the close; RevisionConflict, DuplicateKey and NotFound for its
-    // condition; ValidationFailed for text that is not well-formed and for a String or Binary value
-    // above the bound of one value; WriteRejected for an entity beyond the memory of the arena.
+    // condition; WriteRejected for an entity beyond the memory of the arena. ValidationFailed for
+    // text that is not well-formed or a value above the bound of one value comes from the guard of
+    // the root writer, only for values that the validation of the core did not check.
     public async ValueTask<LatticeWriteResult> SubmitAsync(
         EntityTable table,
         WriteKindEnum kind,
@@ -251,7 +253,9 @@ internal sealed class WriteExecutor
                 }
 
                 // No reader holds the stripe, and nothing reaches the replaced root any more: its
-                // blocks are freed at once, and none of them is retired.
+                // blocks are freed at once, and none of them is retired. The write is published, so
+                // a fault of Free here leaves the replaced root allocated while the caller gets the
+                // exception: the Faulted case of a write, which S09 owns.
                 RootStorage.Free(_arena, layout, replaced);
             }
             finally
@@ -313,7 +317,9 @@ internal sealed class WriteExecutor
                 _gates.Catalog.ExitWriteLock();
             }
 
-            // A lookup that still holds a claim sees the entry Deleted and never reads the root.
+            // A lookup that still holds a claim sees the entry Deleted and never reads the root. As
+            // after a replace, a fault of Free here comes after the delete is published: the
+            // Faulted case of a write, which S09 owns.
             RootStorage.Free(_arena, table.Layout!, deleted);
         }
         finally
@@ -346,8 +352,13 @@ internal sealed class WriteExecutor
         }
         catch
         {
-            // After a failed Complete this does nothing; after a refused value it frees what the
-            // writer allocated.
+            // After a failed Complete this does nothing; after a value the writer refused it frees
+            // what the writer allocated for the values before it. Through the public API the writer
+            // refuses no value: the core refuses text that is not well-formed and a value above the
+            // bound before the write gets here. What can reach this is an OutOfMemoryException of
+            // the native allocator at a Set… member, or a guard of the writer that the core does not
+            // match. No test reaches it here, since values reach the executor only through a set;
+            // the writer's own cleanup after both is tested on the writer.
             writer.Abandon();
             throw;
         }
