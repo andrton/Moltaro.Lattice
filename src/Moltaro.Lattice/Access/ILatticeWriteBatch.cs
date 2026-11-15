@@ -27,9 +27,12 @@ namespace Moltaro.Lattice.Access;
 /// entity that violates the schema is refused when it is added, with
 /// <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not well-formed — a
 /// surrogate without its pair — is refused in the same way, at any depth, and is never stored
-/// and never replaced by another character. A key given to a delete that is a String which
-/// is not well-formed text is an <see cref="ArgumentException"/>, as a key of another type
-/// is. A batch is built by one caller and is not safe to use from several threads at once.
+/// and never replaced by another character. A String or Binary value larger than one value
+/// may be, as <see cref="Schema.LatticeFieldTypeEnum.String"/> and
+/// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. A key
+/// given to a delete that is a String which is not well-formed text is an
+/// <see cref="ArgumentException"/>, as a key of another type is. A batch is built by one
+/// caller and is not safe to use from several threads at once.
 /// </para>
 /// <para>
 /// <b>Executing.</b> The master checks every operation against the state at the moment of

@@ -21,7 +21,10 @@ public enum LatticeErrorEnum
     /// <summary>The submitted entity violates the schema. Nothing was written.</summary>
     /// <remarks>
     /// Text that is not well-formed — a surrogate without its pair — is refused in the same
-    /// way, at any depth, and is never stored and never replaced by another character.
+    /// way, at any depth, and is never stored and never replaced by another character. A
+    /// String or Binary value larger than one value may be, as
+    /// <see cref="Schema.LatticeFieldTypeEnum.String"/> and
+    /// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way.
     /// </remarks>
     ValidationFailed = 3,
 
