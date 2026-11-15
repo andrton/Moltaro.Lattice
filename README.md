@@ -13,8 +13,9 @@ work today.
 That store is a **placeholder, not the database engine**. It supports MemoryOnly mode,
 scalar fields, and connects a master with its children inside one process. A schema can
 already declare more than the placeholder stores: an entity type with a comparison that
-ignores case, with Dictionary storage or with an enum field compiles, and so does a schema
-that declares UTF-16, but none of them can be written yet. The native storage engine,
+ignores case, with Dictionary storage, with an enum field, or with an owned value, a
+List, a Map, a Set or a reference compiles, and so does a schema that declares UTF-16,
+but none of them can be written yet. The native storage engine,
 PostgreSQL persistence and network replication are not implemented yet, and the contract
 may still change.
 
@@ -33,6 +34,15 @@ or `OrdinalIgnoreCase`) and stored (`StringStorage`: `Plain` or `Dictionary`), a
 schema says how its text is encoded (`StringEncoding`: `Utf8` or `Utf16`). The descriptor
 is closed: a property it does not know is an error, not something to ignore. An entity
 type may name the .NET class that represents it; this is optional.
+
+A field may also hold more than one value. An owned type (`OwnedTypes`) is a group of
+fields that an entity holds as one nested value; a `List`, a `Map` and a `Set` hold
+elements, and a `Reference` holds the key of another entity, which is not checked. An
+owned type does not contain itself, and a declaration nests at most 32 deep, counted
+through collections and owned types together. An index may cover a field inside an owned value: its
+part is then written as the path of field identities to it, such as `[5, 1]`. Without a
+.NET class such an entity is a `LatticeRecord` that holds `LatticeOwnedValue`s and
+collections; a record copies what is set into it.
 
 ```json
 {
@@ -68,7 +78,9 @@ var schema = LatticeSchema.Load("directory.schema.bin");   // or Load(stream)
 A compiled schema has a fingerprint, `schema.Fingerprint`: the same for the same
 declarations on every platform, changed by anything that decides how data is laid out,
 compared or kept unique, and not changed by a rename. Each entity type also has a
-`LayoutFingerprint`, which covers only how its entities are stored.
+`LayoutFingerprint`, which covers only how its entities are stored. The saved form ends
+with a digest of itself: a file that was changed in any byte is refused when it is
+loaded.
 
 ## Using the database
 
@@ -320,10 +332,11 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | | `LatticeException` | Failures, told apart by `LatticeErrorEnum` |
 | `Moltaro.Lattice.Schema` | `LatticeSchema` | Compiled schema: `Compile`, `Save`, `Load` |
 | | `LatticeEntityType`, `LatticeField`, `LatticeIndex` | Entity types, their fields and secondary indexes |
-| | `LatticeValueDeclaration`, `LatticeEnumType` | What a field holds: its type, nullability and text policies; the enum types of the schema |
+| | `LatticeValueDeclaration`, `LatticeEnumType`, `LatticeOwnedType` | What a field, an element, a key or a value holds: its type, nullability and text policies; the enum types and the owned types of the schema |
+| | `LatticeIndexPart` | One part of an index key: a field of the entity type, or the path to a field inside an owned value |
 | | `LatticeFingerprint` | The fingerprint of a schema and the layout fingerprint of an entity type |
 | `Moltaro.Lattice.Access` | `ILatticeSet<TEntity>` | Entities as objects of a .NET class |
-| | `ILatticeSet`, `LatticeRecord` | Entities by name, as records |
+| | `ILatticeSet`, `LatticeRecord`, `LatticeOwnedValue` | Entities by name, as records, and the owned values a record holds |
 | | `ILatticeIndex<TEntity>`, `IndexKey`, `IndexBound` | Finding entities through a declared secondary index |
 | | `ILatticeWriteBatch` | Several writes, also of different entity types, executed together or not at all |
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
@@ -331,9 +344,11 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
 write batch, Durable persistence, and storing by what a schema can declare beyond the
-defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16. Not in the contract yet: replication between processes,
-collection and nested fields, partial updates, safe retry of a write, schema migration and
-replication status. A query language is not planned for the first version.
+defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16, and
+owned values, Lists, Maps, Sets and references, which a schema declares, a record and a
+class hold, and no write stores yet. Not in the contract yet: replication between
+processes, partial updates, safe retry of a write, schema migration and replication
+status. A query language is not planned for the first version.
 
 ## Repository layout
 

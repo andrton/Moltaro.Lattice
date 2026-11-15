@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Access.Sets;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -287,8 +290,10 @@ internal sealed class InMemoryDatabase : ILatticeDatabase, IEntityOperations, IR
     // maintains no index. An entity type that declares what it cannot honor is not written at
     // all, rather than accepted under other rules than the declared ones: a unique index; a
     // comparison that ignores case and Dictionary storage, which it would not apply; a field
-    // of an enum type, whose values it would not check; any entity type of a schema that
-    // declares the UTF-16 encoding.
+    // of an enum type, whose values it would not check; an owned value, a collection or a
+    // reference, which it does not store; any entity type of a schema that declares the UTF-16
+    // encoding. A set has checked the arguments of the write and validated the entity before
+    // it gets here, so a write is refused for this only when nothing else is wrong with it.
     private void EnsureWritable(LatticeEntityType entityType)
     {
         foreach (var index in entityType.Indexes)
@@ -319,6 +324,12 @@ internal sealed class InMemoryDatabase : ILatticeDatabase, IEntityOperations, IR
             {
                 throw new NotSupportedException(
                     $"Enum fields are not implemented yet: '{entityType.Name}.{field.Name}' is of enum type '{declaration.EnumType!.Name}', so '{entityType.Name}' cannot be written.");
+            }
+
+            if (FieldTypes.IsNested(declaration.Type) || declaration.Type == LatticeFieldTypeEnum.Reference)
+            {
+                throw new NotSupportedException(
+                    $"Storing owned values, collections and references is not implemented yet: '{entityType.Name}.{field.Name}' is {declaration.Type}, so '{entityType.Name}' cannot be written.");
             }
         }
 

@@ -87,8 +87,10 @@ These hold across the contract, the placeholder and the future engine.
 9. **Waiting is finite and outside locks.** No lock is held across I/O or an `await`.
    Every wait has a timeout and honors cancellation. A timeout or a limit that an
    application can observe is an option with a default, validated when the instance
-   opens; it is never a constant in the code. A type that takes more than one lock
-   documents the order.
+   opens; it is never a constant in the code. This speaks of a running instance. What a
+   schema may declare is a rule of the schema language: it is fixed, stated in the
+   contract and the same in every process, because a schema has to mean the same on every
+   node. A type that takes more than one lock documents the order.
 10. **One instance, one database.** Instances are independent; an application may have
     several. No static mutable state, except where a comment says why.
 11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
@@ -97,8 +99,12 @@ These hold across the contract, the placeholder and the future engine.
     the engine and owns the PostgreSQL driver. No other shipped assembly references those
     two packages.
     Inside an assembly a folder is a namespace and one responsibility, and folders depend
-    on each other in one direction. An integration is its own thin assembly, named for
-    what it is for.
+    on each other in one direction. A folder that holds several layers of one
+    responsibility has a sub-folder for each: the sub-folders are parts of that
+    responsibility, the direction holds between the folders of one level, and the type
+    that is the entry point of a folder may call into its sub-folders. Public types stay
+    in the namespace the contract gives them. An integration is its own thin assembly,
+    named for what it is for.
 12. **Performance is a design goal, proven by measurement.** Avoid needless copies and
     allocations on read paths, but justify added complexity with a number. The
     placeholder's speed is not a target.
@@ -222,6 +228,10 @@ Writing code:
 - Code that two or more test projects need lives once, in `Moltaro.Lattice.TestSupport`,
   and is not copied between them. That project is never shipped and contains no tests.
   What only one test project uses stays in that project.
+- A test project is organized like a library: a folder is a namespace and one area of
+  behavior, and the tests of an area sit together with the schemas and helpers that only
+  they use. The root of a test project holds what the whole project shares, never a list
+  of every test class.
 - A child may lag. A test waits through a session or a position; it does not assume, and
   it does not sleep where a deterministic way exists.
 - A feature that is not implemented has its tests written and marked

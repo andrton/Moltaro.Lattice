@@ -1,10 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
+using Moltaro.Lattice.Schema.Serialization;
 
 namespace Moltaro.Lattice.Schema;
 
 /// <summary>
-/// A compiled schema: the validated entity types and enum types of one database with
-/// everything resolved that the database needs to serve them: identities, names, fields,
+/// A compiled schema: the validated entity types, owned types and enum types of one database
+/// with everything resolved that the database needs to serve them: identities, names, fields,
 /// primary keys, indexes, the string encoding and the optional .NET classes.
 /// </summary>
 /// <remarks>
@@ -17,17 +18,20 @@ public sealed class LatticeSchema
     private readonly Dictionary<string, LatticeEntityType> _byName;
     private readonly Dictionary<string, LatticeEntityType> _byClrTypeName;
     private readonly Dictionary<string, LatticeEnumType> _enumTypesByName;
+    private readonly Dictionary<string, LatticeOwnedType> _ownedTypesByName;
 
     internal LatticeSchema(
         int version,
         LatticeStringEncodingEnum stringEncoding,
         IReadOnlyList<LatticeEnumType> enumTypes,
+        IReadOnlyList<LatticeOwnedType> ownedTypes,
         IReadOnlyList<LatticeEntityType> entityTypes,
         LatticeFingerprint fingerprint)
     {
         Version = version;
         StringEncoding = stringEncoding;
         EnumTypes = enumTypes;
+        OwnedTypes = ownedTypes;
         EntityTypes = entityTypes;
         Fingerprint = fingerprint;
         _byName = entityTypes.ToDictionary(entityType => entityType.Name, StringComparer.Ordinal);
@@ -35,11 +39,13 @@ public sealed class LatticeSchema
             .Where(entityType => entityType.ClrTypeName is not null)
             .ToDictionary(entityType => entityType.ClrTypeName!, StringComparer.Ordinal);
         _enumTypesByName = enumTypes.ToDictionary(enumType => enumType.Name, StringComparer.Ordinal);
+        _ownedTypesByName = ownedTypes.ToDictionary(ownedType => ownedType.Name, StringComparer.Ordinal);
     }
 
     /// <summary>
-    /// The catalog version: the version number declared by the descriptor. It is not part of
-    /// <see cref="Fingerprint"/>.
+    /// The catalog version: a whole number from 1, declared by the descriptor as
+    /// <c>SchemaVersion</c>, or 1 when the descriptor does not declare it. A later version of a
+    /// schema has a greater number. It is not part of <see cref="Fingerprint"/>.
     /// </summary>
     public int Version { get; }
 
@@ -55,6 +61,9 @@ public sealed class LatticeSchema
     /// <summary>All enum types in declaration order; empty when the descriptor declares none.</summary>
     public IReadOnlyList<LatticeEnumType> EnumTypes { get; }
 
+    /// <summary>All owned types in declaration order; empty when the descriptor declares none.</summary>
+    public IReadOnlyList<LatticeOwnedType> OwnedTypes { get; }
+
     /// <summary>
     /// The fingerprint of everything in the schema that decides how data is laid out,
     /// compared and constrained.
@@ -62,10 +71,14 @@ public sealed class LatticeSchema
     /// <remarks>
     /// <para>
     /// It covers the string encoding; for every enum type its identity, underlying type,
-    /// Flags mark and the set of its values; for every entity type its identity and its
-    /// primary key, and for every field the identity, type, nullability, comparison, string
-    /// storage and enum type; for every index its identity, its fields in order and whether
-    /// it is unique.
+    /// Flags mark and the set of its values; for every owned type its identity and its
+    /// fields; for every entity type its identity, its primary key, its fields and its
+    /// indexes. Of a field it covers the identity, type, nullability, comparison, string
+    /// storage and enum type, and in the same way the owned type of an owned value, the
+    /// entity type a reference refers to, and the declarations of the element, the key and
+    /// the value of a collection. Of an index it covers the identity, whether it is unique,
+    /// and its parts in order, each with its path from a field of the entity type to the
+    /// indexed field.
     /// </para>
     /// <para>
     /// Names, the .NET classes, the catalog version and the order in which the descriptor
@@ -102,9 +115,16 @@ public sealed class LatticeSchema
     public bool TryGetEnumType(string name, [NotNullWhen(true)] out LatticeEnumType? enumType) =>
         _enumTypesByName.TryGetValue(name, out enumType);
 
+    /// <summary>Finds an owned type by name.</summary>
+    /// <param name="name">The owned type name.</param>
+    /// <param name="ownedType">The owned type, when found.</param>
+    /// <returns><see langword="true"/> when the schema declares the owned type.</returns>
+    public bool TryGetOwnedType(string name, [NotNullWhen(true)] out LatticeOwnedType? ownedType) =>
+        _ownedTypesByName.TryGetValue(name, out ownedType);
+
     /// <summary>
     /// Compiles a JSON schema descriptor: parses it, validates it and resolves its enum
-    /// types, entity types, fields, primary keys and indexes.
+    /// types, owned types, entity types, fields, primary keys and indexes.
     /// </summary>
     /// <param name="json">The JSON descriptor.</param>
     /// <exception cref="LatticeException">
@@ -126,11 +146,14 @@ public sealed class LatticeSchema
     /// <param name="stream">The stream to read from. It stays open.</param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>: the data is not a compiled schema of a
-    /// supported format, or it is truncated or damaged. Text in it that is not well-formed
+    /// supported format, it is truncated or damaged, or the schema it holds breaks a rule
+    /// that <see cref="Compile"/> checks in a descriptor. Text in it that is not well-formed
     /// UTF-8 is damage: it is refused and never replaced by other text. No damage ends in
     /// another exception; only a failure of the stream itself is reported as the stream
-    /// reports it. The compiled form has no checksum: a change that still reads as a valid
-    /// schema, such as another name, is loaded as that schema.
+    /// reports it. The compiled form ends with a digest of itself, SHA-256. A change of any
+    /// byte is damage and is refused, also when the changed bytes would still read as a
+    /// schema; nothing is decoded from data whose digest does not agree. The digest detects
+    /// damage. It is not a signature: it does not show who wrote the data.
     /// </exception>
     public static LatticeSchema Load(Stream stream)
     {

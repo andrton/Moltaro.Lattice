@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Schema;
 
-// What the schema field types mean in .NET.
+// What the schema field types mean in .NET, and which of them may stand where.
 internal static class FieldTypes
 {
     public static Type ValueType(LatticeFieldTypeEnum type) => type switch
@@ -32,4 +32,17 @@ internal static class FieldTypes
 
     public static bool CanBeKey(LatticeFieldTypeEnum type) =>
         IsInteger(type) || type is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Guid;
+
+    // The types whose values have an equality of their own: a scalar that is not Binary, an
+    // Enum, a Reference. Only they may be a Map key, a Set element or the end of an index
+    // part; an owned value, a collection and a byte array have no equality the schema
+    // declares.
+    public static bool HasEquality(LatticeFieldTypeEnum type) =>
+        type is >= LatticeFieldTypeEnum.Boolean and <= LatticeFieldTypeEnum.TimeSpan
+            or LatticeFieldTypeEnum.Enum
+            or LatticeFieldTypeEnum.Reference;
+
+    // The types that hold other values: an owned value and the three collections.
+    public static bool IsNested(LatticeFieldTypeEnum type) =>
+        type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set;
 }

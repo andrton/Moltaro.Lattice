@@ -153,6 +153,9 @@ is handed a conclusion confirms it.
   decided while the sprint was open belongs to its scope when the brief or the
   [open questions](open-questions.md) name it; see "Small changes during a sprint".
 - That the documentation the change touches says what the code now does.
+- That every file the sprint added stands where `AGENTS.md` puts it — one type per file,
+  a folder for one responsibility — in the tests and the samples as in the libraries. A
+  folder that only collects files is a finding, whoever started it.
 
 **A finding states** where it is, which rule, decision or requirement it breaks, and what
 goes wrong because of it: a concrete failure or a concrete cost. Then its severity:

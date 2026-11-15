@@ -20,8 +20,10 @@ namespace Moltaro.Lattice.Schema;
 /// <para>
 /// <b>Not implemented yet.</b> An enum type is declared, compiled, saved and loaded,
 /// <see cref="IsValid"/> answers, and a class with a .NET enum is bound against it, but
-/// storing its values is not implemented: every write of an entity type that has a field of
-/// an enum type throws <see cref="NotSupportedException"/>, whatever the value.
+/// storing its values is not implemented. Until then no write of an entity type that has a
+/// field of an enum type is carried out: after the checks every write makes of its
+/// arguments and of the entity against the schema, it throws
+/// <see cref="NotSupportedException"/>, whatever the value.
 /// </para>
 /// </remarks>
 public sealed class LatticeEnumType
@@ -70,7 +72,10 @@ public sealed class LatticeEnumType
     /// </summary>
     public bool IsFlags { get; }
 
-    /// <summary>The declared members, in declaration order.</summary>
+    /// <summary>
+    /// The declared members, in declaration order. An enum type declares at least one member:
+    /// one without members is not valid, whether it is a Flags type or not.
+    /// </summary>
     public IReadOnlyList<LatticeEnumMember> Members { get; }
 
     // The declared values, each once however many names it has, in ascending numeric order.

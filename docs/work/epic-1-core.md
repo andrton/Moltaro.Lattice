@@ -58,9 +58,12 @@ The state after the last closed sprint; the coordinator keeps it current.
 
 **In the contract and working in the placeholder.** Opening and closing; master and child;
 MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
-types, fields, indexes and enum types, scalar fields, enum and Flags types, text policies
-and the string encoding; binary save and load; both fingerprints; the optional .NET class,
-with a .NET enum that has to agree with its enum type. Sets by class and by name, for
+types, fields, indexes, enum types and owned types, scalar fields, enum and Flags types,
+text policies and the string encoding, owned values, Lists, Maps, Sets and references,
+index parts that are paths into owned values; binary save and load with a digest; both
+fingerprints; the optional .NET class, bound by one table for every position, with a .NET
+enum that has to agree with its enum type. Records and owned values that hold nested
+values and copy what is set into them. Sets by class and by name, for
 entity types of scalar fields with the default text policies: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
@@ -75,13 +78,13 @@ tests are written and skipped; samples are written.
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
 | Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
+| Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
 and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Owned values, List, Map, Set, references by key | S03, then S18 and S19 |
 | Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
@@ -511,7 +514,10 @@ sprint closes, and all of them are gone through with the owner when the epic clo
 
 **Options, not constants.** A timeout or a limit that an application can observe is an
 option with a default, validated at open. The owner added this to principle 9 of
-`AGENTS.md` on 14 November 2026; every brief below follows it.
+`AGENTS.md` on 14 November 2026; every brief below follows it. By the owner's answer to
+Q28 of the [open questions](open-questions.md) it speaks of a running instance: a rule of
+the schema language, such as the depth of a declaration, is fixed and the same in every
+process, and principle 9 says so since S03.
 
 **The exceptions register.** A departure from a rule of `AGENTS.md` is recorded in
 [exceptions to the rules](exceptions.md) with its reason: entered when the owner approves
@@ -747,7 +753,7 @@ Why this order:
 | --- | --- | --- | --- |
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
 | S02 | Schema: identities, text policies, enums | Full | Done |
-| S03 | Schema and values: owned types, collections, references | Full | Not started |
+| S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Not started |
 | S05 | Root layout and values | Full | Not started |
 | S06 | Reads and writes of one entity | Full | Not started |
@@ -1167,7 +1173,80 @@ entity types whose layout fingerprint differs.
   equal to the one that was saved, with the same fingerprints. A record and an object are validated against the declaration when they are
   built or bound: wrong element type, null where it is not allowed, a duplicate Map key
   in bulk input. A Set built from input keeps the first representation of equal members.
-  A class with inherited properties binds as before. An index part that is a
+  A class with inherited properties binds as before. By the owner's answer to Q14 the
+  property of a field is found as C# finds it by that name on the class: the public
+  property of the most derived class that declares one. It has to be an instance property
+  with get and set and of the type the field needs. So a derived class that hides a
+  property of its base with one of the type the field needs binds, and the field is read
+  from and written to the hiding property; a class whose property of that name is static,
+  and a class whose hiding property has a type the field does not accept, are refused
+  with `BindingFailed` and the property named. Neither ends in another exception, from
+  `Set<TEntity>()` or from the typed members of a write batch, and the same holds for the
+  classes of owned types that this sprint binds. In a bound class an owned value is an
+  object of the class of its owned type at every position: a List of owned values binds
+  as `List<T>` or `T[]` of that class and a Map of them as a `Dictionary` with that class
+  as its value, a .NET enum that agrees binds as an element as it does as a property, and
+  the class of an owned type binds its own owned fields and collections in the same way.
+  A field at any position whose owned type names no `ClrType`, and a property, an element
+  or a value of type `LatticeOwnedValue` in a class, are `BindingFailed` with the
+  property and the owned type named. A record holds a `LatticeOwnedValue` at every
+  position, whether or not the owned type names a class. The identity and the name of an
+  owned type are unique among owned types: a duplicate of either is `InvalidSchema` with
+  the place named, and an owned type may have the identity or the name of an entity type
+  or of an enum type. The identity of a field is unique within its owned type. A .NET
+  class named by two owned types, or by an owned type and an entity type, is
+  `InvalidSchema` with the class named. An owned type that contains itself is refused
+  with `InvalidSchema` and the owned types on the way named: through a field of its own
+  type, nullable or not, through a List element or a Map value of its own type, and
+  through another owned type that contains it. An owned type with a Reference to the
+  entity type that holds it compiles. A declaration is at most 32 deep, counted through
+  collections and owned types together. A field whose declaration is 32 deep compiles,
+  and one that is 33 deep is refused with `InvalidSchema` and the field named: through
+  Lists alone, through a chain of owned types each holding the next, and through both
+  mixed. A saved schema nested deeper than 32 is refused with `InvalidSchema` however
+  deep it is, without exhausting the stack. A search key may give null for a part of an index
+  when the indexed field is nullable or a step of its path is a nullable owned value;
+  null for a part that can never be null is `ArgumentException`. The key is checked
+  before the search is refused as not implemented: a key with a permitted null ends in
+  `NotSupportedException`, one with a null that is not permitted in `ArgumentException`.
+  An index part, plain or the end of a path, may be a scalar that is not Binary, an Enum
+  or a Reference. A part that ends at an Owned field, a List, a Map or a Set is refused
+  with `InvalidSchema`, with the index and the field named. A field of a
+  `LatticeOwnedValue` accepts an integer of another width when it fits, as a field of a
+  record does. A collection is accepted only with its exact element, key and value types:
+  a `List<int>` for a List of Int64 is `ArgumentException` with the field named. A Map or
+  a Set of references to an entity type whose key is a String compared with
+  `OrdinalIgnoreCase` treats keys that differ only in case as one: such a duplicate Map
+  key is refused, and such a Set keeps the first. When the comparison of the target's key
+  changes, the layout fingerprint of the entity type that holds the collection does not
+  change and the fingerprint of the schema does. A record copies what is set into it, at
+  every depth. A change of the caller's collection, or of a collection inside it, after
+  it was set is not seen through the record. A change of a `LatticeOwnedValue` after it
+  was set into a record, into another owned value or into a collection of a record is not
+  seen through the record either, and neither is a change of a byte array. One owned
+  value set into two records gives two independent values. What a record returns is its
+  own and the same object every time: a change made through a returned owned value or
+  collection is seen through the record. What a `LatticeOwnedValue` returns is its own
+  and the same object every time: a change made through a returned collection or owned
+  value is seen through it. An owned value made invalid through a collection it returned,
+  such as a null added where none is allowed, is refused with `ArgumentException` when it
+  is set into a record, into another owned value or into a collection. A record made
+  invalid through a collection it
+  returned, such as a null added where none is allowed, is refused with
+  `ValidationFailed` when it is written through a set or added to a write batch. A write
+  through a set validates the object or the record before it is refused as not
+  implemented: a null where none is allowed, or a duplicate Map key, at any depth is
+  `ValidationFailed`, and a valid object or record of such an entity type ends in
+  `NotSupportedException` until S18 and S19. A write of an entity type that the
+  placeholder refuses checks first what needs no engine: an entity without a required
+  value is `ValidationFailed`, and a key of another type is `ArgumentException`, for an
+  entity type with a unique index as for any other; an entity that passes ends in
+  `NotSupportedException`. An index part written as a list of one
+  identity is the part of that field, and its index has the same fingerprint as with the
+  plain spelling. An empty path, and the same part twice in one index in either spelling,
+  are `InvalidSchema` with the index named. An owned type without fields, and one with an
+  empty `ClrType`, are `InvalidSchema` with the owned type named.
+  An index part that is a
   path is accepted when every step but the last is an owned value and the last is a
   field an index may have; a path through a collection, or to a field that does not
   exist, is refused with the place named. The layout fingerprint of an entity type changes when a field is added to an
@@ -1255,6 +1334,45 @@ entity types whose layout fingerprint differs.
   refused until S18 and S19. Partial commands (S20). Indexes on collection members,
   which are outside the milestone.
 
+**Entered by the coordinator in the contract step.** The five new field types exist from
+the contract commit, while the reader of that commit cannot declare an owned type, an
+element or a target. So that a descriptor or a saved schema that names one of them is
+still refused with `InvalidSchema`, as before, the contract author made `SchemaBuilder`
+treat the five as unknown types in that commit; the implementer replaces the check. The
+contract step also found four gaps in this brief, entered as Q15 to Q18 of the
+[open questions](open-questions.md): the element type of a collection of owned values in
+a bound class, an owned type that contains itself, the scope of an owned type's identity,
+name and class, and a null key for an index part behind an absent owned value. Q15, Q17
+and Q18 are answered by the planner, Q16 by the owner, and their texts are in this brief.
+The tests step found six more, Q19 to Q24, which the planner answered in the same way.
+Two rules of the saved form cannot be stated in a test and are checked by the reviews in
+the code: nothing of the body is decoded before the digest agreed, and the length is used
+for nothing but to find the digest. One test of Q16 needs a saved form that `Save` cannot
+write, with a body that encodes owned types: the test author adds it in the commit of its
+own that follows the implementation, with the recorded fingerprints.
+
+**Added by the owner's word while the sprint was carried out (decision O16).** Two matters
+of order, both made in this branch:
+
+- The test project `Moltaro.Lattice.Tests` had 61 files in its root. The test author put
+  it into folders by area of behavior and gave every type its own file, before the
+  implementation; `AGENTS.md` and the review checklist of the development process say
+  what a test project looks like.
+- The folder `Schema` of the contract assembly holds three layers after this sprint: the
+  public model, the compilation of drafts into it, and the encodings of a schema. After
+  the implementation commit the implementer moves the internal types into
+  `Schema/Compilation` (drafts, builders and their checks, and the canonical encoding of
+  the fingerprints, which the builder computes) and `Schema/Serialization` (the reader of
+  the descriptor and the binary form, which both produce drafts and call the builder), in
+  a commit of its own that changes places and `namespace` lines only. So the two
+  sub-folders depend in one direction, `Serialization` on `Compilation`; the first
+  wording of this item had the fingerprints with the readers, which would have made the
+  two depend on each other. The folder `Access` is looked at in the same way in that
+  commit. The public types
+  stay in `Moltaro.Lattice.Schema`, which is their namespace by the contract, with the
+  internal types the model itself holds. Principle 11 of `AGENTS.md` says how a folder
+  and its sub-folders depend on each other.
+
 **Types and members of S03.** Namespaces `Moltaro.Lattice.Schema` and `Moltaro.Lattice.Access`.
 
 The descriptor gains a top array `OwnedTypes` and five field types:
@@ -1272,9 +1390,51 @@ The descriptor gains a top array `OwnedTypes` and five field types:
 { "Id": 9, "Name": "Rights",  "Type": "Set",  "Element": { "Type": "String", "StringStorage": "Dictionary" } }
 ```
 
+The identity of an owned type is positive and unique among the owned types of the schema.
+Owned types are a scope of their own, as enum types and entity types are: an owned type
+may have the identity that an entity type or an enum type has. The identity of a field is
+unique within its owned type. The name of an owned type is unique among owned types; it
+may be the name of an entity type or of an enum type, because `OwnedType`, `EntityType`
+and `Enum` in a declaration each name a type of one kind. A .NET class is named by at
+most one type of the schema: two owned types that name the same `ClrType`, and an owned
+type and an entity type that do, are `InvalidSchema` with the class named. An owned type
+declares at least one field: without `Fields`, or with an empty list, it is
+`InvalidSchema` with the owned type named. Its `ClrType` is optional and, when given, not
+empty, as for an entity type.
+
+By the owner's answer to Q16 an owned type does not contain itself. What an owned type
+contains is what its values own: the owned types of its Owned fields, of the elements of
+its Lists and of the values of its Maps, through collections inside collections, and
+whatever those owned types contain in turn. A declaration in which this leads from an
+owned type back to itself is `InvalidSchema`, with the owned types on the way named. The
+shortest case is an owned type with a field of its own type, and it is refused whether
+the field is nullable or not. A Reference is not containment: an owned type may refer to
+any entity type, the one whose entities hold it included. It is a rule of the model, so a
+saved schema that declares such a type is refused on load as a descriptor is.
+
+By the owner's answer to Q28 a declaration is at most 32 deep. The depth of a declaration
+is 1 for a scalar, a Binary, an Enum and a Reference; for a List and a Set one more than
+the depth of its element; for a Map one more than the deeper of its key and its value;
+for an Owned one more than the deepest field of its owned type. The declaration of every
+field, of an entity type and of an owned type, has a depth of 32 or less; a deeper one is
+`InvalidSchema` with the field named. The depth is finite because an owned type does not
+contain itself. It is a rule of the schema language, the same in every process, and not
+an option. It is a rule of the model, so it holds for a descriptor and for a saved schema
+alike; the reader of a saved schema also stops at it while it reads, so that a form
+nested deeper cannot exhaust the stack before the model is checked. Whatever walks a
+value or binds a class therefore never goes deeper than 32.
+
+A coordinator's note, after review round 2: the text of a descriptor is parsed to a depth
+of 128, four times the depth of a declaration, where a valid descriptor nests at most 36
+deep; a declaration too deep by far, 100 deep for one, is therefore still refused by the
+rule above with its field named. Text nested deeper than 128 is refused as a whole,
+`InvalidSchema`, with a message that says so and no field named. Without the bound the
+time to refuse such a text grew with the square of its depth, and a text of a few hundred
+kilobytes took a minute.
+
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
-themselves be a List, a Map or a Set. A Map key and a Set element are a scalar other than
-Binary, an Enum or a Reference; a Map key is never nullable.
+themselves be a List, a Map or a Set. A Map key and a Set element are one of three: a
+scalar that is not Binary, an Enum, a Reference. A Map key is never nullable.
 
 An enum type declares at least one member: `"Members": []` is `InvalidSchema`. This
 completes the declaration of enum types of S02, where an empty list compiled.
@@ -1303,7 +1463,8 @@ rule that does not hold:
 
 1. The magic and the format version, as before. A form of another format, that of S02
    included, is refused: nothing was released, so such a schema is compiled again.
-2. The length. A negative length is refused. The length says where the digest stands and
+2. The length. A negative length is refused. So is a length greater than one array can
+   hold: such a body cannot be read, and it is damage like any other. The length says where the digest stands and
    is used for nothing else: it counts the bytes to read. No allocation is sized by it.
    The rule of S02, that nothing is allocated by a declared size, holds for it as for
    every count and length inside the body: the body is read in pieces, and memory grows
@@ -1385,12 +1546,92 @@ What a record holds at a position, which is also what `ValueType` reports for it
 | `Set` of T | `HashSet<T>` with the comparer of the element declaration | Any `IEnumerable<T>`; copied; equal members keep the first |
 
 T is the `ValueType` of the inner declaration, or `Nullable<>` of it when that position
-is nullable and its type is a value type. In a bound class a List is a property of
-`List<T>` or `T[]`, a Map of `Dictionary<K, V>`, a Set of `HashSet<T>`, an owned value of
-the class named by `ClrType` of its owned type, and a reference of the key type of its
-target; another property type is `BindingFailed` with the property named. Until S18 and
-S19 a write of an entity type that declares one of these fields throws
-`NotSupportedException`; compiling, saving, loading, records and binding work.
+is nullable and its type is a value type. That is what a record holds, at every depth: an
+owned value inside a List or a Map of a record is a `LatticeOwnedValue`, whether or not
+its owned type names a class. `ValueType` reports this and nothing about a bound class.
+
+The element, key and value types of a collection are exact: a `List<int>` is not accepted
+for a List of Int64, nor a Map with `int` keys for a Map of Int64 keys; each is
+`ArgumentException` with the field named. An integer of another width is accepted when it
+fits only where a value is given by itself: a field of a record, a field of a
+`LatticeOwnedValue`, a primary key, a part of a search key.
+
+The comparer of a Map key or a Set element that is a Reference is the comparer of the key
+of its target: when that key is a String compared without case, the Map or the Set
+ignores case too. Nothing is added to a fingerprint for it. The layout fingerprint never
+covers a comparison, and the fingerprint of the schema already covers the comparison of
+the target's key and the identity of the target.
+
+What a record holds of what it is given. A record copies every value that is set into it,
+at every depth, and holds nothing of the caller's. A collection is rebuilt as the
+record's own `List`, `Dictionary` or `HashSet` with the comparers of the schema, and so
+are the collections inside it. A `LatticeOwnedValue` is copied field by field, as if each
+of its fields were set again, so what it holds is copied and checked in the same way. A
+byte array is copied. A change made afterwards to the value that was given — to the
+collection, to the owned value, to the array — is not seen through the record, and one
+`LatticeOwnedValue` set into two records, or twice into one collection, gives independent
+copies. A `LatticeOwnedValue` treats what is set into it in the same way.
+
+What a record returns is its own, and the same object every time: the collection, the
+owned value or the byte array it holds. A change made through it is a change of the
+record, and that is how a value inside a record is edited after it was set:
+`record.Get<LatticeOwnedValue>("Home")["City"] = "Lviv"`. A change made through a
+returned collection is not checked when it is made. A `LatticeOwnedValue` returns in the
+same way: its own collection, owned value or byte array, the same object every time, and
+a change made through it is a change of the owned value. An owned value that was made
+invalid through a collection it returned is refused when it is set into a record, into
+another owned value or into a collection, with `ArgumentException` and the field named,
+because setting it copies and checks what it holds. The field named is the field of the
+owned value whose value does not match its declaration, as if that field were set by
+itself; the coordinator read this from "as if each of its fields were set again" for the
+tests. In the same way, from "a change made through a returned collection is not checked
+when it is made": a value added to a collection that a record or an owned value returned
+is neither copied nor checked at that moment, an owned value added that way included;
+the write validates and copies it.
+
+A record is not the boundary of the database. The boundary is a write — a method of a
+set, or adding to a write batch — and a read. There everything is validated again and
+copied at every depth: nothing changed afterwards reaches what was submitted, and what a
+read returns shares nothing with the database or with another read.
+
+A bound class holds the same data in its own types. One rule gives the type of every
+position, a property as well as an element, a key or a value:
+
+| Declared | In a bound class |
+| --- | --- |
+| A scalar or Binary | Its `ValueType`, or `Nullable<>` of it, as in S02 |
+| `Enum` | The underlying integer type, or a .NET enum that agrees with the enum type, as in S02 |
+| `Owned` | The class named by `ClrType` of the owned type |
+| `Reference` | The key type of the target |
+| `List` of T | `List<T>` or `T[]` |
+| `Map` of K, V | `Dictionary<K, V>` |
+| `Set` of T | `HashSet<T>` |
+
+T, K and V are found by the same table. The class of an owned type is bound as the class
+of an entity type is: a public parameterless constructor and, for every field of the
+owned type, a property found by the rule of Q14; its own owned fields and collections
+follow the table. An owned type that names no `ClrType` has no form in a class: a class
+with a field of such a type at any position is `BindingFailed`, with the property and the
+owned type named, and so is a property, an element or a value of type
+`LatticeOwnedValue`. Any other type is `BindingFailed` with the property named. Until S18
+and S19 a write of an entity type that declares one of these fields throws
+`NotSupportedException`; compiling, saving, loading, records and binding work. The
+validation comes first: an object or a record with an invalid value at any depth is
+`ValidationFailed`, through a set as when it is added to a write batch, and only a valid
+one ends in `NotSupportedException`. The same order holds for every entity type whose
+writes are refused as not implemented, those of S02 included — a unique index, a
+comparison that ignores case, Dictionary storage, an enum field, a schema in UTF-16: a
+write first checks its arguments and validates the entity against the schema, and only a
+write that passes ends in `NotSupportedException`. A check that belongs to what is not
+implemented is not made: whether an integer is a declared value of its enum type, and
+whether a unique index already holds the key.
+
+In the "Not implemented yet" parts of the public documentation, the sentence "every write
+of such an entity type throws `NotSupportedException`" becomes, by the answer to Q25:
+
+> Until then no write of such an entity type is carried out: after the checks every write
+> makes of its arguments and of the entity against the schema, it throws
+> `NotSupportedException`.
 
 A part of an index may be a field inside an owned value, by decision P9. In the
 descriptor an element of `Fields` is then a list of identities instead of one identity,
@@ -1399,6 +1640,12 @@ from a field of the entity type down to the indexed field:
 ```json
 "Indexes": [ { "Id": 2, "Name": "ByCity", "Fields": [ [5, 1] ] } ]
 ```
+
+An element of `Fields` is one identity or a list of identities. A list of one identity is
+the field itself: `[[2]]` and `[2]` declare the same part. An empty list is
+`InvalidSchema`. An index names a part once: the same path twice, in either spelling, is
+`InvalidSchema`, as the same field twice is since S02. Two paths that differ in any step
+are different parts.
 
 ```csharp
 // One component of an index key.
@@ -1415,10 +1662,21 @@ public IReadOnlyList<LatticeIndexPart> Parts { get; }
 Every step of a path but the last is an `Owned` field; a path through a List, a Map or a
 Set is `InvalidSchema`. The fingerprint covers the paths of the parts.
 
+The field a part ends at, which for a plain part is the field itself, is one of three: a
+scalar that is not Binary, an Enum, a Reference. A Reference is compared as the key of
+its target, with the comparison of that key. A part that ends at an Owned field, a List,
+a Map or a Set is `InvalidSchema`, as one that ends at a Binary field is since S02: an
+owned value is indexed through a path to a field inside it, and the members of a
+collection are outside the milestone.
+
+A search key may give null for a part exactly when a value of that part can be null: the
+indexed field is nullable, or a step of its path is a nullable owned value, which is
+absent in such an entity. Null for any other part is `ArgumentException`, as before S03.
+
 From this sprint on the layout fingerprint of an entity type covers everything an entity
 of that type stores. For an Owned field it covers the identity of the owned type and
 every field of it, in the way S02 gives for the fields of an entity type, and so on
-through owned values inside it. For a List, a Map or a Set it covers the element, the key and the value in
+through owned values inside it, which ends because an owned type does not contain itself. For a List, a Map or a Set it covers the element, the key and the value in
 the way S02 gives for a field: type, nullability, string storage and the underlying type
 of an enum, never a comparison; an element, a key or a value that is itself an owned value,
 a reference or a collection follows the rules of this paragraph. For a Reference it covers the type of the key of its
@@ -2384,7 +2642,10 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   an owned value finds the entity by that field; when the owned value is absent the
   component is null, the entity is still found by a search for null, and a unique index
   does not compare it. An ownership audit after churn
-  finds every block owned by exactly one live entity.
+  finds every block owned by exactly one live entity. Nothing a caller changes after a
+  write returned — in the record or the object, in its collections, its owned values or
+  its byte arrays — changes what was written, and two reads of one entity share nothing
+  at any depth.
 - **Measured.** Reported: bytes retained for the fixture's user and group with their Lists.
 - **Out of scope.** Map and Set (S19). Element commands (S20).
 
@@ -2953,7 +3214,9 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   without changing a layout fingerprint. By the owner's answer to Q10 the catalog version
   of the target schema is greater than that of the schema in force: a migration to a
   schema with the same or a lower version is refused, with an error the contract of this
-  stage names.
+  stage names. A changed comparison of a String primary key also changes what a Map or a
+  Set of references to that entity type may hold, and what a unique index over a
+  reference to it admits.
 - **To read.** [Schema identity, migration and facade integration](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration);
   [Q03, Q03.9](../decisions/schema-and-types.md).
 - **Acceptance.** All writes pause, also those of unaffected entity types, and the

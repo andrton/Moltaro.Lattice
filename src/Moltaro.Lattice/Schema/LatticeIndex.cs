@@ -2,8 +2,9 @@ namespace Moltaro.Lattice.Schema;
 
 /// <summary>
 /// A secondary index of an entity type, as declared in the schema: an identity, a name, the
-/// fields it covers, in order, and whether it is unique. Entities are found through it by
-/// the values of those fields.
+/// parts of its key, in order, and whether it is unique. Entities are found through it by the
+/// values of the fields those parts cover: fields of the entity type, or fields inside its
+/// owned values.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,14 +19,21 @@ namespace Moltaro.Lattice.Schema;
 /// second one. A set of values in which any field has no value is not complete, and is not
 /// compared: any number of entities may have it.
 /// </para>
+/// <para>
+/// <b>Not implemented yet.</b> An index is declared, compiled, saved and loaded, but finding
+/// entities through it is not implemented, as <c>ILatticeIndex&lt;TEntity&gt;</c> states, and
+/// neither is keeping a unique index, as <see cref="IsUnique"/> states. What this
+/// documentation and that of <see cref="LatticeIndexPart"/> say of a search and of the
+/// comparison of a unique index describes how they will work.
+/// </para>
 /// </remarks>
 public sealed class LatticeIndex
 {
-    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeField> fields, bool isUnique)
+    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeIndexPart> parts, bool isUnique)
     {
         Id = id;
         Name = name;
-        Fields = fields;
+        Parts = parts;
         IsUnique = isUnique;
     }
 
@@ -38,8 +46,15 @@ public sealed class LatticeIndex
     /// <summary>The index name, unique within its entity type.</summary>
     public string Name { get; }
 
-    /// <summary>The indexed fields, in the order that defines the index order.</summary>
-    public IReadOnlyList<LatticeField> Fields { get; }
+    /// <summary>
+    /// The parts of the index key, in the order that defines the index order: each a field of
+    /// the entity type or a field inside an owned value of it, see
+    /// <see cref="LatticeIndexPart"/>. An index names a part once: the same path twice, in
+    /// either spelling of the descriptor, is refused with
+    /// <see cref="LatticeErrorEnum.InvalidSchema"/>, with the index named, as the same field
+    /// twice is. Two paths that differ in any step are different parts.
+    /// </summary>
+    public IReadOnlyList<LatticeIndexPart> Parts { get; }
 
     /// <summary>
     /// Whether the index is unique: at most one entity may have a given complete set of
@@ -47,9 +62,10 @@ public sealed class LatticeIndex
     /// </summary>
     /// <remarks>
     /// <b>Not implemented yet.</b> A schema declares unique indexes, and is compiled, saved
-    /// and loaded with them, but keeping them is not implemented: every write of an entity
-    /// type that declares a unique index, an insert, a replace, an upsert or a delete,
-    /// throws <see cref="NotSupportedException"/>.
+    /// and loaded with them, but keeping them is not implemented. Until then no write of an
+    /// entity type that declares a unique index, an insert, a replace, an upsert or a
+    /// delete, is carried out: after the checks every write makes of its arguments and of
+    /// the entity against the schema, it throws <see cref="NotSupportedException"/>.
     /// </remarks>
     public bool IsUnique { get; }
 

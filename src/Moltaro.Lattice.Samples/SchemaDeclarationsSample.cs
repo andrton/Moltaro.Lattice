@@ -95,7 +95,7 @@ internal static class SchemaDeclarationsSample
 
             foreach (var index in account.Indexes)
             {
-                var fields = string.Join(", ", index.Fields.Select(field => field.Name));
+                var fields = string.Join(", ", index.Parts.Select(part => part.Field.Name));
                 Console.WriteLine($"Index {index.Id} {index.Name} ({fields}){(index.IsUnique ? ", unique" : "")}");
             }
 

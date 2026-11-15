@@ -108,12 +108,95 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <typeparamref name="TEntity"/>. The entity type, its key and its fields are taken
     /// from the schema; the returned object is cached and safe to share between threads.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The class is bound to its entity type here, once: every field of the entity type is
+    /// matched with a property of the class, and the class is not checked again when an
+    /// entity is read or written. The property of a field is the one C# finds by the name of
+    /// the field on the class: the public property of the most derived class that declares
+    /// one. It has to be an instance property with a public get and a set, of the type the
+    /// field needs.
+    /// A property that hides one of its base class with that type binds, and the field is
+    /// read from and written to it.
+    /// </para>
+    /// <para>
+    /// The type a field needs follows from its declaration, by one rule for every position: a
+    /// property, and an element, a key or a value of a collection alike.
+    /// </para>
+    /// <list type="table">
+    /// <listheader>
+    /// <term>Declared</term>
+    /// <description>In a bound class</description>
+    /// </listheader>
+    /// <item>
+    /// <term>A scalar or <see cref="LatticeFieldTypeEnum.Binary"/></term>
+    /// <description>Its <see cref="LatticeValueDeclaration.ValueType"/>.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.Enum"/></term>
+    /// <description>The underlying integer type, or a .NET enum that agrees with the enum type.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.Owned"/></term>
+    /// <description>The class named by <see cref="LatticeOwnedType.ClrTypeName"/> of the owned type.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.Reference"/></term>
+    /// <description>The key type of the target.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.List"/> of T</term>
+    /// <description><c>List&lt;T&gt;</c> or <c>T[]</c>.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.Map"/> of K, V</term>
+    /// <description><c>Dictionary&lt;K, V&gt;</c>.</description>
+    /// </item>
+    /// <item>
+    /// <term><see cref="LatticeFieldTypeEnum.Set"/> of T</term>
+    /// <description><c>HashSet&lt;T&gt;</c>.</description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// T, K and V are found by the same table, and a nullable position whose type is a value
+    /// type is <see cref="Nullable{T}"/> of that type. A List of owned values is therefore a
+    /// <c>List&lt;T&gt;</c> or an array of the class of the owned type, and a Map of them a
+    /// <c>Dictionary</c> with that class as its value.
+    /// </para>
+    /// <para>
+    /// An Enum declared as its underlying integer holds the value as it is stored and is not
+    /// compared with the members of the enum type. A .NET enum, as a property or at a position
+    /// inside a collection, has to agree with the enum type: the same underlying type, the
+    /// same members, every name with its value in both directions, and
+    /// <see cref="FlagsAttribute"/> exactly when the enum type is a Flags type. A .NET enum
+    /// with two names for one value therefore agrees only with an enum type that declares both
+    /// names. Nothing is mapped or guessed.
+    /// </para>
+    /// <para>
+    /// The class of an owned type is bound as the class of an entity type is: it is not
+    /// abstract and has a public parameterless constructor, it has for every field of the
+    /// owned type a property found by the same rule, and its own owned values and collections
+    /// follow the table. An owned type that names no <c>ClrType</c> has no form in a class,
+    /// and neither has <see cref="LatticeOwnedValue"/>, which only a record holds.
+    /// </para>
+    /// <para>
+    /// A class that does not agree with the schema is found here, and not later when a value
+    /// is read or written. Every way it can fail is <see cref="LatticeErrorEnum.BindingFailed"/>;
+    /// none ends in another exception. The members of <see cref="ILatticeWriteBatch"/> that
+    /// take an entity class bind it in the same way.
+    /// </para>
+    /// </remarks>
     /// <typeparam name="TEntity">A .NET class named by a <c>ClrType</c> in the schema.</typeparam>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for
-    /// the class, the class has no public parameterless constructor, the class does not have
-    /// the properties the entity type declares, or a property is a .NET enum that does not
-    /// agree with the enum type of its field, see <see cref="LatticeValueDeclaration.ValueType"/>.
+    /// the class; the class, or the class of an owned type it holds, is abstract or has no
+    /// public parameterless constructor; the property that C# finds by the name of a field, in
+    /// the class or in the class of an owned type, is missing, static, an indexer, without a
+    /// public get or without a set, or of another type than the table gives, a .NET enum that
+    /// does not agree with its enum type included; a field at any position is of an owned type
+    /// that names no <c>ClrType</c>; or a property, an element or a value is a
+    /// <see cref="LatticeOwnedValue"/>. The message names the class, and the property where a
+    /// property is concerned; for the last two causes it names the owned type as well.
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
     /// </exception>
     ILatticeSet<TEntity> Set<TEntity>()
