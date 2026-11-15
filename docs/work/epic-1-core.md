@@ -2815,9 +2815,8 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
 **The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
 through the planner's session: reads by key have to scale with threads, and the work is
 done in this sprint, not judged at S25. The owner's reason: that more threads read less
-in total is a very bad signal; locks have to be built with great care, because excess
-granularity always ends in collisions; and the solutions the industry found for it are
-known and can be applied.
+in total is a very bad signal, and open-source databases that are very fast are there to
+be studied: how they do it is to be learned from their source and, in essence, repeated.
 
 - **Goal, added.** Reads by key scale with the number of threads that read.
 - **To read, added.** The review of S06 on the scaling of reads (Q42), and "Reader
@@ -2829,16 +2828,17 @@ known and can be applied.
   that all readers share, which is why more threads read less in total. What the sprint
   has to reach: a read by key writes to no memory that other readers write to on its
   ordinary path, or as near to that as the guarantees allow, and takes the gate of the
-  index once. Fewer and coarser protections are preferred to more and finer ones: every
-  added gate is another place where threads meet, and the owner asks for particular care
-  here. The implementer first writes down, in the pull request, which mechanisms that
-  databases and concurrent runtimes use for the same problem it considered — reader
-  counts kept apart per thread or per processor, optimistic reads checked by a version,
-  protection of memory by epochs — which it chose and why, with the figures of each
-  candidate it measured; nothing is chosen by argument. The guarantees do not move: a
-  read is coherent, a deleted entry is reused only after the readers that could see it
-  are gone, a close waits for the reads in progress, no application code runs inside a
-  protection, and the storms of the reviews of S06 pass unchanged. When the choice
+  index once. The implementer first studies how open-source databases that read fast from
+  memory on many threads protect a read — their source, not a summary of it — and writes
+  down in the pull request which of them it looked at, what each does for this problem,
+  and which it follows. The aim is to repeat a solution that is proven there, not to
+  invent one. Among the candidates are reader counts kept apart per thread or per
+  processor, optimistic reads checked by a version, and protection of memory by epochs;
+  how many protections there are and how fine they are is decided by what those systems
+  do and by the figures the implementer measures, not by a preference stated here. The
+  guarantees do not move: a read is coherent, a deleted entry is reused only after the
+  readers that could see it are gone, a close waits for the reads in progress, no
+  application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
   replaces what the milestone contract names as the initial synchronization, the
   coordinator corrects that section with the sprint and reports it to the owner.
 - **Acceptance, added.** Reads by key on 16 threads complete more in total than on one
