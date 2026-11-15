@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Fixture;
 // counts of the table for each entity type, every field set because none is nullable; the same
 // records in the same order on every run, which Digest confirms. A schema that is neither form is
 // ArgumentException, whether Generate refuses it at the call or when its records are first asked
-// for. The digest of seed 42 is recorded once the implementation has produced it, in DigestTests.
+// for. The recorded digest of seed 42 is in DigestTests.
 public sealed class GenerationTests
 {
     public static TheoryData<string> Forms => FixtureForms.All;

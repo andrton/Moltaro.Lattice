@@ -11,11 +11,32 @@ namespace Moltaro.Lattice.Engine.Tests.Fixture;
 // Map enumerates. By it a run shows that it generated the same fixture as every other, so it
 // changes when a value changes; the order of a List is part of its value. That a second run gives
 // the same digest is in GenerationTests. Digest takes any records; to keep the default lane fast,
-// these tests digest a part of the fixture, which is records like any other. The digest of seed 42
-// is recorded here once the implementation has produced it, as the fingerprints of S02 and S03
-// were.
+// these tests digest a part of the fixture, which is records like any other, except the test of the
+// recorded digests, which digests the whole fixture that GeneratedRecords holds already.
 public sealed class DigestTests
 {
+    // The digests of the fixture of seed 42, recorded from the implementation of S05. A recorded
+    // value that changes means the fixture changed: every figure measured on it before is no longer
+    // comparable with one measured after. A value is therefore changed only on purpose, together
+    // with the coordinator of the epic, and never to make this test pass.
+    private const string FullFormDigest = "f8794f7d00404b4984e84770d564d525364a5b180ae99f9e0e552a1313d96e6e";
+
+    // One digest for the scalar form with and without its Unique marks: the marks belong to the
+    // indexes of the schema, not to the records, and the digest is taken over the values of the
+    // records only.
+    private const string ScalarFormDigest = "4dc1a0d6c53c1111ad75afd84f475ccce39bc367a7d09bd85a94ffecdfbbbf06";
+
+    // The Acceptance of S05: the generator produces the same 121,000 roots from seed 42 on every
+    // run, checked by a digest; on every run means in every process and on every machine.
+    [Theory]
+    [InlineData(FixtureForms.Full, FullFormDigest)]
+    [InlineData(FixtureForms.Scalar, ScalarFormDigest)]
+    [InlineData(FixtureForms.ScalarUnique, ScalarFormDigest)]
+    public void The_fixture_of_seed_42_has_its_recorded_digest(string form, string digest)
+    {
+        Assert.Equal(digest, ReferenceFixture.Digest(GeneratedRecords.Of(form).Records));
+    }
+
     [Fact]
     public void The_digest_is_the_lowercase_hexadecimal_of_a_SHA256()
     {
