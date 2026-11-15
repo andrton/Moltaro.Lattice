@@ -130,8 +130,8 @@ while PostgreSQL is unavailable.
 ### A WriteBatch is one transaction
 
 A bounded batch may change different entity types in the same database. It contains
-at most one operation per type/key. The starting limits are 128 entities and 8 MiB per
-batch, and 1 MiB per entity; they are configurable. Validation, durable effects and publication preserve
+at most one operation per type/key. The starting limits are 8 MiB per batch and 1 MiB per entity; they are configurable. The
+number of entities in a batch has no limit of its own. Validation, durable effects and publication preserve
 its all-or-nothing boundary; children preserve that same boundary during replay.
 
 It is a transaction of the database, not one the application works inside: a batch

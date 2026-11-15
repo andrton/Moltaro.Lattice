@@ -503,7 +503,7 @@ constant in the code; "configurable" in a row is not the complete list of such o
 | Limit / setting | Starting value |
 | --- | --- |
 | Root encoded size, including owned data | 1 MiB; configurable |
-| Explicit WriteBatch | 128 roots and 8 MiB encoded/prepared input; configurable |
+| Explicit WriteBatch | 8 MiB encoded/prepared input; configurable. No limit on the number of roots, by the owner's decision of 15 November 2026: the size bounds the memory, the transaction and what a child has to hold, and how long a large batch holds reads is measured before a number is chosen |
 | Active prepare workers | 2; configurable and bounded |
 | Internal group | Up to 32 operations / 8 MiB / 1 ms collection delay; never split a WriteBatch |
 | Queued write input | 1,024 requests and min(16 MiB, 10% instance budget) |

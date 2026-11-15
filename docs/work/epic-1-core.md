@@ -544,6 +544,18 @@ after the review of S05: the decision first read "the limit of its container, or
 physical memory of the machine", which the runtime does not report, and the owner chose
 the runtime's figure, said plainly, over platform code of the project's own.
 
+**O18. A write batch has no limit on the number of its operations.** Decided on 15
+November 2026 and given through the planner's session, when the owner asked what the
+limit of 128 entities was for and called it excess configuration. A batch stays bounded
+by its size, 8 MiB by default: the size bounds the memory that is reserved up front, the
+one transaction and what a child has to hold to apply a batch whole. The number bounded
+only how long the publication of a batch holds every read, and neither that pause nor
+the number 128 was ever measured. *Not chosen:* keeping a limit just in case with an
+invented value. Shapes S17, whose measurement is widened to batches of 1, 32, 1,000 and
+10,000 entities so that a limit on the number can come back with a measured value if it
+is needed. It rode in the branch of S06 under O16, with one row of the engine contract,
+one sentence of the architecture and one of the documentation of `ILatticeWriteBatch`.
+
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
 with what the code does in the meantime. The coordinator names the new entries when a
@@ -3051,8 +3063,7 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
 
 - **Goal.** Several writes of different entity types take effect together at one
   position, or not at all, on every node.
-- **Contract.** Exists. Added: options for the batch limits, 128 operations and 8 MiB by
-  default.
+- **Contract.** Exists. Added: an option for the size limit of a batch, 8 MiB by default.
 - **To read.** [Q01 atomic write batch](../decisions/document-model.md#atomic-writebatch-within-one-database);
   [batch save with Upsert, repeated roots](../decisions/mutation-commands.md);
   [write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -3064,11 +3075,13 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   identities of a batch are claimed together; two batches with overlapping entities do
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value
   another member takes. A failing member refuses the whole batch and reports its number.
-  A batch over a limit is refused with `WriteRejected`. Two entities changed by one batch
+  A batch over the size limit is refused with `WriteRejected`; a batch of 10,000 small
+  entities within the limit is executed as one. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
   a batch. A child never acknowledges a part.
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
-  of 1, 8, 32 and 128 entities.
+  of 1, 32, 1,000 and 10,000 entities. The figure is reported; whether a limit on the
+  number is needed is the owner's to judge from it.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
 
 ### Stage 5. The full type model and access
