@@ -49,6 +49,15 @@ in the meantime.
 | **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
 | **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
 
+### Q32. When does S06 release the entry of a deleted root?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The brief of S06 says, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08: "A deleted entry is reused only after its claims are gone". The brief of S04 leaves who may release, and when, to the caller "with S06 to S08". So the agents of S06 cannot tell from that sentence what S06 does with the entry of a root whose delete was published, while lookup claims do not exist yet: release it at once, or keep it `Deleted` until S08 |
+| **Until answered** | The sentence stands as the planner gave it. Nothing in S04 or S05 depends on it |
+| **Decides** | The planner, before S06 starts; the coordinator does not start S06 with this entry open |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
