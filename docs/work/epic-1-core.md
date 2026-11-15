@@ -2069,8 +2069,11 @@ them.
   from the start of the root block. The parent of a value block and of a directory is the
   root; the parent of a chunk is its directory. A null String or Binary is null in the
   bitmap and its descriptor is all zero. No member of the contract shows where a value
-  went; a test sees it through the counters of the arena and states no more than they
-  show.
+  went. The tests written before the implementation see it through the counters of the
+  arena and state no more than they show; the implementer's tests of ownership — the
+  parent, the descriptor offset and the layout version of every block, the zero
+  descriptor of a null — read the blocks through the arena, at the offsets this part
+  gives.
 - **Which member serves which field.** `SetInteger` and `GetInteger`: Int8 to Int64 and
   an Enum whose underlying type is signed. `SetUnsigned` and `GetUnsigned`: UInt8 to
   UInt64 and an Enum whose underlying type is unsigned. `SetNull` and `IsNull` serve
@@ -2098,8 +2101,16 @@ them.
   writer; a segment the arena obtained for the writer may stay in the reserve, so
   `Segments` and `ReservedSegments` may differ. An `OutOfMemoryException` of the native
   allocator passes through whichever member meets it. Met inside `Complete`, it is a
-  failed `Complete`: everything is freed already. Met inside a `Set…` member, the caller
-  then calls `Abandon`, which frees everything.
+  failed `Complete`: everything is freed already. Met inside a `Set…` member, it passes
+  through after the member has freed everything it allocated for that value: the field is
+  not set, as after any refused call, and the writer stays usable — the caller may set the
+  field again, complete or abandon (decided after review round 1, which showed that a
+  half-stored value left in the writer leaks or makes a null field name a block).
+- **Managed memory.** A coordinator's note, after review round 1: after warm-up a write —
+  the constructor, every `Set…` member, `Complete`, `Abandon` — and `RootStorage.Free`
+  allocate no managed memory, and a reader allocates nothing but the string or the array
+  that `GetString` or `GetBinary` returns. The implementer's tests assert both, in the
+  test collection of remark 9.
 - **The life of a writer.** A field is set once: a second `Set…` or `SetNull` of a field
   that was set is `InvalidOperationException`. A call that was refused — malformed text,
   a value out of range, `SetNull` of a field that is not nullable — did not set the
@@ -2242,6 +2253,11 @@ beyond the listed ones to the implementer, and they do not change what the membe
 do. In S06 a write is executed alone and published at once, so a prepared block is not
 observable between writes; the rule is stated here because S06 is the first sprint with
 the transition, and S09 and the Durable sprints rely on it when prepared writes wait.
+
+A coordinator's note from the review of S05: a `RootWriter` is a mutable `ref struct`
+that holds a pooled array and the blocks it allocated. It is passed by `ref`, never by
+value, also into helpers: a copy that is ended as well returns the array to the pool
+twice.
 
 #### S07 · Every key type and declared value
 
