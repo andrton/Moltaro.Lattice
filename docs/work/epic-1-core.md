@@ -1859,7 +1859,22 @@ of the [open questions](open-questions.md), 15 November 2026. The tests state th
   That is the test of "an invalid length is refused before it is dereferenced".
 - **Refusals.** `Free` of an invalid address, or of a block already freed, is
   `ArgumentException`. After `Dispose` the other members throw `ObjectDisposedException`;
-  a second `Dispose` does nothing.
+  a second `Dispose` does nothing. A coordinator's note, after review round 1: `Free` of a
+  block whose header gives a length beyond the capacity of its slot is
+  `InvalidOperationException`, as `Payload` refuses it, and the block stays allocated; the
+  implementer chose it and the coordinator accepted it, because the arena has no other
+  length to take the block out of the counters with.
+- **Managed memory.** A coordinator's note, after review round 1, on "no managed
+  allocation on allocate and free after warm-up": warm-up ends when the arena has its
+  segments. `Free` allocates no managed memory in any case; `TryAllocate` allocates none
+  unless it obtains a segment, whose metadata is managed memory, about 18 KB for a segment
+  of 4 MiB. Tests state both.
+- **Native memory.** A coordinator's note, after review round 1: every segment obtained
+  from the native allocator is returned exactly once, by `Free` when a segment beyond the
+  reserve empties and by `Dispose` for all that is held; a failure of the native allocator
+  leaves the arena as it was. The tests see it through an internal fault point in the
+  sense of exception X3: the object through which the arena obtains and returns native
+  memory, which a test replaces by one that counts and can fail.
 - **Options.** The constructor of `Arena` refuses null options with
   `ArgumentNullException`, and with `ArgumentOutOfRangeException` a `MemoryLimit` smaller
   than one segment, a `SegmentSize` smaller than `MaxBlockSize` and a negative
