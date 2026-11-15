@@ -1823,9 +1823,10 @@ internal sealed class RootTable
 **What the members do where the block above does not say.** The planner's answers to Q30
 of the [open questions](open-questions.md), 15 November 2026. The tests state them.
 
-- **A current handle.** A handle is current when `Add` gave it out with this generation
-  and it was not released since. A released slot is not current, whether it became free or
-  was retired. The first generation of a slot is 1, so `default(RootHandle)` is never
+- **A current handle.** A handle is current when the entry of its slot has the handle's
+  generation and the slot is neither free nor retired: that holds for a handle from the
+  moment `Add` gives it out until it is released. A released slot is not current, whether
+  it became free or was retired. The first generation of a slot is 1, so `default(RootHandle)` is never
   current. A slot released at generation `uint.MaxValue` is retired: never given out
   again and not counted by `Count`. The test of the exhausted generation sets
   `Entry(handle).Generation` through the ref, because it cannot be reached otherwise, and
@@ -1848,8 +1849,8 @@ of the [open questions](open-questions.md), 15 November 2026. The tests state th
   block is 32 bytes, the smallest class. The largest payload is `MaxBlockSize` − 32 =
   65,504 bytes, the chunk payload of the specification. `Payload` spans the header's
   `PayloadLength` and never beyond the capacity of the slot: a header whose length
-  exceeds it is `InvalidOperationException` before anything is dereferenced. That is the
-  test of "an invalid length is refused before it is dereferenced".
+  exceeds it is `InvalidOperationException` before any byte of the payload is reached.
+  That is the test of "an invalid length is refused before it is dereferenced".
 - **Refusals.** `Free` of an invalid address, or of a block already freed, is
   `ArgumentException`. After `Dispose` the other members throw `ObjectDisposedException`;
   a second `Dispose` does nothing.
