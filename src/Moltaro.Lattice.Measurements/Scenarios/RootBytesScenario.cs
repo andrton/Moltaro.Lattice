@@ -26,9 +26,6 @@ internal static class RootBytesScenario
 {
     public const string Name = "root-bytes";
 
-    // The starting limit of the size of an entity (milestone contract, "Initial bounded settings").
-    private const int MaxEntitySize = 1024 * 1024;
-
     // Far more than the entities of one type take, so that the limit plays no part.
     private const long ArenaMemoryLimit = 1L << 30;
 
@@ -93,7 +90,7 @@ internal static class RootBytesScenario
     // Writes the record as a root and adds the logical sizes of its fields.
     private static ArenaAddress Write(Arena arena, RootLayout layout, RootHandle handle, LatticeRecord record, ref long logicalBytes)
     {
-        var writer = new RootWriter(arena, layout, handle, MaxEntitySize);
+        var writer = new RootWriter(arena, layout, handle);
 
         foreach (var field in record.EntityType.Fields)
         {

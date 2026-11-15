@@ -512,6 +512,11 @@ SQL journal. Required recovery input and other valid storage retention claims re
 protected. Numerical retry/queue limits,
 remaining consumer coordination and final API errors stay open.
 
+**Added by the owner on 15 November 2026:** the hard limit is an option that is not set by
+default. While it is not set, foreground writes continue however far the applier is
+behind, and the time of a recovery grows with the unapplied tail. When it is set, it works
+as accepted above.
+
 ### Effects on speed, memory and complexity
 
 | Aspect | Effect |

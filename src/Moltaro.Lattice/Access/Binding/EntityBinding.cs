@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -31,6 +32,13 @@ internal sealed class EntityBinding<TEntity>
 
     public LatticeEntityType EntityType { get; }
 
+    // The property of every field, by LatticeField.Ordinal, for a reader that sets the stored values
+    // without boxing them: the engine, which compiles its own setters from their accessors.
+    public IReadOnlyList<BoundProperty> Properties => _properties;
+
+    // A new object of the class, made by its public parameterless constructor.
+    public TEntity CreateObject() => _create();
+
     public static EntityBinding<TEntity> For(LatticeSchema schema) => Cache.GetValue(schema, Create);
 
     private static EntityBinding<TEntity> Create(LatticeSchema schema)
@@ -55,7 +63,9 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Entity -> values to store, in the form a record holds and checked against the schema at
-    // every depth. The result shares nothing mutable with the entity.
+    // every depth. The result shares nothing mutable with the entity. The value of every field of
+    // the entity is checked against the bound of one value before it is copied; a String or Binary
+    // value inside a collection or an owned value is not, as RecordValues.Submit says why.
     public object?[] Capture(TEntity entity)
     {
         var values = new object?[_properties.Length];
@@ -64,6 +74,11 @@ internal sealed class EntityBinding<TEntity>
             var value = property.Get(entity);
             if (value is not null)
             {
+                if (!ValueBound.Holds(property.Field, value, EntityType.StringEncoding))
+                {
+                    throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType.Name}.{property.Field.Name} {ValueBound.Problem}");
+                }
+
                 values[property.Field.Ordinal] = property.ToRecord(value);
             }
             else if (!property.Field.Declaration.IsNullable)
@@ -92,7 +107,8 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Writes a stored value of a field that is not an owned value or a collection to its
-    // property: as it is, or converted to the .NET enum that the property is declared as.
+    // property: as it is, or converted to the .NET enum that the property is declared as. The value
+    // is set through the set accessor C# sees for the property, called virtually.
     private static Action<TEntity, object?>? Setter(BoundProperty property)
     {
         var declaration = property.Field.Declaration;
@@ -104,10 +120,8 @@ internal sealed class EntityBinding<TEntity>
         var entity = Expression.Parameter(typeof(TEntity), "entity");
         var value = Expression.Parameter(typeof(object), "value");
         var stored = Expression.Convert(value, declaration.PositionType);
-        var member = Expression.Property(entity, property.Property);
+        var set = Expression.Call(entity, property.SetAccessor, Expression.Convert(stored, property.Property.PropertyType));
 
-        return Expression
-            .Lambda<Action<TEntity, object?>>(Expression.Assign(member, Expression.Convert(stored, property.Property.PropertyType)), entity, value)
-            .Compile();
+        return Expression.Lambda<Action<TEntity, object?>>(set, entity, value).Compile();
     }
 }

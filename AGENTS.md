@@ -24,7 +24,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
 | `src/Moltaro.Lattice` | The core library. No package dependencies |
-| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; internal mechanisms only so far, nothing behind the contract yet |
+| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; it reads and writes entities of scalar fields on one node, and `LatticeDatabase` opens the placeholder until the engine replaces it |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
@@ -72,8 +72,8 @@ These hold across the contract, the placeholder and the future engine.
 4. **One master executes writes; children follow.** Application code uses a master and a
    child through the same interface and does not branch on the role.
 5. **Atomicity is explicit.** One write is atomic for one entity. Several writes are
-   atomic only when they are submitted together as one write batch, which is bounded,
-   may address several entity types and stays inside one database. Separate calls are
+   atomic only when they are submitted together as one write batch, which may address
+   several entity types and stays inside one database. Separate calls are
    never atomic together, there is no transaction that spans application code, and
    nothing spans two databases or an external one.
 6. **Three identities stay separate.** A revision identifies one state of one entity, a
@@ -88,7 +88,10 @@ These hold across the contract, the placeholder and the future engine.
 9. **Waiting is finite and outside locks.** No lock is held across I/O or an `await`.
    Every wait has a timeout and honors cancellation. A timeout or a limit that an
    application can observe is an option with a default, validated when the instance
-   opens; it is never a constant in the code. This speaks of a running instance. What a
+   opens; it is never a constant in the code. A limit exists only where the engine cannot
+   work without it or a resource cannot hold the work. The database does not cap what an
+   application chooses to do: no default turns ordinary load into a refusal, and where it
+   can the database waits or slows down instead of refusing. This speaks of a running instance. What a
    schema may declare is a rule of the schema language: it is fixed, stated in the
    contract and the same in every process, because a schema has to mean the same on every
    node. A type that takes more than one lock documents the order.

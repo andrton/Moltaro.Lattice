@@ -75,7 +75,7 @@ changes, without reopening the already accepted behavior.
   at the master before effects commit; any-null keys are exempt. A conflict rejects
   the complete operation or WriteBatch. Atomic swaps and delete/reclaim are supported.
 - Complete-object Save without diff, explicit partial updates, expected revisions and
-  bounded atomic WriteBatch across entity types. One operation per type/key in a batch.
+  atomic WriteBatch across entity types, without a limit of its own. One operation per type/key in a batch.
 - Parallel preparation and ordered bounded commit/publication. Prepare resources before
   effects commit; no memory gate spans storage/network I/O. Faulted publication stops
   the instance until reopening/recovery rather than exposing partial success.

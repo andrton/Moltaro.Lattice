@@ -111,6 +111,22 @@ name it with the answer that caused it, whoever holds the role for that kind of 
 makes it, and it is reviewed with the sprint. The light track is for a change made while
 no sprint is open, or one that cannot wait for the open sprint.
 
+**A sentence of documentation needs no step of its own.** When a decision that is already
+made changes a sentence of public documentation or a comment and nothing else of the
+contract — no name, no signature, no behavior that was not decided — the agent whose
+commit carries the change it describes writes the sentence in that commit: the test author
+with the tests, the implementer with the code. The brief or the register gives the
+wording, and the reviews check it. A change of a name, a signature or a member remains
+the contract author's step.
+
+**A decision is written in one place.** A decision of the owner, or an answer of the
+planner, is written out once: in the decision record or the list of decisions that owns
+it, and in the brief of each sprint whose work it changes. Other documents that touch
+the matter point to that place and do not restate it; a sentence elsewhere is changed
+only when the decision makes it untrue. Tests are sized the same way: a rule that one
+check enforces is stated by the smallest set of cases that tells a right implementation
+from a wrong one, not once for every path that reaches the check.
+
 When the last sprint of an epic closes, the same comparison is made once more over the
 whole design reference, and what the epic delivered moves from its working document into
 the product documentation.
@@ -169,6 +185,18 @@ goes wrong because of it: a concrete failure or a concrete cost. Then its severi
 
 A finding that names no rule and no failure is P4. A reviewer does not widen the scope:
 "while you are here" is not a finding.
+
+"Does not change the contract", said of the implementer and of the test author, means
+its names, signatures and behavior; a decided sentence of documentation is theirs to
+write, as "A sentence of documentation needs no step of its own" says. "Every behavior
+the brief states has a test" is ranked by what follows: a behavior the Acceptance
+states and no test holds is P2; one the brief states elsewhere is P4.
+
+A changed copy of the code that the tests do not notice is a finding of its own only when
+the code is wrong, or when the change breaks a behavior that the Acceptance of the brief
+states and no test holds it: then it is "a stated behavior has no test", P2. Where the
+code is right and the behavior is not one the Acceptance states, it is P4. A review looks
+for defects; it does not ask for a test of every line.
 
 **Disputes.** The implementer may contest a finding, with its reason. The coordinator
 decides. What the coordinator cannot decide goes to the owner.

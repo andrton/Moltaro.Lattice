@@ -15,12 +15,29 @@ namespace Moltaro.Lattice.Storage;
 // its NativeAllocator and returns each segment's memory there exactly once, in one of two places:
 // in Free, when a segment is left empty and the reserve has no room for it, and in Dispose, for
 // everything still held. Whoever owns the arena disposes it; from S06 on that is the database, when
-// it closes. The arena has no finalizer, so an arena that is never disposed keeps its native memory
-// until the process ends.
+// it closes and no read is in progress any more. The arena has no finalizer, so an arena that is
+// never disposed keeps its native memory until the process ends.
 //
-// In S04 a block is either allocated or free. The arena takes no lock, and one thread at a time
-// uses it; the protection of the arena protocol, under which readers and writers share its
-// blocks, comes with S06 to S08.
+// The states of a block. A block is free, prepared or live. TryAllocate gives a live block, as in
+// S04. TryAllocatePrepared gives a prepared one, allocated for a write that has not published it
+// yet, and Publish makes it live when the write is published. Both kinds are valid from their
+// allocation until Free (brief of S06, the planner's answer to Q30). A block is counted in exactly
+// one place: a prepared block with its whole slot in PreparedBytes, a live one with its header and
+// payload in LiveBytes and the rest of its slot in ClassSlackBytes. No block is retired in S06:
+// the database frees the blocks of a replaced or deleted root while it holds the root's exclusive
+// protection, which no reader of the root holds at the same time (arena protocol, "Reclamation and
+// relocation"), so RetiredBytes is 0.
+//
+// Who uses the arena at the same time. The arena takes no lock. One thread at a time changes it, by
+// TryAllocate, TryAllocatePrepared, Publish and Free: in the database that is the thread executing
+// a write, and writes are executed one after another. Readers that hold the protection of a root,
+// its stripe or, for the text of the key of an indexed root, the catalog gate (Engine.Protection),
+// call IsValid, Header and Payload for the blocks of that root at the same time. Those read only
+// the metadata of the block's own slot, region and segment, which no change of the arena alters
+// while the block is allocated; a change for another block writes other bits of the same words and
+// other elements of the same arrays, and a reader sees their old or their new value, either of
+// which leaves the bit of its own block set. A grown segment table is a new array: a reader that
+// still has the old one finds the same segments in it.
 internal sealed unsafe class Arena : IDisposable
 {
     // The size of the first segment table: slot 0, which is never used, and three segments. The
@@ -71,6 +88,8 @@ internal sealed unsafe class Arena : IDisposable
     private long _liveBytes;
 
     private long _classSlackBytes;
+
+    private long _preparedBytes;
 
     private bool _disposed;
 
@@ -133,7 +152,62 @@ internal sealed unsafe class Arena : IDisposable
     // BlockSizeFor refuses is refused in the same way, with ArgumentOutOfRangeException. When the
     // native allocator cannot supply a new segment, its OutOfMemoryException leaves the arena as
     // it was.
-    public bool TryAllocate(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address)
+    //
+    // The block is live: its header and payload length count in LiveBytes, the rest of its slot in
+    // ClassSlackBytes.
+    public bool TryAllocate(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address) =>
+        TryTake(payloadLength, kind, root, prepared: false, out address);
+
+    // Allocates a block as TryAllocate does, with the same refusals, but prepared: its whole slot
+    // counts in PreparedBytes, and nothing of it in LiveBytes or ClassSlackBytes, until Publish.
+    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address) =>
+        TryTake(payloadLength, kind, root, prepared: true, out address);
+
+    // Makes a prepared block live, when the write it was allocated for is published: its slot leaves
+    // PreparedBytes, its header and the payload length its header gives join LiveBytes, and the rest
+    // of the slot ClassSlackBytes. It changes no byte of the block and allocates nothing, so it
+    // cannot fail for a block that is prepared. An invalid address, or that of a block already freed,
+    // is refused with ArgumentException, and a block that is not prepared with
+    // InvalidOperationException, as is a header whose length exceeds the slot; then nothing changes.
+    public void Publish(ArenaAddress address)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var segment = Locate(address, out var regionIndex, out var slot) ?? throw NotABlock(address);
+
+        if (!segment.IsPrepared(regionIndex, slot))
+        {
+            throw new InvalidOperationException($"The block at {address} is not prepared; only a prepared block is published.");
+        }
+
+        var blockSize = SizeClasses.SizeOf(segment.Regions[regionIndex].SizeClass);
+        var payloadLength = ((BlockHeader*)(segment.Memory + address.Offset))->PayloadLength;
+
+        if (payloadLength > blockSize - BlockHeader.Size)
+        {
+            throw LengthBeyondSlot(payloadLength, blockSize);
+        }
+
+        segment.SetPrepared(regionIndex, slot, prepared: false);
+
+        _preparedBytes -= blockSize;
+        _liveBytes += BlockHeader.Size + payloadLength;
+        _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+    }
+
+    // Whether the address is that of a prepared block: valid, and not published since its
+    // allocation. Nothing is read through the address to decide this.
+    public bool IsPrepared(ArenaAddress address)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var segment = Locate(address, out var regionIndex, out var slot);
+
+        return segment is not null && segment.IsPrepared(regionIndex, slot);
+    }
+
+    // Allocates a block, live or prepared; see TryAllocate.
+    private bool TryTake(int payloadLength, BlockKindEnum kind, RootHandle root, bool prepared, out ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -169,8 +243,16 @@ internal sealed unsafe class Arena : IDisposable
             Kind = kind,
         };
 
-        _liveBytes += BlockHeader.Size + payloadLength;
-        _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+        if (prepared)
+        {
+            segment.SetPrepared(regionIndex, slot, prepared: true);
+            _preparedBytes += blockSize;
+        }
+        else
+        {
+            _liveBytes += BlockHeader.Size + payloadLength;
+            _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+        }
 
         address = new ArenaAddress((uint)segmentSlot, (uint)offset);
 
@@ -183,12 +265,13 @@ internal sealed unsafe class Arena : IDisposable
     // release of Q17 comes with S23. An invalid address, or that of a block already freed, is
     // refused with ArgumentException before anything is read through it.
     //
-    // LiveBytes and ClassSlackBytes lose what the block's header says, because the arena keeps no
-    // length of its own. A header whose length exceeds the capacity of the slot is refused with
-    // InvalidOperationException, as Payload refuses it, and the block stays allocated. A length
+    // A live block makes LiveBytes and ClassSlackBytes lose what its header says, because the arena
+    // keeps no length of its own. A header whose length exceeds the capacity of the slot is refused
+    // with InvalidOperationException, as Payload refuses it, and the block stays allocated. A length
     // within the slot that differs from the one given at allocation shifts bytes between the two
     // counters, and their sum stays right; a caller does not write the length through the header,
-    // and S20 brings the member that changes it.
+    // and S20 brings the member that changes it. A prepared block, one of a write that was
+    // abandoned, makes PreparedBytes lose its whole slot.
     public void Free(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -198,8 +281,9 @@ internal sealed unsafe class Arena : IDisposable
         var sizeClass = region.SizeClass;
         var blockSize = SizeClasses.SizeOf(sizeClass);
         var payloadLength = ((BlockHeader*)(segment.Memory + address.Offset))->PayloadLength;
+        var prepared = segment.IsPrepared(regionIndex, slot);
 
-        if (payloadLength > blockSize - BlockHeader.Size)
+        if (!prepared && payloadLength > blockSize - BlockHeader.Size)
         {
             throw LengthBeyondSlot(payloadLength, blockSize);
         }
@@ -210,8 +294,16 @@ internal sealed unsafe class Arena : IDisposable
 
         segment.ReturnSlot(regionIndex, slot);
 
-        _liveBytes -= BlockHeader.Size + payloadLength;
-        _classSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+        if (prepared)
+        {
+            segment.SetPrepared(regionIndex, slot, prepared: false);
+            _preparedBytes -= blockSize;
+        }
+        else
+        {
+            _liveBytes -= BlockHeader.Size + payloadLength;
+            _classSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+        }
 
         if (region.Allocated > 0)
         {
@@ -290,7 +382,7 @@ internal sealed unsafe class Arena : IDisposable
             return new ArenaCounters(
                 LiveBytes: _liveBytes,
                 ClassSlackBytes: _classSlackBytes,
-                PreparedBytes: 0,
+                PreparedBytes: _preparedBytes,
                 RetiredBytes: 0,
                 FreeRegions: _freeRegionCount,
                 ReservedSegments: _reservedSegments.Count,

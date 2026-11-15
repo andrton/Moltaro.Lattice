@@ -15,7 +15,9 @@ scalar fields, and connects a master with its children inside one process. A sch
 already declare more than the placeholder stores: an entity type with a comparison that
 ignores case, with Dictionary storage, with an enum field, or with an owned value, a
 List, a Map, a Set or a reference compiles, and so does a schema that declares UTF-16,
-but none of them can be written yet. The native storage engine,
+but none of them can be written yet. The native storage engine is being built behind
+the contract: it stores and reads entities of scalar fields on one node, and until it
+replaces the placeholder only its tests reach it.
 PostgreSQL persistence and network replication are not implemented yet, and the contract
 may still change.
 
@@ -189,8 +191,8 @@ LatticeWriteResult result = await batch.CommitAsync();
 ```
 
 The master executes the whole batch at one position or refuses it as a whole; no reader,
-on any node, sees a part of it. A batch takes one operation per entity and is bounded in
-size. It is not a transaction the application works inside: it cannot read, and it holds
+on any node, sees a part of it. A batch takes one operation per entity, and its size is
+limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
 no lock while it is built.
 
 **Master and children.** A master and its read replicas can run in one process or in
@@ -356,8 +358,8 @@ status. A query language is not planned for the first version.
 | --- | --- |
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
-| `src/Moltaro.Lattice.Tests` | Tests of the core library |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the first internal mechanisms: the native memory arena, the table of root entries, and the layout that writes an entity of scalar fields into the arena and reads it back; nothing of it is behind the contract yet, where the placeholder in the core library still stands |
+| `src/Moltaro.Lattice.Tests` | Tests of the core library; its scenario tests of reads and writes run on the placeholder and on the engine |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key on one node in memory. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

@@ -4,7 +4,8 @@ namespace Moltaro.Lattice.Tests.Binding;
 // every position: a property, an element of a List or an array, a value of a Dictionary. The
 // class of an owned type is bound as the class of an entity type is: a public parameterless
 // constructor and, for every field, the property C# finds by that name, an instance property
-// with get and set of the type the field needs; its own owned values and collections follow
+// of the type the field needs with a public get accessor and a set accessor of any accessibility
+// (SetAccessorTests); its own owned values and collections follow
 // the same rules. An owned type that names no class has no form in a class, and an owned value
 // without a class, LatticeOwnedValue, is for records only: both are refused with BindingFailed,
 // the property and the owned type named.

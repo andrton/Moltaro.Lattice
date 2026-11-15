@@ -43,6 +43,16 @@ public enum LatticeFieldTypeEnum : byte
     Decimal = 12,
 
     /// <summary><see cref="string"/>.</summary>
+    /// <remarks>
+    /// One value takes at most 268,173,376 bytes of its stored encoding, the encoding the schema
+    /// declares in <see cref="LatticeSchema.StringEncoding"/>. A write of a larger value, and
+    /// adding an entity with one to a write batch, is refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
+    /// validation of an entity: before the conditions of the write are looked at and before a
+    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// the same on every node and not an option; an entity itself has no size limit, only the
+    /// memory of the instance bounds it.
+    /// </remarks>
     String = 13,
 
     /// <summary><see cref="System.Guid"/>.</summary>
@@ -61,6 +71,15 @@ public enum LatticeFieldTypeEnum : byte
     TimeSpan = 18,
 
     /// <summary>An array of <see cref="byte"/>.</summary>
+    /// <remarks>
+    /// One value takes at most 268,173,376 bytes. A write of a larger value, and adding an
+    /// entity with one to a write batch, is refused with
+    /// <see cref="LatticeErrorEnum.ValidationFailed"/>, with the field named, as every other
+    /// validation of an entity: before the conditions of the write are looked at and before a
+    /// write is refused as not implemented. The bound is a fixed rule of the storage format,
+    /// the same on every node and not an option; an entity itself has no size limit, only the
+    /// memory of the instance bounds it.
+    /// </remarks>
     Binary = 19,
 
     /// <summary>

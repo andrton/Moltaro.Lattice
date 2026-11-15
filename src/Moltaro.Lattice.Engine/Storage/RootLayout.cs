@@ -35,9 +35,11 @@ namespace Moltaro.Lattice.Storage;
 // - any other value of at most SingleBlockLimit bytes: in one block of its own, of kind Value;
 // - beyond that: chunked, in chunks of kind Chunk of ChunkPayload bytes, every chunk but the last
 //   full, and one directory block of kind ChunkDirectory with one 16-byte descriptor for each
-//   chunk. A value that needs more chunks than one directory block holds is WriteRejected,
-//   reported by RootWriter.Complete. A chunk boundary is not a boundary of the value: a character
-//   may continue in the next chunk.
+//   chunk. A value has at most the chunks one directory block holds, ValueBlocks.MostChunks, so it
+//   takes at most 268,173,376 bytes; a larger one is ValidationFailed with the field named, refused
+//   by the validation of the core and, as the guard of the stored form, by the Set… member of
+//   RootWriter: a fixed rule of the format (decision O19 of Epic 1). A chunk
+//   boundary is not a boundary of the value: a character may continue in the next chunk.
 // The parent of a value block and of a directory is the root block; the parent of a chunk is its
 // directory. A null String or Binary is null in the bitmap, and its descriptor is all zero.
 //

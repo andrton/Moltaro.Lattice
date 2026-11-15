@@ -55,6 +55,18 @@ replaced by another rule is reworded in `AGENTS.md` and is not recorded here.
 | **Since** | Epic 1, sprint S01, which creates the first of the projects and puts the exception into the text of `AGENTS.md`; the other projects and the two programs come with the sprints that create them |
 | **Until** | Permanent |
 
+### X4. An internal entry to the engine for its first tests
+
+| | |
+| --- | --- |
+| **Rule** | Tests use the public API |
+| **Departure** | The tests of the engine, and the scenario tests of `Moltaro.Lattice.Tests` when they run against the engine, open a database through an internal entry of the engine assembly instead of `LatticeDatabase`, and from there use only the public interfaces. One helper of the test project does the opening, for the placeholder and for the engine in turn |
+| **Why** | Until the engine can do everything the placeholder does, the public entry point still opens the placeholder. The alternative is a switch between two implementations behind the contract, which the project does not want |
+| **Kept small by** | Only the way a database is opened differs; every operation after it goes through the public interfaces |
+| **Approved** | By the owner, 14 November 2026, with the plan of [Epic 1](epic-1-core.md) |
+| **Since** | Epic 1, sprint S06 |
+| **Until** | Epic 1, sprint S12, which switches the entry point to the engine, deletes the placeholder and removes the internal entry |
+
 ### X5. The schema names one type of the access namespace
 
 | | |
@@ -69,17 +81,7 @@ replaced by another rule is reworded in `AGENTS.md` and is not recorded here.
 
 ## Approved, not in force yet
 
-### X4. An internal entry to the engine for its first tests
-
-| | |
-| --- | --- |
-| **Rule** | Tests use the public API |
-| **Departure** | The tests of the engine, and the scenario tests of `Moltaro.Lattice.Tests` when they run against the engine, open a database through an internal entry of the engine assembly instead of `LatticeDatabase`, and from there use only the public interfaces. One helper of the test project does the opening, for the placeholder and for the engine in turn |
-| **Why** | Until the engine can do everything the placeholder does, the public entry point still opens the placeholder. The alternative is a switch between two implementations behind the contract, which the project does not want |
-| **Kept small by** | Only the way a database is opened differs; every operation after it goes through the public interfaces |
-| **Approved** | By the owner, 14 November 2026, with the plan of [Epic 1](epic-1-core.md) |
-| **Since** | Epic 1, sprint S06 |
-| **Until** | Epic 1, sprint S12, which switches the entry point to the engine, deletes the placeholder and removes the internal entry |
+None.
 
 ## Ended
 

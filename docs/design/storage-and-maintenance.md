@@ -179,10 +179,10 @@ have an accepted controlled-pressure policy: pause application, retain intact lo
 reads/status, bound buffers and resume in order. Pressure alone triggers no full reload.
 These policies do not settle every query, startup/recovery or process-memory boundary.
 
-The accepted [configurable root-size cap](../decisions/write-admission.md#configurable-root-object-size-limit)
-is a separate limit on owned object contents, excluding referenced roots. Measure its
-numerical threshold and account for it before commit; satisfying this cap does not
-replace the instance-wide peak-memory reservation.
+By the owner's decision of 15 November 2026 an entity has no size limit of its own, and the
+[configurable root-size cap](../decisions/write-admission.md#configurable-root-object-size-limit)
+accepted before it is superseded. What bounds an entity is the instance-wide peak-memory
+reservation: account for it before commit.
 
 Evidence must include long-lived insert/update/delete churn with a bounded live
 set, varying string/collection sizes, hot/cold records and mixed allocation sizes.

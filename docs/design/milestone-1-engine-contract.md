@@ -487,39 +487,51 @@ unversioned durable/wire format while those integration tests are absent.
 
 These are implementation starting settings, **not measured optimal values or new SLOs**.
 Expose public workload limits through options and validate relationships at open;
-allocator details remain internal tuning. By the owner's decision of 15 November 2026
+allocator details remain internal tuning. By the owner's decisions of 15 November 2026
 the instance budget is an option whose default is computed when the instance opens: half
-of the memory available to the process, which is the limit of its container where there
-is one and the physical memory of the machine otherwise. An application may set the
-budget explicitly, and has to when one process opens several instances, because each
-instance computes its default from the whole. The budget is enforced in either case. A
+of the memory the .NET runtime reports as available to the process. That is the physical
+memory on a machine without limits; in a container it is by default three quarters of the
+container's limit; a heap hard limit configured for the garbage collector lowers it. An
+application may set the budget explicitly. It has to when one process opens several
+instances, because each instance computes its default from the whole, and it should
+whenever it limits the heap of the collector, because that setting says nothing about the
+native memory the engine needs. The budget is enforced in either case. A
 timeout or a limit below that an
 application can observe is an option with this starting value as its default, never a
 constant in the code; "configurable" in a row is not the complete list of such options.
+By the owner's decision of 15 November 2026 a limit exists only where the engine cannot
+work without it or a resource cannot hold the work: no default turns ordinary load into a
+refusal, and where it can the database waits or slows down instead of refusing.
 
 | Limit / setting | Starting value |
 | --- | --- |
-| Root encoded size, including owned data | 1 MiB; configurable |
-| Explicit WriteBatch | 128 roots and 8 MiB encoded/prepared input; configurable |
+| Root encoded size, including owned data | No limit of its own, by the owner's decision of 15 November 2026. A root is refused only when the instance memory budget cannot hold it; one String or Binary value is bounded by the storage format |
+| Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
 | Active prepare workers | 2; configurable and bounded |
 | Internal group | Up to 32 operations / 8 MiB / 1 ms collection delay; never split a WriteBatch |
-| Queued write input | 1,024 requests and min(16 MiB, 10% instance budget) |
+| Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
 | Session synchronization / reload readiness wait | 10 s / 30 s, configurable; cancellation allowed for read waits |
-| Scan/query temporary memory and execution | 8 MiB / 5 s per request, configurable; only time inside the engine counts, not the time a caller spends between two items |
+| Scan/query temporary memory and execution | No limit by default, by the owner's decision of 15 November 2026. An application may set a limit on the temporary memory and on the engine time of a read, for the database or for one call; only time inside the engine counts, not the time a caller spends between two items. The temporary memory of reads is counted in the instance budget |
 | Child open | 30 s from the open call to Ready, configurable; then the open fails with Unavailable |
 | Master leadership | Taken at open; a second master on the same store is refused at once. The leadership number is checked in every transaction that changes the store; the leadership session every 5 s, configurable |
-| Retained operation outcomes of a MemoryOnly master | min(32 MiB, 10% instance budget), configurable; new writes are refused when it is full, an unexpired outcome is never dropped |
+| Retained operation outcomes of a MemoryOnly master | No limit of its own, by the owner's decision of 15 November 2026: counted in the instance budget; an unexpired outcome is never dropped, and a write is refused only when the budget cannot hold it |
 | Empty native reserve / compaction headroom | One 4-MiB segment / one 64-KiB move plus metadata |
 | Base application | Up to 256 transactions / 8 MiB effects per batch, 32 MiB working set; <=100 ms idle cadence, immediate continuation when behind |
-| Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; 1 GiB hard cap, configurable |
-| Durable receipt budget | 1 GiB estimated table/index usage; conservative admission reservation and periodic actual-size reconciliation |
+| Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; no hard limit by default, by the owner's decision of 15 November 2026. An application may set one, and appends beyond it are then refused. Without one the time of a recovery grows with the unapplied tail |
+| Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
 | Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
 | Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
-Max single transaction/root must fit the reassembly, preparation and applier workspaces.
+One root and one transaction may
+be larger than any bounded buffer of this table — an internal
+group, the pending replication, a batch of base application: each of them bounds what
+accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
+for its own size. What a transaction needs is reserved in the instance budget before it is
+committed, the copy for delivery to children included; a transaction the budget cannot
+hold is refused before it has any effect.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.

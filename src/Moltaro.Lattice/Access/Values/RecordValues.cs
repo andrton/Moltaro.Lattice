@@ -15,8 +15,9 @@ namespace Moltaro.Lattice.Access.Values;
 //     value inside an owned value the field of the owned value. A field without a value is
 //     allowed here; the write finds it.
 //   - a record submitted by a write, which holds only what it took, changed perhaps through
-//     what it returned; a mismatch, and a field without the value it requires at any depth, is
-//     ValidationFailed.
+//     what it returned; a mismatch, a field without the value it requires at any depth, text
+//     that is not well-formed at any depth, and the value of a field above the bound of one
+//     value, are ValidationFailed.
 //
 // The walk descends by the declarations of the schema, never by the objects it meets: at each
 // step it goes from a declaration into one inside it, or into the fields of an owned type the
@@ -42,9 +43,26 @@ internal static class RecordValues
         return FieldValues.Normalize(field, value, nameof(value));
     }
 
-    // The values of a record as a write takes them: copied and checked again at every depth.
+    // The values of a record as a write takes them: copied and checked again at every depth. The
+    // value of every field of the entity is checked against the bound of one value first, so that a
+    // value above it is refused before it is copied. A String or Binary value inside a collection or
+    // an owned value is not: whether the bound holds for it is the planner's, with the contracts of
+    // S18 and S19 (Q35, point 7, of Epic 1), and no entity type with such a field is stored yet.
     public static object?[] Submit(LatticeEntityType entityType, object?[] values)
     {
+        var fields = entityType.Fields;
+
+        // By index: a foreach over the list of the schema would allocate its enumerator.
+        for (var index = 0; index < fields.Count; index++)
+        {
+            var field = fields[index];
+
+            if (values[field.Ordinal] is { } value && !ValueBound.Holds(field, value, entityType.StringEncoding))
+            {
+                throw new Place(entityType.Name, entityType.Name, field).Fail(ValueBound.Problem);
+            }
+        }
+
         var submitted = new object?[values.Length];
         CopyFields(entityType.Fields, values, submitted, entityType.Name, entityType.Name);
 
@@ -58,6 +76,7 @@ internal static class RecordValues
         LatticeFieldTypeEnum.Map => CopyMap(declaration, value, place),
         // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others.
         LatticeFieldTypeEnum.Binary => value.GetType() == typeof(byte[]) ? ((byte[])value).Clone() : throw place.Fail(NotAccepted(declaration, value)),
+        LatticeFieldTypeEnum.String => CopyText(declaration, value, place),
         _ => value.GetType() == declaration.ValueType ? value : throw place.Fail(NotAccepted(declaration, value)),
     };
 
@@ -144,6 +163,24 @@ internal static class RecordValues
         return copy;
     }
 
+    // Text is held as it is given. A write refuses text that is not well-formed, a surrogate without
+    // its pair, at any depth (the planner's answer to Q41); a value set into a record is not checked
+    // for it.
+    private static object CopyText(LatticeValueDeclaration declaration, object value, Place place)
+    {
+        if (value is not string text)
+        {
+            throw place.Fail(NotAccepted(declaration, value));
+        }
+
+        if (place.IsWrite && !WellFormedText.IsWellFormed(text))
+        {
+            throw place.Fail("holds text that is not well-formed: it has a surrogate without its pair.");
+        }
+
+        return text;
+    }
+
     private static object? Null(LatticeValueDeclaration inner, Place place) =>
         inner.IsNullable ? null : throw place.Fail("holds a null where its declaration does not allow one.");
 
@@ -168,6 +205,10 @@ internal static class RecordValues
     // for a write, the entity type that is written. The message is made only on a failure.
     private readonly record struct Place(string? EntityType, string Owner, LatticeField Field)
     {
+        // Whether the value is submitted by a write, which names the entity type it writes, rather
+        // than set into a record.
+        public bool IsWrite => EntityType is not null;
+
         public Exception Fail(string problem) => EntityType is null
             ? new ArgumentException($"Field '{Owner}.{Field.Name}' {problem}", "value")
             : new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType}: field '{Owner}.{Field.Name}' {problem}");

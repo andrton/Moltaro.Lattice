@@ -87,4 +87,20 @@ internal static class TestData
         var exception = Assert.Throws<LatticeException>(action);
         Assert.Equal(expected, exception.Error);
     }
+
+    // A write refused by the validation of an entity, with the field named.
+    public static async Task ExpectValidationFailedAsync(string field, Func<ValueTask<LatticeWriteResult>> write)
+    {
+        var exception = await ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, write);
+        Assert.Contains(field, exception.Message, StringComparison.Ordinal);
+    }
+
+    // An operation that adding to a write batch refuses by the validation of an entity, with the
+    // field named.
+    public static void ExpectValidationFailed(string field, Action add)
+    {
+        var exception = Assert.Throws<LatticeException>(add);
+        Assert.Equal(LatticeErrorEnum.ValidationFailed, exception.Error);
+        Assert.Contains(field, exception.Message, StringComparison.Ordinal);
+    }
 }

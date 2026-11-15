@@ -32,4 +32,24 @@ internal static class RootStorage
 
         arena.Free(root);
     }
+
+    // Publishes a root that a writer made with prepared true wrote: the root block and every block
+    // it owns become live (Arena.Publish), when the write of the root is published. It changes no
+    // byte and allocates nothing. The root is recognized as Free recognizes it, and refused in the
+    // same cases before anything is published.
+    public static void Publish(Arena arena, RootLayout layout, ArenaAddress root)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        var payload = layout.RootPayload(arena, root);
+
+        for (var index = 0; index < layout.DescriptorCount; index++)
+        {
+            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
+
+            ValueBlocks.Publish(arena, ValueBlocks.Read(payload[offset..]));
+        }
+
+        arena.Publish(root);
+    }
 }

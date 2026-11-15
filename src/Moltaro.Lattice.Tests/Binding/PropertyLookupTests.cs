@@ -1,10 +1,11 @@
 namespace Moltaro.Lattice.Tests.Binding;
 
 // The property of a field is found as C# finds it by that name on the class: the public
-// property of the most derived class that declares one. It is an instance property with get
-// and set, of the type the field needs. A class that does not agree is refused with
-// BindingFailed and the property named, from Set<TEntity>() and from the typed members of a
-// write batch alike, and never with another exception.
+// property of the most derived class that declares one. It is an instance property of the type
+// the field needs, with a public get accessor and a set accessor of any accessibility (the
+// owner's answer to Q29; SetAccessorTests and InheritedMemberTests). A class that does not agree
+// is refused with BindingFailed and the property named, from Set<TEntity>() and from the typed
+// members of a write batch alike, and never with another exception.
 public sealed class PropertyLookupTests
 {
     [Fact]

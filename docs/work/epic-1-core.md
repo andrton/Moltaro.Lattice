@@ -68,7 +68,7 @@ entity types of scalar fields with the default text policies: read, enumerate, i
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
-**In the engine, not behind the contract yet.** Internal mechanisms of
+**In the engine, not behind the contract yet.** Mechanisms of
 `Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
@@ -76,7 +76,15 @@ with generations (S04); the root layout compiled from an entity type of scalar f
 with the writer and the reader of a root — fixed fields at their declared width, String
 and Binary values inline, in a block of their own or in chunks (S05). The measurement
 program `Moltaro.Lattice.Measurements` holds the reference fixture, its first scenario
-and the development manifest (S05).
+and the development manifest (S05). The engine database: a MemoryOnly master that
+inserts, reads, replaces, upserts and deletes entities of scalar fields by primary key,
+by class and by name, with revisions, positions and sessions; layouts compiled at open;
+the lookup claim and the protection of a root, with no code of the application inside
+a gate; reads that allocate the returned copy and nothing else. The scenario tests of
+reads and writes run on it beside the placeholder, through an internal entry (exception
+X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
+batch and the queue of writes have no limit of their own, and the validation of the core
+refuses text that is not well-formed on both implementations.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -95,7 +103,7 @@ and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
+| The memory budget as an option, the budgets of a read as options that are not set by default; resource errors. An entity, a batch and the queue of writes have no limit of their own (decisions O18, O19 and O20) | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
 | Protected read-only views | S21–S22 |
@@ -127,7 +135,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R9 | Native segments, size classes, relative addressing, stable managed root entries, large values in bounded chunks | [Q05](../decisions/memory-and-access.md), [Q16](../decisions/physical-storage.md) | Must | Absent | S04, S05 |
 | R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Absent | S05, S13 |
 | R11 | Space is reused for the life of the database: size-class reuse, bounded incremental compaction, collection shrink, release of empty segments | [Q17](../decisions/allocation-and-compaction.md) | Must | Absent | S04, S23–S24 |
-| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads, a cap on the size of one entity | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
+| R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
 | R13 | Arc UnorderedMapSlim for the primary index and Arc OrderedMultiMap for secondary indexes, behind engine-owned protection, rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
@@ -141,7 +149,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R23 | Operation identities: a token kept before submission, a retained outcome, safe repetition for 15 minutes by default, never a second execution | [Q13](../decisions/mutation-commands.md#operation-identity-and-retained-results-accepted-for-v1), [retry protocol](../design/operation-retry-protocol.md) | Must | Absent | S26, S28–S29, S31 |
 | R24 | Durable is the default mode and MemoryOnly is explicit; the mode is chosen when the instance opens; children are MemoryOnly and never connect to PostgreSQL | [Q09.5](../decisions/persistence-modes.md), [Q09.6](../decisions/persistence-backends.md) | Must | Options exist; Durable refuses | S27 |
 | R25 | A Durable write succeeds after its durable admission, its PostgreSQL commit and its coherent publication; an uncertain commit is reported as uncertain | [Q09.1](../decisions/write-acknowledgment.md), [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S28–S29 |
-| R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are retained within bounds | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
+| R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are bounded when the application sets a limit, and shrink back after load in any case | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
 | R27 | Recovery: an offline reopen rebuilds one arena and its indexes from the base and the committed tail; nothing partial is replayed; damaged or incompatible data is refused | [Q09.2](../decisions/checkpoint-and-journal.md), [Q16](../decisions/physical-storage.md) | Release | Absent | S30–S31, S32 |
 | R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works inside one process | S10–S11, S33 |
 | R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works inside one process | S12 |
@@ -162,7 +170,9 @@ The epic is done when all of the following hold.
    `NotSupportedException`, and no test of `Moltaro.Lattice.Tests` is skipped.
 2. The tests that were written ahead — the skipped tests of `IndexTests`,
    `UniqueIndexTests` and `WriteBatchTests` — pass with their assertions unchanged. So do
-   the tests written in each sprint of this plan. The four tests that assert a refusal,
+   the tests written in each sprint of this plan. One assertion of an older test changes,
+   by the owner's decision of 15 November 2026 on the position of a write that changes
+   nothing: the brief of S12 names it. The four tests that assert a refusal,
    such as `Durable_persistence_is_not_implemented_yet`, are gone.
 3. The placeholder is gone. The samples run to the end against the engine, and the code in
    `README.md` compiles.
@@ -245,6 +255,21 @@ documentation before this document is removed.
 | S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
 | S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
 | S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
+
+| S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
+| S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
+
+The figures of S06 come from the scenario `read-by-key`
+(`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
+from `src`). They are given as the range of three runs, and a single run can lie well
+outside it — the review measured a p50 of 1,700 ns by class alone in one of two runs —
+because the runs differ more
+than the series do: the processor of the development machine has cores of two kinds and
+the threads are not pinned. The manifest `development-2` is the development manifest
+with a `Run` sentence that is true of a series with a writer; the figures of S05 stay
+under `development`. Reads by key on several threads were measured by the review of S06
+and not under a manifest: they do not scale with threads, which is entry Q42 of the
+[open questions](open-questions.md), reported in S08 and judged with the figures of S25.
 
 The figures of S05 come from the scenario `root-bytes` of the measurement program
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- root-bytes development`,
@@ -467,9 +492,10 @@ as the only tested and stated version. S25 writes the manifest of the single-nod
 and S40 the manifest of the topology; the owner approves each before its first gate run.
 
 **O12. Two limits the design did not give.** A MemoryOnly master keeps operation outcomes
-within a limit that is an option, by default the smaller of 32 MiB and 10% of the
-instance budget; when it is full new writes are refused, and an unexpired outcome is
-never dropped. The time limit of a traversal counts only time inside the engine, not the
+without a limit of their own, by the owner's decision O20 of 15 November 2026: they are
+counted in the instance budget, and an unexpired outcome is never dropped (the limit this
+decision first gave them, the smaller of 32 MiB and 10% of the instance budget, is gone).
+The time limit of a traversal, when an application sets one, counts only time inside the engine, not the
 time the caller spends between two items. Shapes S26, S08.
 
 **O13. Code shared by the test projects has a project of its own.** Decided while S01 was
@@ -529,13 +555,70 @@ owner's answers added to the briefs of S03, S04 and S37 and to the document of E
 
 **O17. The default of the instance memory budget is computed.** Decided on 15 November
 2026 and given through the planner's session, when the owner learned that the limit of the
-arena is required. The budget is an option whose default is half of the memory available
-to the process when the instance opens — the limit of its container, or the physical
-memory of the machine — and it is enforced as Q14 accepts. An application that prefers
-to run into swap sets the budget above physical memory. *Not chosen:* the fixed 256 MiB,
-far too small for real data; all of the memory; no limit unless one is set. Shapes S09;
-it rode in the branch of S05 under O16, with one sentence of the engine contract and a
-note in the decision on write admission.
+arena is required. The budget is an option whose default is half of the memory the .NET
+runtime reports as available to the process when the instance opens: the physical memory
+on a machine without limits; in a container by default three quarters of the container's
+limit; a heap hard limit configured for the garbage collector lowers it. It is enforced
+as Q14 accepts. An application that prefers to run into swap sets the budget above
+physical memory. *Not chosen:* the fixed 256 MiB, far too small for real data; all of the
+memory; no limit unless one is set. Shapes S09; it rode in the branch of S05 under O16,
+with one sentence of the engine contract and a note in the decision on write admission.
+The owner's answer to Q37 of the [open questions](open-questions.md) corrected the source
+after the review of S05: the decision first read "the limit of its container, or the
+physical memory of the machine", which the runtime does not report, and the owner chose
+the runtime's figure, said plainly, over platform code of the project's own.
+
+**O18. A write batch has no limit of its own.** Decided on 15 November 2026 and given
+through the planner's session. The owner first asked what the limit of 128 entities was
+for and called it excess configuration, then refused a size limit as well, fixed or taken
+as a share of the memory budget: the size of a batch is the application's choice, and the
+task of the database is to store it atomically. A batch has no limit on the number of its
+operations and none on its size, and no option for one; it is refused only when a
+resource cannot hold it — the memory budget of the instance, the hard limit of the
+journal, when one is set. The rule that follows: a bounded buffer bounds what accumulates and never
+refuses one transaction for its own size; what a transaction needs is reserved in the
+instance budget before it is committed, and one the budget cannot hold is refused before
+it has any effect. *Not chosen:* 128 operations and 8 MiB by default; a size limit derived
+from the budget. Shapes S09 and S17 and the contracts of the later stages; it rode in the
+branch of S06 under O16, with the engine contract, the decision on the document model,
+the architecture, `README.md` and the documentation of `ILatticeWriteBatch`. Principle 5
+of `AGENTS.md` called a batch "bounded"; the owner approved the sentence without those
+words with decision O19.
+
+**O19. An entity has no size limit of its own.** Decided on 15 November 2026 and given
+through the planner's session, after decision O18 and for the same reason: how large an
+entity is, is the application's choice. The 1 MiB starting limit of the engine contract
+and the option that was to carry it are removed; an entity is refused only when the
+memory budget of the instance cannot hold it. One String or Binary value stays bounded by
+the storage format at 268,173,376 bytes, the capacity of one directory block of chunks: a
+fixed rule, not an option, and a value above it is `ValidationFailed` with the field
+named. *Not chosen:* keeping the option without a default. Shapes S06 and S09, reaches
+back into S05, whose `RootWriter` loses `maxEntitySize`, and forward into every brief
+that sized a buffer or a test by "1 MiB per entity", which the planner words with its
+stage. With the decision the owner approved principle 5 of `AGENTS.md` without the words
+"which is bounded"; the coordinator made that edit on the owner's own word in its
+session, given on the same day, because `AGENTS.md` is the instruction file of the agents.
+
+**O20. No default turns ordinary load into a refusal.** Decided on 15 November 2026 and
+given through the planner's session, as the general form of O18 and O19, and confirmed to
+the coordinator for `AGENTS.md`. A limit exists only where the engine cannot work without
+it or a resource cannot hold the work; the database does not cap what an application
+chooses to do, and where it can it waits or slows down instead of refusing. An
+application that meets an error in production has a problem, and one that meets slowness
+changes how it writes. Three limits lose their limit altogether: the queue of writes
+(1,024 requests and 16 MiB), the read budget as a default (8 MiB and 5 seconds) and the
+memory of retained outcomes on a MemoryOnly master (32 MiB); what they held is counted in
+the memory budget of the instance. Two keep an option that is not set by default: the
+hard limit of the journal and the budget of the receipts, both 1 GiB before; without a
+hard limit the time of a recovery grows with the unapplied tail. The read budget stays as
+an option an application may set. *What stays as it is:* the memory budget of the
+instance and its refusal (O17, Q14); every timeout of a wait, because a wait has to be
+finite and its error means a real failure; the rules of the schema language; the bound of
+one value in the storage format; internal tuning that never refuses; the limits of
+delivery to children, which cost a slow child a reload and an application nothing. Shapes
+S08, S09, S17, S26, S31 and S32; principle 9 of `AGENTS.md` carries the rule. Gate G6 was
+written for a queue that refuses: the planner words it again with the manifest of S41 and
+brings it to the owner then.
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
@@ -569,7 +652,8 @@ continue; on a child every read waits within the reload bound. A migration is pl
 a stop of writes for the whole database. Shapes S37–S38.
 
 **D2. Journal triggers.** The milestone contract starts with 64 MiB or 5 seconds of
-unapplied journal and a 1 GiB hard cap; the
+unapplied journal and, by the owner's decision of 15 November 2026, no hard limit unless
+an application sets one; the
 [journal decision](../decisions/checkpoint-and-journal.md) and the historical part of the
 performance requirements name 256 MiB and 30 minutes as a trial value that was not
 approved. *The milestone contract prevails*; S31 uses its values and reports how they
@@ -612,7 +696,8 @@ pages of 4,096 root entries and the 1 MiB cap of an entity are starting values i
 milestone contract and "not accepted defaults" in their decision records. *The milestone
 contract prevails as a baseline to measure.* They are verified where their mechanism is
 delivered: the root-entry pages in S04, the entity cap in S05 and S09, the reload wait in S34. A value that fails its check is changed on the evidence and reported; no guarantee
-changes with it.
+changes with it. The cap of an entity was removed by the owner's decision O19 of 15
+November 2026: an entity has no limit of its own.
 
 ### Choices made in the contracts of S02 to S12
 
@@ -786,7 +871,7 @@ Why this order:
 | S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Done |
-| S06 | Reads and writes of one entity | Full | Not started |
+| S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Not started |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
@@ -1954,7 +2039,9 @@ of the [open questions](open-questions.md), 15 November 2026. The tests state th
   single-block and chunk thresholds in both directions and reads back equal; a chunk
   boundary inside a multi-byte character does not damage it. Writing an entity again and freeing the old root frees everything the old one owned,
   shown by the counters. An entity above the 1 MiB starting
-  limit is refused, and one just below it is stored. An entity type whose fixed
+  limit is refused, and one just below it is stored (superseded by decision O19 after
+  this sprint closed: an entity has no size limit, `RootWriter` loses `maxEntitySize` in
+  the branch of S06, and what this block says of that parameter no longer holds). An entity type whose fixed
   part does not fit one block is refused with `InvalidSchema` when its layout is
   compiled, before any data is admitted. The generator produces the same
   121,000 roots from seed 42 on every run, checked by a digest.
@@ -2213,14 +2300,18 @@ manifest is a committed file of this project.
   them there, the test author routes the opening of a database in these classes through
   one helper of the test project, which opens the placeholder and the engine in turn;
   nothing else in the tests changes. In addition: a new database has a valid position
-  with sequence zero before its first write, and the first write gets sequence one. A
-  revision binds its entity: a revision read from one entity never satisfies a condition
+  before its first write; the first write returns another position, which is then the
+  position of the database. The sequence of that position is 0 before the first write and
+  1 after it, shown by `PublishedSequence` (what an application sees of the position is
+  stated by a scenario test through the public API, the two numbers by a test of
+  `Moltaro.Lattice.Engine.Tests`; the planner's answer to Q38). A revision binds its entity: a revision read from one entity never satisfies a condition
   on another; a recreated entity has a new one. A read is coherent while the entity is
   being replaced. An enumeration of entities that nobody changes returns each of them
   once. No lock is held across an `await`. Until S07 the engine accepts
   the key types the existing tests use, and refuses with `NotSupportedException` a write
   of an entity type with another key type, with a key compared without case or with an
-  Enum field. Until S08 an enumeration during which the index changed fails
+  Enum field; the whole list of what is refused until a later sprint is under "What the
+  engine does where the block above does not say". Until S08 an enumeration during which the index changed fails
   with `NotSupportedException` instead of returning a set it cannot vouch for, and the
   primary index grows under exclusive protection. By the planner's answer to Q30 of the
   [open questions](open-questions.md): when every write has returned and no read is in
@@ -2240,7 +2331,47 @@ manifest is a committed file of this project.
   get accessor is not public, are `BindingFailed` with the property named. A class that
   overrides only the get accessor of a virtual property binds, and its value is set
   through the accessor of the base class. A class in which a public field hides a
-  property of its base class is `BindingFailed` with the member named.
+  property of its base class is `BindingFailed` with the member named. By the owner's
+  answer to Q39 on the position of a write that changes nothing: a delete of an absent
+  key returns `Changed` false and a position of its own — not the position before it, and
+  then the position of the database — and the revision of no entity changes. The
+  placeholder keeps what it does and is not changed; a test of this runs on the engine
+  only, until S12. By decision O19, with which an entity of tens of mebibytes is an
+  ordinary case: an entity with a String value of 32 MiB and a Binary value of 32 MiB is
+  inserted, read back equal by class and by name, replaced by a small one and deleted,
+  and after that the counters of the arena are what they were before it; the test sets a
+  memory limit that holds it (until S09 gives the option, the internal limit of this
+  sprint holds it on every machine the tests run on). One String or Binary value above
+  268,173,376 bytes, the capacity of one directory block of chunks, is `ValidationFailed`
+  with the field named: a fixed rule of the storage format, the same on every node, which
+  a retry never helps. A coordinator's note, corrected after the second review of S06,
+  which showed that a check of the engine alone stands after the conditions of a write
+  and leaves the public entry storing what the documentation forbids: the bound is a
+  validation of the contract, by the planner's reasons for Q41. The validation of the
+  core checks it at a write and at adding to a batch, on the placeholder and on the
+  engine alike, before the conditions of the write and before a write is refused as not
+  implemented; it needs no pass over the text unless the text is long enough to reach the
+  bound. The root writer keeps its own refusal as the guard of the stored form.
+  Whether the bound holds for each element of a collection and each field of an
+  owned value is the planner's, with the contracts of S18 and S19 (Q35, point 7). By the
+  planner's answer to Q41: a write of an entity with text that is not well-formed is
+  `ValidationFailed` with the field named whatever else is wrong with the write: with the
+  key of a stored entity on insert, with an absent key on replace, with a wrong revision,
+  and for an entity type the engine does not store yet; by class and by name, on the
+  placeholder and on the engine. A read or a delete by a String key that is not
+  well-formed is `ArgumentException`.
+
+**Carried by this sprint besides its own work**, under decision O16, after its
+implementation commit and tests first: the removal of the size limit of an entity
+(decision O19). The contract author takes `maxEntitySize` out of `RootWriter` and states
+the bound of one value in the documentation of the String and Binary field types; the
+test author removes the tests of S05 and of this sprint that state the limit of an
+entity, with the decision named, restates the bound of one value as `ValidationFailed`
+with the field named, and writes the test of the large entity; the implementer removes
+the limit and its internal value. What stays is the refusal for memory — `Complete` with
+`WriteRejected` when the arena cannot give the blocks — and the bound of the format. The
+same sequence carries the sentence of decision O18 in the documentation of
+`ILatticeWriteBatch`.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2277,6 +2408,32 @@ documentation; the last two are fixes of the binding in the core library — tod
 overridden getter is `BindingFailed` and the hidden property binds. The tests come first,
 from the test author, as for any change of behavior.
 
+By the planner's answer to Q41 of the [open questions](open-questions.md), after the
+first review of S06: text that is not well-formed — a surrogate without its pair — in a
+String value is refused by the validation of a write like every other invalid value:
+`ValidationFailed` with the field named, for an object and for a record, at every depth
+(a field, an element, a key or a value of a collection, a field of an owned value),
+before the conditions of the write are looked at and before the write is refused as not
+implemented. The validation of the core makes the check, so it holds on the placeholder
+and on the engine alike and for an entity type the engine does not store yet. The root
+writer keeps refusing such text: that is the guard of the stored form for whoever calls
+it inside the engine, found while the text is encoded, and not a second validation of
+the contract. A key given as an argument — to a read or a delete, and later to a search
+— that is not well-formed text is `ArgumentException`, as a key of another type is. The
+check is made at the write and at adding to a batch, where every other validation of an
+object is made; a record does not check it when a value is set. How the check is made is
+the implementer's; if the extra pass over the text shows in the write figures of S09, it
+is reported there and decided with a number. The remarks that list `ValidationFailed`
+— the write members of the sets and of the batch, and the member of `LatticeErrorEnum` —
+gain the sentence: "Text that is not well-formed — a surrogate without its pair — is
+refused in the same way, at any depth, and is never stored and never replaced by another
+character."
+
+By the planner's word on the first review of S06, a stated rule and not only a fix: the
+engine runs no code of the application inside a gate or the close barrier: under the
+protection of a root it copies the values into its own memory, and the constructor and
+the set accessors of the class run after the protection is released.
+
 Internal, in the engine assembly:
 
 ```csharp
@@ -2290,13 +2447,89 @@ internal sealed class EngineDatabase : ILatticeDatabase
 }
 
 // What the engine holds, for tests and later for diagnostics. Later sprints add members.
-internal readonly record struct EngineCounters(ArenaCounters Arena, long PrimaryIndexBytes);
+internal readonly record struct EngineCounters(
+    ArenaCounters Arena, long PrimaryIndexBytes, int RootEntries, long PublishedSequence);
 ```
+
+`RootEntries` is the count of the table of root entries; `PublishedSequence` is the
+sequence of the last published position, 0 for a database without a write and 1 after the
+first. Both were added by the planner's answer to Q38 of the
+[open questions](open-questions.md), so that a test can read what the Acceptance states.
 
 In the test project, written by the test author: one helper, `TestDatabases`, that opens
 a database of the placeholder and of the engine for the same test. `Moltaro.Lattice.Tests` gets a
 reference to the engine assembly in this sprint, and the engine assembly grants it friend
 access.
+
+**What the engine does where the block above does not say.** The planner's answers to
+Q38 of the [open questions](open-questions.md), 15 November 2026, to the points the
+contract author found. The tests state them.
+
+- **Which tests run on the engine.** Every test of `CrudTests`, `DynamicSetTests` and
+  `OpeningAndClosingTests` runs on both, with three exceptions. Two open a child and stay
+  on the placeholder: `DynamicSetTests.Child_serves_records_by_name_with_the_schema_of_its_master`
+  and `OpeningAndClosingTests.Closing_a_child_ends_its_wait_for_the_master`. The third,
+  `Durable_persistence_is_not_implemented_yet`, opens a Durable master; it runs on both
+  as well, because both refuse. Two tests create a database without opening it, so the
+  helper has a form that creates without opening.
+- **`Create`.** In the order of `LatticeDatabase.Create`: `ArgumentNullException` for null
+  options; `Validate`, which gives `InvalidConfiguration`; then `NotSupportedException` at
+  `Create` for Durable persistence (until S27), for a child role (until S10) and for a
+  `ListenUri` (until S10).
+- **States.** Created, Loading during `OpenAsync`, Ready, Closed. Connecting and
+  CatchingUp do not occur; Faulted only through a failed publication, which S09 tests. A
+  failed open closes the instance. Before the open an operation is `Unavailable`; after
+  a close it is `ObjectDisposedException`. A close waits for the reads in progress before
+  it frees the arena.
+- **Position and revision.** A new random non-zero history at each MemoryOnly open;
+  sequence 0, plus 1 for each published write, also one that changed nothing (Q39). A
+  revision is the history and the root
+  entry's `LastMutationSequence`: in S06 every position changes one entity, so the
+  revision of one entity never satisfies a condition on another and a recreated entity
+  has a new one. `LatticeRevision` is two opaque 64-bit values, so its composition is
+  internal and can change; how a revision binds its entity when several entities change
+  at one position belongs to the contracts of the stage with the batch.
+- **The limit before S09.** The arena gets half of
+  `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, read at open, as an internal value
+  that S09 turns into an option; a refusal is `WriteRejected` for memory, without `Limit`
+  until S09. By decision O19 the engine has no size limit of an entity. The tests of S06
+  do not depend on the memory of the machine beyond what the large entity of the
+  Acceptance needs, which every machine the tests run on has.
+- **What is refused until a later sprint.** The key types the three classes use are Int64
+  and String with Ordinal comparison, Plain storage and UTF-8. The engine refuses with
+  `NotSupportedException` everything the public documentation says is not stored yet, and
+  every other key type: the other key types, a field compared without case, an Enum field
+  and a schema in UTF-16 until S07; Dictionary storage until S13; an entity type with a
+  unique index until S16; the field types of S03 until S18 and S19. Every write of such
+  an entity type — insert, replace, upsert and delete, with or without a revision — is
+  refused at the write, after the argument checks and the validation, in the order of
+  Q25; a read by key finds nothing and an enumeration is empty. Binding a class and
+  `Index(name)` work.
+- **Enumeration until S08.** It is lazy, holds nothing between items and takes for each
+  entry, one at a time, the lookup claim of a read by key; what S08 adds is what an
+  enumeration needs while entities change. "The index changed" means the primary index of the
+  enumerated entity type: an insert or a delete changes it, a replace does not. The
+  enumeration fails from the `MoveNext` that sees the change; what it returned before
+  stays valid.
+- **Sessions and the write batch.** On a master the engine implements the members that
+  take a session, and `WaitForPositionAsync`: a master has applied every position it gave
+  out. `CreateWriteBatch` returns the batch of the core; building works and the commit is
+  `NotSupportedException` until S17.
+- **The allocation of a read.** "The returned copy" is the object or the record with
+  everything reachable from it, and nothing else is allocated; a key boxed by a public
+  signature that takes `object` is the caller's allocation, outside the measured read.
+  The sets of the core box the key and pass an array, so the engine has sets of its own.
+- **The coherent read** is stated by a stress test with a bounded number of replaces and
+  no sleep: a writer replaces one entity with states whose fields are derived from one
+  counter, a String above 64 bytes and one above 4 KiB among them, and readers by class
+  and by name see exactly one written state each time.
+- **A write that changes nothing.** By the owner's answer to Q39 of the open questions:
+  every write the engine accepts and executes is published at a position of its own,
+  whether it changed the database or not; `PublishedSequence` grows by one for a delete
+  that deleted nothing. The placeholder keeps what it does and is not changed: a position
+  that advances without a change would also have to reach its children, or a session
+  waiting for it on a child would never be served; that is stand-in logic, and the
+  placeholder goes in S12.
 
 By the planner's answer to Q30 of the [open questions](open-questions.md): a block
 allocated for a write that is prepared and not yet published is valid from its
@@ -2356,44 +2589,114 @@ twice.
 - **To read.** [Index preparation and traversal, comparison and hash](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [primary-key types, enum and Flags rules](../decisions/schema-and-types.md);
   [Q04](../decisions/strings.md); [floating-point special values](../decisions/queries.md).
-- **Acceptance.** Every key type of the catalog is a primary key by class and by name:
-  the eight integers, String and Guid. A String key compared without case finds its
-  entity under any spelling, and the stored spelling is kept when the entity is replaced
-  through an equal key in another spelling. Two databases, one in UTF-8 and one in
-  UTF-16, compare the same keys alike. A write with an undeclared enum value or an
-  unknown Flags bit is refused with `ValidationFailed`; zero is a valid Flags value. A
-  missing required value and a null in a non-nullable field are refused in the same way,
-  by class and by name. Comparing a key allocates no string.
+- **Acceptance.** Rewritten by the planner on 15 November 2026, before the sprint started,
+  against the engine as S06 left it. Every key type of the catalog is a primary key by
+  class and by name: the eight integers, String and Guid; an entity is inserted, read,
+  replaced, upserted, deleted and enumerated under each. A key given as an integer of
+  another width that fits finds its entity; one that does not fit, a text for a Guid key
+  and a key of another type are `ArgumentException`. A UInt64 key above the largest Int64
+  and an empty String key work.
+
+  A String key compared without case finds its entity under any spelling, and what it
+  finds agrees with `string.Equals` under `StringComparison.OrdinalIgnoreCase` for letters
+  with and without case, outside ASCII and outside the basic plane; the test computes its
+  expectation with .NET. An insert under another spelling of a stored key is
+  `DuplicateKey`. A replace and an upsert through another spelling keep the stored
+  spelling of the key and replace the other fields; a delete through another spelling
+  deletes. A String key of 100,000 characters is found with either comparison. All of it
+  holds alike in a UTF-8 and in a UTF-16 database, and an entity written to a UTF-16
+  database reads back equal, by class and by name.
+
+  An entity type with a String field compared without case and one with an Enum field,
+  ordinary or Flags, nullable or not, are written and read back equal. A write with an
+  integer its enum type does not declare, or with a Flags bit no member declares, is
+  `ValidationFailed` with the field named, by class and by name, through a set and when
+  added to a batch, on both implementations and before any other refusal of the write;
+  zero is a valid Flags value. A missing required value and a null in a field that is not
+  nullable are refused in the same way.
+
+  Comparing a key allocates nothing that outlives the read.
+
+  The sprint ends refusals that tests of S02, S03 and S06 state, and the test author
+  changes those tests in the tests commit. In `NotStoredYetTests` the cases of the seven
+  other integer keys, of the Guid key, of the String key compared without case, of the
+  text compared without case, of the schema in UTF-16 and of the Enum field are removed;
+  the cases of Dictionary storage, of the unique index and of the field types of S03
+  stay. `ValidationBeforeRefusalTests.Integer_that_its_enum_type_does_not_declare_is_not_refused_yet_and_the_write_ends_as_not_implemented`
+  is replaced by its opposite: such an integer is `ValidationFailed` before the write is
+  refused as not implemented. Between the tests commit and the implementation commit the
+  removed cases are stated by nothing, which is the state of a refusal that is about to
+  end. The tests of `TextPolicyAndEnumWriteTests` and the tests of
+  `MalformedTextWriteTests` and `ValueBoundWriteTests` that open the placeholder state
+  what the placeholder does and stay until S12; where one of them also opens the engine
+  with a schema this sprint makes storable, the test author moves its engine case to the
+  tests of this sprint. A test the sprint breaks outside this list is reported to the
+  coordinator, who enters it in the brief, and is then edited in the same way.
 - **Measured.** Asserted: a read by a String key allocates the returned copy and nothing
-  else, with and without case. Reported: read time by a String key compared with and
-  without case.
+  else, with and without case, after a first read with a key of that length, which may
+  reserve the workspace of the comparison. Reported: read time by a String key compared
+  with and without case.
 - **Out of scope.** Enumeration while entities change and the growth of the index (S08).
   Secondary indexes (S14).
 
-**Types and members of S07.** No public member. Internal, namespace `Moltaro.Lattice.Storage`:
+**Types and members of S07.** Replaced by the planner on 15 November 2026: the block this
+brief had, `ComparisonScratch` and `ValueComparer`, was written before there was an engine
+and did not fit it — a stored text is not one span but is reached through its descriptor,
+the index of S06 looks a key up with the caller's text, and order belongs to the secondary
+indexes. No public member, and no internal type that the tests address: everything this
+sprint delivers is stated through the public API, by class and by name, and the tests of
+the allocation of a read are written as in S06. The milestone contract asks for one
+comparison and hash service of the schema. In this sprint that is one place in the engine
+that knows the equality and the hash of a primary key under the comparison its field
+declares and in the encoding of the database; the primary index uses it and nothing else
+compares a key with stored text. Its members are the implementer's. The contract of S14
+adds the order of values and the other types, and names what its tests address; S19 uses
+the same service for Map and Set.
 
-```csharp
-// Reusable UTF-16 workspace for comparing UTF-8 text without case. The caller reserves it
-// before it takes a gate; a comparison never allocates.
-internal sealed class ComparisonScratch
-{
-    public ComparisonScratch(int characters);
-    public void EnsureCapacity(int characters);
-}
+From this sprint the engine stores an entity type with any key type of the catalog — the
+eight integers, String with either comparison, Guid —, with a String field compared
+without case, with an Enum field, and in a schema of the UTF-16 encoding. It still
+refuses, as S06 says: Dictionary storage until S13, a unique index until S16, the field
+types of S03 until S18 and S19. The placeholder is not changed: it keeps refusing a
+comparison without case, an Enum field and UTF-16 until it goes in S12, so the tests of
+those three run on the engine only, and the tests of the key types run on both.
 
-// The one equality, order and hash of one declared position, bound once.
-internal sealed class ValueComparer
-{
-    public ValueComparer(LatticeValueDeclaration declaration, LatticeStringEncodingEnum encoding);
-    public bool Equals(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, ComparisonScratch scratch);
-    public int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right, ComparisonScratch scratch);
-    public int GetHashCode(ReadOnlySpan<byte> value, ComparisonScratch scratch);
-}
-```
+A key is given as the type its field declares, or as an integer of another width when it
+fits, as before; a value that does not fit, a negative one for an unsigned key included,
+is `ArgumentException`. A Guid key is given as a `Guid` and as nothing else: no text is
+parsed. A UInt64 key above the largest Int64 works like any other.
 
-The spans hold one value in its stored form. `Compare` of two floating-point values
-follows `CompareTo` of .NET, and `Equals` with `GetHashCode` agree for NaN and for the two
-zeros, as the milestone contract requires.
+A String key compared without case follows `StringComparison.OrdinalIgnoreCase` of .NET,
+the semantic reference Q04 names, with the same result in a UTF-8 and in a UTF-16
+database. Two keys that are equal under it are one key: an insert under another spelling
+of a stored key is `DuplicateKey`; a read, a replace, an upsert and a delete under another
+spelling address the stored entity. The primary key is immutable (accepted decision): the
+spelling the entity was created with stays, a replace or an upsert through another
+spelling replaces every other field, and the entity reads back with the spelling it was
+created with, by class and by name. An empty String is a key like any other.
+
+Whether an integer is a value its enum type declares is checked by the validation of the
+core from this sprint on, with every other validation of a value and in the order of Q25,
+on both implementations: a value an ordinary enum type does not declare, and for a Flags
+type a bit that no member declares, is `ValidationFailed` with the field named; for a
+Flags type zero is valid, for an ordinary enum type only when it is declared; null is
+valid where the field is nullable. It is checked at a write and at adding to a write
+batch, not when a value is set into a record. A .NET enum property can hold a value its
+type does not name, by a cast, and is checked in the same way. `LatticeEnumType.IsValid`
+is the rule. The remarks that list `ValidationFailed` gain one sentence: "An integer that
+the enum type of its field does not declare — for a Flags type, a bit that no member
+declares — is refused in the same way."
+
+Positions, revisions, states, the lookup claim, enumeration until S08 and the counters are
+as S06 has them and S07 does not touch them. Two things the last review of S06 left to
+this sprint: the remarks that list `ValidationFailed` say of the bound of one value "of
+a field of the entity" until point 7 of Q35 is answered, since a value inside a
+collection or an owned value is not judged yet — the sentence is corrected with the
+commit of this sprint that touches those remarks; and the bound in a schema of the
+UTF-16 encoding gets its pair of cases here, where such a schema is first written:
+134,086,688 characters pass and 134,086,689 are `ValidationFailed`. The public "Not implemented yet" remarks on
+`OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
+and are not edited in S07.
 
 #### S08 · Enumeration under change and the growth of the index
 
@@ -2401,23 +2704,29 @@ zeros, as the milestone contract requires.
 
 - **Goal.** An enumeration stays correct and bounded while entities change, and the
   primary index grows and reuses its entries without stopping or misleading a reader.
-- **Contract.** Options for the read budget — 8 MiB and 5 seconds by default, the time
-  counted only inside the engine — with an override for one enumeration, and an error
-  that says which budget a read ran out of.
+- **Contract.** Options for the read budget, none set by default: an application may
+  limit the temporary memory and the engine time of a read, for the database or for one
+  enumeration; and an error that says which budget a read ran out of (the owner's
+  decision O20; the time is counted only inside the engine).
 - **To read.** [Index preparation and traversal](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [primary index, selected implementation](../decisions/index-structures.md);
   [Q07.1, Q07.1.1, Q07.3.5](../decisions/queries.md);
   [arena protocol, lock and lifetime order](../design/arena-protocol.md#lock-and-lifetime-order).
 - **Acceptance.** An enumeration during inserts, replaces and delete-and-reinsert returns
-  no identity twice and every unchanged entity. One that exceeds its memory or its time
+  no identity twice and every unchanged entity. With a limit set, one that exceeds its
+  memory or its time
   fails with the budget named: the items it returned before stay valid, and it never
   ends as if it were complete; a caller that is slow
-  between two items does not use up the time budget. The primary index grows by building
+  between two items does not use up the time budget. Without a limit an enumeration of
+  any length runs to its end, and its temporary memory is counted in the instance
+  budget. The primary index grows by building
   a replacement table while readers use the old one, and both tables are counted until
   the old one is released. A deleted entry is reused only after its claims are gone, and
   an old claim never follows a key that was created again.
 - **Measured.** Reported: enumeration time for 100,000 entities with and without a
-  writer; how long index mutations wait while the index grows from 100,000 entries.
+  writer; how long index mutations wait while the index grows from 100,000 entries;
+  reads by key per second on 1, 4 and 16 threads without a writer, next to the figure of
+  S06 (Q42 of the open questions).
 - **Out of scope.** Concurrent preparation (S09). Search through an index (S14, S15).
   Compaction (S23).
 
@@ -2437,8 +2746,8 @@ IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, LatticeReadLimi
 namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
-public long ReadMemoryLimit { get; init; } = 8 * 1024 * 1024;           // bytes
-public TimeSpan ReadTimeLimit { get; init; } = TimeSpan.FromSeconds(5); // time inside the engine
+public long? ReadMemoryLimit { get; init; }                             // bytes of temporary memory; null: no limit
+public TimeSpan? ReadTimeLimit { get; init; }                           // time inside the engine; null: no limit
 
 // LatticeErrorEnum gains
 ReadLimitExceeded = 14,
@@ -2454,7 +2763,7 @@ public enum LatticeLimitEnum
 public LatticeLimitEnum? Limit { get; init; }
 ```
 
-`Validate` refuses a limit that is not positive. A limit of `LatticeReadLimits` that is
+`Validate` refuses a limit that is set and not positive. A limit of `LatticeReadLimits` that is
 not positive is `ArgumentOutOfRangeException`. An enumeration that exceeds a limit throws
 `LatticeException` with `ReadLimitExceeded` and the `Limit` it exceeded, from the
 `MoveNext` that would exceed it; what was returned before stays valid, and the
@@ -2464,15 +2773,101 @@ members throw `NotSupportedException` until S12; their tests run on the engine t
 the helper of S06. `EngineCounters` gains `long ReplacementIndexBytes`, the
 table being built while the primary index grows.
 
+**Added by the planner on 15 November 2026, before the sprint started**, against the
+engine as S06 left it. Where a sentence above says otherwise, these replace it.
+
+- **What the two limits count.** The memory limit of a read counts the temporary memory
+  the engine holds for that read: the identities it has returned, with the text of their
+  keys, the candidates it took from the index and its workspace. It does not count the
+  copies it returns, so an entity larger than the limit is read. The time limit counts
+  time inside a step of the enumeration, waiting for a gate included; it does not count
+  the wait for the position of a session, which has its own timeout, nor the time between
+  two steps. A member of `LatticeReadLimits` that is null takes the value of the options,
+  and when that is null too there is no limit; one call cannot lift a limit the options
+  set.
+- **After a failure.** After an enumeration failed with `ReadLimitExceeded`, a further
+  step fails with the same error; it never returns false as if the enumeration had ended.
+- **After a close** (the planner's answer to Q44 of the [open questions](open-questions.md)).
+  A step of an enumeration after the database was closed is `ObjectDisposedException`, as
+  every operation after a close is; an enumeration never goes on over a closed database.
+  The placeholder returns what it took at its start and is not changed, so the test runs
+  on the engine only until S12. Acceptance: an enumeration that is continued after its
+  database was closed, from another thread or from inside the walk, fails at its next
+  step with `ObjectDisposedException`.
+- **Nothing is held between two steps.** An enumeration holds no gate and no claim between
+  two steps, whatever it takes from the index at once: an enumerator that is abandoned
+  without being disposed leaves nothing behind, and a deleted entry is not kept from reuse
+  by it. The engine runs no code of the application inside a gate, as in S06. Acceptance:
+  after an enumeration was abandoned halfway and its entities were deleted, the table of
+  root entries holds none of them.
+- **The refusal that ends.** The three tests of `EnumerationTests` that state the failure
+  until S08 —
+  `Enumeration_by_class_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid`,
+  `Enumeration_by_name_during_which_an_entity_is_deleted_fails_and_what_it_returned_stays_valid`,
+  `Enumeration_with_a_session_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid`
+  — change what they assert, so the test author replaces them in the tests commit by the
+  tests of this sprint. A test the sprint breaks outside this list is reported to the
+  coordinator, who enters it in the brief, and is then edited in the same way.
+- **What "every unchanged entity" is measured against.** The test runs writers of
+  inserts, replaces, deletes and delete-and-reinsert of a second set of entities while it
+  enumerates, with the index growing at least twice during the pass, and states: every
+  entity of the first set, which nobody changes, is returned exactly once; no key is
+  returned twice; every returned entity is one written state.
+- **Documentation.** The documentation of `Enumerate` gains one sentence in the contract
+  commit: "The engine remembers the keys it has returned for the length of the pass, so
+  that none is returned twice; that memory grows with the pass and is what a memory limit
+  of a read bounds."
+
+**The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
+through the planner's session: reads by key have to scale with threads, and the work is
+done in this sprint, not judged at S25. The owner's reason: that more threads read less
+in total is a very bad signal, and open-source databases that are very fast are there to
+be studied: how they do it is to be learned from their source and, in essence, repeated.
+
+- **Goal, added.** Reads by key scale with the number of threads that read.
+- **To read, added.** The review of S06 on the scaling of reads (Q42), and "Reader
+  protection, publication and compaction" of the milestone contract, which calls
+  `ReaderWriterLockSlim` the initial synchronization.
+- **Types and members, added.** The protection of a read is reworked in this sprint. Today
+  a read by key makes four writes to memory that all readers share — the counter of the
+  close barrier, the catalog gate twice (for the lookup and when the claim is dropped), the
+  stripe of its root —
+  which is why more threads read less in total. What the sprint
+  has to reach: a read by key writes to no memory that other readers write to on its
+  ordinary path, or as near to that as the guarantees allow, and takes the gate of the
+  index once. The implementer first studies how open-source databases that read fast from
+  memory on many threads protect a read — their source, not a summary of it — and writes
+  down in the pull request which of them it looked at, what each does for this problem,
+  and which it follows. The aim is to repeat a solution that is proven there, not to
+  invent one. Among the candidates are reader counts kept apart per thread or per
+  processor, optimistic reads checked by a version, and protection of memory by epochs;
+  how many protections there are and how fine they are is decided by what those systems
+  do and by the figures the implementer measures, not by a preference stated here. The
+  guarantees do not move: a read is coherent, a deleted entry is reused only after the
+  readers that could see it are gone, a close waits for the reads in progress, no
+  application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
+  replaces what the milestone contract names as the initial synchronization, the
+  coordinator corrects that section with the sprint and reports it to the owner.
+- **Acceptance, added.** Reads by key on 16 threads complete more in total than on one
+  thread, on the machine of the review; the figure for 1, 2, 4, 8 and 16 threads is
+  reported, with a writer and without, and the owner judges it against the aim of growth
+  close to the number of processors. The model-checked storms and the close cycles of S06
+  pass on the new protection. The scaling is a figure of a measurement and not a test of
+  the default lane; a miss of the first sentence is reported to the owner in the sprint,
+  as an early figure that misses its gate is.
+- **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
+  and 16 threads, without a writer and with one, before and after the change.
+- If the coordinator judges that this makes the sprint too large for one implementer and
+  one review, it splits it and tells the planner: the protection of reads first, the
+  enumeration and the growth of the index after it.
+
 #### S09 · Write coordinator and write limits
 
 **Track:** full · **Needs:** S08 · **Decisions:** D7 · **Owners:** E03, E08
 
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
-- **Contract.** Options: the instance memory budget (by default half of the memory available to the process),
-  the entity size limit (1 MiB), the queued write input (1,024 requests and the smaller
-  of 16 MiB and 10% of the budget), the number of preparing workers (2). `WriteRejected`
+- **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
   at once in MemoryOnly; it is internal.
 - **To read.** [Write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -2484,17 +2879,20 @@ table being built while the primary index grows.
   one order of positions. Writes to one entity execute in the order they were admitted.
   A group holds at most 32 operations or 8 MiB and waits at most 1 ms to fill.
   Cancellation before dispatch withdraws the write and confirms that it did not run;
-  after dispatch the call returns the real outcome. A write over a limit is refused
-  before it has any effect and never runs later. A preparation that fails releases
+  after dispatch the call returns the real outcome. A write the memory budget cannot hold
+  is refused before it has any effect and never runs later. Writes submitted faster than
+  they complete are not refused: 10,000 writes submitted at once all complete, and those
+  to one entity in the order they were admitted; what waits is counted in the memory
+  budget. A preparation that fails releases
   everything it reserved, shown by the counters. A failure injected during publication
   puts the instance into `Faulted`; no reader sees a partial state, and operations
-  report `Unavailable` until a new instance is opened. Inconsistent options are refused
-  at open. Publication performs no I/O, no allocation of pool capacity and no user code. That
+  report `Unavailable` until a new instance is opened. A `MemoryLimit` that is not
+  positive or is smaller than one segment of the arena is `InvalidConfiguration`.
+  Publication performs no I/O, no allocation of pool capacity and no user code. That
   preparation runs concurrently and that a group waits at most 1 ms are checked by the
   reviews; the size of a group is asserted through the counters. An instance opened
-  without `MemoryLimit` has half of the memory available to the process as its limit, and
-  one opened with it has the given value; the limits that are shares of the budget follow
-  the limit in force.
+  without `MemoryLimit` has half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as
+  its limit, and one opened with it has the given value.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2506,43 +2904,40 @@ table being built while the primary index grows.
 namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
-public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory available to the process
-public int MaxEntitySize { get; init; } = 1024 * 1024;         // encoded bytes of one entity with all it owns
-public int WriteQueueLimit { get; init; } = 1024;              // writes admitted and not yet completed
-public long? WriteQueueMemoryLimit { get; init; }              // null: the smaller of 16 MiB and 10% of MemoryLimit
-public int PrepareWorkers { get; init; } = 2;
+public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory the runtime reports as available
 
 // LatticeLimitEnum gains
-EntitySize = 3,
-WriteQueue = 4,
-WriteQueueMemory = 5,
-Memory = 6,
+Memory = 3,
 ```
 
 By the owner's decision of 15 November 2026, given through the planner's session: the
-memory available to the process is the limit of its container where there is one and the
-physical memory of the machine otherwise, read when the instance opens. From which source
-the engine reads it is open, entry Q37 of the [open questions](open-questions.md): the
-planner first named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, and the review of
-S05 measured that it reports what the garbage collector may use — the physical memory on
-a host without settings, in a container 75% of the limit by default, and whatever a GC
-heap setting says — which is not what the decision gives. S09 does not start with Q37 open. The limit in force is fixed at open and does not
-follow later changes. Every limit that is a share of the budget — the queued write input
-here, the retained outcomes of S26, the pending replication of S33 — is taken from the
-limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
+default is half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, read when the
+instance opens. By the owner's answer to Q37 the default is defined by that figure and
+not by the limit of the container: on a machine without limits it is the physical memory,
+in a container by default three quarters of the container's limit, and a configured heap
+hard limit of the collector lowers it. The limit in force is fixed at open and does not
+follow later changes. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
 `EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
-the default. The documentation of the option says in plain words that the default is per
-instance, that a process with several instances sets it explicitly, and that the budget
-counts what the engine holds, not the managed heap of the application. `Validate`
-compares `MaxEntitySize` and `WriteQueueMemoryLimit` with the limit in force — the given
-`MemoryLimit`, or the computed default when it is null. The limit in force is computed
+the default. The documentation of the option says in plain words the three cases above,
+that the default is per instance, that a process with several instances, production and
+anyone who limits the heap of the collector set the value explicitly, and that the budget
+counts what the engine holds, not the managed heap of the application. The limit in force is computed
 once, when the instance opens, and the validation of that open uses the same value.
 
-`Validate` refuses: a limit that is not positive; `MaxEntitySize` above the limit in
-force; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
-above 64.
+By the owner's decision O20 the queue of writes has no limit of its own: the options
+`WriteQueueLimit` and `WriteQueueMemoryLimit` and the members `WriteQueue` and
+`WriteQueueMemory` of `LatticeLimitEnum` that an earlier form of this brief had are gone.
+After O19 and O20 the enum has `ReadMemory = 1`, `ReadTime = 2` and `Memory = 3`; nothing
+was released, so the numbers are free. A write waits for its turn, what waits is counted
+in the memory budget, and a write is refused only when the budget cannot hold it.
+
+By decision O19 there is no option for the size of an entity, no member of
+`LatticeLimitEnum` for it, and nothing for `Validate` to check of it.
+
+`Validate` refuses a `MemoryLimit` that is not positive or is smaller than one segment of
+the arena.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
-memory budget bounds the arena and the queued write input: a write the arena cannot hold
+memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
 text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
 counted, and the documentation of `MemoryLimit` says so. Internal, in the engine
@@ -2578,8 +2973,52 @@ internal enum EngineFaultPointEnum { BeforePublication = 1, DuringPublication = 
 
 // EngineDatabase gains
 public void ArmFault(EngineFaultPointEnum point);              // the next pass through the point throws; tests only
-// EngineCounters gains: int QueuedWrites, long QueuedWriteBytes, int LargestCommitGroup, long LargestCommitGroupBytes
+// EngineCounters gains: int QueuedWrites, int LargestCommitGroup, long LargestCommitGroupBytes, long MemoryLimit
 ```
+
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S09).
+Where a sentence above says otherwise, these replace it.
+
+- **`PrepareWorkers` is no public option.** By the owner's decision O20 the database asks
+  for as few settings as it can, and this one never refuses anything; it is tuning. How
+  many writes are prepared at once is internal; the starting value is the 2 of the
+  milestone contract, and the write figures of this sprint for 1, 4 and 16 callers show
+  whether it bounds them. The planner reported it to the owner as its reading of O20.
+- **A write larger than a group.** A write whose encoded size is above
+  `CommitGroup.MaxEncodedSize` forms a group alone; the size of a group bounds what
+  accumulates and never refuses a write. Acceptance: an entity of 32 MiB is written while
+  small writes run, and all complete.
+- **What is counted** (point 2 of Q35). `PreparedWrite.EncodedSize` is the bytes of the
+  slots the write prepared in the arena, the root and every block of its values. A write
+  that waits and is not prepared yet holds nothing in the engine: its input is the
+  caller's, by the accepted rule of stable inputs. So "what waits is counted in the
+  memory budget" is the prepared capacity of the arena, `ArenaCounters.PreparedBytes`,
+  and there is no second figure: `EngineCounters` gains `int QueuedWrites`,
+  `int LargestCommitGroup`, `long LargestCommitGroupBytes` and `long MemoryLimit`, and not
+  `QueuedWriteBytes`.
+- **No managed copy of an input** (the planner's answer to Q43, from the accepted
+  decision "Stable write inputs until completion"). The engine takes the values of a
+  write from the object or the record as the caller gave them and copies each once, into
+  the arena; it makes no managed copy of a Binary value on the way. An input changed
+  while its write runs gives a stored value that mixes the two states, never a damaged
+  database: every byte is copied within the length taken at the start. The write batch
+  keeps the copy it makes when an operation is added, until S17. The remarks of the write
+  members gain, in the contract commit: "Do not change the entity, its collections or
+  its byte arrays until the write completes: the database reads them while the call
+  runs." Acceptance: a write of an entity with a Binary value of 32 MiB allocates no
+  managed copy of the value. Two rules of this sprint, checked by the reviews: the values
+  are encoded outside the lock that orders writes, and an insert takes the catalog gate
+  exclusively once, at publication.
+- **Order.** "Writes to one entity execute in the order they were admitted": admitted is
+  the order in which the calls were made; a test makes the calls from one thread without
+  awaiting them and awaits them afterwards.
+- **Faulted.** In `Faulted` every operation, reads included, reports `Unavailable`; a
+  close works. A MemoryOnly instance that faulted has lost its data, and the documentation
+  of the state says so. The fault points are armed by tests of
+  `Moltaro.Lattice.Engine.Tests` under X3; the scenario tests keep to the public
+  interfaces.
+- **The placeholder** ignores `MemoryLimit` until S12; the documentation of the option
+  says "not enforced yet" for the public entry, as the other options of this stage do.
 
 ### Stage 3. Master and children
 
@@ -2710,6 +3149,44 @@ internal sealed class BlockImport
 }
 ```
 
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S10),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- **Identity.** A MemoryOnly master takes a new random database identity with its new
+  history at each open; a Durable master reads both from its store (S27). A child has
+  neither before it loads, so in this sprint a refusal for another database, history or
+  schema cannot come from a real child: the tests of `Moltaro.Lattice.Engine.Tests` send a
+  Hello they make themselves.
+- **Byte order** (the planner's answer to point 3 of Q35). Blocks travel as the bytes of
+  the arena, in the byte order of the sending machine. `LayoutFormat` of the Hello
+  includes the byte order, and a peer of another byte order is refused with `Format`. No
+  conversion is built.
+- **A root larger than a frame.** A block with its framing does not fit one data frame,
+  and by decision O19 a root of tens of mebibytes is ordinary. The export of one root is
+  one stream, cut into `Blocks` frames of at most `MaxDataBody`; bit 0 of
+  `FrameHeader.Flags` marks the last frame of a root. The master copies a root coherently
+  under its protection into a buffer, releases the protection and then sends; the child
+  puts the frames of one root together and then imports it. Each side holds one root at
+  a time outside its arena. `BlockExport.Write` and `BlockImport.Read` keep their
+  signatures.
+- **What the child's caller sees.** While the master cannot be reached the child keeps
+  trying, with the back-off of the milestone contract, until `OpenTimeout`: a child may
+  be started before its master. A refusal by the master, a frame that is not valid and a
+  database the child's memory limit cannot hold end the open at once, without waiting
+  for the timeout: `Unavailable`, with the reason in the message, and the instance is
+  closed. Before it is Ready a child is `Loading` and every operation is `Unavailable`.
+  Until S12 a write on a child of the engine is `NotSupportedException`.
+- **The master's address.** A master binds the address the host of `ListenUri` names. A
+  failure to bind, a port in use for one, is reported as the system reports it and the
+  instance is closed. `OpenTimeout` is read by a child only.
+- **A loaded child** has the history of its master and the sequence at which the load
+  ended; `Schema`, `Set<TEntity>()` and `Set(name)` work on it as on a master.
+- **Acceptance, added.** An entity of 32 MiB is loaded by a child and equals the
+  master's. A child started before its master becomes Ready when the master opens within
+  the timeout. A child whose memory limit cannot hold the database fails its open at once
+  with `Unavailable`.
+
 #### S11 · A child loads under writes and follows the master
 
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
@@ -2780,6 +3257,24 @@ public IDisposable SuspendApplying();                        // a child holds ba
 A complete entity is encoded from the arena through `RootReader` and decoded through
 `RootWriter`; no value is boxed on the way.
 
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S11),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- From this sprint a master of the engine accepts writes while children are connected or
+  loading.
+- `EffectKindEnum.Unchanged` is a write that changed nothing: by the owner's answer to
+  Q39 it has a position of its own, and a child applies that position like any other.
+- With no child connected and no capture registered the master encodes and retains
+  nothing for delivery; `PendingDeliveryBytes` is 0.
+- A transaction of any size is delivered: it is cut into frames and applied only after
+  its end and its digest (decision O18). A child puts one transaction together at a time.
+- Until S24 gives a child its pause, a child whose arena cannot hold a received change
+  stops following: it keeps serving its reads at the position it has, a wait for a later
+  position on it times out, and it does not resume by itself.
+- **Acceptance, added.** A write of an entity of 32 MiB on the master reaches a child
+  whole. A delete of an absent key on the master moves the position of the child.
+
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
 **Track:** full · **Needs:** S11 · **Decisions:** O1, O2, P10 · **Owners:** E07, E08
@@ -2794,7 +3289,18 @@ A complete entity is encoded from the arena through `RootReader` and decoded thr
   [initial loading, last paragraph](../design/milestone-1-engine-contract.md#replication-transport-and-initial-loading).
 - **Acceptance.** `MasterAndChildTests`, `ConsistencyTests` and every other test that
   runs today pass on the engine with their assertions unchanged, as do the tests of the
-  dependency injection package and the running tests of the Identity package. A write
+  dependency injection package and the running tests of the Identity package. One
+  assertion changes, by the owner's decision of 15 November 2026 (Q39 of the
+  [open questions](open-questions.md)): in
+  `ConsistencyTests.Every_result_carries_a_position` the position of the delete that
+  deleted nothing is no longer the position before it. The test author changes it in the
+  tests commit of S12, with the decision named in the commit message:
+  `Assert.NotEqual(inserted.Position, nothingDeleted.Position)`, and the comment above
+  the last assertions becomes "Every write moves the position, also one that changed
+  nothing." The engine-only test of S06 is removed in the same commit, because the test
+  of the contract states it from then on. In the contract commit of S12 the documentation
+  of `LatticeWriteResult.Position` gains the sentence "A write that changed nothing has a
+  position of its own as well." A write
   through a child returns after that child applied it, and does not wait for other
   children. A timeout after the master committed reports `SynchronizationTimeout` with
   the committed position and does not roll back. A wait has a fixed target and does not
@@ -2846,6 +3352,57 @@ public static class LatticeDatabase
 `SuspendApplying()`. `LatticeDatabaseOptions.Validate` gains the rule for addresses of
 S10: the scheme `lattice`, a host, a port, no path; anything else is
 `InvalidConfiguration`. The dependency injection package references the engine assembly.
+
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S12),
+on the owner's word, against the engine as S06 left it. Where a sentence above says
+otherwise, these replace it.
+
+- **Forwarding had no frames in the brief.** Internal, namespace
+  `Moltaro.Lattice.Replication`: `FrameKindEnum` gains `WriteRequest = 10` and
+  `WriteReply = 11`, and
+
+  ```csharp
+  // The body of a forwarded write and of its answer, in the logical encoding of S11.
+  internal static class ForwardEncoding
+  {
+      public static void WriteRequest(IBufferWriter<byte> output, WriteKindEnum kind, uint typeId, ReadOnlySpan<byte> key, ReadOnlySpan<byte> entity, LatticeRevision? expectedRevision, LatticePosition? minimumPosition);
+      public static void WriteReply(IBufferWriter<byte> output, LatticeWriteResult result);
+      public static void WriteReply(IBufferWriter<byte> output, LatticeException refusal);
+      // Each refuses a truncated or malformed body with ValidationFailed.
+      public static ForwardedWrite ReadRequest(ReadOnlySequence<byte> body, LatticeSchema schema);
+      public static ForwardedReply ReadReply(ReadOnlySequence<byte> body);
+  }
+  ```
+
+  `ForwardedWrite` and `ForwardedReply` hold what the two writers take.
+  `FrameHeader.CorrelationId` pairs a reply with its request. A refusal travels with its
+  error code, its message, `Limit`, `OperationIndex` and `CommittedPosition`, and the
+  child throws a `LatticeException` equal in all of them.
+- **What a caller of a child sees.** The child checks the arguments and validates the
+  entity before it sends anything, in the order of Q25; the master validates again. A
+  child that has no connection to its master refuses a write with `Unavailable`. A
+  cancellation before the request is sent withdraws the write; after it is sent the call
+  waits for the real outcome, as on a master. When the connection ends after the request
+  was sent and before the reply arrived, the outcome is not known: `IndeterminateOutcome`.
+  S26 gives the caller a way to learn it. By the answer to Q44 a step of an enumeration
+  after a close is `ObjectDisposedException`; the engine-only test of S08 becomes a test
+  of the contract.
+- **What ends with the placeholder, beyond what the brief lists**, as forced edits of the
+  Acceptance. The test author removes `DatabaseImplementationEnum` and the parameter it
+  gave to the tests in the tests step: every test that ran on both runs once, a test
+  marked for the engine only loses the mark, and a test that ran on the placeholder only,
+  because it opened a child, runs on the engine. No assertion changes. The tests that
+  state a refusal of the placeholder which the engine does not make are removed by the
+  test author with the reason named: the tests of `TextPolicyAndEnumWriteTests` on a
+  comparison without case, an Enum field and UTF-16 "not writable yet", and the
+  placeholder cases of `MalformedTextWriteTests` for those
+  schemas; what they state of validation is already stated by the tests of S07. In the
+  contract commit the "Not implemented yet" remarks that S07 to S09 made untrue of the
+  engine are removed: on `OrdinalIgnoreCase`, on Enum fields and enum types, on the
+  UTF-16 encoding, and "not enforced yet" on `MemoryLimit` and on the read limits. The
+  remarks on Dictionary storage, unique indexes, index search, the write batch and the
+  field types of S03 stay. `README.md` follows. A use the build or a test finds outside
+  the lists is reported to the coordinator, as the brief already says.
 
 ### Stage 4. Indexes and batches
 
@@ -2951,8 +3508,8 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
 
 - **Goal.** Several writes of different entity types take effect together at one
   position, or not at all, on every node.
-- **Contract.** Exists. Added: options for the batch limits, 128 operations and 8 MiB by
-  default.
+- **Contract.** Exists. No option is added: a batch has no limit of its own (decision
+  O18), and `LatticeLimitEnum` gets no member for a batch.
 - **To read.** [Q01 atomic write batch](../decisions/document-model.md#atomic-writebatch-within-one-database);
   [batch save with Upsert, repeated roots](../decisions/mutation-commands.md);
   [write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -2964,11 +3521,14 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   identities of a batch are claimed together; two batches with overlapping entities do
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value
   another member takes. A failing member refuses the whole batch and reports its number.
-  A batch over a limit is refused with `WriteRejected`. Two entities changed by one batch
+  A batch has no limit of its own: one of 10,000 small entities is executed as one, and
+  so is one that is larger than an internal
+  group. A batch that the memory budget cannot hold is refused with `WriteRejected` and
+  `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
   a batch. A child never acknowledges a part.
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
-  of 1, 8, 32 and 128 entities.
+  of 1, 32, 1,000 and 10,000 entities.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
 
 ### Stage 5. The full type model and access
@@ -3056,8 +3616,7 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   The encoded effect of a small update is smaller than the encoded entity. Setting a
   Map value by a key that equals a stored key in another spelling keeps the stored
   spelling; adding a Set member that equals a stored one changes nothing, its spelling
-  included. The entity size
-  limit applies to the entity an update would leave. The values of commands bind by the
+  included. The values of commands bind by the
   same allowlist as index keys: the agreement suite of S15 is extended to Map keys, Set
   members and command values, and passes.
 - **Measured.** Reported: encoded size of a one-field update of the fixture's user against its
@@ -3196,7 +3755,11 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   before the gate run.
 - **Measured.** **G1.** Early figure for G2: p50, p95, p99 and maximum of the read mix
   on one MemoryOnly node at 10,000 reads/s with the write trace at 200 changes/s,
-  identifier and exact-index reads, range reads and view reads reported separately.
+  identifier and exact-index reads, range reads and view reads reported separately. The
+  scaling of reads with threads is reported with the read mix; if it bounds a gate or the
+  reads of the reference deployment, it is reported to the owner with what in the
+  synchronization bounds it, before any change (Q42 of the open questions): it is now the
+  check of the read mix against what S08 reached.
 - **Out of scope.** Children, PostgreSQL, the burst. No number from a prototype.
 
 ### Stage 6. Durability
@@ -3212,8 +3775,8 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   status query that answers pending, committed with the original result and position,
   rejected with the original error, expired or unknown; errors for a changed request
   under a used identity and for an expired one; the option for the window, 15 minutes
-  by default; the option for the memory of retained outcomes on a MemoryOnly master, by
-  default the smaller of 32 MiB and 10% of the instance budget. The session and the
+  by default. By the owner's decision O20 there is no option for the memory of retained
+  outcomes. The session and the
   identity travel in one value, so that the write members do not multiply; the planner
   writes the types and members before the stage begins.
 - **To read.** [Operation retry protocol](../design/operation-retry-protocol.md);
@@ -3229,9 +3792,9 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   not extend the window; an identity of another history is refused. A repeat through a
   child still waits for that child to apply the original position. A session never moves
   backward on a replayed result. The fingerprint covers schema version, operations,
-  identities, ordered commands, values and conditions. The retained outcomes stay within
-  their bound; when it is full, new admissions are refused and no unexpired outcome is
-  dropped. The retained outcomes of a MemoryOnly master are counted in the memory budget of
+  identities, ordered commands, values and conditions. The retained outcomes have no
+  bound of their own: no unexpired outcome is dropped, they are counted in the memory
+  budget, and a write is refused only when the budget cannot hold it. The retained outcomes of a MemoryOnly master are counted in the memory budget of
   S24. A change of the configured window applies to operations admitted after
   it and never shortens the window of one admitted before. A clock that moves backward
   does not revive an expired identity. An identity that names a generation closed for
@@ -3377,11 +3940,12 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
 
 **Track:** full · **Needs:** S30 · **Decisions:** D2, O9 · **Owner:** E06 · **Closes:** R26
 
-- **Goal.** What the store keeps stays within its bounds for as long as the database
+- **Goal.** What the store keeps shrinks back for as long as the database
   runs: applied journal is removed, outcomes are retired when their time has passed, and
-  a journal that cannot be applied stops writes before it grows without limit.
-- **Contract.** Options of the storage for the journal trigger (64 MiB or 5 seconds), its
-  hard limit (1 GiB) and the receipt budget (1 GiB).
+  an application that sets a hard limit has its writes stopped at it.
+- **Contract.** Options of the storage for the journal trigger (64 MiB or 5 seconds) and,
+  unset by default, for a hard limit of the journal and for a budget of the receipts
+  (the owner's decision O20).
 - **To read.** [Independent base, journal and recovery](../design/milestone-1-engine-contract.md#independent-base-journal-and-recovery);
   [transient background application failure, triggers and hard limit](../decisions/checkpoint-and-journal.md);
   [expiry, cleanup and crash ordering](../design/operation-retry-protocol.md#expiry-cleanup-and-crash-ordering).
@@ -3389,12 +3953,13 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   are retained on their own schedule, independent of the journal, and retired in
   generation order; the retired boundary is durable before or with the deletion. The
   retirement of receipts never turns an old identity into a new write: an identity of a
-  retired generation is refused. While the applier fails, foreground writes continue
-  until the hard limit and are then refused before commit; when it recovers it catches
-  up and writes resume. A receipt budget that is full refuses new admissions and drops no
+  retired generation is refused. While the applier fails, foreground writes continue;
+  with a hard limit set they continue until it and are then refused before commit; when
+  the applier recovers it catches up and writes resume. A receipt budget, when one is
+  set and full, refuses new admissions and drops no
   unexpired receipt. Cleanup and retirement check the leadership number in the
   transaction that makes their change. After a run of writes that stops, the journal and
-  the receipts return within their bounds without a restart.
+  the receipts shrink back without a restart.
 - **Measured.** Reported: size of the retained journal and of the receipts over the write
   trace at 200 changes/s and after it stops.
 - **Out of scope.** Killing processes (S32). Shrinking the files of PostgreSQL, which is
@@ -3439,14 +4004,17 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   and many children that start together are served within a limit.
 - **Contract.** Options for the pending delivery memory (the smaller of 32 MiB and 20%
   of the budget), the deadline of a slow peer (30 seconds) and the number of captures
-  that run at once (10).
+  that run at once (10). The default of the pending delivery memory is a share of the
+  instance budget and is taken from the limit in force at open, the given `MemoryLimit`
+  or the computed default.
 - **To read.** [Replication transport and initial loading](../design/milestone-1-engine-contract.md#replication-transport-and-initial-loading);
   [Q08.1.3 pending delivery in memory](../decisions/replication-and-hosting.md);
   [Q14 child memory pressure](../decisions/write-admission.md).
 - **Acceptance.** One delivery history serves all children, and a transaction leaves it
   when every participating child applied it. A child that holds it beyond its bytes or
   its deadline loses its claim and must reload; the other children are not disturbed.
-  The master's memory for delivery stays within the limit whatever a child does.
+  The master's memory for delivery stays within the limit whatever a child does. With
+  the default, the pending delivery memory follows the limit in force of the instance.
   Children that start together load in parallel; with the limit of captures set below
   their number, a child beyond the limit waits before its capture is registered, becomes
   ready after a turn is free, and fails with `Unavailable` when its open timeout passes

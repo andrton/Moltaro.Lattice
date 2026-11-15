@@ -62,6 +62,11 @@ whole batch before commit if an identity repeats. Exact SDK names and remaining
 validation/failure details remain Q13 work. Save is still full replacement without
 diff; partial commands retain their existing meaning. [Rationale and alternatives](../design/questions/write-batch.md).
 
+**Added by the owner on 15 November 2026:** a batch has no limit of its own on the number
+of roots or on its size. It is bounded by the resources of the instance: a batch that the
+memory budget or the journal cannot hold is refused as a whole before it has any effect.
+The size of a batch is the application's choice.
+
 **Confirmed for v1 on 12 November 2026:** atomicity and coherent reads
 of one logical record, including affected indexes. Q02 defines the logical record
 as an owned hierarchical document. The synchronization mechanism and operation

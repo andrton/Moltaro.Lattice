@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Access.Binding;
@@ -19,11 +20,12 @@ namespace Moltaro.Lattice.Access.Binding;
 // property named, and nothing here ends in another exception.
 //
 // What a write takes of an object is checked as a record is: a null where a position does not
-// allow it, at any depth, and a key that a Map holds twice under the comparison of its key
-// declaration, are ValidationFailed. Of equal members of a Set the first is kept. The class of
-// an owned type is bound once for every pair of owned type and class, however many positions
-// hold it, so binding grows with the declarations; it ends because an owned type does not
-// contain itself, and it goes no deeper than a declaration may be, see SchemaBuilder.
+// allow it, at any depth, a key that a Map holds twice under the comparison of its key
+// declaration, and text that is not well-formed at any depth, are ValidationFailed. Of equal
+// members of a Set the first is kept. The class of an owned type is bound once for every pair of
+// owned type and class, however many positions hold it, so binding grows with the declarations;
+// it ends because an owned type does not contain itself, and it goes no deeper than a declaration
+// may be, see SchemaBuilder.
 internal sealed class ClassBinder
 {
     private readonly LatticeEntityType _entityType;
@@ -41,39 +43,53 @@ internal sealed class ClassBinder
             ? constructor
             : throw BindingFailed($"{type.Name}, {role}, needs a public parameterless constructor and cannot be abstract.");
 
-    // The property that holds a field in an object of the class, and what turns its value into
-    // what a record holds.
+    // The property that holds a field in an object of the class, its accessors, and what turns its
+    // value into what a record holds.
     public BoundProperty Bind(Type type, LatticeField field, string owner)
     {
-        var property = FindProperty(type, field, owner);
+        var (property, getAccessor, setAccessor) = FindProperty(type, field, owner);
         var place = new Place(type, property, field, owner);
         var toRecord = ToRecord(property.PropertyType, field.Declaration, place);
 
+        // The get accessor is called virtually, as C# calls it: an override of a derived class of the
+        // bound one is the one that runs.
         var instance = Expression.Parameter(typeof(object), "instance");
-        var read = Expression.Convert(Expression.Property(Expression.Convert(instance, type), property), typeof(object));
+        var read = Expression.Convert(Expression.Call(Expression.Convert(instance, type), getAccessor), typeof(object));
         var get = Expression.Lambda<Func<object, object?>>(read, instance).Compile();
 
-        return new BoundProperty(field, property, get, toRecord);
+        return new BoundProperty(field, property, getAccessor, setAccessor, get, toRecord);
     }
 
-    // The property of a field is the one C# finds by its name on the class: the public
-    // property of the most derived class that declares one. A property of a base class that it
-    // hides is not considered, whatever its type; a property that is not public does not hide
-    // one, as C# does not see it from outside. The one found has to be an instance property
-    // with a public get and a set.
-    private static PropertyInfo FindProperty(Type type, LatticeField field, string owner)
+    // The property of a field is the one C# finds by its name on the class: the public member of
+    // that name of the most derived class that declares one. A member of a base class that it
+    // hides is not considered, whatever it is; a member that is not public does not hide one, as C#
+    // does not see it from outside. The member found has to be an instance property, not a field or
+    // anything else: a public field that hides a property of a base class is refused, and the
+    // hidden property is not bound in its place (the owner's answer to Q29).
+    //
+    // The accessors are those C# sees for that property on the class: its own, and, when it
+    // overrides a virtual property and declares only one accessor, the other one of the property it
+    // overrides, found on the nearest base class that declares it. The get accessor is public, the
+    // set accessor of any accessibility.
+    private static (PropertyInfo Property, MethodInfo GetAccessor, MethodInfo SetAccessor) FindProperty(Type type, LatticeField field, string owner)
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
         for (var declaring = type; declaring is not null; declaring = declaring.BaseType)
         {
-            var declared = Array.FindAll(declaring.GetProperties(Declared), candidate => candidate.Name == field.Name);
+            var declared = declaring.GetMember(field.Name, Declared);
             if (declared.Length == 0)
             {
                 continue;
             }
 
-            var property = declared[0];
+            if (Array.Find(declared, member => member is not PropertyInfo) is { } other)
+            {
+                throw BindingFailed(
+                    $"The public member '{field.Name}' of {type.Name} is a {MemberKind(other)}, not a property; field '{field.Name}' of '{owner}' needs a public property of that name with get and set.");
+            }
+
+            var property = (PropertyInfo)declared[0];
             if (declared.Length > 1 || property.GetIndexParameters().Length > 0)
             {
                 throw BindingFailed($"{type.Name} has an indexer named '{field.Name}'; field '{field.Name}' of '{owner}' needs a property of that name.");
@@ -84,16 +100,69 @@ internal sealed class ClassBinder
                 throw BindingFailed($"Property '{field.Name}' of {type.Name} is static; field '{field.Name}' of '{owner}' needs an instance property with get and set.");
             }
 
-            if (property.GetGetMethod() is null || property.SetMethod is null)
+            var (getAccessor, setAccessor) = AccessorsSeen(declaring, property);
+
+            if (getAccessor is not { IsPublic: true } || setAccessor is null)
             {
                 throw BindingFailed($"Property '{field.Name}' of {type.Name} has no public get or no set; field '{field.Name}' of '{owner}' needs both.");
             }
 
-            return property;
+            return (property, getAccessor, setAccessor);
         }
 
         throw BindingFailed($"{type.Name} needs a public property '{field.Name}' with get and set, as field '{field.Name}' of '{owner}' declares.");
     }
+
+    // The accessors C# sees for a property declared on a class: its own, and those it inherits. Only
+    // an override inherits: a property that overrides a virtual one takes the accessor it does not
+    // declare from the property it overrides, which is the property of that name on the nearest base
+    // class that declares one. That one may be an override itself, so the search goes on until both
+    // accessors are found or a property is reached that overrides nothing. A property that hides
+    // one of its base class with new inherits nothing.
+    private static (MethodInfo? Get, MethodInfo? Set) AccessorsSeen(Type declaring, PropertyInfo property)
+    {
+        const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+        var get = property.GetMethod;
+        var set = property.SetMethod;
+        var current = property;
+
+        while ((get is null || set is null) && Overrides(current))
+        {
+            // A base class between the two that does not override the property declares none.
+            declaring = declaring.BaseType!;
+
+            if (Array.Find(declaring.GetProperties(Declared), candidate => candidate.Name == property.Name && candidate.GetIndexParameters().Length == 0) is not { } inherited)
+            {
+                continue;
+            }
+
+            get ??= inherited.GetMethod;
+            set ??= inherited.SetMethod;
+            current = inherited;
+        }
+
+        return (get, set);
+    }
+
+    // Whether the accessors of a property override those of a base class.
+    private static bool Overrides(PropertyInfo property)
+    {
+        var accessor = (property.GetMethod ?? property.SetMethod)!;
+
+        return accessor.GetBaseDefinition().DeclaringType != accessor.DeclaringType;
+    }
+
+    // The kind of a member that is not a property, in a message: a field, a method, an event or a
+    // nested type.
+    private static string MemberKind(MemberInfo member) => member.MemberType switch
+    {
+        MemberTypes.Field => "field",
+        MemberTypes.Method => "method",
+        MemberTypes.Event => "event",
+        MemberTypes.NestedType => "nested type",
+        _ => member.MemberType.ToString().ToLowerInvariant(),
+    };
 
     // What turns a value of the given type, which is not null, into what a record holds at a
     // position of this declaration. The type is checked against the table here, once.
@@ -106,9 +175,21 @@ internal sealed class ClassBinder
         LatticeFieldTypeEnum.Enum => BindEnum(type, declaration, place),
         LatticeFieldTypeEnum.Binary when type == typeof(byte[]) => ReadAsTheyAre(type, static value => ((byte[])value).Clone(), place),
         LatticeFieldTypeEnum.Binary => throw place.Mismatch(),
+        LatticeFieldTypeEnum.String when type == typeof(string) => BindText(place),
         _ when type == declaration.PositionType => static value => value,
         _ => throw place.Mismatch(),
     };
+
+    // Text is taken as it is, after one pass that refuses text that is not well-formed, a surrogate
+    // without its pair, at any depth (the planner's answer to Q41).
+    private Func<object, object> BindText(Place place)
+    {
+        var entityTypeName = _entityType.Name;
+
+        return value => WellFormedText.IsWellFormed((string)value)
+            ? value
+            : throw ValidationFailed(entityTypeName, place.Holds("text that is not well-formed: it has a surrogate without its pair"));
+    }
 
     // An Enum is its underlying integer, as it is stored, or a .NET enum that agrees with the
     // enum type; a .NET enum value is held as its integer.

@@ -56,7 +56,7 @@ internal sealed class OneRegionArena : IDisposable
         return field;
     }
 
-    public RootWriter Writer(int maxEntitySize = RootArena.StartingEntityLimit) => new(Arena, Layout, RootArena.Handle, maxEntitySize);
+    public RootWriter Writer() => new(Arena, Layout, RootArena.Handle);
 
     public RootReader Reader(ArenaAddress root) => new(Arena, Layout, root);
 

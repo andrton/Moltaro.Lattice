@@ -5,77 +5,23 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
 
-// Text as a root stores it, in the encoding of the database (Q04.1): whether text may be stored at
-// all, how many bytes it takes, and the string it reads back as. Only well-formed text is stored, in
-// both encodings, and nothing is ever replaced (Q04.5), so decoding stored text needs no check of its
-// own and finds no malformed sequence. A UTF-16 database keeps the code units in the byte order of
+// Text as a root stores it, in the encoding of the database (Q04.1): how many bytes it takes, the
+// string it reads back as, and whether it equals a given text. Only well-formed text is stored, in
+// both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check of the
+// core, WellFormedText), so decoding stored text needs no check of its own and finds no malformed
+// sequence. A UTF-16 database keeps the code units in the byte order of
 // the machine, as everything in native memory is.
 internal static class StoredText
 {
-    // The most characters counted in one call of Encoding.GetByteCount: three bytes each at most, so
-    // the count of one call always fits an int.
-    private const int CountedAtOnce = int.MaxValue / 3;
-
-    // Every surrogate, high and low, U+D800 to U+DFFF, for a vectorized search. It is immutable and
-    // made once, so it is shared by every writer of every arena. It stands in for IndexOfAnyInRange,
-    // which until the JIT has optimized it boxes its bounds on every call, so that a write would not
-    // be free of managed allocation from its first calls on.
-    private static readonly SearchValues<char> Surrogates =
-        SearchValues.Create([.. Enumerable.Range(0xD800, 0x800).Select(code => (char)code)]);
-
-    // Whether the text is well-formed UTF-16: every high surrogate is followed by a low one, and every
-    // low surrogate follows a high one. The search for surrogates is vectorized, so text without them,
-    // the common case, is checked at the speed of a scan.
-    public static bool IsWellFormed(ReadOnlySpan<char> text)
-    {
-        var index = text.IndexOfAny(Surrogates);
-
-        while (index >= 0)
-        {
-            if (!char.IsHighSurrogate(text[index]) || index + 1 == text.Length || !char.IsLowSurrogate(text[index + 1]))
-            {
-                return false;
-            }
-
-            index += 2;
-
-            var next = text[index..].IndexOfAny(Surrogates);
-
-            index = next < 0 ? -1 : index + next;
-        }
-
-        return true;
-    }
+    // The bytes of UTF-8 that EqualsOrdinal encodes on the stack at a time.
+    private const int ComparedAtOnce = 256;
 
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
-    // code unit. Counted as a long in both encodings, because text of 2^30 characters or more takes
-    // more bytes than an int holds; such text is over every limit of an entity, and RootWriter
-    // refuses it in Complete, without forming a span over its bytes (ValueSource).
-    public static long EncodedLength(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
-    {
-        if (encoding == LatticeStringEncodingEnum.Utf16)
-        {
-            return 2L * text.Length;
-        }
-
-        var length = 0L;
-
-        while (text.Length > 0)
-        {
-            var counted = Math.Min(text.Length, CountedAtOnce);
-
-            // A piece never ends between the two halves of a surrogate pair.
-            if (counted < text.Length && char.IsHighSurrogate(text[counted - 1]))
-            {
-                counted--;
-            }
-
-            length += Encoding.UTF8.GetByteCount(text[..counted]);
-            text = text[counted..];
-        }
-
-        return length;
-    }
+    // code unit. For text of at most ValueBlocks.MostValueBytes code units, which RootWriter checks
+    // first: three bytes for each at most, so the count fits an int. Longer text is above the bound
+    // of one value in either encoding and is refused before it is counted.
+    public static int EncodedLength(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding) =>
+        encoding == LatticeStringEncodingEnum.Utf16 ? 2 * text.Length : Encoding.UTF8.GetByteCount(text);
 
     // The text of a String value as a new string: the one allocation of a read of text.
     public static string Read(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, LatticeStringEncodingEnum encoding)
@@ -113,6 +59,44 @@ internal static class StoredText
 
         return string.Create(DecodeChunks(arena, entries, []), (arena, descriptor), static (characters, value) =>
             DecodeChunks(value.arena, ValueBlocks.Directory(value.arena, value.descriptor), characters));
+    }
+
+    // Whether the stored text of a String value is the given text, compared ordinally, code unit by
+    // code unit: what a primary key compared with Ordinal needs (S07 brings the one comparison of the
+    // schema, ValueComparer, for every comparison and both encodings). In a UTF-8 database the text
+    // is encoded on the stack, a piece at a time, and each piece is compared with the stored bytes at
+    // its place, so nothing is allocated, whatever the length. Text that is not well-formed is never
+    // stored, so it equals no stored text.
+    public static bool EqualsOrdinal(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
+    {
+        if (encoding == LatticeStringEncodingEnum.Utf16)
+        {
+            var units = MemoryMarshal.AsBytes(text);
+
+            return units.Length == descriptor.Length && ValueBlocks.RangeEquals(arena, descriptor, rootPayload, 0, units);
+        }
+
+        Span<byte> piece = stackalloc byte[ComparedAtOnce];
+        var position = 0L;
+
+        while (!text.IsEmpty)
+        {
+            // A piece ends between two characters: the encoder stops before a character that does
+            // not fit whole, and the text is never cut inside a surrogate pair.
+            var status = System.Text.Unicode.Utf8.FromUtf16(text, piece, out var read, out var written, replaceInvalidSequences: false);
+
+            if (status == OperationStatus.InvalidData
+                || position + written > descriptor.Length
+                || !ValueBlocks.RangeEquals(arena, descriptor, rootPayload, position, piece[..written]))
+            {
+                return false;
+            }
+
+            position += written;
+            text = text[read..];
+        }
+
+        return position == descriptor.Length;
     }
 
     // Decodes the UTF-8 of a chunked value into the destination and returns the number of its

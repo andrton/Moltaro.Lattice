@@ -13,11 +13,19 @@ public enum LatticeErrorEnum
 
     /// <summary>
     /// The requested entity type does not exist in the schema, or the .NET class does not
-    /// match its declaration.
+    /// match its declaration by the rules that <see cref="ILatticeDatabase.Set{TEntity}"/>
+    /// states.
     /// </summary>
     BindingFailed = 2,
 
     /// <summary>The submitted entity violates the schema. Nothing was written.</summary>
+    /// <remarks>
+    /// Text that is not well-formed — a surrogate without its pair — is refused in the same
+    /// way, at any depth, and is never stored and never replaced by another character. A
+    /// String or Binary value larger than one value may be, as
+    /// <see cref="Schema.LatticeFieldTypeEnum.String"/> and
+    /// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way.
+    /// </remarks>
     ValidationFailed = 3,
 
     /// <summary>Insert found an existing entity with the same primary key. Nothing was written.</summary>
@@ -33,8 +41,9 @@ public enum LatticeErrorEnum
     RevisionConflict = 6,
 
     /// <summary>
-    /// The write was refused before execution, for example because a memory, queue or
-    /// storage-recovery budget was exhausted. It was not executed and will not execute later.
+    /// The write was refused before execution because the instance cannot hold it: within its
+    /// memory budget, or within a limit of its storage that is set, such as the limit of its
+    /// journal. It was not executed and will not execute later.
     /// </summary>
     WriteRejected = 7,
 

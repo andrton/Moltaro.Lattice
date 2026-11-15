@@ -187,7 +187,7 @@ internal static class SchemaBuilder
 
         var indexes = IndexBuilder.Build(name, fields, draft.Indexes);
         var layoutFingerprint = SchemaFingerprints.Layout(stringEncoding, key, fields);
-        return new LatticeEntityType(draft.Id, name, draft.ClrTypeName, fields, key, indexes, layoutFingerprint);
+        return new LatticeEntityType(draft.Id, name, draft.ClrTypeName, fields, key, indexes, stringEncoding, layoutFingerprint);
     }
 
     // The fields of an entity type or of an owned type, which is the scope of their identities

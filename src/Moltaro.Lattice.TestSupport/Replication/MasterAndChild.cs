@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.TestSupport;
+namespace Moltaro.Lattice.TestSupport.Replication;
 
 // For tests in which a master and its children run in one process.
 internal static class MasterAndChild

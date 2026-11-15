@@ -17,9 +17,11 @@ namespace Moltaro.Lattice.Access;
 /// </list>
 /// <para>
 /// Values are given in the order of the index fields and have the types of those fields; an
-/// integer of another width is accepted when it fits. A key that an index cannot serve,
-/// such as a value for the second field without one for the first, is rejected when it is
-/// used; nothing falls back to reading every entity.
+/// integer of another width is accepted when it fits. A String value that is not well-formed
+/// text, with a surrogate without its pair, is an <see cref="ArgumentException"/> when the key
+/// is used, as a value of another type is. A key that an index cannot serve, such as a value
+/// for the second field without one for the first, is rejected when it is used; nothing falls
+/// back to reading every entity.
 /// </para>
 /// <para>
 /// A value may be <see langword="null"/> exactly where a value of that part of the index can

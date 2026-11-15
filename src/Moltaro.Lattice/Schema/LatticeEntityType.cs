@@ -11,7 +11,7 @@ public sealed class LatticeEntityType
     private readonly Dictionary<string, LatticeField> _fieldsByName;
     private readonly Dictionary<string, LatticeIndex> _indexesByName;
 
-    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes, LatticeFingerprint layoutFingerprint)
+    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes, LatticeStringEncodingEnum stringEncoding, LatticeFingerprint layoutFingerprint)
     {
         Id = id;
         Name = name;
@@ -19,6 +19,7 @@ public sealed class LatticeEntityType
         Fields = fields;
         Key = key;
         Indexes = indexes;
+        StringEncoding = stringEncoding;
         LayoutFingerprint = layoutFingerprint;
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
         _indexesByName = indexes.ToDictionary(index => index.Name, StringComparer.Ordinal);
@@ -46,6 +47,10 @@ public sealed class LatticeEntityType
 
     /// <summary>The declared secondary indexes, in declaration order.</summary>
     public IReadOnlyList<LatticeIndex> Indexes { get; }
+
+    // The encoding of the schema, in which the text of an entity is stored: a write counts a String
+    // value against the bound of one value in it (ValueBound).
+    internal LatticeStringEncodingEnum StringEncoding { get; }
 
     /// <summary>
     /// The fingerprint of how one entity of this type is stored: the string encoding of the

@@ -41,7 +41,35 @@ internal static class FieldValues
     public static object NormalizeKey(LatticeEntityType entityType, object key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        return Normalize(entityType.Key, key, nameof(key));
+        return NormalizeArgument(entityType.Key, key, nameof(key));
+    }
+
+    // A value given as an argument to look an entity up with: a primary key, or a part of a key to
+    // search an index with. Normalized as above, and text that is not well-formed is refused as a
+    // value of another type is, since no stored value can be equal to it (the planner's answer to
+    // Q41). A value set into a record is not checked for it; the write checks it.
+    public static object NormalizeArgument(LatticeField field, object value, string parameterName)
+    {
+        var normalized = Normalize(field, value, parameterName);
+
+        if (normalized is string text)
+        {
+            ThrowIfNotWellFormed(field, text, parameterName);
+        }
+
+        return normalized;
+    }
+
+    // A String key given as an argument that is not well-formed text: ArgumentException, the
+    // message of a value that cannot be used for the field.
+    public static void ThrowIfNotWellFormed(LatticeField field, string text, string parameterName)
+    {
+        if (!WellFormedText.IsWellFormed(text))
+        {
+            throw new ArgumentException(
+                $"Field '{field.Name}' is {field.Declaration.Type}; the value '{text}' is not well-formed text, it has a surrogate without its pair, and cannot be used for it.",
+                parameterName);
+        }
     }
 
     // Stored values are never modified in place. Until owned values and collections are stored

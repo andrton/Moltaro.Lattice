@@ -58,6 +58,11 @@ it was not executed. An expired request that never started must not execute late
 when storage returns. The waiting deadline is not reset by unsuccessful recovery
 attempts. Resolving the dequeue-versus-cancel race is implementation work.
 
+**Added by the owner on 15 November 2026:** the queue of pending writes has no limit of
+its own on the number of requests or on their bytes. Its bytes are bounded by the instance
+budget, and "if the queue has no capacity" means that the budget cannot hold the request.
+The finite deadline of the wait for storage stays.
+
 The accepted [cancellation boundary](mutation-commands.md#cancellation-at-the-commit-boundary)
 also covers preparation before dispatch. Once work is handed off for storage,
 caller cancellation does not abort execution; engine-owned finite failure deadlines
@@ -172,10 +177,13 @@ covers the GC heap and its bookkeeping; it is not a budget for the native arena 
 the whole embedded process. No runtime setting is chosen, and no numerical memory default was chosen with this decision; the owner's addition of 15 November 2026 below gives the default.
 
 **Added by the owner on 15 November 2026:** the default of the instance budget is half of
-the memory available to the process — the limit of its container, or the physical memory
-of the machine — computed when the instance opens. The budget is enforced as accepted
-above. An application that prefers to run into swap rather than have writes refused sets
-the budget above physical memory; nothing else changes for it.
+the memory the .NET runtime reports as available to the process, computed when the
+instance opens: the physical memory on a machine without limits, by default three quarters
+of the limit in a container. The runtime's figure follows a configured GC heap hard limit,
+which is not a budget for the native arena, as said above; an application that sets one
+sets the instance budget explicitly as well. The budget is enforced as accepted above. An
+application that prefers to run into swap rather than have writes refused sets the budget
+above physical memory; nothing else changes for it.
 
 A mutation needs capacity for its preparation/publication peak, not merely its final
 net growth. A replacement with a smaller final document can still need temporary
@@ -363,6 +371,10 @@ adds no production implementation or new benchmark run.
 **Accepted for v1:** option A. Enforce a configurable maximum size for each root
 object, even when the instance still has spare memory. Choose the numerical limit
 from measurements; no default or fixed number is accepted yet.
+
+**Added by the owner on 15 November 2026:** an entity has no size limit of its own and
+there is no option for one. How large an entity is, is the application's choice; it is
+refused only when the memory budget cannot hold it.
 
 The limit covers the root's own data: fixed fields, strings, Binary values, owned
 nested objects and collections. A reference contributes its stored key, not the

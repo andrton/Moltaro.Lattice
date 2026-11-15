@@ -5,11 +5,19 @@ namespace Moltaro.Lattice;
 /// entity owns. Every committed change of the entity produces a new revision.
 /// </summary>
 /// <remarks>
+/// <para>
+/// A revision identifies one state of one entity. Two revisions of the same entity can be
+/// compared for equality, and nothing else may be concluded from a revision: it has no
+/// order, it cannot be turned into a position, and the revision of one entity means
+/// nothing for another.
+/// </para>
+/// <para>
 /// A revision is read together with an entity and can be required by a later write to
-/// detect intervening changes. It has no numerical meaning and no ordering. A token never
-/// matches another entity, an entity recreated under the same key or another database
-/// history. Two different tokens do not prove that the entity contents differ.
-/// The default value matches no stored entity.
+/// detect intervening changes. It has no numerical meaning. A token never matches another
+/// entity, an entity recreated under the same key or another database history. Two
+/// different tokens do not prove that the entity contents differ. The default value
+/// matches no stored entity.
+/// </para>
 /// </remarks>
 public readonly struct LatticeRevision : IEquatable<LatticeRevision>
 {
