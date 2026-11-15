@@ -274,7 +274,11 @@ for a key of 15 characters that starts in Cyrillic, in the implementer's own ben
 not under a manifest. The table and `OrdinalIgnoreCase` of .NET 10 disagree on 16
 scalar values under ICU, 1,031 under NLS and 6 under invariant globalization; in every
 case the table holds equal what the runtime holds different. The table adds 17 KiB to
-the core assembly.
+the core assembly. A long key outside ASCII compared without case reads slower by the
+table than it did by .NET, in the probe of the review and not under a manifest: a key
+of 1,000 UTF-16 units of mixed text 6.4 µs against 3.9 to 4.1 µs, and one of 100,000
+units 0.63 ms against 0.36 to 0.42 ms in UTF-16 and 1.02 ms against 0.77 ms in UTF-8;
+keys of 13 characters and long ASCII keys read as before.
 
 The figures of S06 come from the scenario `read-by-key`
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,

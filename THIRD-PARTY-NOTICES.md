@@ -38,7 +38,7 @@ SOFTWARE.
 
 ## Unicode Character Database — UnicodeData.txt
 
-- **Where:** `src/Moltaro.Lattice.TestSupport/Text/UnicodeData.txt` (test data only), with its licence in `UnicodeLicense.txt` beside it
+- **Where:** `src/Moltaro.Lattice.TestSupport/Text/UnicodeData.txt`, the whole file as test data, with its licence in `UnicodeLicense.txt` beside it; and `src/Moltaro.Lattice/Schema/CaseTable.cs` in the shipped core library, which holds data derived from it: the code point and the simple uppercase mapping (fields 0 and 12) of the 1,477 lines that have one
 - **Source:** <https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt>, Unicode 16.0.0
 - **License:** Unicode License V3, <https://www.unicode.org/license.txt>
 

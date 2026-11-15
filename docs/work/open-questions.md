@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q47. Does the notice of the Unicode data travel inside the package?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
+| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0. `THIRD-PARTY-NOTICES.md` at the repository root names it, and the Unicode licence asks that its notice appear with copies of the data or in the associated documentation. A package is built with `README.md` only, so the notice is in the repository and not in the package. Is the notices file packed with the core library? |
+| **Until answered** | The notice is in the repository. Nothing has been released, so no package without it exists |
+| **Decides** | The owner, before the first package is published |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
