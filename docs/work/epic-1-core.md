@@ -84,7 +84,12 @@ a gate; reads that allocate the returned copy and nothing else. The scenario tes
 reads and writes run on it beside the placeholder, through an internal entry (exception
 X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
 batch and the queue of writes have no limit of their own, and the validation of the core
-refuses text that is not well-formed on both implementations.
+refuses text that is not well-formed on both implementations. From S07 the engine
+stores every key type of the catalog — the eight integers, String with either
+comparison, Guid —, a String field compared without case, Enum fields and a schema in
+UTF-16, through one comparison and hash service of the schema; the validation of the
+core checks enum values, and a write batch takes one operation per entity as the schema
+compares keys. The public entry keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -258,6 +263,11 @@ documentation before this document is removed.
 
 | S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
 | S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
+
+| S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | p50 300 to 400 ns, p99 1,400 to 1,900 ns, alike for a key compared with Ordinal, without case in the stored spelling, and without case in upper case | development-2 | 15 November 2026 |
+
+The figure of S07 comes from the scenario `read-by-text-key`; its keys are 13 ASCII
+characters, and no key outside ASCII was measured.
 
 The figures of S06 come from the scenario `read-by-key`
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
