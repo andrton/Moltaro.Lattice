@@ -4,9 +4,9 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // at every depth. Only a write that passes is refused as not implemented. That holds for every
 // entity type whose writes the placeholder refuses: those with owned values, collections or
 // references, and those of Epic 1, sprint 2, with a unique index, a comparison that ignores
-// case, Dictionary storage, an enum field, or in a schema of the UTF-16 encoding. A check that
-// belongs to what is not implemented is not made: an integer that its enum type does not
-// declare is not refused yet, and a unique index is not consulted.
+// case, Dictionary storage, an enum field, or in a schema of the UTF-16 encoding. Whether an
+// integer is a value its enum type declares is part of that validation from Epic 1, sprint S07;
+// a check that belongs to what is not implemented is not made: a unique index is not consulted.
 public sealed class ValidationBeforeRefusalTests
 {
     [Fact]
@@ -169,18 +169,21 @@ public sealed class ValidationBeforeRefusalTests
         await Assert.ThrowsAsync<NotSupportedException>(async () => await graded.InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 1 }));
     }
 
-    [Fact]
-    public async Task Integer_that_its_enum_type_does_not_declare_is_not_refused_yet_and_the_write_ends_as_not_implemented()
+    [Fact(Skip = NotImplemented.EnumValidation)]
+    public async Task Integer_that_its_enum_type_does_not_declare_is_ValidationFailed_before_the_write_is_refused_as_not_implemented()
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
         var graded = database.Set("Graded");
 
-        // Level declares 0 and 1; whether a value is declared is checked when enum fields are
-        // stored.
+        // Level declares 0 and 1; the property of GradedItem is its underlying integer.
         var record = new LatticeRecord(graded.EntityType) { ["Id"] = 1L, ["Text"] = "a", ["Level"] = (byte)7 };
 
+        await TestData.ExpectValidationFailedAsync("Level", () => graded.InsertAsync(record));
+        await TestData.ExpectValidationFailedAsync("Level", () => database.Set<GradedItem>().InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 7 }));
+
+        // A declared value passes the validation, and the write is refused as not implemented.
+        record["Level"] = (byte)1;
         await Assert.ThrowsAsync<NotSupportedException>(async () => await graded.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set<GradedItem>().InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 7 }));
     }
 
     // A record without the required Text, a key of another type, and a complete record, through

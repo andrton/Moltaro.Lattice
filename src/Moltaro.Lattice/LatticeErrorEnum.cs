@@ -22,9 +22,11 @@ public enum LatticeErrorEnum
     /// <remarks>
     /// Text that is not well-formed — a surrogate without its pair — is refused in the same
     /// way, at any depth, and is never stored and never replaced by another character. A
-    /// String or Binary value larger than one value may be, as
+    /// String or Binary value of a field of the entity that is larger than one value may be, as
     /// <see cref="Schema.LatticeFieldTypeEnum.String"/> and
-    /// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way.
+    /// <see cref="Schema.LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An
+    /// integer that the enum type of its field does not declare — for a Flags type, a bit that no
+    /// member declares — is refused in the same way.
     /// </remarks>
     ValidationFailed = 3,
 

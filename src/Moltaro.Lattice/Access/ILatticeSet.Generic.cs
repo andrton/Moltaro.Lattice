@@ -78,9 +78,11 @@ namespace Moltaro.Lattice.Access;
 /// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
 /// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Text that is not
 /// well-formed — a surrogate without its pair — is refused in the same way, at any depth, and
-/// is never stored and never replaced by another character. A String or Binary value larger
-/// than one value may be, as <see cref="LatticeFieldTypeEnum.String"/> and
-/// <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. Which arrays
+/// is never stored and never replaced by another character. A String or Binary value of a field
+/// of the entity that is larger than one value may be, as <see cref="LatticeFieldTypeEnum.String"/>
+/// and <see cref="LatticeFieldTypeEnum.Binary"/> state, is refused in the same way. An integer
+/// that the enum type of its field does not declare — for a Flags type, a bit that no member
+/// declares — is refused in the same way. Which arrays
 /// the runtime would read as other values, and that an array of a class derived from the
 /// declared element type is valid, is stated at <see cref="LatticeRecord.this[string]"/>,
 /// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
@@ -88,8 +90,8 @@ namespace Moltaro.Lattice.Access;
 /// refused as not implemented, for every entity type whose writes are refused until a
 /// feature of its schema is implemented, such as a unique index, an enum field or an owned
 /// value: only a write that passes them ends in <see cref="NotSupportedException"/>. A check
-/// that belongs to what is not implemented is not made yet: whether an integer is a declared
-/// value of its enum type, and whether a unique index already holds the key.
+/// that belongs to what is not implemented is not made yet: whether a unique index already holds
+/// the key.
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until

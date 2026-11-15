@@ -9,10 +9,11 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // on the engine alike, and for an entity type the engine does not store yet. Such text is never
 // stored and never replaced by another character, and a stored entity stays as it was.
 //
-// Where an entity type can be written today: in a UTF-8 schema, an entity type of scalar fields. In
-// a UTF-16 schema no entity type is written yet on either implementation, nor one with an enum field,
-// an owned value or a collection, so there the tests state that the validation comes before the
-// refusal.
+// Where an entity type can be written today: in a UTF-8 schema, an entity type of scalar fields. No
+// entity type with an owned value or a collection is written yet on either implementation, and the
+// placeholder writes none in a UTF-16 schema or with an enum field, so there the tests state that the
+// validation comes before the refusal. The engine stores the last two from Epic 1, sprint S07, and
+// their cases on the engine are stated by Utf16DatabaseTests and EnumFieldTests.
 public sealed class MalformedTextWriteTests
 {
     // A surrogate without its pair, in its forms.
@@ -115,20 +116,18 @@ public sealed class MalformedTextWriteTests
         Assert.Equal("a😀b", users.Get(4)!.Email);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Text_that_is_not_well_formed_in_a_schema_of_the_UTF16_encoding_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Text_that_is_not_well_formed_in_a_schema_of_the_UTF16_encoding_is_refused_before_the_write_is_refused_as_not_implemented()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, NoteSchema("Utf16", ""));
+        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Placeholder, NoteSchema("Utf16", ""));
         await ExpectValidatedBeforeTheRefusalAsync(database);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Text_that_is_not_well_formed_in_an_entity_type_that_is_not_stored_yet_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Text_that_is_not_well_formed_in_an_entity_type_that_is_not_stored_yet_is_refused_before_the_write_is_refused_as_not_implemented()
     {
-        // An enum field: neither the engine nor the placeholder stores such an entity type yet.
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, NoteSchema("Utf8", """, { "Id": 3, "Name": "Level", "Type": "Enum", "Enum": "Level" }"""));
+        // An enum field: the placeholder does not store such an entity type.
+        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Placeholder, NoteSchema("Utf8", """, { "Id": 3, "Name": "Level", "Type": "Enum", "Enum": "Level" }"""));
         await ExpectValidatedBeforeTheRefusalAsync(database);
     }
 

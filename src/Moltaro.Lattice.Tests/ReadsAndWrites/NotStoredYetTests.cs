@@ -1,39 +1,25 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
 // What the engine cannot store until a later sprint, and what it does with such an entity type
-// (brief of Epic 1, sprint S06, "What the engine does where the block above does not say"). Until
-// S07 it stores the key types the tests of S06 use, Int64 and String with Ordinal comparison, Plain
-// storage and UTF-8; it refuses everything the public documentation says is not stored yet and every
-// other key type: the other key types, a field compared without case, an Enum field and a schema in
-// UTF-16 until S07, Dictionary storage until S13, an entity type with a unique index until S16, and
-// the field types of S03 until S18 and S19. Every write of such an entity type, an insert, a
-// replace, an upsert and a delete, with or without a revision, is refused with
-// NotSupportedException at the write, after the checks of its arguments and the validation of the
-// entity, in the order of Q25. A read of it by key finds nothing and an enumeration of it is empty.
-// Binding a class to it and selecting one of its indexes work.
+// (brief of Epic 1, sprint S06, "What the engine does where the block above does not say"). From S07
+// it stores every key type of the catalog, a String compared with either comparison, an Enum field
+// and both encodings (brief of S07), and it still refuses, as S06 says: Dictionary storage until S13,
+// an entity type with a unique index until S16, and the field types of S03 until S18 and S19. Every write of such an entity type, an insert, a replace, an
+// upsert and a delete, with or without a revision, is refused with NotSupportedException at the
+// write, after the checks of its arguments and the validation of the entity, in the order of Q25. A
+// read of it by key finds nothing and an enumeration of it is empty. Binding a class to it and
+// selecting one of its indexes work.
 //
-// Each case is one entity type, Item, in a schema of its own: the key Id, the String field Text
-// with the index ByText, and the field Value. Where the case is not the key, the key is an Int64;
-// where it is not Value, Value is an Int32. The placeholder stores other key types and is not
-// changed, so these tests run on the engine only.
+// Each case is one entity type, Item, in a schema of its own: the key Id, an Int64, the String field
+// Text with the index ByText, and the field Value. Where the case is not Value, Value is an Int32.
+// These tests state what the engine does, so they run on the engine only; the placeholder is not
+// changed.
 public sealed class NotStoredYetTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
     {
-        Case.WithKey("Int8 key", "'Type': 'Int8'", (sbyte)1),
-        Case.WithKey("Int16 key", "'Type': 'Int16'", (short)1),
-        Case.WithKey("Int32 key", "'Type': 'Int32'", 1),
-        Case.WithKey("UInt8 key", "'Type': 'UInt8'", (byte)1),
-        Case.WithKey("UInt16 key", "'Type': 'UInt16'", (ushort)1),
-        Case.WithKey("UInt32 key", "'Type': 'UInt32'", 1u),
-        Case.WithKey("UInt64 key", "'Type': 'UInt64'", 1ul),
-        Case.WithKey("Guid key", "'Type': 'Guid'", Guid.Parse("5f0c1b8e-58a4-4c4e-9a43-2f6f1c0d7e11")),
-        Case.WithKey("String key compared without case", "'Type': 'String', 'Comparison': 'OrdinalIgnoreCase'", "one"),
-        Case.Of("Text compared without case", text: ", 'Comparison': 'OrdinalIgnoreCase'"),
         Case.Of("Text in Dictionary storage", text: ", 'StringStorage': 'Dictionary'"),
-        Case.Of("Schema in UTF-16", encoding: "Utf16"),
         Case.Of("Unique index", unique: true),
-        Case.WithValue("Enum field", value: "'Type': 'Enum', 'Enum': 'Level'", recordValue: _ => 2, classValue: () => 2),
         Case.WithValue<Stamp>(
             "Owned field",
             value: "'Type': 'Owned', 'OwnedType': 'Stamp'",
@@ -151,19 +137,14 @@ public sealed class NotStoredYetTests
         public LatticeRecord CompleteRecord(LatticeEntityType entityType, LatticeSchema schema) =>
             new(entityType) { ["Id"] = Key, ["Text"] = "a", ["Value"] = RecordValue(schema) };
 
-        // A case with an Int64 key and an Int32 Value, which differs from what the engine stores in
-        // its Text field, its index or the encoding of its schema.
-        public static Case Of(string name, string text = "", bool unique = false, string encoding = "Utf8") =>
-            Of<long, int>(name, "'Type': 'Int64'", 1L, text, "'Type': 'Int32'", _ => 7, () => 7, unique, encoding);
-
-        // A case whose key is of another type.
-        public static Case WithKey<TKey>(string name, string key, TKey keyValue)
-            where TKey : notnull =>
-            Of<TKey, int>(name, key, keyValue, "", "'Type': 'Int32'", _ => 7, () => 7, false, "Utf8");
+        // A case with an Int32 Value, which differs from what the engine stores in its Text field or
+        // its index.
+        public static Case Of(string name, string text = "", bool unique = false) =>
+            Of<long, int>(name, "'Type': 'Int64'", 1L, text, "'Type': 'Int32'", _ => 7, () => 7, unique);
 
         // A case whose Value is of another type.
         public static Case WithValue<TValue>(string name, string value, Func<LatticeSchema, object> recordValue, Func<TValue> classValue) =>
-            Of(name, "'Type': 'Int64'", 1L, "", value, recordValue, classValue, false, "Utf8");
+            Of(name, "'Type': 'Int64'", 1L, "", value, recordValue, classValue, false);
 
         private static Case Of<TKey, TValue>(
             string name,
@@ -173,16 +154,11 @@ public sealed class NotStoredYetTests
             string value,
             Func<LatticeSchema, object> recordValue,
             Func<TValue> classValue,
-            bool unique,
-            string encoding)
+            bool unique)
             where TKey : notnull
         {
             var json = $$"""
                 {
-                  "StringEncoding": "{{encoding}}",
-                  "Enums": [
-                    { "Id": 1, "Name": "Level", "UnderlyingType": "Int32", "Members": [ { "Name": "Low", "Value": 1 }, { "Name": "High", "Value": 2 } ] }
-                  ],
                   "OwnedTypes": [
                     { "Id": 1, "Name": "Stamp", "ClrType": "{{typeof(Stamp).FullName}}", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] }
                   ],
