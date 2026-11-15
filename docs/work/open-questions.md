@@ -76,24 +76,6 @@ in the meantime.
 | **Until answered** | The gates stay as the engine contract prescribes. S08, which changes the index and its gate, reports reads by key per second on 1, 4 and 16 threads next to the figure of S06; S25 reports the scaling with the read mix and brings it to the owner before any change |
 | **Decides** | The owner, on the figures of S25; the planner worded the two briefs |
 
-### Q43. A large value is copied once more than it has to be on its way into the engine
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, implementation of Epic 1, sprint S06 |
-| **Question** | The engine copies a value once, into native memory. Before that the access layer of the core copies a Binary value again: by class the capture of an object clones the array, and by name the record copied it when it was set, as the contract says, and the submission clones it a second time. A write of an entity with a 32 MiB Binary value therefore allocates 32.5 MiB of managed memory that nothing keeps. The placeholder and the write batch need the copy, because they keep the values after the call; the engine does not, as long as the input of a write is not changed before the write completes. With no size limit of an entity (decision O19) such values are an ordinary case. Does the engine get a capture of its own without the copy, and what does the contract say of an input that is changed while its write runs? Two smaller observations of the same review, for the write path of S09: an insert takes the catalog gate exclusively up to three times, each stopping every lookup, and the encoding of the values runs under the lock of the writes |
-| **Until answered** | The copies stay; a write is correct and allocates more than it needs for large Binary values |
-| **Decides** | The planner, before S09 starts, which rebuilds the path of a write |
-
-### Q44. What does a running enumeration do after the database was closed?
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, tests of Epic 1, sprint S06 |
-| **Question** | The contract says that an operation after a close is `ObjectDisposedException`, and says nothing of an enumeration that was started before the close and is continued after it. The two implementations differ: on the engine the next step of such an enumeration is `ObjectDisposedException`; on the placeholder the enumeration goes on from what it took when it started and returns the remaining entities, or ends, although the database is closed. An application meets the case when it closes a database while it walks a set, also from inside the walk. Which is the contract: does the next step fail, or does the enumeration end? |
-| **Until answered** | No test states the next step of an enumeration after a close. The tests of S06 state what is certain: the close returns, the item being built reaches the caller, and the database is closed |
-| **Decides** | The planner, before S12, where every test runs on the engine alone and the placeholder goes |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -428,3 +410,21 @@ in the meantime.
 | **Question** | The engine of S06 refused text that is not well-formed in its root writer, after the conditions of a write: with a stored entity and a lone surrogate in a field, an insert of the same key was `DuplicateKey`, a replace of an absent key `NotFound`, a wrong revision `RevisionConflict`, and only a write that passed them was `ValidationFailed`; for an entity type the engine does not store yet the write was `NotSupportedException` before any text was looked at. The placeholder accepted such text, and the public documentation, which lists what is `ValidationFailed` and says that validation comes first, did not mention it. Is it a validation of the contract, made by the core on both implementations, or a refusal of the engine alone? |
 | **Answer** | The planner, 15 November 2026, from rules that stand: `AGENTS.md` puts a check that needs no engine into the contract; Q25 fixes the order — arguments, validation, then the conditions and the refusal of what is not implemented; Q04.1 and R10 say malformed Unicode is refused and never replaced. The validation of the core checks it at a write and at adding to a batch, at every depth, on both implementations; the root writer keeps its own refusal as the guard of the stored form; a key given as an argument that is not well-formed is `ArgumentException` |
 | **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance, and the remarks of the public documentation that list `ValidationFailed` |
+
+### Q43. A large value is copied once more than it has to be on its way into the engine
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, implementation of Epic 1, sprint S06 |
+| **Question** | The engine copies a value once, into native memory. Before that the access layer of the core copies a Binary value again: by class the capture of an object clones the array, and by name the record copied it when it was set and the submission clones it a second time; a write of an entity with a 32 MiB Binary value allocates 32.5 MiB of managed memory that nothing keeps. Does the engine get a capture of its own without the copy, and what does the contract say of an input that is changed while its write runs? Two smaller observations of the review: an insert takes the catalog gate exclusively up to three times, and the encoding of the values runs under the lock of the writes |
+| **Answer** | The planner, 15 November 2026, from the accepted decision "Stable write inputs until completion": an application keeps the input of a write unchanged until the write completes, so the engine takes the values as the caller gave them and copies each once, into the arena, with no managed copy of a Binary value on the way; an input changed while its write runs gives a stored value that mixes the two states, never a damaged database. The write batch keeps its copy until S17. The two observations become rules of S09, checked by its reviews: the values are encoded outside the lock that orders writes, and an insert takes the catalog gate exclusively once, at publication |
+| **Where the rule lives** | The brief of S09 in the [document of Epic 1](epic-1-core.md), and from S09 the remarks of the write members |
+
+### Q44. What does a running enumeration do after the database was closed?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, tests of Epic 1, sprint S06 |
+| **Question** | The contract says that an operation after a close is `ObjectDisposedException`, and says nothing of an enumeration that was started before the close and is continued after it. On the engine the next step is `ObjectDisposedException`; on the placeholder the enumeration goes on from what it took when it started. Which is the contract? |
+| **Answer** | The planner, 15 November 2026: the next step fails with `ObjectDisposedException`, as every operation after a close does; an enumeration never goes on over a closed database. The placeholder is not changed, so the test runs on the engine only until S12 |
+| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md) |

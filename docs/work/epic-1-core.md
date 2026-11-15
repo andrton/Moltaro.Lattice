@@ -2767,14 +2767,58 @@ members throw `NotSupportedException` until S12; their tests run on the engine t
 the helper of S06. `EngineCounters` gains `long ReplacementIndexBytes`, the
 table being built while the primary index grows.
 
+**Added by the planner on 15 November 2026, before the sprint started**, against the
+engine as S06 left it. Where a sentence above says otherwise, these replace it.
+
+- **What the two limits count.** The memory limit of a read counts the temporary memory
+  the engine holds for that read: the identities it has returned, with the text of their
+  keys, the candidates it took from the index and its workspace. It does not count the
+  copies it returns, so an entity larger than the limit is read. The time limit counts
+  time inside a step of the enumeration, waiting for a gate included; it does not count
+  the wait for the position of a session, which has its own timeout, nor the time between
+  two steps. A member of `LatticeReadLimits` that is null takes the value of the options,
+  and when that is null too there is no limit; one call cannot lift a limit the options
+  set.
+- **After a failure.** After an enumeration failed with `ReadLimitExceeded`, a further
+  step fails with the same error; it never returns false as if the enumeration had ended.
+- **After a close** (the planner's answer to Q44 of the [open questions](open-questions.md)).
+  A step of an enumeration after the database was closed is `ObjectDisposedException`, as
+  every operation after a close is; an enumeration never goes on over a closed database.
+  The placeholder returns what it took at its start and is not changed, so the test runs
+  on the engine only until S12. Acceptance: an enumeration that is continued after its
+  database was closed, from another thread or from inside the walk, fails at its next
+  step with `ObjectDisposedException`.
+- **Nothing is held between two steps.** An enumeration holds no gate and no claim between
+  two steps, whatever it takes from the index at once: an enumerator that is abandoned
+  without being disposed leaves nothing behind, and a deleted entry is not kept from reuse
+  by it. The engine runs no code of the application inside a gate, as in S06. Acceptance:
+  after an enumeration was abandoned halfway and its entities were deleted, the table of
+  root entries holds none of them.
+- **The refusal that ends.** The three tests of `EnumerationTests` that state the failure
+  until S08 —
+  `Enumeration_by_class_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid`,
+  `Enumeration_by_name_during_which_an_entity_is_deleted_fails_and_what_it_returned_stays_valid`,
+  `Enumeration_with_a_session_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid`
+  — change what they assert, so the test author replaces them in the tests commit by the
+  tests of this sprint. A test the sprint breaks outside this list is reported to the
+  coordinator, who enters it in the brief, and is then edited in the same way.
+- **What "every unchanged entity" is measured against.** The test runs writers of
+  inserts, replaces, deletes and delete-and-reinsert of a second set of entities while it
+  enumerates, with the index growing at least twice during the pass, and states: every
+  entity of the first set, which nobody changes, is returned exactly once; no key is
+  returned twice; every returned entity is one written state.
+- **Documentation.** The documentation of `Enumerate` gains one sentence in the contract
+  commit: "The engine remembers the keys it has returned for the length of the pass, so
+  that none is returned twice; that memory grows with the pass and is what a memory limit
+  of a read bounds."
+
 #### S09 · Write coordinator and write limits
 
 **Track:** full · **Needs:** S08 · **Decisions:** D7 · **Owners:** E03, E08
 
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
-- **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process)
-  and the number of preparing workers (2). `WriteRejected`
+- **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
   at once in MemoryOnly; it is internal.
 - **To read.** [Write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -2793,8 +2837,9 @@ table being built while the primary index grows.
   budget. A preparation that fails releases
   everything it reserved, shown by the counters. A failure injected during publication
   puts the instance into `Faulted`; no reader sees a partial state, and operations
-  report `Unavailable` until a new instance is opened. Inconsistent options are refused
-  at open. Publication performs no I/O, no allocation of pool capacity and no user code. That
+  report `Unavailable` until a new instance is opened. A `MemoryLimit` that is not
+  positive or is smaller than one segment of the arena is `InvalidConfiguration`.
+  Publication performs no I/O, no allocation of pool capacity and no user code. That
   preparation runs concurrently and that a group waits at most 1 ms are checked by the
   reviews; the size of a group is asserted through the counters. An instance opened
   without `MemoryLimit` has half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as
@@ -2811,7 +2856,6 @@ namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
 public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory the runtime reports as available
-public int PrepareWorkers { get; init; } = 2;
 
 // LatticeLimitEnum gains
 Memory = 3,
@@ -2841,10 +2885,10 @@ in the memory budget, and a write is refused only when the budget cannot hold it
 By decision O19 there is no option for the size of an entity, no member of
 `LatticeLimitEnum` for it, and nothing for `Validate` to check of it.
 
-`Validate` refuses: a limit that is not positive; `PrepareWorkers` below 1 or
-above 64.
+`Validate` refuses a `MemoryLimit` that is not positive or is smaller than one segment of
+the arena.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
-memory budget bounds the arena and the queued write input: a write the arena cannot hold
+memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
 text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
 counted, and the documentation of `MemoryLimit` says so. Internal, in the engine
@@ -2880,8 +2924,52 @@ internal enum EngineFaultPointEnum { BeforePublication = 1, DuringPublication = 
 
 // EngineDatabase gains
 public void ArmFault(EngineFaultPointEnum point);              // the next pass through the point throws; tests only
-// EngineCounters gains: int QueuedWrites, long QueuedWriteBytes, int LargestCommitGroup, long LargestCommitGroupBytes
+// EngineCounters gains: int QueuedWrites, int LargestCommitGroup, long LargestCommitGroupBytes, long MemoryLimit
 ```
+
+**Added by the planner on 15 November 2026, before the sprint started** (brief of S09).
+Where a sentence above says otherwise, these replace it.
+
+- **`PrepareWorkers` is no public option.** By the owner's decision O20 the database asks
+  for as few settings as it can, and this one never refuses anything; it is tuning. How
+  many writes are prepared at once is internal; the starting value is the 2 of the
+  milestone contract, and the write figures of this sprint for 1, 4 and 16 callers show
+  whether it bounds them. The planner reported it to the owner as its reading of O20.
+- **A write larger than a group.** A write whose encoded size is above
+  `CommitGroup.MaxEncodedSize` forms a group alone; the size of a group bounds what
+  accumulates and never refuses a write. Acceptance: an entity of 32 MiB is written while
+  small writes run, and all complete.
+- **What is counted** (point 2 of Q35). `PreparedWrite.EncodedSize` is the bytes of the
+  slots the write prepared in the arena, the root and every block of its values. A write
+  that waits and is not prepared yet holds nothing in the engine: its input is the
+  caller's, by the accepted rule of stable inputs. So "what waits is counted in the
+  memory budget" is the prepared capacity of the arena, `ArenaCounters.PreparedBytes`,
+  and there is no second figure: `EngineCounters` gains `int QueuedWrites`,
+  `int LargestCommitGroup`, `long LargestCommitGroupBytes` and `long MemoryLimit`, and not
+  `QueuedWriteBytes`.
+- **No managed copy of an input** (the planner's answer to Q43, from the accepted
+  decision "Stable write inputs until completion"). The engine takes the values of a
+  write from the object or the record as the caller gave them and copies each once, into
+  the arena; it makes no managed copy of a Binary value on the way. An input changed
+  while its write runs gives a stored value that mixes the two states, never a damaged
+  database: every byte is copied within the length taken at the start. The write batch
+  keeps the copy it makes when an operation is added, until S17. The remarks of the write
+  members gain, in the contract commit: "Do not change the entity, its collections or
+  its byte arrays until the write completes: the database reads them while the call
+  runs." Acceptance: a write of an entity with a Binary value of 32 MiB allocates no
+  managed copy of the value. Two rules of this sprint, checked by the reviews: the values
+  are encoded outside the lock that orders writes, and an insert takes the catalog gate
+  exclusively once, at publication.
+- **Order.** "Writes to one entity execute in the order they were admitted": admitted is
+  the order in which the calls were made; a test makes the calls from one thread without
+  awaiting them and awaits them afterwards.
+- **Faulted.** In `Faulted` every operation, reads included, reports `Unavailable`; a
+  close works. A MemoryOnly instance that faulted has lost its data, and the documentation
+  of the state says so. The fault points are armed by tests of
+  `Moltaro.Lattice.Engine.Tests` under X3; the scenario tests keep to the public
+  interfaces.
+- **The placeholder** ignores `MemoryLimit` until S12; the documentation of the option
+  says "not enforced yet" for the public entry, as the other options of this stage do.
 
 ### Stage 3. Master and children
 
