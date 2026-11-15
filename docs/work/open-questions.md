@@ -85,6 +85,15 @@ in the meantime.
 | **Until answered** | The copies stay; a write is correct and allocates more than it needs for large Binary values |
 | **Decides** | The planner, before S09 starts, which rebuilds the path of a write |
 
+### Q44. What does a running enumeration do after the database was closed?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, tests of Epic 1, sprint S06 |
+| **Question** | The contract says that an operation after a close is `ObjectDisposedException`, and says nothing of an enumeration that was started before the close and is continued after it. The two implementations differ: on the engine the next step of such an enumeration is `ObjectDisposedException`; on the placeholder the enumeration goes on from what it took when it started and returns the remaining entities, or ends, although the database is closed. An application meets the case when it closes a database while it walks a set, also from inside the walk. Which is the contract: does the next step fail, or does the enumeration end? |
+| **Until answered** | No test states the next step of an enumeration after a close. The tests of S06 state what is certain: the close returns, the item being built reaches the caller, and the database is closed |
+| **Decides** | The planner, before S12, where every test runs on the engine alone and the placeholder goes |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
