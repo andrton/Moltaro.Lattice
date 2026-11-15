@@ -2321,7 +2321,11 @@ manifest is a committed file of this project.
   sprint holds it on every machine the tests run on). One String or Binary value above
   268,173,376 bytes, the capacity of one directory block of chunks, is `ValidationFailed`
   with the field named: a fixed rule of the storage format, the same on every node, which
-  a retry never helps.
+  a retry never helps. A coordinator's note: the bound is checked by the engine, in the
+  `Set…` member of `RootWriter`, as every other validation of a value; the placeholder,
+  which goes in S12, gets no stand-in check, so the test of the bound runs on the engine
+  only. Whether the bound holds for each element of a collection and each field of an
+  owned value is the planner's, with the contracts of S18 and S19 (Q35, point 7).
 
 **Carried by this sprint besides its own work**, under decision O16, after its
 implementation commit and tests first: the removal of the size limit of an entity
