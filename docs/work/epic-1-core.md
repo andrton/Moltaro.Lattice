@@ -2812,6 +2812,48 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
   that none is returned twice; that memory grows with the pass and is what a memory limit
   of a read bounds."
 
+**The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
+through the planner's session: reads by key have to scale with threads, and the work is
+done in this sprint, not judged at S25. The owner's reason: that more threads read less
+in total is a very bad signal; locks have to be built with great care, because excess
+granularity always ends in collisions; and the solutions the industry found for it are
+known and can be applied.
+
+- **Goal, added.** Reads by key scale with the number of threads that read.
+- **To read, added.** The review of S06 on the scaling of reads (Q42), and "Reader
+  protection, publication and compaction" of the milestone contract, which calls
+  `ReaderWriterLockSlim` the initial synchronization.
+- **Types and members, added.** The protection of a read is reworked in this sprint. Today
+  a read by key takes three shared reader/writer acquisitions — the close barrier, the
+  catalog gate twice, the stripe of its root — and every one of them writes to memory
+  that all readers share, which is why more threads read less in total. What the sprint
+  has to reach: a read by key writes to no memory that other readers write to on its
+  ordinary path, or as near to that as the guarantees allow, and takes the gate of the
+  index once. Fewer and coarser protections are preferred to more and finer ones: every
+  added gate is another place where threads meet, and the owner asks for particular care
+  here. The implementer first writes down, in the pull request, which mechanisms that
+  databases and concurrent runtimes use for the same problem it considered — reader
+  counts kept apart per thread or per processor, optimistic reads checked by a version,
+  protection of memory by epochs — which it chose and why, with the figures of each
+  candidate it measured; nothing is chosen by argument. The guarantees do not move: a
+  read is coherent, a deleted entry is reused only after the readers that could see it
+  are gone, a close waits for the reads in progress, no application code runs inside a
+  protection, and the storms of the reviews of S06 pass unchanged. When the choice
+  replaces what the milestone contract names as the initial synchronization, the
+  coordinator corrects that section with the sprint and reports it to the owner.
+- **Acceptance, added.** Reads by key on 16 threads complete more in total than on one
+  thread, on the machine of the review; the figure for 1, 2, 4, 8 and 16 threads is
+  reported, with a writer and without, and the owner judges it against the aim of growth
+  close to the number of processors. The model-checked storms and the close cycles of S06
+  pass on the new protection. The scaling is a figure of a measurement and not a test of
+  the default lane; a miss of the first sentence is reported to the owner in the sprint,
+  as an early figure that misses its gate is.
+- **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
+  and 16 threads, without a writer and with one, before and after the change.
+- If the coordinator judges that this makes the sprint too large for one implementer and
+  one review, it splits it and tells the planner: the protection of reads first, the
+  enumeration and the growth of the index after it.
+
 #### S09 · Write coordinator and write limits
 
 **Track:** full · **Needs:** S08 · **Decisions:** D7 · **Owners:** E03, E08
@@ -3709,7 +3751,8 @@ otherwise, these replace it.
   identifier and exact-index reads, range reads and view reads reported separately. The
   scaling of reads with threads is reported with the read mix; if it bounds a gate or the
   reads of the reference deployment, it is reported to the owner with what in the
-  synchronization bounds it, before any change (Q42 of the open questions).
+  synchronization bounds it, before any change (Q42 of the open questions): it is now the
+  check of the read mix against what S08 reached.
 - **Out of scope.** Children, PostgreSQL, the burst. No number from a prototype.
 
 ### Stage 6. Durability

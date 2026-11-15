@@ -67,15 +67,6 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
-### Q42. Reads by key do not scale with threads
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S06 |
-| **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes, the arena protocol says itself that production gates were not established by its experiment, and gate G2 asks for 10,000 reads per second, so no rule is broken. Does the scaling bound a gate or the reads of the reference deployment, and what in the synchronization is changed if it does? |
-| **Until answered** | The gates stay as the engine contract prescribes. S08, which changes the index and its gate, reports reads by key per second on 1, 4 and 16 threads next to the figure of S06; S25 reports the scaling with the read mix and brings it to the owner before any change |
-| **Decides** | The owner, on the figures of S25; the planner worded the two briefs |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -428,3 +419,12 @@ in the meantime.
 | **Question** | The contract says that an operation after a close is `ObjectDisposedException`, and says nothing of an enumeration that was started before the close and is continued after it. On the engine the next step is `ObjectDisposedException`; on the placeholder the enumeration goes on from what it took when it started. Which is the contract? |
 | **Answer** | The planner, 15 November 2026: the next step fails with `ObjectDisposedException`, as every operation after a close does; an enumeration never goes on over a closed database. The placeholder is not changed, so the test runs on the engine only until S12 |
 | **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md) |
+
+### Q42. Reads by key do not scale with threads
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S06 |
+| **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes as the initial one, and gate G2 asks for 10,000 reads per second, so no rule was broken. Does the scaling matter, and when is it dealt with? |
+| **Answer** | The owner, 15 November 2026, through the planner's session: reads by key have to scale with threads, and the work is done in S08, where the gate of the index changes anyway, not judged at S25. That more threads read less in total is a very bad signal; locks are to be built with great care, since excess granularity always ends in collisions, and the solutions the industry uses are known. The implementer of S08 names the mechanisms it considered and chooses by measurement; the guarantees do not move |
+| **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md); S25 checks the read mix against what S08 reached |
