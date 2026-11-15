@@ -242,7 +242,17 @@ documentation before this document is removed.
 
 | Sprint | Figure | Value | Manifest | Date |
 | --- | --- | --- | --- | --- |
-| — | Nothing measured yet | | | |
+| S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
+| S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
+| S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
+
+The figures of S05 come from the scenario `root-bytes` of the measurement program
+(`dotnet run -c Release --project Moltaro.Lattice.Measurements -- root-bytes development`,
+from `src`) and were the same on Windows and on Linux. They are for comparison between
+sprints, not a gate: G1 is judged in S25 against the managed reference. What they show
+already is where the bytes of a small entity go — the 32-byte header of the root block
+and a 16-byte descriptor for every String, 64 bytes of descriptors for the 57 bytes of
+text a user has — and the coordinator reported it to the owner with the close of S05.
 
 ## Open questions
 
@@ -2135,7 +2145,8 @@ them.
   valid block of the arena, a block whose kind is not `Root`, and a block whose layout
   version is not the layout's.
 - **`RootStorage.Free`** frees the root block and every block it owns. It does not touch
-  the table of root entries.
+  the table of root entries. It refuses what a reader's constructor refuses, with
+  `ArgumentException` and before it frees anything.
 - **The fixture.** The entity types, their counts, their field types, text formats and
   indexes are those of the table of the engine contract, "Reproducible first fixture";
   what the table does not give — names it leaves open, identities, the synthetic value
@@ -2156,6 +2167,20 @@ them.
   scenario that reports the figure of "Measured"; the program is told the scenario on its
   command line. The implementer also adds the job of the measurement lane to the
   workflow, started by hand, which shows that the program runs.
+
+**Carried by this sprint besides its own work.** While S05 was open the owner asked why
+the solution has a project `Moltaro.Lattice.Engine` and, in the core library, a folder
+`Engine`, with `Storage` and `Replication` beside it under the names the engine project
+uses. Those folders were the placeholder. The coordinator answered that it would give
+them one folder that says so unless the owner objected, and had it done in commit
+`548224e`: the placeholder is `src/Moltaro.Lattice/Placeholder`, with `Placeholder/Storage`
+and `Placeholder/Replication`; every type moved is internal, the public surface is
+unchanged, and S12 deletes the folder whole. `StoredEntity` and `WriteKindEnum` stay in
+`src/Moltaro.Lattice/Storage`, because the sets and the write batch use them. This is more
+than decision O16 lists as a small change — it moves source files — and it is named here
+for that reason. The branch also carries what the owner and the planner answered while it
+was open: decision O17 with the brief of S09, the answers to Q29, Q32 and Q36 and to
+point 1 of Q35 with the brief of S06, and the extension of exception X3.
 
 A sprint before S19 measures the scalar form, because the collections and Dictionary
 strings of the full form cannot be stored yet, and before S16 it measures that form
@@ -2495,19 +2520,27 @@ Memory = 6,
 ```
 
 By the owner's decision of 15 November 2026, given through the planner's session: the
-memory available to the process is what the runtime reports when the instance opens,
-`GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`: the limit of the container where there
-is one, the physical memory otherwise. The limit in force is fixed at open and does not
+memory available to the process is the limit of its container where there is one and the
+physical memory of the machine otherwise, read when the instance opens. From which source
+the engine reads it is open, entry Q37 of the [open questions](open-questions.md): the
+planner first named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, and the review of
+S05 measured that it reports the heap limit of the garbage collector — in a container 75%
+of the limit by default, and whatever a GC heap setting says — which is not what the
+decision gives. S09 does not start with Q37 open. The limit in force is fixed at open and does not
 follow later changes. Every limit that is a share of the budget — the queued write input
 here, the retained outcomes of S26, the pending replication of S33 — is taken from the
 limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
 `EngineCounters` gains `long MemoryLimit`, the limit in force, so that a test can state
 the default. The documentation of the option says in plain words that the default is per
 instance, that a process with several instances sets it explicitly, and that the budget
-counts what the engine holds, not the managed heap of the application.
+counts what the engine holds, not the managed heap of the application. `Validate`
+compares `MaxEntitySize` and `WriteQueueMemoryLimit` with the limit in force — the given
+`MemoryLimit`, or the computed default when it is null. The limit in force is computed
+once, when the instance opens, and the validation of that open uses the same value.
 
-`Validate` refuses: a limit that is not positive; `MaxEntitySize` above `MemoryLimit`;
-`WriteQueueMemoryLimit` above `MemoryLimit`; `PrepareWorkers` below 1 or above 64.
+`Validate` refuses: a limit that is not positive; `MaxEntitySize` above the limit in
+force; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
+above 64.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena and the queued write input: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the

@@ -58,6 +58,15 @@ in the meantime.
 | **Until answered** | The readings of Q34 stand for S05. Point 1 is answered by the planner, 15 November 2026, and written into the brief of S06: the engine compiles the layout of every entity type when the database opens; a fixed part larger than one block fails the open with `InvalidSchema`; an entity type the engine cannot store yet gets no layout and does not fail the open |
 | **Decides** | The planner: point 2 before S08, point 6 before S09, point 3 before S10, points 4 and 5 before the contracts of their stages |
 
+### Q37. From which source the engine reads the memory available to the process
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S05 |
+| **Question** | By decision O17 the default of the instance memory budget is half of the memory available to the process: the limit of its container, or the physical memory of the machine. The brief of S09 named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as the source. Measured on .NET 10: on a host without settings it reports the physical memory; in a container limited to 1 GiB it reports 805,306,368, which is 75% of the limit, the default heap limit of the garbage collector; with `DOTNET_GCHeapHardLimit` or `GCHeapHardLimitPercent` it reports what that setting gives. So the default budget in a 1 GiB container would be 384 MiB and not 512 MiB, and a GC heap setting would scale the budget of the native arena, which the decision on write admission says it is not. Does the engine read the limit of the container itself, or does the owner accept what the runtime reports and the three sentences of O17 say so? Two smaller points of the same texts: the sentences "No numeric defaults … are selected" and "No runtime setting or numerical memory default is chosen" of the decision on write admission stand above the owner's addition and read as contradicted; and `Validate` of S09 compares `MaxEntitySize` and `WriteQueueMemoryLimit` with `MemoryLimit` without saying that it is the limit in force when `MemoryLimit` is null |
+| **Until answered** | The brief of S09 states the decision and leaves the source open. Nothing before S09 reads the memory of the process. The two smaller points are answered by the planner, 15 November 2026, and entered: the two sentences of the decision on write admission point forward to the owner's addition, and `Validate` compares with the limit in force |
+| **Decides** | The owner, to whom the planner put it on 15 November 2026 with two ways out: the engine reads the limit of the container itself, with platform code of its own, or the default is defined as half of what the runtime reports and the decision, the engine contract and the option say what that is. Before S09 starts; the coordinator does not start S09 with this entry open |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
