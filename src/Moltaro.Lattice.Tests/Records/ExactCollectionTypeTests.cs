@@ -68,6 +68,23 @@ public sealed class ExactCollectionTypeTests
         Assert.Equal((short)3, address["Floor"]);
     }
 
+    [Fact]
+    public void Array_of_arrays_whose_elements_would_be_read_as_other_values_is_refused_also_when_it_is_empty()
+    {
+        var record = new LatticeRecord(ValueSchema.User(ValueSchema.Compile()));
+
+        // The runtime lets an sbyte[][] stand for a byte[][], a sequence of the byte arrays that
+        // the List of Binary Blobs holds. It is refused for what it is, also when it holds no
+        // array that could be refused when it is entered.
+        ExpectRefused(record, "Blobs", Array.Empty<sbyte[]>());
+        ExpectRefused(record, "Blobs", new[] { new sbyte[] { 1 } });
+
+        // An array of arrays of the declared type, empty or not, is taken.
+        record["Blobs"] = Array.Empty<byte[]>();
+        record["Blobs"] = new[] { new byte[] { 1 } };
+        Assert.Single(Assert.IsType<List<byte[]>>(record["Blobs"]));
+    }
+
     private static void ExpectRefused(LatticeRecord record, string fieldName, object value)
     {
         var exception = Assert.Throws<ArgumentException>(() => record[fieldName] = value);

@@ -55,6 +55,22 @@ public sealed class DeclarationDepthFormTests
         TestData.ExpectError(LatticeErrorEnum.InvalidSchema, () => Load(Form(ListsBody(depth))));
     }
 
+    [Theory]
+    // One deeper than a declaration may be, one deeper than the text of a descriptor can hold,
+    // and far deeper.
+    [InlineData(33)]
+    [InlineData(125)]
+    [InlineData(100_000)]
+    public void Saved_schema_nested_deeper_than_32_is_refused_with_its_field_named_however_deep(int depth)
+    {
+        // A saved form has no text to be read to a depth: the bound of 128 of a descriptor does
+        // not apply, and the declaration is refused for its depth with its field named.
+        var exception = Assert.Throws<LatticeException>(() => Load(Form(ListsBody(depth))));
+
+        Assert.Equal(LatticeErrorEnum.InvalidSchema, exception.Error);
+        Assert.Contains("N.Deep", exception.Message);
+    }
+
     [Fact]
     public void Saved_schema_with_a_chain_of_owned_types_33_deep_is_refused()
     {
