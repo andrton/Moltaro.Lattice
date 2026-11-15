@@ -1424,6 +1424,14 @@ alike; the reader of a saved schema also stops at it while it reads, so that a f
 nested deeper cannot exhaust the stack before the model is checked. Whatever walks a
 value or binds a class therefore never goes deeper than 32.
 
+A coordinator's note, after review round 2: the text of a descriptor is parsed to a depth
+of 128, four times the depth of a declaration, where a valid descriptor nests at most 36
+deep; a declaration too deep by far, 100 deep for one, is therefore still refused by the
+rule above with its field named. Text nested deeper than 128 is refused as a whole,
+`InvalidSchema`, with a message that says so and no field named. Without the bound the
+time to refuse such a text grew with the square of its depth, and a text of a few hundred
+kilobytes took a minute.
+
 `Element`, `Key` and `Value` take what a field takes except `Id` and `Name`, and may
 themselves be a List, a Map or a Set. A Map key and a Set element are one of three: a
 scalar that is not Binary, an Enum, a Reference. A Map key is never nullable.
