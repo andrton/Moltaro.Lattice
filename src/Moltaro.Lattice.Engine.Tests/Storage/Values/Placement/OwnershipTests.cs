@@ -95,7 +95,7 @@ public sealed class OwnershipTests
 
     private static ArenaAddress Write(RootArena item, string? text, byte[]? data, string? note)
     {
-        var writer = new RootWriter(item.Arena, item.Layout, Handle, RootArena.StartingEntityLimit);
+        var writer = new RootWriter(item.Arena, item.Layout, Handle);
         writer.SetInteger(item.Field("Id"), 1);
 
         if (text is not null)

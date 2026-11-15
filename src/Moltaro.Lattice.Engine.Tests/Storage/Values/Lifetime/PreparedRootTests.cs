@@ -10,6 +10,8 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 // whose Complete is refused, leaves nothing prepared.
 public sealed class PreparedRootTests
 {
+    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
+
     private const string Fields = """
         { 'Id': 2, 'Name': 'Login', 'Type': 'String' },
         { 'Id': 3, 'Name': 'Note', 'Type': 'String', 'Nullable': true },
@@ -29,7 +31,7 @@ public sealed class PreparedRootTests
         using var prepared = RootArena.Of(Fields);
         using var live = RootArena.Of(Fields);
 
-        var writer = new RootWriter(prepared.Arena, prepared.Layout, RootArena.Handle, RootArena.StartingEntityLimit, prepared: true);
+        var writer = new RootWriter(prepared.Arena, prepared.Layout, RootArena.Handle, prepared: true);
         var root = Write(ref writer, prepared);
         var liveWriter = live.Writer();
         Write(ref liveWriter, live);
@@ -50,7 +52,7 @@ public sealed class PreparedRootTests
     {
         using var item = RootArena.Of(Fields);
 
-        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle, RootArena.StartingEntityLimit, prepared: true);
+        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
         var root = Write(ref writer, item);
         var reader = item.Reader(root);
 
@@ -59,12 +61,12 @@ public sealed class PreparedRootTests
         Assert.Equal(Photo, reader.GetBinary(item.Field("Photo")));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void Abandoned_or_refused_prepared_writer_leaves_nothing_prepared()
     {
         using var item = RootArena.Of(Fields);
 
-        var abandoned = new RootWriter(item.Arena, item.Layout, RootArena.Handle, RootArena.StartingEntityLimit, prepared: true);
+        var abandoned = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
         abandoned.SetInteger(item.Field("Id"), 1);
         abandoned.SetString(item.Field("Login"), Login);
         abandoned.SetString(item.Field("Note"), Note);
@@ -74,7 +76,7 @@ public sealed class PreparedRootTests
         Assert.Equal(0, item.Arena.Counters.PreparedBytes);
 
         // Over the limit of the entity: Complete is refused and frees what was prepared.
-        var refused = new RootWriter(item.Arena, item.Layout, RootArena.Handle, maxEntitySize: 50_000, prepared: true);
+        var refused = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
         refused.SetInteger(item.Field("Id"), 1);
         refused.SetString(item.Field("Login"), Login);
         refused.SetString(item.Field("Note"), Note);

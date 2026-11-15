@@ -58,7 +58,7 @@ internal sealed class RootArena : IDisposable
         return field;
     }
 
-    public RootWriter Writer(int maxEntitySize = StartingEntityLimit) => new(Arena, Layout, Handle, maxEntitySize);
+    public RootWriter Writer() => new(Arena, Layout, Handle);
 
     public RootReader Reader(ArenaAddress root) => new(Arena, Layout, root);
 

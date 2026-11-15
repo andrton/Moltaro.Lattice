@@ -11,11 +11,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // an entity").
 public sealed class FailedWriteTests
 {
+    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
+
     // The starting limit on the size of one entity, 1 MiB, until S09 makes it an option (brief of
     // S06, "The limits before S09").
     private const int EntityLimit = 1024 * 1024;
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public async Task Write_that_fails_validation_or_is_refused_leaves_nothing_in_any_counter()
     {
         await using var database = await PieceSchema.OpenAsync();

@@ -34,8 +34,9 @@ public enum LatticeErrorEnum
     RevisionConflict = 6,
 
     /// <summary>
-    /// The write was refused before execution, for example because a memory, queue or
-    /// storage-recovery budget was exhausted. It was not executed and will not execute later.
+    /// The write was refused before execution because the instance cannot hold it: within its
+    /// memory budget, or within a limit of its storage that is set, such as the limit of its
+    /// journal. It was not executed and will not execute later.
     /// </summary>
     WriteRejected = 7,
 

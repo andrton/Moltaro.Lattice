@@ -54,9 +54,11 @@ namespace Moltaro.Lattice.Engine;
 // change at one position belongs to the stage with the batch (milestone contract, "Write
 // coordinator and revision semantics"; D4 of Epic 1).
 //
-// The limits before S09. The arena gets half of GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
-// read at open, and an entity at most 1 MiB (WriteExecutor.MaxEntitySize), as internal values that
-// S09 turns into options; a refusal is WriteRejected without a Limit until S09.
+// The limit before S09. The arena gets half of GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
+// read at open, as an internal value that S09 turns into an option; a write the arena cannot hold
+// is WriteRejected, without a Limit until S09. An entity has no size limit of its own (decision
+// O19 of Epic 1); one String or Binary value above 268,173,376 bytes, the capacity of one directory
+// block of chunks, is ValidationFailed with the field named, a fixed rule of the storage format.
 //
 // Sessions and the write batch. On a master the members that take a session, and
 // WaitForPositionAsync, are served: a master has applied every position it gave out.
@@ -307,7 +309,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         var schema = _options.Schema!;
 
         // The memory of the process, as .NET reports it: half of it for the arena (brief of S06,
-        // "The limits before S09"; the owner's answer to Q37).
+        // "The limit before S09"; the owner's answer to Q37).
         var arena = new Arena(new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 });
 
         try

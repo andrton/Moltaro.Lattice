@@ -12,6 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 // passed here, as it will be the default of the option in S09.
 public sealed class EntitySizeTests
 {
+    private const string RemovedByO19 = "removed by decision O19; the test author deletes it";
+
     private const string Fields = """
         { 'Id': 2, 'Name': 'Payload', 'Type': 'Binary' },
         { 'Id': 3, 'Name': 'Note', 'Type': 'String', 'Nullable': true }
@@ -31,7 +33,7 @@ public sealed class EntitySizeTests
         var payload = new byte[RootArena.StartingEntityLimit - FixedSize + belowLimit];
         payload.AsSpan().Fill(0x5A);
 
-        var writer = item.Writer(RootArena.StartingEntityLimit);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), payload);
         var reader = item.Reader(writer.Complete());
@@ -39,13 +41,13 @@ public sealed class EntitySizeTests
         Assert.Equal(payload, reader.GetBinary(item.Field("Payload")));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void An_entity_one_byte_above_the_starting_limit_is_WriteRejected_by_Complete()
     {
         using var item = RootArena.Of(Fields);
         var before = StoredBytes.In(item.Arena);
 
-        var writer = item.Writer(RootArena.StartingEntityLimit);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
 
         // No Set… member fails for the size.
@@ -55,12 +57,12 @@ public sealed class EntitySizeTests
         Assert.Equal(before, StoredBytes.In(item.Arena));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void No_Set_member_fails_for_a_value_far_above_the_limit()
     {
         using var item = RootArena.Of(Fields);
 
-        var writer = item.Writer(1_000);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), new byte[3 * RootLayout.ChunkPayload]);
         writer.SetString(item.Field("Note"), new string('n', 10_000));
@@ -68,7 +70,7 @@ public sealed class EntitySizeTests
         WriterAssert.CompleteRefused(ref writer, LatticeErrorEnum.WriteRejected);
     }
 
-    [Theory]
+    [Theory(Skip = RemovedByO19)]
     [InlineData(10)]
     [InlineData(RootLayout.InlineLimit)]
     [InlineData(RootLayout.InlineLimit + 1)]
@@ -85,7 +87,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, RootArena.StartingEntityLimit, payloadLength, new string('n', noteLength + 1)));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void A_small_limit_bounds_the_entity_in_the_same_way()
     {
         using var item = RootArena.Of(Fields);
@@ -98,7 +100,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, 200, 128, null));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void The_fixed_part_counts_toward_the_limit_and_a_null_or_empty_value_adds_nothing()
     {
         using var item = RootArena.Of(Fields);
@@ -109,7 +111,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, 1, 0, null));
     }
 
-    [Theory]
+    [Theory(Skip = RemovedByO19)]
     [InlineData("Utf8", "é", 2)]
     [InlineData("Utf8", "😀", 4)]
     [InlineData("Utf16", "a", 2)]
@@ -122,7 +124,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, FixedSize + encodedLength - 1, 0, text));
     }
 
-    [Fact]
+    [Fact(Skip = RemovedByO19)]
     public void A_Complete_refused_for_the_size_leaves_the_live_bytes_and_slack_as_before_the_writer()
     {
         using var item = RootArena.Of(Fields);
@@ -131,7 +133,7 @@ public sealed class EntitySizeTests
         Assert.True(TryWrite(item, RootArena.StartingEntityLimit, 100_000, "kept"));
         var before = StoredBytes.In(item.Arena);
 
-        var writer = item.Writer(RootArena.StartingEntityLimit);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 2);
         writer.SetString(item.Field("Note"), new string('n', 5_000));
         writer.SetBinary(item.Field("Payload"), new byte[RootArena.StartingEntityLimit]);
@@ -147,7 +149,7 @@ public sealed class EntitySizeTests
     {
         var before = StoredBytes.In(item.Arena);
         var payload = new byte[payloadLength];
-        var writer = item.Writer(maxEntitySize);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), payload);
 

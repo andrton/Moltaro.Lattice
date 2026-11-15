@@ -43,7 +43,7 @@ public sealed class SetFailureTests
         // The limit is the size of the entity exactly: the bytes of the value that failed are not
         // counted, or the entity would be over it.
         using var item = new OneRegionArena("'Type': 'Binary'", reservedSegments: failingRequest);
-        var writer = item.Writer(maxEntitySize: item.Layout.FixedSize + Chunked.Length);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
 
         FailSetting(item, ref writer, "Value");

@@ -17,7 +17,7 @@ public sealed class RootHeaderTests
 
         foreach (var handle in handles)
         {
-            var writer = new RootWriter(item.Arena, item.Layout, handle, RootArena.StartingEntityLimit);
+            var writer = new RootWriter(item.Arena, item.Layout, handle);
             writer.SetInteger(item.Field("Id"), 1);
             writer.SetString(item.Field("Text"), new string('t', 100_000));
             var root = writer.Complete();

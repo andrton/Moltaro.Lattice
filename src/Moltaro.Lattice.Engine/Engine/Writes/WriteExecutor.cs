@@ -20,8 +20,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    expected revision, then that an insert finds no entity and a replace finds one. A failed
 //    condition changes nothing.
 // 4. It prepares what it publishes outside the gates: a new root of prepared blocks, which also
-//    checks that the text is well-formed and the entity within its size, and for an insert a new
-//    root entry and room in the index. A failure frees all of it, so nothing of a refused write is
+//    checks that the text is well-formed and every String and Binary value within the bound of
+//    one value, and for an insert a new root entry and room in the index. A failure frees all of it, so nothing of a refused write is
 //    left in any counter (the planner's answer to Q30).
 // 5. It publishes under the gates of what changes, in their order (RootGates): the root's stripe
 //    for the root, the catalog gate for the index. Publication only installs what was prepared,
@@ -35,10 +35,6 @@ namespace Moltaro.Lattice.Engine.Writes;
 // entity has a new one (brief of S06, "Position and revision").
 internal sealed class WriteExecutor
 {
-    // The most bytes one entity may take, until S09 makes it the option MaxEntitySize (brief of S06,
-    // "The limits before S09"; milestone contract, "Initial bounded settings").
-    public const int MaxEntitySize = 1024 * 1024;
-
     // The lock of the writes, the first in the order of RootGates: one write at a time, held for the
     // synchronous work of steps 3 to 5 and for nothing else. The database takes it as well, to read
     // its counters between two writes.
@@ -74,8 +70,8 @@ internal sealed class WriteExecutor
     // started executing. Refusals: NotSupportedException for an entity type the engine does not
     // store; for the session, HistoryMismatch, SynchronizationTimeout and Unavailable; then
     // ObjectDisposedException after the close; RevisionConflict, DuplicateKey and NotFound for its
-    // condition; ValidationFailed for text that is not well-formed; WriteRejected for an entity over
-    // the limit or beyond the memory of the arena.
+    // condition; ValidationFailed for text that is not well-formed and for a String or Binary value
+    // above the bound of one value; WriteRejected for an entity beyond the memory of the arena.
     public async ValueTask<LatticeWriteResult> SubmitAsync(
         EntityTable table,
         WriteKindEnum kind,
@@ -314,7 +310,7 @@ internal sealed class WriteExecutor
     // failure frees everything the writer allocated.
     private ArenaAddress Prepare(EntityTable table, RootHandle handle, object?[] values)
     {
-        var writer = new RootWriter(_arena, table.Layout!, handle, MaxEntitySize, prepared: true);
+        var writer = new RootWriter(_arena, table.Layout!, handle, prepared: true);
 
         try
         {

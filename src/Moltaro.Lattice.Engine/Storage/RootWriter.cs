@@ -25,16 +25,18 @@ namespace Moltaro.Lattice.Storage;
 // malformed text, a value out of range or SetNull of a field that is not nullable, did not set
 // the field, and a valid value may follow.
 //
-// maxEntitySize bounds FixedSize plus the encoded bytes of every String and Binary value of the
-// entity, wherever a value went (Q14, "Configurable root-object size limit"). It becomes the
-// option MaxEntitySize of the database in S09, 1 MiB to start (milestone contract, "Initial
-// bounded settings"). An entity of exactly maxEntitySize bytes is stored; one byte more is
-// refused. Only Complete reports the size and the memory of the arena: no Set… member fails for
-// either. An OutOfMemoryException of the native allocator passes through whichever member meets
-// it. Met inside Complete, it is a failed Complete: everything is freed before it passes. Met inside
-// a Set… member, it passes after the member has freed everything it allocated for that value: the
-// field is not set, as after any refused call, and the writer stays usable, so the caller may set
-// the field again, complete or abandon.
+// An entity has no size limit of its own: only the memory of the arena bounds it (decision O19 of
+// Epic 1). Only Complete reports the memory of the arena, with WriteRejected: no Set… member fails
+// for it. One String or Binary value is bounded by the storage format: one directory block holds
+// ValueBlocks.MostChunks chunks of ChunkPayload bytes, so a value takes at most 268,173,376 bytes of
+// its encoding. A larger value is refused by its Set… member with LatticeException,
+// ValidationFailed, with the field named, as every other validation of a value: a fixed rule of
+// the format, the same on every node, and not a WriteRejected of Complete. An OutOfMemoryException
+// of the native allocator passes through whichever member meets it. Met inside Complete, it is a
+// failed Complete: everything is freed before it passes. Met inside a Set… member, it passes after
+// the member has freed everything it allocated for that value: the field is not set, as after any
+// refused call, and the writer stays usable, so the caller may set the field again, complete or
+// abandon.
 //
 // The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
 // prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
@@ -56,8 +58,8 @@ namespace Moltaro.Lattice.Storage;
 // memory at its Set… member, into its value block or its chunks, because the span it comes in lives
 // only for that call. A value is stored whole or not at all (ValueBlocks.TryStore), so a descriptor
 // in the image names a whole value or nothing, and everything the writer holds is reachable from
-// the image, where Complete or Abandon frees it. Once the entity is over its limit, or the arena
-// refused a block, the writer allocates nothing more: Complete refuses the entity anyway.
+// the image, where Complete or Abandon frees it. Once the arena refused a block, the writer
+// allocates nothing more: Complete refuses the entity anyway.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
@@ -69,8 +71,6 @@ internal ref struct RootWriter
     private readonly RootLayout _layout;
 
     private readonly RootHandle _root;
-
-    private readonly int _maxEntitySize;
 
     // Whether the blocks are allocated prepared.
     private readonly bool _prepared;
@@ -84,9 +84,6 @@ internal ref struct RootWriter
     // The bytes of the root block so far: the fixed part and the inline values placed.
     private int _rootBytes;
 
-    // The size of the entity so far, as maxEntitySize counts it.
-    private long _entitySize;
-
     // The arena refused a block for its budget.
     private bool _refusedByArena;
 
@@ -96,28 +93,24 @@ internal ref struct RootWriter
     private WriterStateEnum _state;
 
     // Starts a root of the entity type of the layout, in the arena, for the root that the handle
-    // names, with the limit maxEntitySize, in live blocks. Refuses a null arena or layout with
-    // ArgumentNullException, and a maxEntitySize below 1 with ArgumentOutOfRangeException.
-    public RootWriter(Arena arena, RootLayout layout, RootHandle root, int maxEntitySize)
-        : this(arena, layout, root, maxEntitySize, prepared: false)
+    // names, in live blocks. Refuses a null arena or layout with ArgumentNullException.
+    public RootWriter(Arena arena, RootLayout layout, RootHandle root)
+        : this(arena, layout, root, prepared: false)
     {
     }
 
     // The same, in prepared blocks when prepared is true.
-    public RootWriter(Arena arena, RootLayout layout, RootHandle root, int maxEntitySize, bool prepared)
+    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared)
     {
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxEntitySize, 1);
 
         _arena = arena;
         _layout = layout;
         _root = root;
-        _maxEntitySize = maxEntitySize;
         _prepared = prepared;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
-        _entitySize = layout.FixedSize;
 
         // A rented array holds what its last user left. The fixed part starts zero: the bytes of a
         // fixed field that stays null, and the descriptor of a String or Binary that stays null.
@@ -317,7 +310,9 @@ internal ref struct RootWriter
     // UTF-16, a surrogate without its pair, is refused with LatticeException, ValidationFailed, at
     // the call. Then nothing is allocated for the value, the counters of the arena are the same
     // before and after the call, no character is replaced by another, the field is not set, and the
-    // writer stays usable. An empty string is a value, not null.
+    // writer stays usable. Text whose encoding takes more than the 268,173,376 bytes of one value is
+    // refused in the same way, ValidationFailed with the field named. An empty string is a value,
+    // not null.
     public void SetString(LatticeField field, ReadOnlySpan<char> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
@@ -337,7 +332,10 @@ internal ref struct RootWriter
     }
 
     // Sets the value of a Binary field: the bytes as they are, in their order, placed by their
-    // length as RootLayout says. An empty value is a value, not null (Q03.4.1, "Binary fields").
+    // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
+    // LatticeException, ValidationFailed, with the field named, at the call: nothing is allocated
+    // for it, the field is not set, and the writer stays usable. An empty value is a value, not null
+    // (Q03.4.1, "Binary fields").
     public void SetBinary(LatticeField field, ReadOnlySpan<byte> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Binary, nameof(SetBinary));
@@ -348,11 +346,10 @@ internal ref struct RootWriter
 
     // Ends the root and returns the address of its root block. A nullable field that was never set
     // is null. Refuses with LatticeException: ValidationFailed when a field that is not nullable was
-    // never set; WriteRejected when the entity is over maxEntitySize, when the arena is out of
-    // memory for it, or when a value needs more chunks than one directory block holds. When it
-    // fails, everything the writer allocated is freed: LiveBytes, ClassSlackBytes and PreparedBytes
-    // of the arena are as they were before the writer, while a segment the arena obtained for the writer may
-    // stay in its reserve, so Segments and ReservedSegments may differ.
+    // never set; WriteRejected when the arena cannot give the blocks of the entity. When it fails,
+    // everything the writer allocated is freed: LiveBytes, ClassSlackBytes and PreparedBytes of the
+    // arena are as they were before the writer, while a segment the arena obtained for the writer
+    // may stay in its reserve, so Segments and ReservedSegments may differ.
     public ArenaAddress Complete()
     {
         ThrowIfEnded();
@@ -370,11 +367,6 @@ internal ref struct RootWriter
 
                 throw Refuse(LatticeErrorEnum.ValidationFailed, $"The field {Name(field)} is not nullable and was not set.");
             }
-        }
-
-        if (_entitySize > _maxEntitySize)
-        {
-            throw Refuse(LatticeErrorEnum.WriteRejected, $"An entity of {_layout.EntityType.Name} of {_entitySize} bytes is over the limit of {_maxEntitySize} bytes.");
         }
 
         if (_tooManyChunks)
@@ -494,9 +486,8 @@ internal ref struct RootWriter
     private void PlaceValue(in StoredField stored, long length, ref ValueSource source)
     {
         var descriptor = Place(stored);
-        var entitySize = _entitySize + length;
 
-        if (entitySize > _maxEntitySize || _refusedByArena || _tooManyChunks)
+        if (_refusedByArena || _tooManyChunks)
         {
             // Nothing more is allocated for an entity that Complete refuses.
         }
@@ -515,7 +506,6 @@ internal ref struct RootWriter
             _refusedByArena = true;
         }
 
-        _entitySize = entitySize;
         MarkSet(stored, isNull: false);
     }
 

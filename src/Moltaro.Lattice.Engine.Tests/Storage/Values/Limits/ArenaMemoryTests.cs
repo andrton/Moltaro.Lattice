@@ -42,7 +42,7 @@ public sealed class ArenaMemoryTests
         using var item = new RootArena(ItemSchema.Compile(Fields), memoryLimit: RootArena.SegmentSize);
         var before = StoredBytes.In(item.Arena);
 
-        var writer = item.Writer(maxEntitySize: 8 * 1024 * 1024);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), Filled(5 * 1024 * 1024));
 
@@ -62,7 +62,7 @@ public sealed class ArenaMemoryTests
         var value = GC.AllocateUninitializedArray<byte>(length);
         var before = StoredBytes.In(item.Arena);
 
-        var writer = item.Writer(maxEntitySize: int.MaxValue);
+        var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Payload"), value);
 
@@ -83,7 +83,7 @@ public sealed class ArenaMemoryTests
         allocator.FailNextAllocation = true;
         var before = StoredBytes.In(item.Arena);
 
-        var writer = item.Writer(maxEntitySize: 8 * 1024 * 1024);
+        var writer = item.Writer();
         WriterAction[] calls =
         [
             (ref RootWriter w) => w.SetInteger(item.Field("Id"), 1),
