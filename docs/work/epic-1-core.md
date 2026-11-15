@@ -68,6 +68,12 @@ entity types of scalar fields with the default text policies: read, enumerate, i
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
+**In the engine, not behind the contract yet.** Internal mechanisms of
+`Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
+arena of native memory — segments, size classes, regions, the block header, relative
+addresses, the reserve, the memory limit and its counters — and the table of root entries
+with generations (S04).
+
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
@@ -754,7 +760,7 @@ Why this order:
 | S01 | Assemblies, package ownership, the default lane | Light | Done |
 | S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Done |
-| S04 | Arena | Full | Not started |
+| S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Not started |
 | S06 | Reads and writes of one entity | Full | Not started |
 | S07 | Every key type and declared value | Full | Not started |
@@ -817,7 +823,7 @@ each when its sprint is prepared.
 The coordinator added the remark below while S01 was reviewed. It is settled in the same
 way, when its sprint is prepared.
 
-5. S01 created `Moltaro.Lattice.Engine` as a project that is not packed: it has no code,
+5. S01 created `Moltaro.Lattice.Engine` as a project that is not packed: it had no code,
    and the Publish workflow packs every packable project on a release tag. From S12 on
    the dependency injection package references the engine, and a package that depends on
    one that is never published cannot be restored; nothing in the build shows it. In the
@@ -836,6 +842,14 @@ way, when its sprint is prepared.
    `LatticeErrorEnum.UniqueConstraintViolation` and to the remarks of
    `ILatticeSet<TEntity>`. S16 implements unique indexes and removes the three sentences;
    the planner enters it in the brief of S16.
+9. S04 gave `Moltaro.Lattice.Engine.Tests` a test collection for the tests that measure
+   managed allocation: it runs alone and inside a region in which the runtime starts no
+   garbage collection, because a collection caused by another test moves the counter of
+   the measuring thread. Every later test that asserts an exact amount of managed
+   allocation joins it. S06 and S07 assert the allocation of reads; if such a test lands
+   in `Moltaro.Lattice.Tests`, the collection and its attribute move to
+   `Moltaro.Lattice.TestSupport` in that sprint, as decision O13 says of code that two
+   test projects need, and the brief given to the test author says so.
 
 ### Stage 0. Ground
 
@@ -1751,6 +1765,7 @@ internal readonly struct ArenaAddress : IEquatable<ArenaAddress>
 // Generation in the high 32 bits, slot in the low 32 bits.
 internal readonly struct RootHandle : IEquatable<RootHandle>
 {
+    public RootHandle(uint generation, uint slot);
     public uint Generation { get; }
     public uint Slot { get; }
 }
@@ -1819,6 +1834,78 @@ internal sealed class RootTable
 }
 ```
 
+**What the members do where the block above does not say.** The planner's answers to Q30
+of the [open questions](open-questions.md), 15 November 2026. The tests state them.
+
+- **A current handle.** A handle is current when the entry of its slot has the handle's
+  generation and the slot is neither free nor retired: that holds for a handle from the
+  moment `Add` gives it out until it is released. A released slot is not current, whether
+  it became free or was retired. The first generation of a slot is 1, so `default(RootHandle)` is never
+  current. A slot released at generation `uint.MaxValue` is retired: never given out
+  again and not counted by `Count`. The test of the exhausted generation sets
+  `Entry(handle).Generation` through the ref, because it cannot be reached otherwise, and
+  names the slot with the constructor of `RootHandle`; no test reinterprets a `ulong`.
+- **A new entry.** `Add` writes the generation and the type id, zeroes the other fields
+  and gives the entry the state `Prepared`: an entry that was given out belongs to a write
+  that has not published it yet. `Release` leaves it `Free`, or `Retired` when the
+  generation is exhausted. `Release` does not look at `ClaimCount` or at `State`; who may
+  release and when is the caller's, with S06 to S08. `Release` of a handle that is not
+  current is `ArgumentException`.
+- **A block.** In S04 a block is allocated or free: `IsValid` means allocated and not
+  freed, and `PreparedBytes` and `RetiredBytes` are 0 until the sprints that add those
+  transitions. `TryAllocate` writes the whole header, also in a reused slot: root, kind
+  and payload length as given, every other field zero. The payload is not initialized;
+  the caller writes every byte it later reads, and no test states what a new payload
+  holds. `TryAllocate` does not check the kind or the root handle.
+- **Lengths.** `BlockSizeFor` and `TryAllocate` refuse a negative length, and one that
+  does not fit `MaxBlockSize` with the header, with `ArgumentOutOfRangeException`;
+  `TryAllocate` returns false only for the budget. A payload length of 0 is allowed; its
+  block is 32 bytes, the smallest class. The largest payload is `MaxBlockSize` − 32 =
+  65,504 bytes, the chunk payload of the specification. `Payload` spans the header's
+  `PayloadLength` and never beyond the capacity of the slot: a header whose length
+  exceeds it is `InvalidOperationException` before any byte of the payload is reached.
+  That is the test of "an invalid length is refused before it is dereferenced".
+- **Refusals.** `Free` of an invalid address, or of a block already freed, is
+  `ArgumentException`. After `Dispose` the other members throw `ObjectDisposedException`;
+  a second `Dispose` does nothing. A coordinator's note, after review round 1: `Free` of a
+  block whose header gives a length beyond the capacity of its slot is
+  `InvalidOperationException`, as `Payload` refuses it, and the block stays allocated; the
+  implementer chose it and the coordinator accepted it, because the arena has no other
+  length to take the block out of the counters with.
+- **Managed memory.** A coordinator's note, after review round 1, on "no managed
+  allocation on allocate and free after warm-up": warm-up ends when the arena has its
+  segments. `Free` allocates no managed memory in any case; `TryAllocate` allocates none
+  unless it obtains a segment, whose metadata is managed memory, about 18 KB for a segment
+  of 4 MiB. Tests state both.
+- **Native memory.** A coordinator's note, after review round 1: every segment obtained
+  from the native allocator is returned exactly once, by `Free` when a segment beyond the
+  reserve empties and by `Dispose` for all that is held; a failure of the native allocator
+  leaves the arena as it was. The tests see it through an internal fault point in the
+  sense of exception X3: the object through which the arena obtains and returns native
+  memory, which a test replaces by one that counts and can fail.
+- **Options.** The constructor of `Arena` refuses null options with
+  `ArgumentNullException`, and with `ArgumentOutOfRangeException` a `MemoryLimit` smaller
+  than one segment, a `SegmentSize` smaller than `MaxBlockSize` and a negative
+  `ReservedSegments`. The limit is required: there is no "0 means unlimited", so the
+  default is refused. `MemoryLimit` bounds the native capacity obtained, `Segments` ×
+  `SegmentSize`, the reserve included. Any further condition on `SegmentSize` is the
+  implementer's and is documented at the option; the tests use the default.
+- **Counters.** `LiveBytes` is the header plus the payload length of every allocated
+  block, as given at allocation; `ClassSlackBytes` is the rest of their slots. A
+  coordinator's note: nothing in S04 changes the length of a live block, and the arena
+  keeps no length of its own for a slot — the specification puts the logical length into
+  the header and only class, capacity and state into the allocator's metadata. So no test
+  states how the two counters divide the slot of a block after a caller wrote another
+  `PayloadLength` through `Header`; by the planner's answer a caller does not do that, and
+  S20 gives the arena the member that changes a length and the counters with it. `Payload`
+  still reads the length from the header and guards the capacity of the slot. `Segments`
+  counts reserved segments too; `FreeRegions` does not count the regions of reserved
+  segments.
+- **Order and timing.** `TryAllocate` takes a free slot of the class, then a free region,
+  then a reserved segment, then a new segment. An emptied segment enters the reserve when
+  it has room and is freed at once otherwise, inside `Free`; the background release of
+  Q17 comes with S23.
+
 #### S05 · Root layout and values
 
 **Track:** full, engine component · **Needs:** S03, S04 · **Decisions:** D7 · **Owners:** E01, E05
@@ -1854,6 +1941,12 @@ internal sealed class RootTable
 
 **Types and members of S05.** Internal, namespace `Moltaro.Lattice.Storage`. A root is written
 and read field by field, so that neither a class nor a record has to box its values.
+
+By the planner's answer to Q30 of the [open questions](open-questions.md):
+`BlockHeader.DescriptorOffset` of an owned block is the byte offset of its descriptor from
+the start of the parent block, header included, as `RootLayout.FixedSize` counts; an
+inline `Location` is counted from the same start. A root has `Parent` null and
+`DescriptorOffset` 0.
 
 ```csharp
 internal enum DescriptorKindEnum : uint { Null = 0, Inline = 1, Block = 2, Chunked = 3, Text = 4 }
@@ -1978,7 +2071,11 @@ manifest is a committed file of this project.
   of an entity type with another key type, with a key compared without case or with an
   Enum field. Until S08 an enumeration during which the index changed fails
   with `NotSupportedException` instead of returning a set it cannot vouch for, and the
-  primary index grows under exclusive protection.
+  primary index grows under exclusive protection. By the planner's answer to Q30 of the
+  [open questions](open-questions.md): when every write has returned and no read is in
+  progress, `PreparedBytes` and `RetiredBytes` are 0 and the counters of the arena equal
+  an independent tally of what the entities hold; after a write that failed validation or
+  was refused, nothing of it is left in any counter.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2015,6 +2112,31 @@ In the test project, written by the test author: one helper, `TestDatabases`, th
 a database of the placeholder and of the engine for the same test. `Moltaro.Lattice.Tests` gets a
 reference to the engine assembly in this sprint, and the engine assembly grants it friend
 access.
+
+By the planner's answer to Q30 of the [open questions](open-questions.md): a block
+allocated for a write that is prepared and not yet published is valid from its
+allocation: `IsValid` means allocated and not freed in every state. S06 moves the state
+of a root entry: `Prepared` to `Live` when an insert is published, `Live` to `Deleted`
+when a delete is published; `Release` follows when the claims of S07 are gone.
+`RootEntry.LastMutationSequence` is the sequence of the position of the last published
+mutation of the root; the specification's "last mutation position" is the same eight
+bytes, because the history of a position is the database's and is not repeated per root.
+
+A block is counted in exactly one place. From its allocation until its write is published
+it is prepared: its whole slot is in `PreparedBytes`, and nothing of it is in `LiveBytes`
+or `ClassSlackBytes`. Publication moves it: its header and payload length to `LiveBytes`,
+the rest of its slot to `ClassSlackBytes`. A block that has left the published state and
+is kept until what still refers to it is gone is retired: its whole slot is in
+`RetiredBytes` until it is freed. A write that is abandoned frees its prepared blocks, and
+they leave `PreparedBytes`. So the bytes of the slots in use are always
+`LiveBytes + ClassSlackBytes + PreparedBytes + RetiredBytes`. "Every allocated block" in
+the description of `LiveBytes` in S04 holds for S04, where a block is only allocated or
+free and `TryAllocate` counts it as live; the members of the arena that allocate a block
+as prepared and move it between these states are the implementer's, as S04 leaves members
+beyond the listed ones to the implementer, and they do not change what the members of S04
+do. In S06 a write is executed alone and published at once, so a prepared block is not
+observable between writes; the rule is stated here because S06 is the first sprint with
+the transition, and S09 and the Durable sprints rely on it when prepared writes wait.
 
 #### S07 · Every key type and declared value
 

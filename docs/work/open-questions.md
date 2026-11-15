@@ -40,6 +40,33 @@ in the meantime.
 | **Until answered** | Any set accessor binds; the documentation of `ILatticeDatabase.Set<TEntity>()` says "a public get and a set" and does not promise more. The review of S03 found two more edges of "the property C# finds by that name" that the brief does not settle and that belong to the same answer: a class that overrides only the getter of a virtual property is `BindingFailed`, although C# sees a get and a set there; and a public field that hides a property of the base class is not seen, so the property of the base class binds |
 | **Decides** | The planner, before the contracts of the stage with typed views (S22), whose generator has to know which properties of a class it may use |
 
+### Q31. Native bytes that no counter of the arena shows
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, implementation of Epic 1, sprint S04 |
+| **Question** | A region is 64 KiB and serves one size class. A class that does not divide 64 KiB leaves a tail at the end of each of its regions, at most 2,304 bytes (3.5 %) for the 3,328-byte class; and the free slots of a region that still holds blocks are counted nowhere either. `ArenaCounters` tells live bytes, class slack, free regions and the reserve apart, and neither the tails nor those free slots are in any of them, so the counters do not add up to the native capacity. Do the memory budget (S24), the memory gate (S25) and diagnostics (S39) need them as counters of their own, and is 64 KiB the region size they are judged with? |
+| **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
+| **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
+
+### Q32. When does S06 release the entry of a deleted root?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The brief of S06 says, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08: "A deleted entry is reused only after its claims are gone". The brief of S04 leaves who may release, and when, to the caller "with S06 to S08". So the agents of S06 cannot tell from that sentence what S06 does with the entry of a root whose delete was published, while lookup claims do not exist yet: release it at once, or keep it `Deleted` until S08 |
+| **Until answered** | The sentence stands as the planner gave it. Nothing in S04 or S05 depends on it |
+| **Decides** | The planner, before S06 starts; the coordinator does not start S06 with this entry open |
+
+### Q33. What an application sees when the table of root entries is full
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S04 |
+| **Question** | The table of root entries ends at 2^31 − 4,096 slots, a limit of its structure and not an option. `RootTable.Add` then throws `InvalidOperationException` and leaves the table as it was. No brief says which error a write of an application gets when the engine reaches that limit, or a retired slot count that makes it nearer; the resource errors of the contract come with S08, S09, S17 and S24 |
+| **Until answered** | The internal exception stands; no test can reach the limit, which needs about 96 GiB of root entries |
+| **Decides** | The planner, with the resource errors of the memory budget (S24) |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -293,3 +320,12 @@ in the meantime.
 | **Question** | Three bounds were in the code and in no brief: declarations nested at most 64 deep, a saved form whose body is longer than an array can hold refused as damage, and no bound on a chain of owned types that each hold the next, where the walk over a value and the binding of a class recurse as deep as the chain. Principle 9 of `AGENTS.md` makes a limit an application can observe an option. Are these limits of the model, with these values, and is the depth of owned types bounded too? |
 | **Answer** | The owner, 14 November 2026, through the planner's session: a declaration is at most 32 deep, counted through collections and owned types together; a deeper one is `InvalidSchema` with the field named, in a descriptor and in a saved schema. It is a fixed rule of the schema language and not an option: a schema is compiled by a static call outside any instance, and it has to mean the same on every node; principle 9 speaks of the limits of a running instance. 32 and not 64, because a descriptor cannot reach 64 and the bound could then not be tested exactly. The planner, on the second point: a body longer than one array can hold is damage, `InvalidSchema`, with no setting |
 | **Where the rule lives** | The brief of S03 in the [document of Epic 1](epic-1-core.md); the number is stated in the documentation of `LatticeValueDeclaration`. Principle 9 of `AGENTS.md` now says which limits it speaks of: the coordinator worded that sentence from the owner's reasons above and reported it to the owner. The coordinator, after review round 2 of S03: a descriptor whose text is nested deeper than 128, far deeper than any descriptor of a schema can be, is refused as a whole, `InvalidSchema`, without a field named, so that a small text never takes long to refuse. This narrows "with the field named, in a descriptor" of the answer above to a declaration the text can hold, at most 124 deep; it is the coordinator's decision, reported to the owner with the close of S03 |
+
+### Q30. What the members of the arena do where the brief of S04 does not say
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, contract of Epic 1, sprint S04 |
+| **Question** | The brief of S04 names the types and members of the arena and leaves open what several of them do: when a root handle is current and where generations start; which state a new root entry has; what a new block holds; which exception each refusal is; what the constructor of `Arena` refuses and what the memory limit bounds; what each counter counts; in which order space is taken and when an emptied segment is freed. `RootHandle` had no constructor, so the test of an exhausted generation could not name its slot. Later sprints were touched too: what `DescriptorOffset` counts from, who moves the state of a root entry, what `LastMutationSequence` is |
+| **Answer** | The planner, 15 November 2026, from the engine contract, the arena protocol and Q17, reported to the owner in the planner's session. The readings are written out in the brief of S04; `RootHandle` gets the constructor `RootHandle(uint generation, uint slot)`. Three of them are nearest to a choice: the payload of a new block is not zeroed, the memory limit is required, and an emptied segment beyond the reserve is freed inside `Free` until S23 brings the background release. Two things wait for the contracts of their stages and are the planner's to place: in S13 a shared-text block carries the handle of its text entry in `BlockHeader.Root`, told apart by `Kind`; in S20 a member of the arena changes the length of a live block and the counters with it |
+| **Where the rule lives** | The briefs of S04, S05 and S06 in the [document of Epic 1](epic-1-core.md) |
