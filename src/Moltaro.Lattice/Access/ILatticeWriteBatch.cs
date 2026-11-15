@@ -35,9 +35,9 @@ namespace Moltaro.Lattice.Access;
 /// any check fails, the whole batch is refused and nothing is written; the exception
 /// carries the error of the failed operation and, in
 /// <see cref="LatticeException.OperationIndex"/>, its number. A batch has no limit of its
-/// own. The master refuses one it cannot hold — within its memory budget, or within the
-/// limit of its journal — with <see cref="LatticeErrorEnum.WriteRejected"/>, before anything
-/// is written.
+/// own. The master refuses one it cannot hold — within its memory budget, or within a limit
+/// of its journal when one is set — with <see cref="LatticeErrorEnum.WriteRejected"/>, before
+/// anything is written.
 /// </para>
 /// <para>
 /// A batch submitted through a child is executed by the master and completes when that
