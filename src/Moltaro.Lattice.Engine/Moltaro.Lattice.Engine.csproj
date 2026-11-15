@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- The engine's types live in the namespaces of the contract: Storage, Replication and
-         Engine, and Moltaro.Lattice itself for LatticeDatabase, which moves here in S12 and
-         keeps its namespace. A folder is a namespace, so the root is Moltaro.Lattice, not the
-         name of the assembly. -->
+    <!-- The engine's types go into the namespaces Moltaro.Lattice.Storage,
+         Moltaro.Lattice.Replication and Moltaro.Lattice.Engine, each a folder of this project,
+         and LatticeDatabase, which moves here in S12, keeps its namespace Moltaro.Lattice. A
+         folder is a namespace, so the root is Moltaro.Lattice, not the name of the assembly. -->
     <RootNamespace>Moltaro.Lattice</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>The engine of Moltaro.Lattice: compact native storage, indexes, master-coordinated writes and replication to local read replicas.</Description>
