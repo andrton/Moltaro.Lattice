@@ -26,8 +26,11 @@ namespace Moltaro.Lattice.Schema;
 /// deeper of its key and its value; for an Owned one more than the deepest field of its owned
 /// type. The declaration of every field, of an entity type and of an owned type, is 32 deep
 /// or less: a deeper one is refused with <see cref="LatticeErrorEnum.InvalidSchema"/>, with
-/// the field named, in a descriptor and in a saved schema alike. It is a fixed rule of the
-/// schema language, the same in every process, and not an option.
+/// the field named, in a saved schema and in a descriptor. It is a fixed rule of the schema
+/// language, the same in every process, and not an option. The text of a descriptor is read
+/// to a depth of 128, the root object counting as 1, four times the depth of a declaration
+/// and far deeper than any descriptor of a schema can be: text nested deeper is refused as a
+/// whole with <see cref="LatticeErrorEnum.InvalidSchema"/>, without a field named.
 /// </para>
 /// </remarks>
 public sealed class LatticeValueDeclaration
@@ -199,7 +202,7 @@ public sealed class LatticeValueDeclaration
     /// <item>
     /// <term><see cref="LatticeFieldTypeEnum.List"/> of T</term>
     /// <description>
-    /// <c>List&lt;T&gt;</c>; accepted: any <c>IEnumerable&lt;T&gt;</c>, copied.
+    /// <c>List&lt;T&gt;</c>; accepted: an <c>IEnumerable&lt;T&gt;</c>, copied.
     /// </description>
     /// </item>
     /// <item>
@@ -213,7 +216,7 @@ public sealed class LatticeValueDeclaration
     /// <item>
     /// <term><see cref="LatticeFieldTypeEnum.Set"/> of T</term>
     /// <description>
-    /// <c>HashSet&lt;T&gt;</c> with the comparer of the element declaration; accepted: any
+    /// <c>HashSet&lt;T&gt;</c> with the comparer of the element declaration; accepted: an
     /// <c>IEnumerable&lt;T&gt;</c>, copied. Of equal members the first is kept.
     /// </description>
     /// </item>
@@ -223,7 +226,8 @@ public sealed class LatticeValueDeclaration
     /// of it when that position is nullable and its type is a value type. That is what a
     /// record holds at every depth: an owned value inside a List or a Map of a record is a
     /// <c>LatticeOwnedValue</c> too, whether or not its owned type names a class. The
-    /// documentation of <c>LatticeRecord</c> says where a record takes these types exactly and
+    /// documentation of <c>LatticeRecord</c> says which inputs a record takes for these types,
+    /// an array that the runtime lets pass for an <c>IEnumerable&lt;T&gt;</c> included, and
     /// what it keeps of what it is given.
     /// </para>
     /// <para>

@@ -72,9 +72,11 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="ArgumentException"/>, and validates the entity against the schema at every
 /// depth: a field without the value it requires, a <see langword="null"/> where none is
 /// allowed in a collection or an owned value, two Map keys that the key declaration holds
-/// equal, or an array whose element type is not exactly the declared one, at any depth, which
-/// the runtime lets stand where an array of the declared type is expected, such as a
-/// <c>uint[]</c> in an <c>int[]</c> property, is <see cref="LatticeErrorEnum.ValidationFailed"/>.
+/// equal, or an array whose elements the runtime would read as other values, at any depth,
+/// such as a <c>uint[]</c> in an <c>int[]</c> property or an <c>sbyte[]</c> in a
+/// <c>byte[]</c> one, is <see cref="LatticeErrorEnum.ValidationFailed"/>. Which arrays those
+/// are, and that an array of a class derived from the declared element type is valid, is
+/// stated at <see cref="LatticeRecord.this[string]"/>, which refuses them in the same way.
 /// Both come before a write is refused as not implemented, for every entity type whose
 /// writes are refused until a feature of its schema is implemented, such as a unique index,
 /// an enum field or an owned value: only a write that passes them ends in

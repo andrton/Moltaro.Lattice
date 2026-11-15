@@ -66,8 +66,8 @@ public sealed class LatticeOwnedValue
     /// Gets or sets the value of a field. A value has the field's .NET type, see
     /// <see cref="LatticeValueDeclaration.ValueType"/>, which also says what is accepted for
     /// an owned value and a collection. An integer of another width is accepted when it fits,
-    /// and the types inside a collection are exact, as for a field of a
-    /// <see cref="LatticeRecord"/>. Getting returns what the owned value holds, the same object
+    /// and a collection is taken by the rules of a field of a record, see
+    /// <see cref="LatticeRecord.this[string]"/>. Getting returns what the owned value holds, the same object
     /// every time; setting stores a copy of the value.
     /// </summary>
     /// <param name="fieldName">The field name declared in the owned type.</param>
