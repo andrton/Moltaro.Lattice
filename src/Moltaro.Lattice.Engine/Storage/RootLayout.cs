@@ -17,18 +17,21 @@ namespace Moltaro.Lattice.Storage;
 // - one ValueDescriptor of 16 bytes for each String and Binary field, in the order of their field
 //   identities.
 // FixedSize is the sum of these four parts. An offset inside a root block, that of a descriptor and
-// that of an inline value, is counted from the same start, the header included. Every value of
-// more than one byte is little-endian, text in a UTF-16 database included.
+// that of an inline value, is counted from the same start, the header included. A value of more
+// than one byte is stored in the byte order of the machine, as the block header and the
+// descriptors are: native memory is never a durable or a wire form, and the byte order of those
+// forms belongs to their sprints.
 //
 // A String or Binary value is placed by its encoded length; DescriptorKindEnum says what its
 // descriptor holds in each case:
 // - at most InlineLimit bytes: inline, in the root block after the fixed part, when the root block
 //   still fits one block. An empty value is inline with length 0;
-// - otherwise at most SingleBlockLimit bytes: in one block of its own, of kind Value;
+// - any other value of at most SingleBlockLimit bytes: in one block of its own, of kind Value;
 // - beyond that: chunked, in chunks of kind Chunk of ChunkPayload bytes, every chunk but the last
 //   full, and one directory block of kind ChunkDirectory with one 16-byte descriptor for each
-//   chunk. A value that needs more chunks than one directory block holds is WriteRejected. A
-//   chunk boundary is not a boundary of the value: a character may continue in the next chunk.
+//   chunk. A value that needs more chunks than one directory block holds is WriteRejected,
+//   reported by RootWriter.Complete. A chunk boundary is not a boundary of the value: a character
+//   may continue in the next chunk.
 // The parent of a value block and of a directory is the root block; the parent of a chunk is its
 // directory. A null String or Binary is null in the bitmap, and its descriptor is all zero.
 //

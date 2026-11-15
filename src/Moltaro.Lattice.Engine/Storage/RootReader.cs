@@ -6,9 +6,9 @@ namespace Moltaro.Lattice.Storage;
 // root owns, where its RootLayout places it. A root is written and read field by field, so that
 // neither a class nor a record has to box its values.
 //
-// Every member reads one field of the entity type of the layout, and each Get… member a field of
-// the type it serves; a field of another type, or of another entity type, is refused with
-// ArgumentException. A Get… member, and GetLength, of a field whose value is null is
+// Every member reads one field of the entity type of the layout: IsNull any field, GetLength a
+// String or a Binary field, and each other Get… member a field of the type it serves. A field of
+// another type, or of another entity type, is refused with ArgumentException. A Get… member, and GetLength, of a field whose value is null is
 // InvalidOperationException: the caller asks IsNull first.
 //
 // Valid only while the caller holds the protection of that root: owned blocks are accessed only

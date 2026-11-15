@@ -14,23 +14,27 @@ namespace Moltaro.Lattice.Storage;
 // root block has no parent and the offset 0; RootLayout says which block is the parent of which.
 //
 // Every Set… member sets one field, of the entity type of the layout and of the field type the
-// member serves; a field of another type, or of another entity type, is refused with
-// ArgumentException. A field is set once: a second Set… or SetNull of the same field is
-// InvalidOperationException. A value outside the range of the field's width is refused with
-// LatticeException, ValidationFailed, at the call.
+// member serves; SetNull serves every field. A field of another type, or of another entity type,
+// is refused with ArgumentException. A value outside the range of the field's width is refused
+// with LatticeException, ValidationFailed, at the call. A field is set once: a second Set… or
+// SetNull of a field that was set is InvalidOperationException. A call that was refused, for
+// malformed text, a value out of range or SetNull of a field that is not nullable, did not set
+// the field, and a valid value may follow.
 //
 // maxEntitySize bounds FixedSize plus the encoded bytes of every String and Binary value of the
 // entity, wherever a value went (Q14, "Configurable root-object size limit"). It becomes the
 // option MaxEntitySize of the database in S09, 1 MiB to start (milestone contract, "Initial
 // bounded settings"). An entity of exactly maxEntitySize bytes is stored; one byte more is
 // refused. Only Complete reports the size and the memory of the arena: no Set… member fails for
-// either.
+// either. An OutOfMemoryException of the native allocator passes through whichever member meets
+// it; the caller then calls Abandon, which frees everything.
 //
 // A writer ends in one of two ways. Complete checks the root as a whole and returns the address of
-// its root block; publishing the root is its caller's (S06), and RootStorage.Free frees it later.
-// Abandon frees everything the writer allocated. After either, every member is
-// InvalidOperationException, but Abandon after a failed Complete, and a second Abandon, do
-// nothing.
+// its root block; the root then belongs to the caller, who publishes it (S06) and frees it later
+// with RootStorage.Free. Abandon frees everything the writer allocated. After Complete, whether
+// it returned or failed, and after Abandon, every Set… member, SetNull and Complete are
+// InvalidOperationException, and so is Abandon after a Complete that returned. Abandon after a
+// failed Complete, and a second Abandon, do nothing.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await.
@@ -104,8 +108,8 @@ internal ref struct RootWriter
     // says. Only well-formed text is stored, in both encodings (Q04.5): text that is not well-formed
     // UTF-16, a surrogate without its pair, is refused with LatticeException, ValidationFailed, at
     // the call. Then nothing is allocated for the value, the counters of the arena are the same
-    // before and after the call, no character is replaced by another, and the writer stays usable.
-    // An empty string is a value, not null.
+    // before and after the call, no character is replaced by another, the field is not set, and the
+    // writer stays usable. An empty string is a value, not null.
     public void SetString(LatticeField field, ReadOnlySpan<char> value) =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
@@ -116,10 +120,11 @@ internal ref struct RootWriter
 
     // Ends the root and returns the address of its root block. A nullable field that was never set
     // is null. Refuses with LatticeException: ValidationFailed when a field that is not nullable was
-    // never set; WriteRejected when the entity is over maxEntitySize, or when the arena is out of
-    // memory for it. When it fails, everything the writer allocated is freed and the counters of
-    // the arena are as they were before the writer; an OutOfMemoryException of the native allocator
-    // passes through in the same state.
+    // never set; WriteRejected when the entity is over maxEntitySize, when the arena is out of
+    // memory for it, or when a value needs more chunks than one directory block holds. When it
+    // fails, everything the writer allocated is freed: LiveBytes and ClassSlackBytes of the arena
+    // are as they were before the writer, while a segment the arena obtained for the writer may
+    // stay in its reserve, so Segments and ReservedSegments may differ.
     public ArenaAddress Complete() =>
         throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
 
