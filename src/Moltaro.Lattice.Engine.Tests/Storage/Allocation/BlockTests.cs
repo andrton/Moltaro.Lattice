@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // payload is reached. A new payload is not initialized, so these tests read only bytes they wrote.
 public sealed class BlockTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_new_block_has_the_root_kind_and_payload_length_it_was_given_and_every_other_header_field_zero()
     {
         using var arena = Arenas.Open();
@@ -22,7 +22,7 @@ public sealed class BlockTests
         AssertNewHeader(arena.Header(address), root, BlockKindEnum.Root, 100);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_reused_slot_gets_a_whole_new_header()
     {
         using var arena = Arenas.Open();
@@ -49,7 +49,7 @@ public sealed class BlockTests
         AssertNewHeader(arena.Header(again), root, BlockKindEnum.Chunk, 110);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_block_takes_any_kind_and_any_root_as_given()
     {
         using var arena = Arenas.Open();
@@ -69,7 +69,7 @@ public sealed class BlockTests
         }
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_header_of_a_live_block_is_written_and_read_in_place()
     {
         using var arena = Arenas.Open();
@@ -91,7 +91,7 @@ public sealed class BlockTests
         Assert.True(arena.IsValid(address));
     }
 
-    [Theory(Skip = NotImplemented.Arena)]
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(100)]
@@ -105,7 +105,7 @@ public sealed class BlockTests
         Assert.Equal(payloadLength, arena.Payload(address).Length);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_payload_follows_the_length_in_the_header_up_to_the_end_of_the_slot()
     {
         using var arena = Arenas.Open();
@@ -122,7 +122,7 @@ public sealed class BlockTests
         Assert.Equal(room, arena.Payload(address).Length);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_header_length_beyond_the_capacity_of_the_slot_is_refused_before_the_payload_is_reached()
     {
         using var arena = Arenas.Open();
@@ -145,7 +145,7 @@ public sealed class BlockTests
         Assert.False(arena.IsValid(address));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_payload_keeps_what_was_written_while_neighbouring_blocks_are_allocated_and_freed()
     {
         using var arena = Arenas.Open();

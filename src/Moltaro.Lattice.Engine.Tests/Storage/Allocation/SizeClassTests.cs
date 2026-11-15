@@ -13,7 +13,7 @@ public sealed class SizeClassTests
 {
     public static TheoryData<int> EverySizeClass => new(SpecifiedSizeClasses.All);
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Every_payload_length_gets_the_smallest_size_class_that_holds_it_with_its_header()
     {
         for (var payloadLength = 0; payloadLength <= SpecifiedSizeClasses.LargestPayload; payloadLength++)
@@ -22,7 +22,7 @@ public sealed class SizeClassTests
         }
     }
 
-    [Theory(Skip = NotImplemented.Arena)]
+    [Theory]
     [InlineData(0, 32)]
     [InlineData(1, 48)]
     [InlineData(16, 48)]
@@ -45,7 +45,7 @@ public sealed class SizeClassTests
         Assert.Equal(blockSize, Arena.BlockSizeFor(payloadLength));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_payload_of_no_bytes_takes_the_smallest_class_the_header_alone()
     {
         using var arena = Arenas.Open();
@@ -61,7 +61,7 @@ public sealed class SizeClassTests
         Assert.Equal(0, arena.Counters.ClassSlackBytes);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_largest_payload_is_65504_bytes_in_a_block_of_MaxBlockSize()
     {
         using var arena = Arenas.Open();
@@ -77,7 +77,7 @@ public sealed class SizeClassTests
         Assert.Equal(0, arena.Counters.ClassSlackBytes);
     }
 
-    [Theory(Skip = NotImplemented.Arena)]
+    [Theory]
     [InlineData(-1)]
     [InlineData(int.MinValue)]
     [InlineData(65_505)]
@@ -93,7 +93,7 @@ public sealed class SizeClassTests
         Assert.Equal(before, arena.Counters);
     }
 
-    [Theory(Skip = NotImplemented.Arena)]
+    [Theory]
     [MemberData(nameof(EverySizeClass))]
     public void A_block_of_every_size_class_is_allocated_freed_and_its_slot_reused(int blockSize)
     {

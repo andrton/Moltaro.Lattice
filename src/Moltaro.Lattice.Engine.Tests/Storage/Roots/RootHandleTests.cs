@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Roots;
 // generation 0, which no slot ever has.
 public sealed class RootHandleTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_handle_carries_its_generation_and_its_slot()
     {
         var handle = new RootHandle(7, 42);
@@ -22,7 +22,7 @@ public sealed class RootHandleTests
         Assert.Equal(uint.MaxValue, largest.Slot);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_default_handle_has_generation_0_and_slot_0()
     {
         var none = default(RootHandle);
@@ -32,7 +32,7 @@ public sealed class RootHandleTests
         Assert.Equal(new RootHandle(0, 0), none);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Two_handles_are_equal_when_they_name_the_same_slot_with_the_same_generation()
     {
         var handle = new RootHandle(7, 42);

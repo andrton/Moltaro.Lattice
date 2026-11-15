@@ -11,7 +11,9 @@ internal sealed class ArenaOptions
     public long MemoryLimit { get; init; }
 
     // The size of one native segment in bytes: the unit in which the arena obtains memory from the
-    // native allocator and returns it. At least MaxBlockSize.
+    // native allocator and returns it. At least MaxBlockSize, and a whole multiple of it, because
+    // the arena divides a segment into regions of MaxBlockSize bytes; any other size is refused
+    // with ArgumentOutOfRangeException. The default holds 64 regions.
     public int SegmentSize { get; init; } = 4 * 1024 * 1024;
 
     // How many completely empty segments the arena keeps for reuse instead of freeing them; not

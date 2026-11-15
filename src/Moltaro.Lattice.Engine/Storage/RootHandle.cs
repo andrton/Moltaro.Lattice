@@ -13,38 +13,31 @@ namespace Moltaro.Lattice.Storage;
 // arena protocol ("Lock and lifetime order").
 internal readonly struct RootHandle : IEquatable<RootHandle>
 {
-    // The packed handle. It is declared so that a handle takes its 8 bytes in BlockHeader; the
-    // members that write and read it are not implemented yet.
-#pragma warning disable CS0169 // Never used until the arena of S04 is implemented.
+    // The packed handle: the generation in the high 32 bits, the slot in the low 32 bits.
     private readonly ulong _value;
-#pragma warning restore CS0169
 
     // Packs a generation and a slot. It does not check that such a lifetime exists: only the root
     // table can tell, through RootTable.IsCurrent.
     public RootHandle(uint generation, uint slot) =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+        _value = ((ulong)generation << 32) | slot;
 
     // The generation the slot had when this lifetime began.
-    public uint Generation =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public uint Generation => (uint)(_value >> 32);
 
     // The slot of the root's entry in the root table.
-    public uint Slot =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public uint Slot => (uint)_value;
 
     // Two handles are equal when they name the same slot with the same generation.
-    public bool Equals(RootHandle other) =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public bool Equals(RootHandle other) => _value == other._value;
 
-    public override bool Equals(object? obj) =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public override bool Equals(object? obj) => obj is RootHandle other && Equals(other);
 
-    public override int GetHashCode() =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public override int GetHashCode() => _value.GetHashCode();
 
-    public static bool operator ==(RootHandle left, RootHandle right) =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    // The generation and the slot, for a message or a failed assertion.
+    public override string ToString() => $"{Generation}@{Slot}";
 
-    public static bool operator !=(RootHandle left, RootHandle right) =>
-        throw new NotSupportedException("The arena of Epic 1, sprint S04 is not implemented yet.");
+    public static bool operator ==(RootHandle left, RootHandle right) => left.Equals(right);
+
+    public static bool operator !=(RootHandle left, RootHandle right) => !left.Equals(right);
 }

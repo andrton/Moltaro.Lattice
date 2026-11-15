@@ -14,6 +14,10 @@ namespace Moltaro.Lattice.Storage;
 [StructLayout(LayoutKind.Sequential)]
 internal struct BlockHeader
 {
+    // The bytes of a header, which come before the payload in every block: the size of this struct,
+    // which a test asserts, as a constant for the arithmetic of slots.
+    public const int Size = 32;
+
     // The root that owns the block. A block of kind SharedText names the text entry that owns it
     // in this place instead.
     public RootHandle Root;

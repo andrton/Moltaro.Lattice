@@ -11,6 +11,9 @@
     <!-- Internal mechanisms only so far, and no entry point. Make the project packable in Epic 1,
          sprint S12, when the entry point moves here. -->
     <IsPackable>false</IsPackable>
+    <!-- The arena keeps its blocks in native memory from NativeMemory and reaches them through
+         pointers: it writes a header in place and returns a reference or a span into a segment. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <!-- The selected index structures, see docs/decisions/index-structures.md. The engine owns

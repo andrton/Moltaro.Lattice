@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // the budget.
 public sealed class CounterTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_new_arena_holds_no_segment_and_no_block()
     {
         using var arena = Arenas.Open();
@@ -21,7 +21,7 @@ public sealed class CounterTests
         Assert.Equal(default(ArenaCounters), arena.Counters);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Live_bytes_and_class_slack_add_up_to_the_slots_of_the_allocated_blocks()
     {
         using var arena = Arenas.Open();
@@ -44,7 +44,7 @@ public sealed class CounterTests
         }
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void After_a_deterministic_churn_the_counters_equal_an_independent_tally_and_only_the_kept_blocks_are_live()
     {
         // A fixed seed, so that every run makes the same steps: each step allocates a block of a

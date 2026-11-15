@@ -18,7 +18,7 @@ public sealed class ManagedAllocationTests
 
     private const int BlocksPerClass = 4;
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Allocating_and_freeing_blocks_allocates_no_managed_memory_after_warm_up()
     {
         using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * Arenas.SegmentSize, ReservedSegments = 64 });

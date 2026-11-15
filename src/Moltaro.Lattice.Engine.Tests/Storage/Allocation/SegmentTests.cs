@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // reserved ones included.
 public sealed class SegmentTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_region_that_loses_its_last_block_returns_to_its_segment()
     {
         using var arena = Arenas.Open();
@@ -35,7 +35,7 @@ public sealed class SegmentTests
         Assert.Equal(before, arena.Counters);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_segment_that_loses_its_last_block_enters_the_reserve_and_still_counts_as_a_segment()
     {
         using var arena = Arenas.Open();
@@ -49,7 +49,7 @@ public sealed class SegmentTests
             arena.Counters);
     }
 
-    [Theory(Skip = NotImplemented.Arena)]
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]
@@ -70,7 +70,7 @@ public sealed class SegmentTests
             arena.Counters);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_allocation_takes_a_free_slot_of_its_class_then_a_free_region_then_a_reserved_segment_then_a_new_segment()
     {
         using var arena = Arenas.Open();

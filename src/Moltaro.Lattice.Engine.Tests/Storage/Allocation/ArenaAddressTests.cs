@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // default value. Packing checks nothing; only the arena can tell whether a block is there.
 public sealed class ArenaAddressTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_address_packs_the_segment_into_the_high_and_the_offset_into_the_low_32_bits()
     {
         var address = new ArenaAddress(3, 160);
@@ -30,7 +30,7 @@ public sealed class ArenaAddressTests
         Assert.Equal(ulong.MaxValue, largest.Value);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_default_address_is_null_and_so_is_segment_0_at_offset_0()
     {
         var none = default(ArenaAddress);
@@ -44,7 +44,7 @@ public sealed class ArenaAddressTests
         Assert.Equal(none, new ArenaAddress(0, 0));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Only_the_address_zero_is_null()
     {
         Assert.False(new ArenaAddress(0, 32).IsNull);
@@ -52,7 +52,7 @@ public sealed class ArenaAddressTests
         Assert.False(new ArenaAddress(uint.MaxValue, uint.MaxValue).IsNull);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Two_addresses_are_equal_when_they_name_the_same_segment_and_offset()
     {
         var address = new ArenaAddress(3, 160);

@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // throws ObjectDisposedException, and a second Dispose does nothing.
 public sealed class DisposeTests
 {
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void After_Dispose_every_member_of_the_arena_throws_ObjectDisposedException()
     {
         var arena = Arenas.Open();
@@ -25,7 +25,7 @@ public sealed class DisposeTests
         Assert.Throws<ObjectDisposedException>(() => arena.Counters);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_second_Dispose_does_nothing()
     {
         var arena = Arenas.Open();
@@ -37,7 +37,7 @@ public sealed class DisposeTests
         Assert.Throws<ObjectDisposedException>(() => arena.Counters);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_arena_that_never_obtained_a_segment_can_be_disposed()
     {
         var arena = Arenas.Open();

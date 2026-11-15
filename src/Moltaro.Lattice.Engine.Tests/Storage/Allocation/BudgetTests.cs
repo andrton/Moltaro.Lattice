@@ -19,7 +19,7 @@ public sealed class BudgetTests
         Assert.Equal(1, options.ReservedSegments);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_allocation_beyond_the_memory_limit_fails_and_leaves_the_counters_as_they_were()
     {
         var options = new ArenaOptions { MemoryLimit = 2L * Arenas.SegmentSize };
@@ -46,7 +46,7 @@ public sealed class BudgetTests
         Assert.True(arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out _));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_memory_limit_bounds_the_segments_the_arena_obtains()
     {
         // Two and a half segments: room for two.
@@ -58,7 +58,7 @@ public sealed class BudgetTests
         Assert.Equal(2, arena.Counters.Segments);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_reserve_counts_toward_the_memory_limit()
     {
         var options = new ArenaOptions { MemoryLimit = 2L * Arenas.SegmentSize };
@@ -79,7 +79,7 @@ public sealed class BudgetTests
         Assert.Equal(2, arena.Counters.Segments);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_memory_limit_of_one_segment_is_enough_to_allocate()
     {
         using var arena = new Arena(new ArenaOptions { MemoryLimit = Arenas.SegmentSize });
@@ -89,20 +89,20 @@ public sealed class BudgetTests
         Assert.Equal(1, arena.Counters.Segments);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Null_options_are_refused()
     {
         Assert.Throws<ArgumentNullException>(() => new Arena(null!));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_memory_limit_is_required()
     {
         // There is no "0 means unlimited": the default limit is refused.
         Assert.Throws<ArgumentOutOfRangeException>(() => new Arena(new ArenaOptions()));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_memory_limit_smaller_than_one_segment_is_refused()
     {
         long[] limits = [-1, Arenas.SegmentSize - 1L, long.MinValue];
@@ -113,7 +113,7 @@ public sealed class BudgetTests
         }
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_segment_size_smaller_than_the_largest_block_is_refused()
     {
         int[] sizes = [Arena.MaxBlockSize - 1, 0, -1, int.MinValue];
@@ -126,7 +126,7 @@ public sealed class BudgetTests
         }
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_negative_reserve_is_refused()
     {
         int[] reserves = [-1, int.MinValue];

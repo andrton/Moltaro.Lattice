@@ -13,7 +13,7 @@ public sealed class InvalidAddressTests
     // The payload length of the live block the tests keep next to the address they try.
     private const int LivePayloadLength = 100;
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void The_null_address_is_refused()
     {
         using var arena = Arenas.Open();
@@ -22,7 +22,7 @@ public sealed class InvalidAddressTests
         AssertRefused(arena, default, live);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_freed_block_is_refused()
     {
         using var arena = Arenas.Open();
@@ -34,7 +34,7 @@ public sealed class InvalidAddressTests
         AssertRefused(arena, freed, live);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void A_block_whose_segment_was_freed_is_refused()
     {
         // Without a reserve, the segment that loses its last block is freed at once.
@@ -47,7 +47,7 @@ public sealed class InvalidAddressTests
         AssertRefused(arena, freed, live: null);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void Freeing_a_block_twice_is_refused_and_changes_nothing()
     {
         using var arena = Arenas.Open();
@@ -62,7 +62,7 @@ public sealed class InvalidAddressTests
         Assert.True(arena.IsValid(live));
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_address_in_a_segment_the_arena_does_not_hold_is_refused()
     {
         using var arena = Arenas.Open();
@@ -75,7 +75,7 @@ public sealed class InvalidAddressTests
         AssertRefused(arena, new ArenaAddress(uint.MaxValue, live.Offset), live);
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_address_inside_a_block_is_refused()
     {
         using var arena = Arenas.Open();
@@ -91,7 +91,7 @@ public sealed class InvalidAddressTests
         }
     }
 
-    [Fact(Skip = NotImplemented.Arena)]
+    [Fact]
     public void An_address_beyond_the_end_of_its_segment_is_refused()
     {
         using var arena = Arenas.Open();
