@@ -894,7 +894,8 @@ Why this order:
 | S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Done |
-| S08 | Enumeration under change and the growth of the index | Full | Not started |
+| S08, part 1 | The protection of reads: reads by key scale with threads | Full | In progress |
+| S08, part 2 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
@@ -2943,9 +2944,17 @@ be studied: how they do it is to be learned from their source and, in essence, r
   The scaling is a figure of a measurement and not a test of the default lane.
 - **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
   and 16 threads, without a writer and with one, before and after the change.
-- If the coordinator judges that this makes the sprint too large for one implementer and
-  one review, it splits it and tells the planner: the protection of reads first, the
-  enumeration and the growth of the index after it.
+- **Split by the coordinator on 15 November 2026**, as the sentence that stood here
+  allowed: the sprint is done as two, each with its own branch, test author, implementer,
+  review and pull request. Part 1, `epic-1/sprint-08-read-protection`: the protection of
+  reads and its measurement; no public member changes. The storms of the reviews of S06
+  were probes of the reviewer and are in no test project, so the test author of part 1
+  first writes them as tests of the engine, sized as the process asks: readers, writers
+  and deletes on few keys with reuse of root entries, and close cycles under reads; they
+  pass on the protection of S06 before the implementer changes it, and are not skipped.
+  The scenario of the measurement on 1, 2, 4, 8 and 16 threads is written by the
+  implementer. Part 2, `epic-1/sprint-08-enumeration`, cut from `main` after part 1 is
+  merged: everything else of this brief, on the new protection.
 
 #### S09 · Write coordinator and write limits
 
