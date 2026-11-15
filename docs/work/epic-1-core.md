@@ -3257,6 +3257,14 @@ otherwise, these replace it.
   the arena, in the byte order of the sending machine. `LayoutFormat` of the Hello
   includes the byte order, and a peer of another byte order is refused with `Format`. No
   conversion is built.
+- **The version of the case table** (the owner's decision on Q46; added by the planner on
+  15 November 2026). The Hello carries the version of the case table
+  (`CaseTable.Version`) of the sender. A peer whose version is another is refused as a
+  peer of another layout format is, with the same error, before any block is sent: two
+  nodes with different tables would hold different keys equal. The version is compared
+  for equality only; nothing is converted. Acceptance: a peer that announces another
+  case table version is refused with the error of an incompatible peer, and no data of
+  it is applied — a test through the internal frame, as the byte-order test is written.
 - **A root larger than a frame.** A block with its framing does not fit one data frame,
   and by decision O19 a root of tens of mebibytes is ordinary. The export of one root is
   one stream, cut into `Blocks` frames of at most `MaxDataBody`; bit 0 of
@@ -4030,6 +4038,11 @@ otherwise, these replace it.
 - **Out of scope.** Removing applied journal, retiring receipts and the limits of the
   journal (S31): until then the store only grows, and `README.md` lists it among what is not implemented
   yet. Killing processes (S32). Restore (S36).
+- **The version of the case table**, a note of the planner of 15 November 2026 until the
+  contracts of the stage are written: the saved base records the case table version it
+  was written under; a base of another version is not opened as it is — whether it is
+  refused or its case-insensitive keys and indexes are validated and rebuilt is decided
+  with the contract of S30 and of S37 (upgrade).
 
 #### S31 · Journal limits, cleanup and receipt retirement
 
