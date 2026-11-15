@@ -785,7 +785,7 @@ Why this order:
 | S02 | Schema: identities, text policies, enums | Full | Done |
 | S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Done |
-| S05 | Root layout and values | Full | Not started |
+| S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Not started |
 | S07 | Every key type and declared value | Full | Not started |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
@@ -2179,8 +2179,8 @@ unchanged, and S12 deletes the folder whole. `StoredEntity` and `WriteKindEnum` 
 `src/Moltaro.Lattice/Storage`, because the sets and the write batch use them. This is more
 than decision O16 lists as a small change — it moves source files — and it is named here
 for that reason. The branch also carries what the owner and the planner answered while it
-was open: decision O17 with the brief of S09, the answers to Q29, Q32 and Q36 and to
-point 1 of Q35 with the brief of S06, and the extension of exception X3.
+was open: decision O17 with the brief of S09, the answers to Q29 and Q32 and to point 1
+of Q35 with the brief of S06, and the answer to Q36 with the extension of exception X3.
 
 A sprint before S19 measures the scalar form, because the collections and Dictionary
 strings of the full form cannot be stored yet, and before S16 it measures that form
@@ -2524,9 +2524,9 @@ memory available to the process is the limit of its container where there is one
 physical memory of the machine otherwise, read when the instance opens. From which source
 the engine reads it is open, entry Q37 of the [open questions](open-questions.md): the
 planner first named `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, and the review of
-S05 measured that it reports the heap limit of the garbage collector — in a container 75%
-of the limit by default, and whatever a GC heap setting says — which is not what the
-decision gives. S09 does not start with Q37 open. The limit in force is fixed at open and does not
+S05 measured that it reports what the garbage collector may use — the physical memory on
+a host without settings, in a container 75% of the limit by default, and whatever a GC
+heap setting says — which is not what the decision gives. S09 does not start with Q37 open. The limit in force is fixed at open and does not
 follow later changes. Every limit that is a share of the budget — the queued write input
 here, the retained outcomes of S26, the pending replication of S33 — is taken from the
 limit in force. An explicit `MemoryLimit` that is not positive is refused by `Validate`.
