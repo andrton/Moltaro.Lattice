@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q42. Reads by key do not scale with threads
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S06 |
+| **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes, the arena protocol says itself that production gates were not established by its experiment, and gate G2 asks for 10,000 reads per second, so no rule is broken. Does the scaling bound a gate or the reads of the reference deployment, and what in the synchronization is changed if it does? |
+| **Until answered** | The gates stay as the engine contract prescribes. S08, which changes the index and its gate, reports reads by key per second on 1, 4 and 16 threads next to the figure of S06; S25 reports the scaling with the read mix and brings it to the owner before any change |
+| **Decides** | The owner, on the figures of S25; the planner worded the two briefs |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -392,3 +401,12 @@ in the meantime.
 | **Question** | `ConsistencyTests.Every_result_carries_a_position`, written for the placeholder before the design was transferred, asserts that a delete of an absent key returns the position the database had (`Assert.Equal(inserted.Position, nothingDeleted.Position)`), and the plan requires that test unchanged in S12. The decision on mutation commands ("assigns successful no-ops a retained result and stream position"), the engine contract ("receive a durable result and stream position") and the retry protocol say a successful no-op advances the position, and S11 has `EffectKindEnum.Unchanged`. It is a disagreement between a test of the contract and an accepted decision, which `AGENTS.md` makes a finding for the owner. The planner recommends the accepted decision: a no-op gets a position of its own and the revision of the entity stays, which changes one assertion of that test, by the test author, with the owner's word |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a write that changes nothing has a position of its own, as the accepted decision says. Every accepted operation has its place in the history, a retry returns its own position, and the retry protocol stands as it was checked on PostgreSQL; the cost is an empty entry in the journal and one changed assertion. *Not chosen:* the position stays and the retry protocol is reworked for a receipt without a position. The placeholder is left as it is until S12 removes it |
 | **Where the rule lives** | The briefs of S06 and S12 in the [document of Epic 1](epic-1-core.md): the engine publishes such a write at a position of its own from S06 on, a test of it runs on the engine only until S12, and S12 changes the one assertion of `ConsistencyTests.Every_result_carries_a_position` and the documentation of `LatticeWriteResult.Position` |
+
+### Q41. Where is text that is not well-formed refused?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S06 |
+| **Question** | The engine of S06 refused text that is not well-formed in its root writer, after the conditions of a write: with a stored entity and a lone surrogate in a field, an insert of the same key was `DuplicateKey`, a replace of an absent key `NotFound`, a wrong revision `RevisionConflict`, and only a write that passed them was `ValidationFailed`; for an entity type the engine does not store yet the write was `NotSupportedException` before any text was looked at. The placeholder accepted such text, and the public documentation, which lists what is `ValidationFailed` and says that validation comes first, did not mention it. Is it a validation of the contract, made by the core on both implementations, or a refusal of the engine alone? |
+| **Answer** | The planner, 15 November 2026, from rules that stand: `AGENTS.md` puts a check that needs no engine into the contract; Q25 fixes the order — arguments, validation, then the conditions and the refusal of what is not implemented; Q04.1 and R10 say malformed Unicode is refused and never replaced. The validation of the core checks it at a write and at adding to a batch, at every depth, on both implementations; the root writer keeps its own refusal as the guard of the stored form; a key given as an argument that is not well-formed is `ArgumentException` |
+| **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance, and the remarks of the public documentation that list `ValidationFailed` |

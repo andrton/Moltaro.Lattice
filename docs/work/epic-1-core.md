@@ -2325,7 +2325,13 @@ manifest is a committed file of this project.
   `Set…` member of `RootWriter`, as every other validation of a value; the placeholder,
   which goes in S12, gets no stand-in check, so the test of the bound runs on the engine
   only. Whether the bound holds for each element of a collection and each field of an
-  owned value is the planner's, with the contracts of S18 and S19 (Q35, point 7).
+  owned value is the planner's, with the contracts of S18 and S19 (Q35, point 7). By the
+  planner's answer to Q41: a write of an entity with text that is not well-formed is
+  `ValidationFailed` with the field named whatever else is wrong with the write: with the
+  key of a stored entity on insert, with an absent key on replace, with a wrong revision,
+  and for an entity type the engine does not store yet; by class and by name, on the
+  placeholder and on the engine. A read or a delete by a String key that is not
+  well-formed is `ArgumentException`.
 
 **Carried by this sprint besides its own work**, under decision O16, after its
 implementation commit and tests first: the removal of the size limit of an entity
@@ -2373,6 +2379,32 @@ The first sentence is what the binding does today and gets its tests and its
 documentation; the last two are fixes of the binding in the core library — today the
 overridden getter is `BindingFailed` and the hidden property binds. The tests come first,
 from the test author, as for any change of behavior.
+
+By the planner's answer to Q41 of the [open questions](open-questions.md), after the
+first review of S06: text that is not well-formed — a surrogate without its pair — in a
+String value is refused by the validation of a write like every other invalid value:
+`ValidationFailed` with the field named, for an object and for a record, at every depth
+(a field, an element, a key or a value of a collection, a field of an owned value),
+before the conditions of the write are looked at and before the write is refused as not
+implemented. The validation of the core makes the check, so it holds on the placeholder
+and on the engine alike and for an entity type the engine does not store yet. The root
+writer keeps refusing such text: that is the guard of the stored form for whoever calls
+it inside the engine, found while the text is encoded, and not a second validation of
+the contract. A key given as an argument — to a read or a delete, and later to a search
+— that is not well-formed text is `ArgumentException`, as a key of another type is. The
+check is made at the write and at adding to a batch, where every other validation of an
+object is made; a record does not check it when a value is set. How the check is made is
+the implementer's; if the extra pass over the text shows in the write figures of S09, it
+is reported there and decided with a number. The remarks that list `ValidationFailed`
+— the write members of the sets and of the batch, and the member of `LatticeErrorEnum` —
+gain the sentence: "Text that is not well-formed — a surrogate without its pair — is
+refused in the same way, at any depth, and is never stored and never replaced by another
+character."
+
+By the planner's word on the first review of S06, a stated rule and not only a fix: the
+engine runs no code of the application inside a gate or the close barrier: under the
+protection of a root it copies the values into its own memory, and the constructor and
+the set accessors of the class run after the protection is released.
 
 Internal, in the engine assembly:
 
@@ -2594,7 +2626,9 @@ zeros, as the milestone contract requires.
   the old one is released. A deleted entry is reused only after its claims are gone, and
   an old claim never follows a key that was created again.
 - **Measured.** Reported: enumeration time for 100,000 entities with and without a
-  writer; how long index mutations wait while the index grows from 100,000 entries.
+  writer; how long index mutations wait while the index grows from 100,000 entries;
+  reads by key per second on 1, 4 and 16 threads without a writer, next to the figure of
+  S06 (Q42 of the open questions).
 - **Out of scope.** Concurrent preparation (S09). Search through an index (S14, S15).
   Compaction (S23).
 
@@ -3385,7 +3419,10 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   before the gate run.
 - **Measured.** **G1.** Early figure for G2: p50, p95, p99 and maximum of the read mix
   on one MemoryOnly node at 10,000 reads/s with the write trace at 200 changes/s,
-  identifier and exact-index reads, range reads and view reads reported separately.
+  identifier and exact-index reads, range reads and view reads reported separately. The
+  scaling of reads with threads is reported with the read mix; if it bounds a gate or the
+  reads of the reference deployment, it is reported to the owner with what in the
+  synchronization bounds it, before any change (Q42 of the open questions).
 - **Out of scope.** Children, PostgreSQL, the burst. No number from a prototype.
 
 ### Stage 6. Durability
