@@ -13,7 +13,8 @@ public enum LatticeErrorEnum
 
     /// <summary>
     /// The requested entity type does not exist in the schema, or the .NET class does not
-    /// match its declaration.
+    /// match its declaration by the rules that <see cref="ILatticeDatabase.Set{TEntity}"/>
+    /// states.
     /// </summary>
     BindingFailed = 2,
 

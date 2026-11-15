@@ -113,11 +113,21 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// The class is bound to its entity type here, once: every field of the entity type is
     /// matched with a property of the class, and the class is not checked again when an
     /// entity is read or written. The property of a field is the one C# finds by the name of
-    /// the field on the class: the public property of the most derived class that declares
-    /// one. It has to be an instance property with a public get and a set, of the type the
-    /// field needs.
+    /// the field on the class: the public member of that name of the most derived class that
+    /// declares one. It has to be an instance property of the type the field needs.
     /// A property that hides one of its base class with that type binds, and the field is
     /// read from and written to it.
+    /// </para>
+    /// <para>
+    /// The property of a field has a public get accessor and a set accessor of any
+    /// accessibility: public, <c>internal</c>, <c>protected</c>, <c>private</c> or
+    /// <c>init</c>. The database sets the value through that accessor when it builds an
+    /// object, so a class may keep its properties closed for writing by the application. The
+    /// accessors are those C# sees for the property on the class, inherited ones included: a
+    /// class that overrides only the get accessor of a virtual property is set through the
+    /// accessor of its base class. When the public member C# finds on the class by the name of
+    /// a field is not a property — a public field that hides a property of a base class — the
+    /// class is refused: the hidden property is not bound in its place.
     /// </para>
     /// <para>
     /// The type a field needs follows from its declaration, by one rule for every position: a
@@ -175,9 +185,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <para>
     /// The class of an owned type is bound as the class of an entity type is: it is not
     /// abstract and has a public parameterless constructor, it has for every field of the
-    /// owned type a property found by the same rule, and its own owned values and collections
-    /// follow the table. An owned type that names no <c>ClrType</c> has no form in a class,
-    /// and neither has <see cref="LatticeOwnedValue"/>, which only a record holds.
+    /// owned type a property found and set by the same rules, and its own owned values and
+    /// collections follow the table. An owned type that names no <c>ClrType</c> has no form
+    /// in a class, and neither has <see cref="LatticeOwnedValue"/>, which only a record holds.
     /// </para>
     /// <para>
     /// A class that does not agree with the schema is found here, and not later when a value
@@ -190,13 +200,15 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema declares no entity type for
     /// the class; the class, or the class of an owned type it holds, is abstract or has no
-    /// public parameterless constructor; the property that C# finds by the name of a field, in
-    /// the class or in the class of an owned type, is missing, static, an indexer, without a
-    /// public get or without a set, or of another type than the table gives, a .NET enum that
-    /// does not agree with its enum type included; a field at any position is of an owned type
-    /// that names no <c>ClrType</c>; or a property, an element or a value is a
-    /// <see cref="LatticeOwnedValue"/>. The message names the class, and the property where a
-    /// property is concerned; for the last two causes it names the owned type as well.
+    /// public parameterless constructor; the member that C# finds by the name of a field, in
+    /// the class or in the class of an owned type, is missing or is not a property, such as a
+    /// public field that hides a property of a base class; that property is static, an
+    /// indexer, without a public get accessor or without a set accessor, or of another type
+    /// than the table gives, a .NET enum that does not agree with its enum type included; a
+    /// field at any position is of an owned type that names no <c>ClrType</c>; or a property,
+    /// an element or a value is a <see cref="LatticeOwnedValue"/>. The message names the
+    /// class and, where one is concerned, the property or the member that stands in its
+    /// place; for the last two causes it names the owned type as well.
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
     /// </exception>
     ILatticeSet<TEntity> Set<TEntity>()

@@ -12,8 +12,9 @@ namespace Moltaro.Lattice.Access;
 /// <b>Reads</b> are served from local memory and return owned copies. A copy never changes
 /// when the database changes, and editing a copy changes nothing in the database until it
 /// is submitted by a write. Each returned entity is coherent; separate reads do not share a
-/// snapshot. Only the fields declared in the schema are stored; other properties of the
-/// class are ignored.
+/// snapshot. Only the fields declared in the schema are stored, each in the property that
+/// <see cref="ILatticeDatabase.Set{TEntity}"/> binds to it; other properties of the class
+/// are ignored.
 /// </para>
 /// <para>
 /// There are two kinds of reads. The synchronous ones, <see cref="Get"/>,

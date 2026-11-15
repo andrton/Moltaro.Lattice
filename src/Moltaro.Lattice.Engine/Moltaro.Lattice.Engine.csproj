@@ -8,7 +8,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Description>The engine of Moltaro.Lattice: compact native storage, indexes, master-coordinated writes and replication to local read replicas.</Description>
     <PackageTags>database;in-memory;object-database;replication</PackageTags>
-    <!-- Internal mechanisms only so far, and no entry point. Make the project packable in Epic 1,
+    <!-- Internal types only so far, and no public entry point. Make the project packable in Epic 1,
          sprint S12, when the entry point moves here. -->
     <IsPackable>false</IsPackable>
     <!-- The arena keeps its blocks in native memory from NativeMemory and reaches them through
