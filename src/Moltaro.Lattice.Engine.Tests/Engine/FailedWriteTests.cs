@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.TestSupport.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
@@ -43,9 +44,14 @@ public sealed class FailedWriteTests
         nameless["Name"] = null;
         await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => records.UpsertAsync(nameless));
 
-        // Validation: in Note, text with a surrogate without its pair, after the value of Name in
-        // chunks.
+        // Validation: in Note, text with a surrogate without its pair, and a value above the bound of
+        // one value, after the value of Name in chunks. As a new entity through the class, and the
+        // second also by name as a new state of one that exists.
         await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => pieces.InsertAsync(new PieceSchema.Piece { Id = 3, Name = new string('n', 70_000), Note = "a\uD800b" }));
+        await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => pieces.InsertAsync(new PieceSchema.Piece { Id = 3, Name = new string('n', 70_000), Note = ValueBound.TextOneByteAboveInUtf8 }));
+        var above = PieceSchema.RecordOf(records.EntityType, 1, name: 70_000);
+        above["Note"] = ValueBound.TextOneByteAboveInUtf8;
+        await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => records.ReplaceAsync(above));
 
         // Refused by the state of the database, each with values in chunks.
         await ExpectNothingLeftAsync(LatticeErrorEnum.DuplicateKey, () => pieces.InsertAsync(PieceSchema.Of(2, name: 70_000, data: 70_000)));
@@ -71,37 +77,6 @@ public sealed class FailedWriteTests
 
         void ExpectAsBefore()
         {
-            Assert.Equal(before, CountersOf(database));
-            tally.ExpectHeldBy(database);
-        }
-    }
-
-    [Fact]
-    public async Task Write_of_a_value_above_the_bound_of_one_value_leaves_nothing_in_any_counter()
-    {
-        await using var database = await PieceSchema.OpenAsync();
-        var pieces = database.Set<PieceSchema.Piece>();
-        var records = database.Set("Piece");
-        var tally = new PieceTally();
-        var kept = PieceSchema.Of(1, name: 70_000, data: 5_000);
-        await pieces.InsertAsync(kept);
-        tally.Written(kept);
-        var before = CountersOf(database);
-
-        // In Note, after the value of Name in chunks: the root writer refuses the value after it has
-        // allocated the blocks of Name, and the write frees them. As a new entity through the class,
-        // and by name as a new state of one that exists.
-        var text = ValueBound.TextOneByteAboveInUtf8;
-        await ExpectValidationFailedAsync(() => pieces.InsertAsync(new PieceSchema.Piece { Id = 2, Name = new string('n', 70_000), Note = text }));
-        var record = PieceSchema.RecordOf(records.EntityType, 1, name: 70_000);
-        record["Note"] = text;
-        await ExpectValidationFailedAsync(() => records.ReplaceAsync(record));
-
-        async Task ExpectValidationFailedAsync(Func<ValueTask<LatticeWriteResult>> write)
-        {
-            var exception = await Assert.ThrowsAsync<LatticeException>(async () => await write());
-
-            Assert.Equal(LatticeErrorEnum.ValidationFailed, exception.Error);
             Assert.Equal(before, CountersOf(database));
             tally.ExpectHeldBy(database);
         }

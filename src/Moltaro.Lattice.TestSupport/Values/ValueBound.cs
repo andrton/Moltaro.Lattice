@@ -1,12 +1,13 @@
-namespace Moltaro.Lattice.Engine.Tests;
+namespace Moltaro.Lattice.TestSupport.Values;
 
-// The bound of one String or Binary value (decision O19; RootWriter; the remarks of String and Binary
-// of LatticeFieldTypeEnum): one value takes at most 268,173,376 bytes of its stored encoding, the
+// The bound of one String or Binary value (decision O19; the remarks of String and Binary of
+// LatticeFieldTypeEnum): one value takes at most 268,173,376 bytes of its stored encoding, the
 // 4,094 chunks of 65,504 bytes that one directory block of chunks holds. A fixed rule of the storage
 // format, not an option.
 //
-// And one text at the bound, which the tests of the root writer and of the engine database share,
-// because it takes 179 MB: 89,391,125 times € and two a. In UTF-8, where € takes three bytes, it is
+// And one text at the bound, which the tests of the validation of the core, of the root writer and
+// of the engine database share, because it takes 179 MB: it is built once in a test process, when a
+// test first needs it. 89,391,125 times € and two a. In UTF-8, where € takes three bytes, it is
 // 268,173,377 bytes, one more than the bound, and without its last character exactly the bound; in
 // UTF-16 it is 178,782,254 bytes, below the bound.
 internal static class ValueBound

@@ -62,28 +62,28 @@ public sealed class MalformedTextWriteTests
         // The key of the stored entity on insert, an absent key on replace, a revision the entity
         // does not have, and an upsert of the stored entity and of an absent one: through the class,
         // with and without a session, and by name.
-        await ExpectRefusedAsync(() => users.InsertAsync(UserOf(1)));
-        await ExpectRefusedAsync(() => users.InsertAsync(UserOf(1), new LatticeSession()));
-        await ExpectRefusedAsync(() => users.ReplaceAsync(UserOf(404)));
-        await ExpectRefusedAsync(() => users.ReplaceAsync(UserOf(1), default(LatticeRevision)));
-        await ExpectRefusedAsync(() => users.ReplaceAsync(UserOf(404), revision, new LatticeSession()));
-        await ExpectRefusedAsync(() => users.UpsertAsync(UserOf(1)));
-        await ExpectRefusedAsync(() => users.UpsertAsync(UserOf(2)));
-        await ExpectRefusedAsync(() => userRecords.InsertAsync(RecordOf(1)));
-        await ExpectRefusedAsync(() => userRecords.ReplaceAsync(RecordOf(404)));
-        await ExpectRefusedAsync(() => userRecords.ReplaceAsync(RecordOf(1), default(LatticeRevision)));
-        await ExpectRefusedAsync(() => userRecords.UpsertAsync(RecordOf(1), new LatticeSession()));
-        await ExpectRefusedAsync(() => userRecords.UpsertAsync(RecordOf(2)));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.InsertAsync(UserOf(1)));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.InsertAsync(UserOf(1), new LatticeSession()));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.ReplaceAsync(UserOf(404)));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.ReplaceAsync(UserOf(1), default(LatticeRevision)));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.ReplaceAsync(UserOf(404), revision, new LatticeSession()));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.UpsertAsync(UserOf(1)));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.UpsertAsync(UserOf(2)));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.InsertAsync(RecordOf(1)));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.ReplaceAsync(RecordOf(404)));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.ReplaceAsync(RecordOf(1), default(LatticeRevision)));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.UpsertAsync(RecordOf(1), new LatticeSession()));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.UpsertAsync(RecordOf(2)));
 
         // Added to a batch, through the class and by name.
         var batch = database.CreateWriteBatch();
-        ExpectRefused(() => batch.Insert(UserOf(1)));
-        ExpectRefused(() => batch.Replace(UserOf(404)));
-        ExpectRefused(() => batch.Replace(UserOf(1), default(LatticeRevision)));
-        ExpectRefused(() => batch.Upsert(UserOf(2)));
-        ExpectRefused(() => batch.Insert(RecordOf(1)));
-        ExpectRefused(() => batch.Replace(RecordOf(404)));
-        ExpectRefused(() => batch.Upsert(RecordOf(2)));
+        TestData.ExpectValidationFailed("Email", () => batch.Insert(UserOf(1)));
+        TestData.ExpectValidationFailed("Email", () => batch.Replace(UserOf(404)));
+        TestData.ExpectValidationFailed("Email", () => batch.Replace(UserOf(1), default(LatticeRevision)));
+        TestData.ExpectValidationFailed("Email", () => batch.Upsert(UserOf(2)));
+        TestData.ExpectValidationFailed("Email", () => batch.Insert(RecordOf(1)));
+        TestData.ExpectValidationFailed("Email", () => batch.Replace(RecordOf(404)));
+        TestData.ExpectValidationFailed("Email", () => batch.Upsert(RecordOf(2)));
         Assert.Equal(0, batch.Count);
 
         // Nothing was stored, and the stored entity is as it was.
@@ -103,9 +103,9 @@ public sealed class MalformedTextWriteTests
         var userRecords = database.Set("User");
         var bad = Forms[form];
 
-        await ExpectRefusedAsync(() => users.InsertAsync(new User { Id = 1, Name = "Ada", Email = bad }));
-        await ExpectRefusedAsync(() => userRecords.InsertAsync(new LatticeRecord(userRecords.EntityType) { ["Id"] = 2L, ["Name"] = "Ada", ["Email"] = bad }));
-        ExpectRefused(() => database.CreateWriteBatch().Upsert(new User { Id = 3, Name = "Ada", Email = bad }));
+        await TestData.ExpectValidationFailedAsync("Email", () => users.InsertAsync(new User { Id = 1, Name = "Ada", Email = bad }));
+        await TestData.ExpectValidationFailedAsync("Email", () => userRecords.InsertAsync(new LatticeRecord(userRecords.EntityType) { ["Id"] = 2L, ["Name"] = "Ada", ["Email"] = bad }));
+        TestData.ExpectValidationFailed("Email", () => database.CreateWriteBatch().Upsert(new User { Id = 3, Name = "Ada", Email = bad }));
 
         Assert.Empty(users.Enumerate());
 
@@ -142,12 +142,12 @@ public sealed class MalformedTextWriteTests
         var (field, record, entity) = Depths[depth];
         var bad = Forms["a high surrogate in the middle"];
 
-        await ExpectRefusedAsync(() => holderRecords.InsertAsync(record(database.Schema, bad)), field);
-        await ExpectRefusedAsync(() => holderRecords.UpsertAsync(record(database.Schema, bad)), field);
-        await ExpectRefusedAsync(() => holders.InsertAsync(entity(bad)), field);
-        await ExpectRefusedAsync(() => holders.ReplaceAsync(entity(bad)), field);
-        ExpectRefused(() => database.CreateWriteBatch().Insert(record(database.Schema, bad)), field);
-        ExpectRefused(() => database.CreateWriteBatch().Upsert(entity(bad)), field);
+        await TestData.ExpectValidationFailedAsync(field, () => holderRecords.InsertAsync(record(database.Schema, bad)));
+        await TestData.ExpectValidationFailedAsync(field, () => holderRecords.UpsertAsync(record(database.Schema, bad)));
+        await TestData.ExpectValidationFailedAsync(field, () => holders.InsertAsync(entity(bad)));
+        await TestData.ExpectValidationFailedAsync(field, () => holders.ReplaceAsync(entity(bad)));
+        TestData.ExpectValidationFailed(field, () => database.CreateWriteBatch().Insert(record(database.Schema, bad)));
+        TestData.ExpectValidationFailed(field, () => database.CreateWriteBatch().Upsert(entity(bad)));
 
         // The same entity with well-formed text passes the validation and is refused as not
         // implemented.
@@ -167,29 +167,14 @@ public sealed class MalformedTextWriteTests
             record["Level"] = 1;
         }
 
-        await ExpectRefusedAsync(() => noteRecords.InsertAsync(record), "Caption");
-        await ExpectRefusedAsync(() => noteRecords.UpsertAsync(record), "Caption");
-        await ExpectRefusedAsync(() => notes.InsertAsync(new Note { Id = 1, Caption = Forms["a low surrogate alone"], Level = 1 }), "Caption");
-        ExpectRefused(() => database.CreateWriteBatch().Insert(record), "Caption");
+        await TestData.ExpectValidationFailedAsync("Caption", () => noteRecords.InsertAsync(record));
+        await TestData.ExpectValidationFailedAsync("Caption", () => noteRecords.UpsertAsync(record));
+        await TestData.ExpectValidationFailedAsync("Caption", () => notes.InsertAsync(new Note { Id = 1, Caption = Forms["a low surrogate alone"], Level = 1 }));
+        TestData.ExpectValidationFailed("Caption", () => database.CreateWriteBatch().Insert(record));
 
         record["Caption"] = "well-formed";
         await Assert.ThrowsAsync<NotSupportedException>(async () => await noteRecords.InsertAsync(record));
         await Assert.ThrowsAsync<NotSupportedException>(async () => await notes.InsertAsync(new Note { Id = 1, Caption = "well-formed", Level = 1 }));
-    }
-
-    private static async Task ExpectRefusedAsync(Func<ValueTask<LatticeWriteResult>> write, string field = "Email")
-    {
-        var exception = await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, write);
-
-        Assert.Contains(field, exception.Message, StringComparison.Ordinal);
-    }
-
-    private static void ExpectRefused(Action add, string field = "Email")
-    {
-        var exception = Assert.Throws<LatticeException>(add);
-
-        Assert.Equal(LatticeErrorEnum.ValidationFailed, exception.Error);
-        Assert.Contains(field, exception.Message, StringComparison.Ordinal);
     }
 
     // The entity type Note, bound to the class Note, in a schema of the given encoding, with the

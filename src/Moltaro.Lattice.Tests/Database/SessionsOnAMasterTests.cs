@@ -8,7 +8,10 @@ namespace Moltaro.Lattice.Tests.Database;
 //
 // A position of the history of the database that is ahead of it, which only a caller can make up, is
 // what WaitForPositionAsync describes: the wait lasts until the instance has applied the position,
-// and ends with SynchronizationTimeout when that does not happen in time. A test makes one up from
+// and ends with SynchronizationTimeout when that does not happen in time. A read with a session that
+// depends on such a position, by key and in an enumeration, waits the same way, for the timeout of
+// the options of the database unless the session sets its own, and answers once a write reaches the
+// position; an enumeration that timed out returned nothing. A test makes one up from
 // the text of a position, whose form the documentation does not describe: its history, a hyphen and
 // its sequence in hexadecimal, as LatticePosition.ToString writes it.
 public sealed class SessionsOnAMasterTests
@@ -140,6 +143,74 @@ public sealed class SessionsOnAMasterTests
         await users.ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
 
         await waiting;
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Read_with_a_session_ahead_of_the_master_lasts_until_a_write_reaches_its_position_or_ends_with_SynchronizationTimeout(DatabaseImplementationEnum implementation)
+    {
+        // The timeout of the options is short, so that a read whose session sets none ends soon.
+        await using var database = await TestDatabases.OpenAsync(implementation, new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = TestData.Schema,
+            SynchronizationTimeout = TimeSpan.FromMilliseconds(1),
+        });
+        var users = database.Set<User>();
+        var records = database.Set("User");
+        await users.InsertAsync(new User { Id = 1, Name = "Ada" });
+        var ahead = Ahead(database.Position);
+
+        // Reads whose session sets a timeout long enough: by key and in an enumeration, through the
+        // class and by name.
+        LatticeSession Patient() => new(ahead) { SynchronizationTimeout = TimeSpan.FromMinutes(1) };
+        var byKey = users.GetAsync(1L, Patient()).AsTask();
+        var byName = records.GetAsync(1L, Patient()).AsTask();
+        var enumeration = users.EnumerateAsync(Patient()).ToListAsync().AsTask();
+        var enumerationByName = records.EnumerateAsync(Patient()).ToListAsync().AsTask();
+
+        // No write reaches the position yet: the same reads whose session sets no timeout end by the
+        // timeout of the options, and the others are still waiting after them.
+        await ExpectTimedOutAsync(async () => await users.GetAsync(1L, new LatticeSession(ahead)));
+        await ExpectTimedOutAsync(async () => await records.GetAsync(1L, new LatticeSession(ahead)));
+        Assert.Equal(0, await ItemsBeforeTheTimeoutAsync(users.EnumerateAsync(new LatticeSession(ahead))));
+        Assert.Equal(0, await ItemsBeforeTheTimeoutAsync(records.EnumerateAsync(new LatticeSession(ahead))));
+
+        Assert.False(byKey.IsCompleted);
+        Assert.False(byName.IsCompleted);
+        Assert.False(enumeration.IsCompleted);
+        Assert.False(enumerationByName.IsCompleted);
+
+        // The next write reaches the position, and each waiting read answers with what it left.
+        await users.ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
+
+        Assert.Equal("Ada Lovelace", (await byKey).Entity!.Name);
+        Assert.Equal("Ada Lovelace", (await byName).Entity!["Name"]);
+        Assert.Equal("Ada Lovelace", Assert.Single(await enumeration).Name);
+        Assert.Equal("Ada Lovelace", Assert.Single(await enumerationByName)["Name"]);
+
+        static async Task ExpectTimedOutAsync(Func<Task> read)
+        {
+            var exception = await Assert.ThrowsAsync<LatticeException>(read);
+
+            Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, exception.Error);
+        }
+
+        // The items an enumeration returned before it ended with SynchronizationTimeout.
+        static async Task<int> ItemsBeforeTheTimeoutAsync<T>(IAsyncEnumerable<T> items)
+        {
+            var count = 0;
+
+            await ExpectTimedOutAsync(async () =>
+            {
+                await foreach (var item in items)
+                {
+                    count++;
+                }
+            });
+
+            return count;
+        }
     }
 
     [Theory]
