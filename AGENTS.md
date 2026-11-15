@@ -30,6 +30,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
 | `src/*.Tests` | Tests, one project per library. `Moltaro.Lattice.Engine.Tests` may also test internal mechanisms of the engine |
 | `src/Moltaro.Lattice.TestSupport` | Code shared by the test projects; never shipped |
+| `src/Moltaro.Lattice.Measurements` | The measurement program: the reference fixture, the scenarios and their manifests. Started by hand; never shipped and not a test project |
 | `docs` | Product documentation; `docs/work` holds the epics in progress |
 | `docs/design`, `docs/decisions` | Durable engine design reference, accepted decisions, evidence and planning input |
 | `src/Prototypes` | Isolated synthetic experiments; not part of the product solution or shipped packages. A prototype may pin its own package versions |

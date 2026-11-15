@@ -354,16 +354,17 @@ status. A query language is not planned for the first version.
 
 | Path | Contents |
 | --- | --- |
-| `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests and samples |
+| `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the core library |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the first internal mechanisms, the native memory arena and the table of root entries; nothing of it is behind the contract yet, where the placeholder in the core library still stands |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the first internal mechanisms: the native memory arena, the table of root entries, and the layout that writes an entity of scalar fields into the arena and reads it back; nothing of it is behind the contract yet, where the placeholder in the core library still stands |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity: the contract; the stores are not implemented yet |
 | `src/Moltaro.Lattice.AspNet.Identity.Tests` | Tests of the Identity storage; most are written ahead and skipped. Includes Microsoft's Identity specification tests, see [third-party notices](THIRD-PARTY-NOTICES.md) |
 | `src/Moltaro.Lattice.TestSupport` | Code shared by the test projects; never shipped |
+| `src/Moltaro.Lattice.Measurements` | The measurement program: the reference fixture, the scenarios and their manifests. Started by hand; never shipped and not a test project |
 | `src/Moltaro.Lattice.Samples` | Runnable usage samples |
 | `src/Prototypes` | [Synthetic experiments](src/Prototypes/README.md), isolated from the product solution |
 | `docs/design`, `docs/decisions` | [Engine design reference](docs/design/README.md), decisions, measurements and planning handoff |

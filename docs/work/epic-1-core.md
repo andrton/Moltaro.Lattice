@@ -72,7 +72,11 @@ child completes when that child has applied it; waiting for a position with a ti
 `Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
-with generations (S04).
+with generations (S04); the root layout compiled from an entity type of scalar fields,
+with the writer and the reader of a root — fixed fields at their declared width, String
+and Binary values inline, in a block of their own or in chunks (S05). The measurement
+program `Moltaro.Lattice.Measurements` holds the reference fixture, its first scenario
+and the development manifest (S05).
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
