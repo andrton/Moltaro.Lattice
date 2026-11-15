@@ -186,6 +186,12 @@ goes wrong because of it: a concrete failure or a concrete cost. Then its severi
 A finding that names no rule and no failure is P4. A reviewer does not widen the scope:
 "while you are here" is not a finding.
 
+"Does not change the contract", said of the implementer and of the test author, means
+its names, signatures and behavior; a decided sentence of documentation is theirs to
+write, as "A sentence of documentation needs no step of its own" says. "Every behavior
+the brief states has a test" is ranked by what follows: a behavior the Acceptance
+states and no test holds is P2; one the brief states elsewhere is P4.
+
 A changed copy of the code that the tests do not notice is a finding of its own only when
 the code is wrong, or when the change breaks a behavior that the Acceptance of the brief
 states and no test holds it: then it is "a stated behavior has no test", P2. Where the

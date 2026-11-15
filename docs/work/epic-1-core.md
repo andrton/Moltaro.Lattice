@@ -871,7 +871,7 @@ Why this order:
 | S03 | Schema and values: owned types, collections, references | Full | Done |
 | S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Done |
-| S06 | Reads and writes of one entity | Full | Not started |
+| S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Not started |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
@@ -2688,7 +2688,13 @@ the enum type of its field does not declare — for a Flags type, a bit that no 
 declares — is refused in the same way."
 
 Positions, revisions, states, the lookup claim, enumeration until S08 and the counters are
-as S06 has them and S07 does not touch them. The public "Not implemented yet" remarks on
+as S06 has them and S07 does not touch them. Two things the last review of S06 left to
+this sprint: the remarks that list `ValidationFailed` say of the bound of one value "of
+a field of the entity" until point 7 of Q35 is answered, since a value inside a
+collection or an owned value is not judged yet — the sentence is corrected with the
+commit of this sprint that touches those remarks; and the bound in a schema of the
+UTF-16 encoding gets its pair of cases here, where such a schema is first written:
+134,086,688 characters pass and 134,086,689 are `ValidationFailed`. The public "Not implemented yet" remarks on
 `OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
 and are not edited in S07.
 
@@ -2823,9 +2829,10 @@ be studied: how they do it is to be learned from their source and, in essence, r
   protection, publication and compaction" of the milestone contract, which calls
   `ReaderWriterLockSlim` the initial synchronization.
 - **Types and members, added.** The protection of a read is reworked in this sprint. Today
-  a read by key takes three shared reader/writer acquisitions — the close barrier, the
-  catalog gate twice, the stripe of its root — and every one of them writes to memory
-  that all readers share, which is why more threads read less in total. What the sprint
+  a read by key makes four writes to memory that all readers share — the counter of the
+  close barrier, the catalog gate twice (for the lookup and when the claim is dropped), the
+  stripe of its root —
+  which is why more threads read less in total. What the sprint
   has to reach: a read by key writes to no memory that other readers write to on its
   ordinary path, or as near to that as the guarantees allow, and takes the gate of the
   index once. The implementer first studies how open-source databases that read fast from
@@ -3388,7 +3395,7 @@ otherwise, these replace it.
   state a refusal of the placeholder which the engine does not make are removed by the
   test author with the reason named: the tests of `TextPolicyAndEnumWriteTests` on a
   comparison without case, an Enum field and UTF-16 "not writable yet", and the
-  placeholder cases of `MalformedTextWriteTests` and `ValueBoundWriteTests` for those
+  placeholder cases of `MalformedTextWriteTests` for those
   schemas; what they state of validation is already stated by the tests of S07. In the
   contract commit the "Not implemented yet" remarks that S07 to S09 made untrue of the
   engine are removed: on `OrdinalIgnoreCase`, on Enum fields and enum types, on the
