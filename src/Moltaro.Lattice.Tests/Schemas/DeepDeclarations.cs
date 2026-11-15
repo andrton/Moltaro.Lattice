@@ -13,17 +13,12 @@ internal static class DeepDeclarations
     public const string OwnedLevel1 = """{ "Type": "Owned", "OwnedType": "Level1" }""";
 
     // The declaration as the element of a List, and that List as the element of the next, as
-    // many times as given: that many deeper.
-    public static string InLists(int lists, string declaration)
-    {
-        var result = declaration;
-        for (var list = 0; list < lists; list++)
-        {
-            result = $$"""{ "Type": "List", "Element": {{result}} }""";
-        }
-
-        return result;
-    }
+    // many times as given: that many deeper. The text is written in one pass, so that thousands
+    // of Lists are written as quickly as a few.
+    public static string InLists(int lists, string declaration) =>
+        string.Concat(Enumerable.Repeat("""{ "Type": "List", "Element": """, lists))
+        + declaration
+        + string.Concat(Enumerable.Repeat(" }", lists));
 
     // A Map from Int32 keys to the declaration: one deeper than the deeper of the two.
     public static string InMap(string value) => $$"""{ "Type": "Map", "Key": { "Type": "Int32" }, "Value": {{value}} }""";

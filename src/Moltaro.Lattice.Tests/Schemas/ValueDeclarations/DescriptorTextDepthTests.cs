@@ -2,17 +2,51 @@ using static Moltaro.Lattice.Tests.Schemas.DeepDeclarations;
 
 namespace Moltaro.Lattice.Tests.Schemas.ValueDeclarations;
 
-// The text of a descriptor is read to a depth of 128, the root object counting as 1. Text that
-// deep is read, and refused or compiled for what it holds; a declaration deeper than 32 that the
-// text can still hold is refused with its field named. Text nested deeper than 128 is refused
-// as a whole, as nested deeper than any descriptor of a schema can be, without a field named,
-// wherever in the descriptor the depth lies.
+// The text of a descriptor is read to a depth of 128, the root object counting as 1: far beyond
+// the depth of any descriptor of a schema. A declaration deeper than 32 that the text holds is
+// refused with InvalidSchema and its field named, as in a saved schema. Text 128 deep is read,
+// and refused or compiled for what it holds. Text nested deeper is no descriptor of a schema: it
+// is refused as a whole with InvalidSchema, as nested deeper than any descriptor of a schema can
+// be, without a field named, wherever in the descriptor the depth lies and however deep it goes,
+// without reading it down and without exhausting the stack. A bracket inside a string nests
+// nothing.
 public sealed class DescriptorTextDepthTests
 {
     private const int TextDepth = 128;
 
     // The words of the refusal of text nested too deep.
     private const string NestedTooDeep = "deeper than any descriptor of a schema can be";
+
+    // Declarations too deep that the text holds.
+
+    [Theory]
+    // 33 Lists around a scalar are just beyond the rule of 32; 61 take the text beyond the depth
+    // of 64 at which a JSON reader commonly stops; 100 lie far beyond both.
+    [InlineData(33)]
+    [InlineData(61)]
+    [InlineData(100)]
+    public void Declaration_too_deep_is_refused_with_its_field_named(int lists)
+    {
+        var exception = ExpectRefused(HolderSchema("", Field(2, "Deep", InLists(lists, Scalar))));
+
+        Assert.Contains("Holder.Deep", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("a declaration", "Holder.Deep")]
+    [InlineData("a declaration of an owned type", "Box.Deep")]
+    public void Deepest_declaration_the_text_holds_is_refused_with_its_field_named_and_one_deeper_is_refused_as_a_whole(string where, string field)
+    {
+        var deepest = ExpectRefused(Text(where, TextDepth));
+        Assert.Contains(field, deepest.Message);
+        Assert.DoesNotContain(NestedTooDeep, deepest.Message);
+
+        var deeper = ExpectRefused(Text(where, TextDepth + 1));
+        Assert.Contains(NestedTooDeep, deeper.Message);
+        Assert.DoesNotContain(field, deeper.Message);
+    }
+
+    // The bound itself.
 
     [Theory]
     [InlineData("the root, an array of arrays", "not a JSON object")]
@@ -42,34 +76,6 @@ public sealed class DescriptorTextDepthTests
     }
 
     [Fact]
-    public void Deepest_declaration_the_text_holds_is_refused_with_its_field_named_and_one_deeper_is_refused_as_a_whole()
-    {
-        // A field of an entity type stands at a depth of 5: the root, the array of entity types,
-        // the entity type and its array of fields come before it. Each level of a declaration is
-        // one object deeper, so the text of 128 holds a declaration 124 deep.
-        var deepest = ExpectRefused(HolderSchema("", Field(2, "Deep", InLists(123, Scalar))));
-        Assert.Contains("Holder.Deep", deepest.Message);
-        Assert.DoesNotContain(NestedTooDeep, deepest.Message);
-
-        var deeper = ExpectRefused(HolderSchema("", Field(2, "Deep", InLists(124, Scalar))));
-        Assert.Contains(NestedTooDeep, deeper.Message);
-        Assert.DoesNotContain("Holder.Deep", deeper.Message);
-    }
-
-    [Fact]
-    public void Deepest_declaration_the_text_holds_in_an_owned_type_is_refused_with_its_field_named_and_one_deeper_is_refused_as_a_whole()
-    {
-        // A field of an owned type stands at a depth of 5 as well.
-        var deepest = ExpectRefused(HolderSchema(Box(InLists(123, Scalar))));
-        Assert.Contains("Box.Deep", deepest.Message);
-        Assert.DoesNotContain(NestedTooDeep, deepest.Message);
-
-        var deeper = ExpectRefused(HolderSchema(Box(InLists(124, Scalar))));
-        Assert.Contains(NestedTooDeep, deeper.Message);
-        Assert.DoesNotContain("Box.Deep", deeper.Message);
-    }
-
-    [Fact]
     public void Text_that_is_not_well_formed_at_the_deepest_level_read_is_refused_for_what_it_is()
     {
         // An escaped surrogate without its pair, inside arrays to a depth of 128.
@@ -77,6 +83,31 @@ public sealed class DescriptorTextDepthTests
 
         Assert.Contains("not well-formed", exception.Message);
         Assert.DoesNotContain(NestedTooDeep, exception.Message);
+    }
+
+    // Far beyond the bound.
+
+    [Theory]
+    [InlineData("a declaration", 20_000)]
+    [InlineData("the enum types", 20_000)]
+    [InlineData("the enum types", 1_000_000)]
+    [InlineData("a part of an index", 1_000_000)]
+    public void Text_nested_far_deeper_than_any_descriptor_is_refused_as_a_whole(string where, int depth)
+    {
+        var exception = ExpectRefused(Text(where, depth));
+
+        Assert.Contains(NestedTooDeep, exception.Message);
+    }
+
+    // Strings.
+
+    [Fact]
+    public void Text_that_is_not_JSON_is_refused_as_unreadable_also_when_its_strings_hold_brackets()
+    {
+        // A string of a thousand brackets nests nothing; the text is not JSON for its end.
+        var exception = ExpectRefused($$"""{ "SchemaVersion": 1, "Comment": "{{new string('[', 1_000)}}", "EntityTypes": [] """);
+
+        Assert.Contains("cannot be read", exception.Message);
     }
 
     [Theory]
@@ -106,6 +137,14 @@ public sealed class DescriptorTextDepthTests
     // A descriptor whose text nests depth deep in the given place.
     private static string Text(string where, int depth) => where switch
     {
+        // A field stands at a depth of 5, in an entity type as in an owned type: the root, the
+        // array of types, the type and its array of fields come before it. Each level of a
+        // declaration is one deeper, so depth - 5 Lists around a scalar reach the depth: text of
+        // 128 holds a declaration 124 deep.
+        "a declaration" => HolderSchema("", Field(2, "Deep", InLists(depth - 5, Scalar))),
+
+        "a declaration of an owned type" => HolderSchema(Box(InLists(depth - 5, Scalar))),
+
         "the root, an array of arrays" => Arrays(depth),
 
         "the root, an object of objects" => Objects(depth),
