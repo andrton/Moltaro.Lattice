@@ -1,16 +1,21 @@
 namespace Moltaro.Lattice.Engine.Entities;
 
-// Which primary index an entity type has, by the type of its key. Until S07 the engine stores the
-// key types the tests of S06 use (brief of S06, "What is refused until a later sprint").
+// Which primary index an entity type has, by the type of its key (Q03.4.1: the eight integers,
+// String and Guid). A narrow integer keeps a narrow key in the index: a node of the index takes 24
+// bytes with a key of 32 bits and 28 with one of 64 (PrimaryIndex.Bytes).
 internal enum KeyKindEnum
 {
-    // An Int64 key, held in the index as it is.
-    Number,
+    // An Int8, UInt8, Int16, UInt16, Int32 or UInt32 key, held in the index as the 32 bits of an int:
+    // the low half of EntityKey.Integer.
+    Integer32,
 
-    // A String key compared with Ordinal, with Plain storage, in a UTF-8 schema: the index holds the
-    // slot of the root entry and compares with the text stored in the root (TextKey).
+    // An Int64 or UInt64 key, held in the index as the 64 bits of a long, EntityKey.Integer.
+    Integer64,
+
+    // A Guid key, held in the index as the Guid.
+    Guid,
+
+    // A String key, compared with either comparison: the index holds the slot of the root entry and
+    // compares with the text stored in the root (TextKey).
     Text,
-
-    // Any other key: the entity type is not stored, and a key argument is only checked.
-    Other,
 }

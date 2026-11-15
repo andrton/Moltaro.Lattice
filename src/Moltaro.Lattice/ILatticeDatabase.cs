@@ -174,10 +174,11 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <c>Dictionary</c> with that class as its value.
     /// </para>
     /// <para>
-    /// An Enum declared as its underlying integer holds the value as it is stored and is not
-    /// compared with the members of the enum type. A .NET enum, as a property or at a position
-    /// inside a collection, has to agree with the enum type: the same underlying type, the
-    /// same members, every name with its value in both directions, and
+    /// An Enum declared as its underlying integer holds the value as it is stored, and binding
+    /// does not compare it with the members of the enum type; a write checks the value, as it
+    /// checks the value of a .NET enum, by <see cref="LatticeEnumType.IsValid"/>. A .NET enum,
+    /// as a property or at a position inside a collection, has to agree with the enum type: the
+    /// same underlying type, the same members, every name with its value in both directions, and
     /// <see cref="FlagsAttribute"/> exactly when the enum type is a Flags type. A .NET enum
     /// with two names for one value therefore agrees only with an enum type that declares both
     /// names. Nothing is mapped or guessed.

@@ -16,8 +16,7 @@ namespace Moltaro.Lattice.Tests.Keys;
 // instead of refusing it finds an entity and fails the test.
 //
 // Each key type has an entity type Item of its own, in a schema of its own: the key Id and the
-// String Text, bound to the class Item<TKey>. The engine stored Int64 and String keys before this
-// sprint; its runs of the other key types wait for it.
+// String Text, bound to the class Item<TKey>.
 public sealed class KeyTypeTests
 {
     // The eight integer types, from the narrowest, with their ranges and a conversion from Int128.
@@ -55,10 +54,7 @@ public sealed class KeyTypeTests
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndKeyTypes =>
         from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
         from keyType in Cases.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, keyType)
-        {
-            Skip = implementation == DatabaseImplementationEnum.Engine && keyType is not ("Int64" or "String") ? NotImplemented.EngineStorage : null,
-        };
+        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, keyType);
 
     [Theory]
     [MemberData(nameof(ImplementationsAndKeyTypes))]

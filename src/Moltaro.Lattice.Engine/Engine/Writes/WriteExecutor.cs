@@ -217,6 +217,10 @@ internal sealed class WriteExecutor
     private LatticeWriteResult Replace(EntityTable table, RootHandle handle, object?[] values, ulong sequence)
     {
         var layout = table.Layout!;
+
+        // A replace through another spelling of a key compared without case keeps the stored one.
+        table.KeepStoredKey(handle, values);
+
         var root = Prepare(table, handle, values);
         var installed = false;
 

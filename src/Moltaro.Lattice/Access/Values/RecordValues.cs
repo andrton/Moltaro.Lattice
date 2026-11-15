@@ -16,8 +16,8 @@ namespace Moltaro.Lattice.Access.Values;
 //     allowed here; the write finds it.
 //   - a record submitted by a write, which holds only what it took, changed perhaps through
 //     what it returned; a mismatch, a field without the value it requires at any depth, text
-//     that is not well-formed at any depth, and the value of a field above the bound of one
-//     value, are ValidationFailed.
+//     that is not well-formed at any depth, an integer that its enum type does not allow at any
+//     depth, and the value of a field above the bound of one value, are ValidationFailed.
 //
 // The walk descends by the declarations of the schema, never by the objects it meets: at each
 // step it goes from a declaration into one inside it, or into the fields of an owned type the
@@ -77,6 +77,7 @@ internal static class RecordValues
         // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others.
         LatticeFieldTypeEnum.Binary => value.GetType() == typeof(byte[]) ? ((byte[])value).Clone() : throw place.Fail(NotAccepted(declaration, value)),
         LatticeFieldTypeEnum.String => CopyText(declaration, value, place),
+        LatticeFieldTypeEnum.Enum => CopyEnum(declaration, value, place),
         _ => value.GetType() == declaration.ValueType ? value : throw place.Fail(NotAccepted(declaration, value)),
     };
 
@@ -179,6 +180,24 @@ internal static class RecordValues
         }
 
         return text;
+    }
+
+    // An Enum value is held as the integer of the underlying type of its enum type. A write refuses an
+    // integer that the enum type does not allow, at any depth (EnumValues); a value set into a record is
+    // not checked for it.
+    private static object CopyEnum(LatticeValueDeclaration declaration, object value, Place place)
+    {
+        if (value.GetType() != declaration.ValueType)
+        {
+            throw place.Fail(NotAccepted(declaration, value));
+        }
+
+        if (place.IsWrite && !EnumValues.IsValid(declaration.EnumType!, value))
+        {
+            throw place.Fail($"holds {EnumValues.Undeclared(declaration.EnumType!, value)}.");
+        }
+
+        return value;
     }
 
     private static object? Null(LatticeValueDeclaration inner, Place place) =>

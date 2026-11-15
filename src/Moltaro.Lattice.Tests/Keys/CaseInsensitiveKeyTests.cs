@@ -46,7 +46,7 @@ public sealed class CaseInsensitiveKeyTests
     // A stored key and another spelling of it: ASCII, outside ASCII, and outside the basic plane.
     private static readonly (string Stored, string Other)[] Spellings = [("Main", "mAIN"), ("Été", "éTÉ"), ("𐐀𐐩", "𐐨𐐁")];
 
-    [Theory(Skip = NotImplemented.EngineStorage)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Entity_is_found_under_every_spelling_of_its_key_and_under_no_other_text(LatticeStringEncodingEnum encoding)
@@ -99,7 +99,7 @@ public sealed class CaseInsensitiveKeyTests
         }
     }
 
-    [Theory(Skip = NotImplemented.EngineStorage)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Insert_under_another_spelling_of_a_stored_key_is_DuplicateKey(LatticeStringEncodingEnum encoding)
@@ -122,7 +122,7 @@ public sealed class CaseInsensitiveKeyTests
         Assert.All(notes.Enumerate(), note => Assert.Equal("first", note.Body));
     }
 
-    [Theory(Skip = NotImplemented.EngineStorage)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Replace_and_upsert_through_another_spelling_keep_the_stored_spelling_and_replace_the_other_fields(LatticeStringEncodingEnum encoding)
@@ -160,7 +160,7 @@ public sealed class CaseInsensitiveKeyTests
         Assert.Equal(Spellings.Select(spelling => spelling.Stored).Order(StringComparer.Ordinal), records.Enumerate().Select(record => (string)record["Name"]!).Order(StringComparer.Ordinal));
     }
 
-    [Theory(Skip = NotImplemented.EngineStorage)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task Delete_through_another_spelling_deletes(LatticeStringEncodingEnum encoding)

@@ -169,7 +169,7 @@ public sealed class ValidationBeforeRefusalTests
         await Assert.ThrowsAsync<NotSupportedException>(async () => await graded.InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 1 }));
     }
 
-    [Fact(Skip = NotImplemented.EnumValidation)]
+    [Fact]
     public async Task Integer_that_its_enum_type_does_not_declare_is_ValidationFailed_before_the_write_is_refused_as_not_implemented()
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());

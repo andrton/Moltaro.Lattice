@@ -16,9 +16,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // outside ASCII and outside the basic plane, so the workspace the first read reserved serves another
 // spelling of the same length; a read of an absent key of that length allocates nothing. Measured as
 // ReadAllocationTests measures, in the test collection of the tests that measure managed allocation.
-//
-// The engine stored a String key compared with Ordinal in a UTF-8 database before this sprint, and
-// those cases run; the others wait for it.
 [Collection<ManagedAllocationCollection>]
 public sealed class StringKeyReadAllocationTests
 {
@@ -28,10 +25,7 @@ public sealed class StringKeyReadAllocationTests
         from encoding in new[] { LatticeStringEncodingEnum.Utf8, LatticeStringEncodingEnum.Utf16 }
         from comparison in new[] { LatticeStringComparisonEnum.Ordinal, LatticeStringComparisonEnum.OrdinalIgnoreCase }
         from length in new[] { 10, 1_000, 100_000 }
-        select new TheoryDataRow<LatticeStringEncodingEnum, LatticeStringComparisonEnum, int>(encoding, comparison, length)
-        {
-            Skip = encoding == LatticeStringEncodingEnum.Utf8 && comparison == LatticeStringComparisonEnum.Ordinal ? null : NotImplemented.EngineStorage,
-        };
+        select new TheoryDataRow<LatticeStringEncodingEnum, LatticeStringComparisonEnum, int>(encoding, comparison, length);
 
     [Theory]
     [MemberData(nameof(Cases))]

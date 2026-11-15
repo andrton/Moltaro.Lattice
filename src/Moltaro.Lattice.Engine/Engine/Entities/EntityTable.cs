@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
@@ -13,7 +15,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
 // write of it is refused with NotSupportedException, a read of it by key finds nothing and an
-// enumeration of it is empty (brief of S06, "What is refused until a later sprint").
+// enumeration of it is empty (brief of S06, "What is refused until a later sprint"). From S07 every
+// key type of the catalog is stored, with an index for its kind (KeyKindEnum); a String key is equal
+// to another, and hashed, under the comparison its field declares, by the comparison of the schema
+// (Comparison.ValueComparer).
 //
 // A read by key, in its order (the planner's answer to Q32):
 // 1. Under the catalog gate, shared, it finds the key in the index and claims the entry the key
@@ -46,8 +51,13 @@ internal sealed class EntityTable
 
     private readonly CloseBarrier _barrier;
 
-    // The index for the key kind of the entity type, when the engine stores it; the other is null.
-    private readonly PrimaryIndex<long>? _byNumber;
+    // The index for the key kind of the entity type, when the engine stores it; the others are null.
+    // What each holds of a key is said by KeyKindEnum and EntityKey.
+    private readonly PrimaryIndex<int>? _byInteger32;
+
+    private readonly PrimaryIndex<long>? _byInteger64;
+
+    private readonly PrimaryIndex<Guid>? _byGuid;
 
     private readonly PrimaryIndex<TextKey>? _byText;
 
@@ -73,7 +83,9 @@ internal sealed class EntityTable
 
         if (layout is not null)
         {
-            _byNumber = KeyKind == KeyKindEnum.Number ? new PrimaryIndex<long>() : null;
+            _byInteger32 = KeyKind == KeyKindEnum.Integer32 ? new PrimaryIndex<int>() : null;
+            _byInteger64 = KeyKind == KeyKindEnum.Integer64 ? new PrimaryIndex<long>() : null;
+            _byGuid = KeyKind == KeyKindEnum.Guid ? new PrimaryIndex<Guid>() : null;
             _byText = KeyKind == KeyKindEnum.Text ? new PrimaryIndex<TextKey>() : null;
         }
     }
@@ -90,10 +102,10 @@ internal sealed class EntityTable
     public KeyKindEnum KeyKind { get; }
 
     // The version of the index: it changes with every insert, delete and growth of the index.
-    public int IndexVersion => _byText?.Version ?? _byNumber?.Version ?? 0;
+    public int IndexVersion => _byInteger32?.Version ?? _byInteger64?.Version ?? _byGuid?.Version ?? _byText?.Version ?? 0;
 
     // What the primary index holds, in bytes.
-    public long IndexBytes => _byText?.Bytes ?? _byNumber?.Bytes ?? 0;
+    public long IndexBytes => _byInteger32?.Bytes ?? _byInteger64?.Bytes ?? _byGuid?.Bytes ?? _byText?.Bytes ?? 0;
 
     // The table of an entity type of the schema, when the database opens. The root layout is
     // compiled here, before any data is admitted; an entity type whose fixed part does not fit one
@@ -108,7 +120,7 @@ internal sealed class EntityTable
         PositionClock clock,
         CloseBarrier barrier)
     {
-        var refusal = RefusalOf(entityType, schema);
+        var refusal = RefusalOf(entityType);
         RootLayout? layout = null;
 
         if (refusal is null)
@@ -128,30 +140,29 @@ internal sealed class EntityTable
         return new EntityTable(entityType, layout, refusal, arena, gates, claims, clock, barrier);
     }
 
-    // Finds a key in the index. A lookup holds the catalog gate; the write executor, the only one
-    // that changes the index, reads it without the gate.
-    public bool TryFind(in EntityKey key, out RootHandle handle)
+    // Finds a key in the index of an entity type the engine stores. A lookup holds the catalog gate;
+    // the write executor, the only one that changes the index, reads it without the gate.
+    public bool TryFind(in EntityKey key, out RootHandle handle) => KeyKind switch
     {
-        if (_byText is not null)
-        {
-            return _byText.TryFind(TextKey.Lookup(key.Text!), out handle);
-        }
-
-        if (_byNumber is not null)
-        {
-            return _byNumber.TryFind(key.Number, out handle);
-        }
-
-        handle = default;
-
-        return false;
-    }
+        KeyKindEnum.Integer32 => _byInteger32!.TryFind(unchecked((int)key.Integer), out handle),
+        KeyKindEnum.Integer64 => _byInteger64!.TryFind(key.Integer, out handle),
+        KeyKindEnum.Guid => _byGuid!.TryFind(key.Guid, out handle),
+        _ => _byText!.TryFind(TextKey.Lookup(key.Text!, key.TextHash), out handle),
+    };
 
     // Makes room in the index for one more key before an insert is published, so that its
     // publication allocates nothing. Growing takes the catalog gate exclusively until S08.
     public void Reserve()
     {
-        if (_byText?.HasRoom ?? _byNumber!.HasRoom)
+        var hasRoom = KeyKind switch
+        {
+            KeyKindEnum.Integer32 => _byInteger32!.HasRoom,
+            KeyKindEnum.Integer64 => _byInteger64!.HasRoom,
+            KeyKindEnum.Guid => _byGuid!.HasRoom,
+            _ => _byText!.HasRoom,
+        };
+
+        if (hasRoom)
         {
             return;
         }
@@ -160,8 +171,10 @@ internal sealed class EntityTable
 
         try
         {
+            _byInteger32?.Reserve();
+            _byInteger64?.Reserve();
+            _byGuid?.Reserve();
             _byText?.Reserve();
-            _byNumber?.Reserve();
         }
         finally
         {
@@ -173,26 +186,66 @@ internal sealed class EntityTable
     // gate exclusively.
     public void Add(in EntityKey key, RootHandle handle)
     {
-        if (_byText is not null)
+        switch (KeyKind)
         {
-            _byText.Add(TextKey.Stored(this, handle.Slot, key.Text!), handle);
-        }
-        else
-        {
-            _byNumber!.Add(key.Number, handle);
+            case KeyKindEnum.Integer32:
+                _byInteger32!.Add(unchecked((int)key.Integer), handle);
+                break;
+            case KeyKindEnum.Integer64:
+                _byInteger64!.Add(key.Integer, handle);
+                break;
+            case KeyKindEnum.Guid:
+                _byGuid!.Add(key.Guid, handle);
+                break;
+            default:
+                _byText!.Add(TextKey.Stored(this, handle.Slot, key.TextHash), handle);
+                break;
         }
     }
 
-    // Removes a key that the index holds. The caller holds the catalog gate exclusively.
+    // Removes a key that the index holds, given in any spelling its comparison holds equal. The
+    // caller holds the catalog gate exclusively.
     public void Remove(in EntityKey key)
     {
-        if (_byText is not null)
+        switch (KeyKind)
         {
-            _byText.Remove(TextKey.Lookup(key.Text!));
+            case KeyKindEnum.Integer32:
+                _byInteger32!.Remove(unchecked((int)key.Integer));
+                break;
+            case KeyKindEnum.Integer64:
+                _byInteger64!.Remove(key.Integer);
+                break;
+            case KeyKindEnum.Guid:
+                _byGuid!.Remove(key.Guid);
+                break;
+            default:
+                _byText!.Remove(TextKey.Lookup(key.Text!, key.TextHash));
+                break;
         }
-        else
+    }
+
+    // For a replace of a stored entity, and an upsert that replaces one: makes the key among the
+    // values the key as it is stored. The primary key is immutable (decision on mutation commands,
+    // "Immutable primary keys"), so a write through another spelling of a String key compared without
+    // case keeps the spelling the entity was created with, and replaces every other field. A key of
+    // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
+    // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture), so
+    // nothing of the caller's is changed. Only the thread that executes writes calls it, and it reads
+    // the root without a gate, as it reads the index.
+    public void KeepStoredKey(RootHandle handle, object?[] values)
+    {
+        var key = EntityType.Key;
+
+        if (key.Declaration.Comparison != LatticeStringComparisonEnum.OrdinalIgnoreCase)
         {
-            _byNumber!.Remove(key.Number);
+            return;
+        }
+
+        var stored = new RootReader(_arena, Layout!, _claims.Table.Entry(handle).Root);
+
+        if (!ValueComparer.SameText(stored, key, (string)values[key.Ordinal]!))
+        {
+            values[key.Ordinal] = stored.GetString(key);
         }
     }
 
@@ -281,9 +334,13 @@ internal sealed class EntityTable
                     throw IndexChanged();
                 }
 
-                var found = _byText is not null
-                    ? _byText.TryFindNext(ref cursor.Position, out handle)
-                    : _byNumber!.TryFindNext(ref cursor.Position, out handle);
+                var found = KeyKind switch
+                {
+                    KeyKindEnum.Integer32 => _byInteger32!.TryFindNext(ref cursor.Position, out handle),
+                    KeyKindEnum.Integer64 => _byInteger64!.TryFindNext(ref cursor.Position, out handle),
+                    KeyKindEnum.Guid => _byGuid!.TryFindNext(ref cursor.Position, out handle),
+                    _ => _byText!.TryFindNext(ref cursor.Position, out handle),
+                };
 
                 if (!found)
                 {
@@ -308,49 +365,27 @@ internal sealed class EntityTable
         }
     }
 
-    // Whether the key of the live root in the slot is the text. The index calls it while the
-    // catalog gate is held (TextKey).
+    // Whether the key of the live root in the slot is the text, under the comparison the key field
+    // declares. The index calls it while the catalog gate is held (TextKey).
     public bool KeyEquals(uint slot, string text) =>
-        new RootReader(_arena, Layout!, _claims.Table.EntryOfSlot(slot).Root).StringEquals(EntityType.Key, text);
+        ValueComparer.TextEquals(new RootReader(_arena, Layout!, _claims.Table.EntryOfSlot(slot).Root), EntityType.Key, text);
 
-    // The kind of index a key field needs.
-    private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration switch
+    // The kind of index a key field needs: the schema allows the eight integers, String and Guid.
+    private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
     {
-        { Type: LatticeFieldTypeEnum.Int64 } => KeyKindEnum.Number,
-        { Type: LatticeFieldTypeEnum.String, Comparison: LatticeStringComparisonEnum.Ordinal, StringStorage: LatticeStringStorageEnum.Plain } => KeyKindEnum.Text,
-        _ => KeyKindEnum.Other,
+        LatticeFieldTypeEnum.Int8 or LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.Int16 or LatticeFieldTypeEnum.UInt16
+            or LatticeFieldTypeEnum.Int32 or LatticeFieldTypeEnum.UInt32 => KeyKindEnum.Integer32,
+        LatticeFieldTypeEnum.Int64 or LatticeFieldTypeEnum.UInt64 => KeyKindEnum.Integer64,
+        LatticeFieldTypeEnum.Guid => KeyKindEnum.Guid,
+        LatticeFieldTypeEnum.String => KeyKindEnum.Text,
+        _ => throw new UnreachableException($"The schema declares the key {key.Name} of {key.Declaration.Type}, which no primary key is."),
     };
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
-    // itself; null when nothing of this list applies.
-    private static string? RefusalOf(LatticeEntityType entityType, LatticeSchema schema)
+    // itself; null when nothing of this list applies. The root layout refuses Dictionary storage, an
+    // owned value, a collection and a reference.
+    private static string? RefusalOf(LatticeEntityType entityType)
     {
-        if (schema.StringEncoding != LatticeStringEncodingEnum.Utf8)
-        {
-            return $"The {schema.StringEncoding} string encoding is not implemented yet: the schema declares it, so the engine does not store {entityType.Name} and it cannot be written.";
-        }
-
-        if (KeyKindOf(entityType.Key) == KeyKindEnum.Other)
-        {
-            var key = entityType.Key.Declaration;
-            var described = key.Type == LatticeFieldTypeEnum.String ? $"a String compared with {key.Comparison}" : key.Type.ToString();
-
-            return $"A primary key of {described} is not implemented yet: the key {entityType.Name}.{entityType.Key.Name} is one, so the engine does not store {entityType.Name} and it cannot be written.";
-        }
-
-        foreach (var field in entityType.Fields)
-        {
-            if (field.Declaration.Comparison == LatticeStringComparisonEnum.OrdinalIgnoreCase)
-            {
-                return $"Comparisons that ignore case are not implemented yet: {entityType.Name}.{field.Name} declares OrdinalIgnoreCase, so the engine does not store {entityType.Name} and it cannot be written.";
-            }
-
-            if (field.Declaration.Type == LatticeFieldTypeEnum.Enum)
-            {
-                return $"Enum fields are not implemented yet: {entityType.Name}.{field.Name} is of enum type {field.Declaration.EnumType!.Name}, so the engine does not store {entityType.Name} and it cannot be written.";
-            }
-        }
-
         foreach (var index in entityType.Indexes)
         {
             if (index.IsUnique)

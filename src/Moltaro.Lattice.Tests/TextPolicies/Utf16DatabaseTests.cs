@@ -34,7 +34,7 @@ public sealed class Utf16DatabaseTests
         }
         """);
 
-    [Fact(Skip = NotImplemented.EngineStorage)]
+    [Fact]
     public async Task Entity_written_to_a_UTF16_database_reads_back_equal_through_its_class_and_by_name()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
@@ -67,7 +67,7 @@ public sealed class Utf16DatabaseTests
     // Moved here from MalformedTextWriteTests, whose case on the engine stated that such text is refused
     // before the write is refused as not implemented: the engine stores a UTF-16 schema from this sprint,
     // so a write of well-formed text is stored.
-    [Fact(Skip = NotImplemented.EngineStorage)]
+    [Fact]
     public async Task Text_that_is_not_well_formed_in_a_UTF16_database_is_ValidationFailed_and_well_formed_text_is_stored()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);

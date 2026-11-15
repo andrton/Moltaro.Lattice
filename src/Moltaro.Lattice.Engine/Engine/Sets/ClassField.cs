@@ -35,7 +35,10 @@ internal readonly struct ClassField<TEntity>
     private ClassField(LatticeField field, int slot, Delegate setValue, Action<TEntity>? setNull)
     {
         _field = field;
-        _type = field.Declaration.Type;
+
+        // An Enum field is read as the integer of the underlying type of its enum type, and the setter
+        // converts it to the .NET enum of the property.
+        _type = field.Declaration.ScalarType;
         Slot = slot;
         _setValue = setValue;
         _setNull = setNull;
@@ -45,8 +48,8 @@ internal readonly struct ClassField<TEntity>
     // NoSlot for any other field.
     public int Slot { get; }
 
-    // The setters of a property of a field the engine stores: a scalar that is not an Enum, a String
-    // or a Binary. A String or Binary field gets the given slot.
+    // The setters of a property of a field the engine stores: a scalar, an Enum, a String or a Binary.
+    // A String or Binary field gets the given slot.
     public static ClassField<TEntity> Compile(BoundProperty property, int slot)
     {
         var declaration = property.Field.Declaration;

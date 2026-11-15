@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.TextPolicies;
 // Engine only: the placeholder refuses an entity type with a comparison without case until S12.
 public sealed class CaseInsensitiveFieldTests
 {
-    [Theory(Skip = NotImplemented.EngineStorage)]
+    [Theory]
     [InlineData(LatticeStringEncodingEnum.Utf8)]
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task String_field_compared_without_case_is_written_and_read_back_as_it_was_given(LatticeStringEncodingEnum encoding)

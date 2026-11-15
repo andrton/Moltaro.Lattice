@@ -112,7 +112,7 @@ public sealed class ValueBoundWriteTests
         await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => notes.ReplaceAsync(new Note { Id = 404, Caption = ValueBound.TextOneByteAboveInUtf8[..^1] }));
     }
 
-    [Fact(Skip = NotImplemented.EngineStorage)]
+    [Fact]
     public async Task In_a_UTF16_schema_134086688_characters_pass_the_validation_and_one_more_is_ValidationFailed()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Utf16Schema);

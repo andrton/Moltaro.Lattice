@@ -186,13 +186,13 @@ internal static class ValueBlocks
 
     // The bytes of a value that lies in one piece: inline in the root block, whose payload is given,
     // or in its one value block.
-    public static ReadOnlySpan<byte> Contiguous(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload) =>
+    public static ReadOnlySpan<byte> Contiguous(Arena arena, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload) =>
         descriptor.Kind == DescriptorKindEnum.Inline
             ? rootPayload.Slice((int)descriptor.Location - BlockHeader.Size, (int)descriptor.Length)
             : arena.Payload(AddressOf(descriptor))[..(int)descriptor.Length];
 
     // The entries of the directory of a chunked value, one descriptor for each chunk.
-    public static ReadOnlySpan<byte> Directory(Arena arena, in ValueDescriptor descriptor) =>
+    public static ReadOnlySpan<byte> Directory(Arena arena, scoped in ValueDescriptor descriptor) =>
         arena.Payload(AddressOf(descriptor));
 
     // The bytes of one chunk, by its entry in the directory.
@@ -201,38 +201,6 @@ internal static class ValueBlocks
         var entry = Read(entries[(chunk * DescriptorSize)..]);
 
         return arena.Payload(AddressOf(entry))[..(int)entry.Length];
-    }
-
-    // Whether the bytes of a value from offset on begin with the given bytes, wherever the value
-    // lies; the caller has checked that offset plus their length is within the value. Every chunk
-    // but the last holds ChunkPayload bytes, so the chunk of an offset is found by arithmetic.
-    public static bool RangeEquals(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, long offset, ReadOnlySpan<byte> bytes)
-    {
-        if (descriptor.Kind != DescriptorKindEnum.Chunked)
-        {
-            return Contiguous(arena, descriptor, rootPayload).Slice((int)offset, bytes.Length).SequenceEqual(bytes);
-        }
-
-        var entries = Directory(arena, descriptor);
-        var chunk = (int)(offset / RootLayout.ChunkPayload);
-        var within = (int)(offset % RootLayout.ChunkPayload);
-
-        while (!bytes.IsEmpty)
-        {
-            var stored = Chunk(arena, entries, chunk)[within..];
-            var length = Math.Min(stored.Length, bytes.Length);
-
-            if (!stored[..length].SequenceEqual(bytes[..length]))
-            {
-                return false;
-            }
-
-            bytes = bytes[length..];
-            chunk++;
-            within = 0;
-        }
-
-        return true;
     }
 
     // Copies the bytes of a value, wherever it lies, into a destination of its length.

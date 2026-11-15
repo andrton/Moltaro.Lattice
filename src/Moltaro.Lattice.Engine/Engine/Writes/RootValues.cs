@@ -8,8 +8,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // each field, by LatticeField.Ordinal, in the form LatticeValueDeclaration.ValueType gives. The
 // core took them and checked them against the schema (EntityBinding.Capture, LatticeRecord.Capture),
 // so every value has the type its field needs, a field without a value is nullable, its text is
-// well-formed and its value within the bound of one value. The root writer checks the last two again
-// as the guard of the stored form, and reports itself what it refuses.
+// well-formed, its value within the bound of one value and the value of an Enum field one its enum
+// type declares. The root writer checks the text and the bound again as the guard of the stored form,
+// and reports itself what it refuses. An Enum field holds the integer of the underlying type of its
+// enum type, and is written as that integer type (LatticeValueDeclaration.ScalarType).
 internal static class RootValues
 {
     // The writer is passed by reference: it is never copied (RootWriter).
@@ -29,7 +31,7 @@ internal static class RootValues
                 continue;
             }
 
-            switch (field.Declaration.Type)
+            switch (field.Declaration.ScalarType)
             {
                 case LatticeFieldTypeEnum.Boolean:
                     writer.SetBoolean(field, (bool)value);
@@ -89,8 +91,8 @@ internal static class RootValues
                     writer.SetBinary(field, (byte[])value);
                     break;
                 default:
-                    // An Enum field, an owned value, a collection and a reference keep their entity
-                    // type from being stored, so no write of one comes here.
+                    // An owned value and a collection keep their entity type from being stored, as a
+                    // reference does, so no write of one comes here.
                     throw new UnreachableException($"The field {entityType.Name}.{field.Name} is {field.Declaration.Type}, which the engine does not store.");
             }
         }
