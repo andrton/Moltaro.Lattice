@@ -2218,8 +2218,11 @@ manifest is a committed file of this project.
   them there, the test author routes the opening of a database in these classes through
   one helper of the test project, which opens the placeholder and the engine in turn;
   nothing else in the tests changes. In addition: a new database has a valid position
-  with sequence zero before its first write, and the first write gets sequence one. A
-  revision binds its entity: a revision read from one entity never satisfies a condition
+  before its first write; the first write returns another position, which is then the
+  position of the database. The sequence of that position is 0 before the first write and
+  1 after it, shown by `PublishedSequence` (the first is stated by a scenario test through
+  the public API, the second by a test of `Moltaro.Lattice.Engine.Tests`; the planner's
+  answer to Q38). A revision binds its entity: a revision read from one entity never satisfies a condition
   on another; a recreated entity has a new one. A read is coherent while the entity is
   being replaced. An enumeration of entities that nobody changes returns each of them
   once. No lock is held across an `await`. Until S07 the engine accepts
@@ -2295,13 +2298,82 @@ internal sealed class EngineDatabase : ILatticeDatabase
 }
 
 // What the engine holds, for tests and later for diagnostics. Later sprints add members.
-internal readonly record struct EngineCounters(ArenaCounters Arena, long PrimaryIndexBytes);
+internal readonly record struct EngineCounters(
+    ArenaCounters Arena, long PrimaryIndexBytes, int RootEntries, long PublishedSequence);
 ```
+
+`RootEntries` is the count of the table of root entries; `PublishedSequence` is the
+sequence of the last published position, 0 for a database without a write and 1 after the
+first. Both were added by the planner's answer to Q38 of the
+[open questions](open-questions.md), so that a test can read what the Acceptance states.
 
 In the test project, written by the test author: one helper, `TestDatabases`, that opens
 a database of the placeholder and of the engine for the same test. `Moltaro.Lattice.Tests` gets a
 reference to the engine assembly in this sprint, and the engine assembly grants it friend
 access.
+
+**What the engine does where the block above does not say.** The planner's answers to
+Q38 of the [open questions](open-questions.md), 15 November 2026, to the points the
+contract author found. The tests state them.
+
+- **Which tests run on the engine.** Every test of `CrudTests`, `DynamicSetTests` and
+  `OpeningAndClosingTests` opens a MemoryOnly master and runs on both, except
+  `DynamicSetTests.Child_serves_records_by_name_with_the_schema_of_its_master` and
+  `OpeningAndClosingTests.Closing_a_child_ends_its_wait_for_the_master`, which open a
+  child and stay on the placeholder. `Durable_persistence_is_not_implemented_yet` runs on
+  both, because both refuse. Two tests create a database without opening it, so the
+  helper has a form that creates without opening.
+- **`Create`.** In the order of `LatticeDatabase.Create`: `ArgumentNullException` for null
+  options; `Validate`, which gives `InvalidConfiguration`; then `NotSupportedException` at
+  `Create` for Durable persistence (until S27), for a child role (until S10) and for a
+  `ListenUri` (until S10).
+- **States.** Created, Loading during `OpenAsync`, Ready, Closed. Connecting and
+  CatchingUp do not occur; Faulted only through a failed publication, which S09 tests. A
+  failed open closes the instance. Before the open an operation is `Unavailable`; after
+  a close it is `ObjectDisposedException`. A close waits for the reads in progress before
+  it frees the arena.
+- **Position and revision.** A new random non-zero history at each MemoryOnly open;
+  sequence 0, plus 1 for each published write. A revision is the history and the root
+  entry's `LastMutationSequence`: in S06 every position changes one entity, so the
+  revision of one entity never satisfies a condition on another and a recreated entity
+  has a new one. `LatticeRevision` is two opaque 64-bit values, so its composition is
+  internal and can change; how a revision binds its entity when several entities change
+  at one position belongs to the contracts of the stage with the batch.
+- **The limits before S09.** The arena gets half of
+  `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, read at open, and an entity 1 MiB, as
+  internal values that S09 turns into options; a refusal is `WriteRejected` without
+  `Limit` until S09. The tests of S06 do not depend on the memory of the machine.
+- **What is refused until a later sprint.** The key types the three classes use are Int64
+  and String with Ordinal comparison, Plain storage and UTF-8. The engine refuses with
+  `NotSupportedException` everything the public documentation says is not stored yet, and
+  every other key type: the other key types, a field compared without case, an Enum field
+  and a schema in UTF-16 until S07; Dictionary storage until S13; an entity type with a
+  unique index until S16; the field types of S03 until S18 and S19. Every write of such
+  an entity type — insert, replace, upsert and delete, with or without a revision — is
+  refused at the write, after the argument checks and the validation, in the order of
+  Q25; a read by key finds nothing and an enumeration is empty. Binding a class and
+  `Index(name)` work.
+- **Enumeration until S08.** It is lazy, holds nothing between items and claims each
+  entry as a read by key does. "The index changed" means the primary index of the
+  enumerated entity type: an insert or a delete changes it, a replace does not. The
+  enumeration fails from the `MoveNext` that sees the change; what it returned before
+  stays valid.
+- **Sessions and the write batch.** On a master the engine implements the members that
+  take a session, and `WaitForPositionAsync`: a master has applied every position it gave
+  out. `CreateWriteBatch` returns the batch of the core; building works and the commit is
+  `NotSupportedException` until S17.
+- **The allocation of a read.** "The returned copy" is the object or the record with
+  everything reachable from it, and nothing else is allocated; a key boxed by a public
+  signature that takes `object` is the caller's allocation, outside the measured read.
+  The sets of the core box the key and pass an array, so the engine has sets of its own.
+- **The coherent read** is stated by a stress test with a bounded number of replaces and
+  no sleep: a writer replaces one entity with states whose fields are derived from one
+  counter, a String above 64 bytes and one above 4 KiB among them, and readers by class
+  and by name see exactly one written state each time.
+- **A delete that deleted nothing.** Whether it moves the position is the owner's, entry
+  Q39 of the open questions: `ConsistencyTests.Every_result_carries_a_position` says it
+  does not, and the accepted decisions say a successful no-op gets a position of its own.
+  Until the answer no test of S06 states the position of such a delete.
 
 By the planner's answer to Q30 of the [open questions](open-questions.md): a block
 allocated for a write that is prepared and not yet published is valid from its
