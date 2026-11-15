@@ -11,8 +11,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 // counters show: once the read has returned, nothing is prepared, nothing is retired, and no claim
 // is left. A claim left on an entry would keep the entry of a deleted entity in the table of root
 // entries (the planner's answer to Q32), so every test deletes the entity it read and then counts the
-// entries. The same holds after a constructor or a set accessor that throws. Every wait is bounded,
-// so that code that cannot complete fails the test instead of hanging the run.
+// entries. The same holds after a constructor or a set accessor that throws.
+//
+// While that code runs, the read already holds nothing: the engine counts it as no read in progress,
+// so a delete the code makes of the entity being read releases its entry and frees its blocks at
+// once, as it does when no read is in progress, and the counters taken inside the code are those
+// taken after the read has returned. A claim held across that code, or a protection that delays the
+// freeing of memory without blocking the writer, shows only there: the other tests here count after
+// the read has returned, when it has let go. Every wait is bounded, so that code that cannot complete
+// fails the test instead of hanging the run.
 public sealed class ApplicationCodeTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
@@ -99,6 +106,44 @@ public sealed class ApplicationCodeTests
             }).WaitAsync(Bound));
 
             await ExpectNothingLeftAsync(database, entities);
+        }
+        finally
+        {
+            await database.DisposeAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    [Theory]
+    [InlineData("a set accessor")]
+    [InlineData("the constructor")]
+    public async Task Code_of_the_application_that_runs_during_a_read_finds_nothing_held_for_that_read(string hook)
+    {
+        var database = await EngineMaster.OpenAsync(Schema);
+
+        try
+        {
+            var entities = database.Set<HookedEntity>();
+            await entities.InsertAsync(new HookedEntity { Id = 1, Text = "first" });
+            await entities.InsertAsync(new HookedEntity { Id = 2, Text = "other" });
+            EngineCounters? during = null;
+
+            var read = await Task.Run(() =>
+            {
+                Arm(hook, () =>
+                {
+                    Completes(entities.DeleteAsync(1L).AsTask());
+                    during = database.Counters;
+                });
+                return entities.Get(1L);
+            }).WaitAsync(Bound);
+
+            // The read returns the state it copied; inside the code, entity 2 alone was held.
+            Assert.Equal("first", read?.Text);
+            Assert.NotNull(during);
+            Assert.Equal(1, during.Value.RootEntries);
+            Assert.Equal(0, during.Value.Arena.PreparedBytes);
+            Assert.Equal(0, during.Value.Arena.RetiredBytes);
+            Assert.Equal(database.Counters, during.Value);
         }
         finally
         {
