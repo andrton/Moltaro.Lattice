@@ -131,8 +131,7 @@ while PostgreSQL is unavailable.
 
 A bounded batch may change different entity types in the same database. It contains
 at most one operation per type/key. A batch has no limit of its own on the number of entities or on its size; it is refused
-only when the memory budget or the journal cannot hold it. One entity is limited to 1 MiB
-by default, and that limit is configurable. Validation, durable effects and publication preserve
+only when the memory budget or the journal cannot hold it. Neither has one entity. Validation, durable effects and publication preserve
 its all-or-nothing boundary; children preserve that same boundary during replay.
 
 It is a transaction of the database, not one the application works inside: a batch

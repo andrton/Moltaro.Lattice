@@ -95,7 +95,7 @@ and tests in the sprint named.
 
 | Feature | Sprint |
 | --- | --- |
-| Limits of an entity, of the write queue and of a batch as options; resource errors | S08, S09, S17, S24 |
+| Limits of the write queue and of memory as options; resource errors. An entity and a batch have no limit of their own (decisions O18 and O19) | S08, S09, S17, S24 |
 | A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
 | Protected read-only views | S21–S22 |
@@ -561,6 +561,20 @@ the architecture, `README.md` and the documentation of `ILatticeWriteBatch`. Pri
 of `AGENTS.md` still calls a batch "bounded"; the planner reported that sentence to the
 owner, and it is not changed without the owner's word.
 
+**O19. An entity has no size limit of its own.** Decided on 15 November 2026 and given
+through the planner's session, after decision O18 and for the same reason: how large an
+entity is, is the application's choice. The 1 MiB starting limit of the engine contract
+and the option that was to carry it are removed; an entity is refused only when the
+memory budget of the instance cannot hold it. One String or Binary value stays bounded by
+the storage format at 268,173,376 bytes, the capacity of one directory block of chunks: a
+fixed rule, not an option, and a value above it is `ValidationFailed` with the field
+named. *Not chosen:* keeping the option without a default. Shapes S06 and S09, reaches
+back into S05, whose `RootWriter` loses `maxEntitySize`, and forward into every brief
+that sized a buffer or a test by "1 MiB per entity", which the planner words with its
+stage. With the decision the owner approved principle 5 of `AGENTS.md` without the words
+"which is bounded"; the coordinator makes that edit on the owner's own word in its
+session, because `AGENTS.md` is the instruction file of the agents.
+
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
 with what the code does in the meantime. The coordinator names the new entries when a
@@ -636,7 +650,8 @@ pages of 4,096 root entries and the 1 MiB cap of an entity are starting values i
 milestone contract and "not accepted defaults" in their decision records. *The milestone
 contract prevails as a baseline to measure.* They are verified where their mechanism is
 delivered: the root-entry pages in S04, the entity cap in S05 and S09, the reload wait in S34. A value that fails its check is changed on the evidence and reported; no guarantee
-changes with it.
+changes with it. The cap of an entity was removed by the owner's decision O19 of 15
+November 2026: an entity has no limit of its own.
 
 ### Choices made in the contracts of S02 to S12
 
@@ -1978,7 +1993,9 @@ of the [open questions](open-questions.md), 15 November 2026. The tests state th
   single-block and chunk thresholds in both directions and reads back equal; a chunk
   boundary inside a multi-byte character does not damage it. Writing an entity again and freeing the old root frees everything the old one owned,
   shown by the counters. An entity above the 1 MiB starting
-  limit is refused, and one just below it is stored. An entity type whose fixed
+  limit is refused, and one just below it is stored (superseded by decision O19 after
+  this sprint closed: an entity has no size limit, `RootWriter` loses `maxEntitySize` in
+  the branch of S06, and what this block says of that parameter no longer holds). An entity type whose fixed
   part does not fit one block is refused with `InvalidSchema` when its layout is
   compiled, before any data is admitted. The generator produces the same
   121,000 roots from seed 42 on every run, checked by a digest.
@@ -2273,7 +2290,27 @@ manifest is a committed file of this project.
   key returns `Changed` false and a position of its own — not the position before it, and
   then the position of the database — and the revision of no entity changes. The
   placeholder keeps what it does and is not changed; a test of this runs on the engine
-  only, until S12.
+  only, until S12. By decision O19, with which an entity of tens of mebibytes is an
+  ordinary case: an entity with a String value of 32 MiB and a Binary value of 32 MiB is
+  inserted, read back equal by class and by name, replaced by a small one and deleted,
+  and after that the counters of the arena are what they were before it; the test sets a
+  memory limit that holds it (until S09 gives the option, the internal limit of this
+  sprint holds it on every machine the tests run on). One String or Binary value above
+  268,173,376 bytes, the capacity of one directory block of chunks, is `ValidationFailed`
+  with the field named: a fixed rule of the storage format, the same on every node, which
+  a retry never helps.
+
+**Carried by this sprint besides its own work**, under decision O16, after its
+implementation commit and tests first: the removal of the size limit of an entity
+(decision O19). The contract author takes `maxEntitySize` out of `RootWriter` and states
+the bound of one value in the documentation of the String and Binary field types; the
+test author removes the tests of S05 and of this sprint that state the limit of an
+entity, with the decision named, restates the bound of one value as `ValidationFailed`
+with the field named, and writes the test of the large entity; the implementer removes
+the limit and its internal value. What stays is the refusal for memory — `Complete` with
+`WriteRejected` when the arena cannot give the blocks — and the bound of the format. The
+same sequence carries the sentence of decision O18 in the documentation of
+`ILatticeWriteBatch`.
 - **Measured.** Asserted: a read by key allocates the returned copy and nothing else.
   Reported: read time by key for 100,000 entities on one thread, and the same with a
   writer running.
@@ -2365,10 +2402,12 @@ contract author found. The tests state them.
   has a new one. `LatticeRevision` is two opaque 64-bit values, so its composition is
   internal and can change; how a revision binds its entity when several entities change
   at one position belongs to the contracts of the stage with the batch.
-- **The limits before S09.** The arena gets half of
-  `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, read at open, and an entity 1 MiB, as
-  internal values that S09 turns into options; a refusal is `WriteRejected` without
-  `Limit` until S09. The tests of S06 do not depend on the memory of the machine.
+- **The limit before S09.** The arena gets half of
+  `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`, read at open, as an internal value
+  that S09 turns into an option; a refusal is `WriteRejected` for memory, without `Limit`
+  until S09. By decision O19 the engine has no size limit of an entity. The tests of S06
+  do not depend on the memory of the machine beyond what the large entity of the
+  Acceptance needs, which every machine the tests run on has.
 - **What is refused until a later sprint.** The key types the three classes use are Int64
   and String with Ordinal comparison, Plain storage and UTF-8. The engine refuses with
   `NotSupportedException` everything the public documentation says is not stored yet, and
@@ -2578,7 +2617,7 @@ table being built while the primary index grows.
 - **Goal.** Many callers write at once and the master orders, bounds and publishes their
   writes as the design requires, including when something fails.
 - **Contract.** Options: the instance memory budget (by default half of the memory the runtime reports as available to the process),
-  the entity size limit (1 MiB), the queued write input (1,024 requests and the smaller
+  the queued write input (1,024 requests and the smaller
   of 16 MiB and 10% of the budget), the number of preparing workers (2). `WriteRejected`
   says which limit refused the write. The commit stage has a storage step that completes
   at once in MemoryOnly; it is internal.
@@ -2616,16 +2655,14 @@ namespace Moltaro.Lattice;
 
 // LatticeDatabaseOptions gains
 public long? MemoryLimit { get; init; }                        // bytes for the whole instance; null: half of the memory the runtime reports as available
-public int MaxEntitySize { get; init; } = 1024 * 1024;         // encoded bytes of one entity with all it owns
 public int WriteQueueLimit { get; init; } = 1024;              // writes admitted and not yet completed
 public long? WriteQueueMemoryLimit { get; init; }              // null: the smaller of 16 MiB and 10% of MemoryLimit
 public int PrepareWorkers { get; init; } = 2;
 
 // LatticeLimitEnum gains
-EntitySize = 3,
-WriteQueue = 4,
-WriteQueueMemory = 5,
-Memory = 6,
+WriteQueue = 3,
+WriteQueueMemory = 4,
+Memory = 5,
 ```
 
 By the owner's decision of 15 November 2026, given through the planner's session: the
@@ -2642,15 +2679,17 @@ the default. The documentation of the option says in plain words the three cases
 that the default is per instance, that a process with several instances, production and
 anyone who limits the heap of the collector set the value explicitly, and that the budget
 counts what the engine holds, not the managed heap of the application. `Validate`
-compares `MaxEntitySize` and `WriteQueueMemoryLimit` with the limit in force — the given
+compares `WriteQueueMemoryLimit` with the limit in force — the given
 `MemoryLimit`, or the computed default when it is null. The limit in force is computed
 once, when the instance opens, and the validation of that open uses the same value. By
 decision O18: the limit on queued write input bounds the writes that wait behind others.
 It never refuses a write for its own size: a write or a batch larger than the limit is
 admitted when no other input is queued and the memory budget can hold it.
 
-`Validate` refuses: a limit that is not positive; `MaxEntitySize` above the limit in
-force; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
+By decision O19 there is no option for the size of an entity, no member of
+`LatticeLimitEnum` for it, and nothing for `Validate` to check of it.
+
+`Validate` refuses: a limit that is not positive; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
 above 64.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena and the queued write input: a write the arena cannot hold
@@ -3181,8 +3220,7 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   The encoded effect of a small update is smaller than the encoded entity. Setting a
   Map value by a key that equals a stored key in another spelling keeps the stored
   spelling; adding a Set member that equals a stored one changes nothing, its spelling
-  included. The entity size
-  limit applies to the entity an update would leave. The values of commands bind by the
+  included. The values of commands bind by the
   same allowlist as index keys: the agreement suite of S15 is extended to Map keys, Set
   members and command values, and passes.
 - **Measured.** Reported: encoded size of a one-field update of the fixture's user against its

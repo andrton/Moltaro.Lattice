@@ -367,6 +367,10 @@ adds no production implementation or new benchmark run.
 object, even when the instance still has spare memory. Choose the numerical limit
 from measurements; no default or fixed number is accepted yet.
 
+**Added by the owner on 15 November 2026:** an entity has no size limit of its own and
+there is no option for one. How large an entity is, is the application's choice; it is
+refused only when the memory budget cannot hold it.
+
 The limit covers the root's own data: fixed fields, strings, Binary values, owned
 nested objects and collections. A reference contributes its stored key, not the
 contents of the independently owned object it identifies. A graph spread across
