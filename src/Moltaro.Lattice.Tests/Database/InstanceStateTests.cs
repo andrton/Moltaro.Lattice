@@ -98,6 +98,37 @@ public sealed class InstanceStateTests
         Assert.Throws<ObjectDisposedException>(() => disposed.Set<User>());
     }
 
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException(DatabaseImplementationEnum implementation)
+    {
+        // Holder has a List field: the engine does not store it, and the placeholder does not write it.
+        var schema = LatticeSchema.Compile($$"""
+            {
+              "EntityTypes": [
+                {
+                  "Id": 1, "Name": "Holder", "ClrType": "{{typeof(Holder).FullName}}",
+                  "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "List", "Element": { "Type": "String" } } ],
+                  "PrimaryKey": [1]
+                }
+              ]
+            }
+            """);
+        var database = await TestDatabases.OpenMasterAsync(implementation, schema);
+        var holders = database.Set<Holder>();
+        var holderRecords = database.Set("Holder");
+
+        await database.CloseAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => holders.Get(1L));
+        Assert.Throws<ObjectDisposedException>(() => holders.TryGet(1L, out _, out _));
+        Assert.Throws<ObjectDisposedException>(() => holders.Enumerate().ToList());
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await holders.GetAsync(1L, new LatticeSession()));
+        Assert.Throws<ObjectDisposedException>(() => holderRecords.Get(1L));
+        Assert.Throws<ObjectDisposedException>(() => holderRecords.Enumerate().ToList());
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await holderRecords.EnumerateAsync(new LatticeSession()).ToListAsync());
+    }
+
     private static LatticeDatabaseOptions MemoryOnly() =>
         new() { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, Schema = TestData.Schema };
 
@@ -105,5 +136,12 @@ public sealed class InstanceStateTests
     {
         var exception = await Assert.ThrowsAsync<LatticeException>(async () => await wait());
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
+    }
+
+    private sealed class Holder
+    {
+        public long Id { get; set; }
+
+        public List<string> Lines { get; set; } = [];
     }
 }

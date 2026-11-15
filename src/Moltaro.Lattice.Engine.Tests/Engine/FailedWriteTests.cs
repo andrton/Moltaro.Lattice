@@ -43,8 +43,8 @@ public sealed class FailedWriteTests
         nameless["Name"] = null;
         await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => records.UpsertAsync(nameless));
 
-        // Validation by the root writer: in Note, text with a surrogate without its pair, after the
-        // value of Name in chunks.
+        // Validation: in Note, text with a surrogate without its pair, after the value of Name in
+        // chunks.
         await ExpectNothingLeftAsync(LatticeErrorEnum.ValidationFailed, () => pieces.InsertAsync(new PieceSchema.Piece { Id = 3, Name = new string('n', 70_000), Note = "a\uD800b" }));
 
         // Refused by the state of the database, each with values in chunks.
@@ -88,8 +88,9 @@ public sealed class FailedWriteTests
         tally.Written(kept);
         var before = CountersOf(database);
 
-        // In Note, after the value of Name in chunks: as a new entity through the class, and by name
-        // as a new state of one that exists.
+        // In Note, after the value of Name in chunks: the root writer refuses the value after it has
+        // allocated the blocks of Name, and the write frees them. As a new entity through the class,
+        // and by name as a new state of one that exists.
         var text = ValueBound.TextOneByteAboveInUtf8;
         await ExpectValidationFailedAsync(() => pieces.InsertAsync(new PieceSchema.Piece { Id = 2, Name = new string('n', 70_000), Note = text }));
         var record = PieceSchema.RecordOf(records.EntityType, 1, name: 70_000);

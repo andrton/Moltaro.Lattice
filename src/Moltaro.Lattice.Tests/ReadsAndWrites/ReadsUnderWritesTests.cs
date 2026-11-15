@@ -11,6 +11,9 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 //   entity is given to another one at once.
 // - A read finds every entity whose insert has returned while other entities are inserted and the
 //   primary index grows.
+// - A read with a session returns the state its key had at the position of its answer (the
+//   remarks of LatticePosition and LatticeReadResult): never an older state with a newer position,
+//   and never absence at a position where the entity existed.
 // In each test one writer makes a bounded number of writes while readers, through the class and by
 // name, on threads of their own, read until the writes are done; each reader has read once before
 // the first write. Nothing sleeps, and what the tests assert does not depend on how the threads
@@ -27,6 +30,9 @@ public sealed class ReadsUnderWritesTests
 
     // 20,000 inserts, which grow the primary index several times.
     private const int Inserts = 20_000;
+
+    // 3,000 inserts, replaces and deletes of two keys.
+    private const int Writes = 3_000;
 
     [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
@@ -132,6 +138,91 @@ public sealed class ReadsUnderWritesTests
         Assert.Equal(Inserts, users.Enumerate().Count());
     }
 
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Read_with_a_session_returns_the_state_its_key_had_at_the_position_of_its_answer(DatabaseImplementationEnum implementation)
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        var users = database.Set<User>();
+        var userRecords = database.Set("User");
+        long[] keys = [1, 2];
+
+        // The history the writer records: the position before the first write, and every write with
+        // its position, its key and the round of the state it left, null for absence. There is one
+        // writer, so its writes are in the order of their positions. Every reader keeps what it read.
+        var start = database.Position;
+        var writes = new List<(LatticePosition Position, long Key, int? Round)>();
+        var observed = new List<(long Key, LatticePosition Position, int? Round)>[Readers];
+
+        await ReadersAndWriter.RunAsync(
+            Readers,
+            reader =>
+            {
+                var next = reader;
+                var session = new LatticeSession();
+                var seen = observed[reader] = [];
+
+                return reader % 2 == 0
+                    ? () => seen.Add(ReadWithSession(users, keys[next++ % keys.Length], session))
+                    : () => seen.Add(ReadWithSession(userRecords, keys[next++ % keys.Length], session));
+            },
+            async () =>
+            {
+                var current = new Dictionary<long, int?> { [1] = null, [2] = null };
+
+                for (var write = 1; write <= Writes; write++)
+                {
+                    var key = keys[write % keys.Length];
+                    LatticeWriteResult result;
+                    int? round;
+
+                    // An absent key is inserted; one that exists is deleted at every third write and
+                    // replaced at the others.
+                    if (current[key] is null)
+                    {
+                        round = write;
+                        result = await users.InsertAsync(UserOf(key, write));
+                    }
+                    else if (write % 3 == 0)
+                    {
+                        round = null;
+                        result = await users.DeleteAsync(key);
+                    }
+                    else
+                    {
+                        round = write;
+                        result = await users.ReplaceAsync(UserOf(key, write));
+                    }
+
+                    current[key] = round;
+                    writes.Add((result.Position, key, round));
+                }
+            });
+
+        // The state of every key at every position of the history, by the ordinal of the position.
+        var ordinals = new Dictionary<LatticePosition, int> { [start] = 0 };
+        var states = keys.ToDictionary(key => key, _ => new int?[writes.Count + 1]);
+
+        for (var ordinal = 1; ordinal <= writes.Count; ordinal++)
+        {
+            var (position, key, round) = writes[ordinal - 1];
+            ordinals.Add(position, ordinal);
+
+            foreach (var state in states.Values)
+            {
+                state[ordinal] = state[ordinal - 1];
+            }
+
+            states[key][ordinal] = round;
+        }
+
+        foreach (var (key, position, round) in observed.SelectMany(seen => seen))
+        {
+            Assert.True(ordinals.TryGetValue(position, out var ordinal), $"A read of {key} answered at {position}, a position of no write.");
+            Assert.True(states[key][ordinal] == round, $"A read of {key} at {position} found the state of round {round?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "absent"}; the key had the state of round {states[key][ordinal]?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "absent"} there.");
+        }
+    }
+
     private static User UserOf(long key, int round) => new()
     {
         Id = key,
@@ -171,6 +262,39 @@ public sealed class ReadsUnderWritesTests
         Assert.Equal(NameOf(key, record.Get<int>("Age")), record["Name"]);
         Assert.Equal($"{key}@example.org", record["Email"]);
         Assert.Equal(key % 2 == 0, record["Enabled"]);
+    }
+
+    // A read with the session: its key, the position of its answer and the round of the state it
+    // found, after checking that the state is that of its own key.
+    private static (long Key, LatticePosition Position, int? Round) ReadWithSession(ILatticeSet<User> users, long key, LatticeSession session)
+    {
+        var result = users.GetAsync(key, session).AsTask().GetAwaiter().GetResult();
+
+        if (!result.Found)
+        {
+            return (key, result.Position, null);
+        }
+
+        Assert.Equal(key, result.Entity.Id);
+        Assert.Equal(NameOf(key, result.Entity.Age!.Value), result.Entity.Name);
+
+        return (key, result.Position, result.Entity.Age);
+    }
+
+    private static (long Key, LatticePosition Position, int? Round) ReadWithSession(ILatticeSet userRecords, long key, LatticeSession session)
+    {
+        var result = userRecords.GetAsync(key, session).AsTask().GetAwaiter().GetResult();
+
+        if (!result.Found)
+        {
+            return (key, result.Position, null);
+        }
+
+        var round = result.Entity.Get<int>("Age");
+        Assert.Equal(key, result.Entity["Id"]);
+        Assert.Equal(NameOf(key, round), result.Entity["Name"]);
+
+        return (key, result.Position, round);
     }
 
     // A key below the count, a different one at every step.

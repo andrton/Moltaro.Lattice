@@ -5,6 +5,12 @@ namespace Moltaro.Lattice.Tests.Database;
 // batch"). A write with a session moves the session to the position of the write, a read to the
 // position of its answer; waiting for a position the master gave out completes at once; a position
 // of another database history is HistoryMismatch.
+//
+// A position of the history of the database that is ahead of it, which only a caller can make up, is
+// what WaitForPositionAsync describes: the wait lasts until the instance has applied the position,
+// and ends with SynchronizationTimeout when that does not happen in time. A test makes one up from
+// the text of a position, whose form the documentation does not describe: its history, a hyphen and
+// its sequence in hexadecimal, as LatticePosition.ToString writes it.
 public sealed class SessionsOnAMasterTests
 {
     [Theory]
@@ -116,6 +122,28 @@ public sealed class SessionsOnAMasterTests
 
     [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Wait_for_a_position_ahead_of_the_master_lasts_until_a_write_reaches_it_or_ends_with_SynchronizationTimeout(DatabaseImplementationEnum implementation)
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        var users = database.Set<User>();
+        await users.InsertAsync(new User { Id = 1, Name = "Ada" });
+        var ahead = Ahead(database.Position);
+
+        // No write reaches it: the wait ends by its timeout, however short.
+        var timedOut = await Assert.ThrowsAsync<LatticeException>(async () => await database.WaitForPositionAsync(ahead, TimeSpan.FromMilliseconds(1)));
+        Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, timedOut.Error);
+
+        // With a timeout long enough the wait lasts until the next write, which reaches it.
+        var waiting = database.WaitForPositionAsync(ahead, TimeSpan.FromMinutes(1)).AsTask();
+        Assert.False(waiting.IsCompleted);
+
+        await users.ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
+
+        await waiting;
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Position_of_another_database_history_is_HistoryMismatch(DatabaseImplementationEnum implementation)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation);
@@ -134,5 +162,15 @@ public sealed class SessionsOnAMasterTests
 
         // The default value is no position at all.
         await Assert.ThrowsAsync<ArgumentException>(async () => await database.WaitForPositionAsync(default(LatticePosition)));
+    }
+
+    // The position of the same history with the next sequence, made up from the text of the position.
+    private static LatticePosition Ahead(LatticePosition position)
+    {
+        var text = position.ToString();
+        var separator = text.IndexOf('-', StringComparison.Ordinal);
+        var sequence = ulong.Parse(text.AsSpan(separator + 1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+
+        return LatticePosition.Parse($"{text[..separator]}-{sequence + 1:x}");
     }
 }

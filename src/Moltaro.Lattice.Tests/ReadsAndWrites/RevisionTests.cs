@@ -8,6 +8,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // be compared for equality, and nothing else may be concluded: a revision has no order, cannot be
 // turned into a position, and means nothing for another entity. So a revision read from one entity
 // never satisfies a condition on another, and an entity recreated under the same key has a new one.
+// A revision never matches another database history either (the remarks of LatticeRevision; milestone
+// contract: the revision binds history, type and key, and position).
 public sealed class RevisionTests
 {
     [Theory]
@@ -91,6 +93,29 @@ public sealed class RevisionTests
         Assert.True(users.TryGet(1, out _, out var afterReplace));
 
         Assert.NotEqual(byClass, afterReplace);
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Revision_read_in_one_database_never_satisfies_a_condition_in_another_with_the_same_writes(DatabaseImplementationEnum implementation)
+    {
+        await using var first = await TestDatabases.OpenMasterAsync(implementation);
+        await using var second = await TestDatabases.OpenMasterAsync(implementation);
+
+        // The same writes in both, so that the entity is at the same place of both histories.
+        foreach (var database in new[] { first, second })
+        {
+            await database.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" });
+            await database.Set<User>().ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
+        }
+
+        Assert.True(first.Set<User>().TryGet(1, out _, out var fromFirst));
+
+        await ExpectConflictsAsync(second, 1, fromFirst);
+
+        // Its own revision satisfies the condition.
+        Assert.True(second.Set<User>().TryGet(1, out var user, out var fromSecond));
+        await second.Set<User>().ReplaceAsync(user, fromSecond);
     }
 
     [Fact]
