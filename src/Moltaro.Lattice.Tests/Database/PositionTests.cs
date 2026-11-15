@@ -42,7 +42,7 @@ public sealed class PositionTests
         Assert.Equal(byName.Position, second.Position);
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Delete_of_an_absent_key_has_a_position_of_its_own_and_changes_the_revision_of_no_entity()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);

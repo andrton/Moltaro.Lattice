@@ -4,20 +4,25 @@ namespace Moltaro.Lattice.Storage;
 // allocation state changes and never computes them by scanning (Q17, "Counters maintained as
 // allocation state changes"). Each counter tells one kind of space apart from the others.
 //
-// LiveBytes: for every allocated block, its 32-byte header and the payload length given at its
-// allocation.
+// A block is counted in exactly one place (brief of S06, the planner's answer to Q30), so the bytes
+// of the slots in use are LiveBytes + ClassSlackBytes + PreparedBytes + RetiredBytes.
+//
+// LiveBytes: for every live block, its 32-byte header and the payload length given at its
+// allocation. A block is live from TryAllocate, or from the Publish of a prepared block, until it
+// is freed.
 //
 // ClassSlackBytes: the rest of the slots of those blocks; for each, its size class minus its
 // header and payload length. Slack inside a slot is not free space, and moving the block
 // unchanged does not reclaim it. LiveBytes plus ClassSlackBytes is the capacity of the slots of
-// allocated blocks.
+// live blocks.
 //
 // PreparedBytes: the capacity of the slots of prepared blocks, allocated for a write that is not
-// published yet. 0 in S04, which has no prepared block.
+// published yet (TryAllocatePrepared), whole, until Publish or Free.
 //
 // RetiredBytes: the capacity of the slots of retired blocks, detached from their owner but not
-// reusable yet, because a reader or another retainer may still reach them. 0 in S04, which has no
-// retired block.
+// reusable yet, because a reader or another retainer may still reach them. 0 in S06, which retires
+// no block: the blocks of a replaced or deleted root are freed under the root's exclusive
+// protection, which no reader of the root holds at the same time.
 //
 // FreeRegions: the regions of the segments in use that serve no size class at the moment, such as
 // a region returned to its segment when its last block was freed. The regions of reserved

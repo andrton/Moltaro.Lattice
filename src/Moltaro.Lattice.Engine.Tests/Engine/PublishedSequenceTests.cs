@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // publishes nothing, by FailedWriteTests.
 public sealed class PublishedSequenceTests
 {
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Database_without_a_write_has_sequence_0_and_after_its_first_write_1()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -23,7 +23,7 @@ public sealed class PublishedSequenceTests
         Assert.Equal(1, database.Counters.PublishedSequence);
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task First_write_that_deletes_nothing_has_sequence_1()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -36,7 +36,7 @@ public sealed class PublishedSequenceTests
         Assert.NotEqual(before, database.Position);
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Every_write_publishes_the_next_sequence_also_one_that_changed_nothing()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -80,7 +80,7 @@ public sealed class PublishedSequenceTests
         }
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Reads_publish_nothing()
     {
         await using var database = await PieceSchema.OpenAsync();

@@ -124,6 +124,11 @@ internal readonly ref struct RootReader
     public string GetString(LatticeField field) =>
         StoredText.Read(_arena, Descriptor(field, StoredTypeEnum.String, nameof(GetString)), _payload, _layout.StringEncoding);
 
+    // Whether the value of a String field is the given text, compared ordinally
+    // (StoredText.EqualsOrdinal). Allocates nothing.
+    public bool StringEquals(LatticeField field, ReadOnlySpan<char> text) =>
+        StoredText.EqualsOrdinal(_arena, Descriptor(field, StoredTypeEnum.String, nameof(StringEquals)), _payload, text, _layout.StringEncoding);
+
     // The value of a Binary field, as a new array that belongs to the caller. An empty value is the
     // empty array, which every caller shares and none can change.
     public byte[] GetBinary(LatticeField field)

@@ -29,7 +29,7 @@ public sealed class ReadAllocationTests
         }
         """);
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [InlineData(10)]
     [InlineData(1_000)]
     [InlineData(30_000)]
@@ -67,7 +67,7 @@ public sealed class ReadAllocationTests
         Assert.Equal(0, allocated);
     }
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [InlineData(10)]
     [InlineData(1_000)]
     [InlineData(30_000)]

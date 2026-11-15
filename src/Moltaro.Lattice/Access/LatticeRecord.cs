@@ -121,6 +121,11 @@ public sealed class LatticeRecord
     // nothing mutable with the record.
     internal object?[] Capture() => RecordValues.Submit(EntityType, _values);
 
+    // The values the record holds, by LatticeField.Ordinal, for a read that fills a new record in
+    // place: the engine, which puts into it values it has made for this record alone, each in the
+    // form LatticeValueDeclaration.ValueType gives, so that nothing is copied twice.
+    internal object?[] Values => _values;
+
     private LatticeField Field(string fieldName)
     {
         ArgumentNullException.ThrowIfNull(fieldName);

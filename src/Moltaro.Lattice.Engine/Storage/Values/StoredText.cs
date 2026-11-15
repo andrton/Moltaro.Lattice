@@ -16,6 +16,9 @@ internal static class StoredText
     // the count of one call always fits an int.
     private const int CountedAtOnce = int.MaxValue / 3;
 
+    // The bytes of UTF-8 that EqualsOrdinal encodes on the stack at a time.
+    private const int ComparedAtOnce = 256;
+
     // Every surrogate, high and low, U+D800 to U+DFFF, for a vectorized search. It is immutable and
     // made once, so it is shared by every writer of every arena. It stands in for IndexOfAnyInRange,
     // which until the JIT has optimized it boxes its bounds on every call, so that a write would not
@@ -113,6 +116,44 @@ internal static class StoredText
 
         return string.Create(DecodeChunks(arena, entries, []), (arena, descriptor), static (characters, value) =>
             DecodeChunks(value.arena, ValueBlocks.Directory(value.arena, value.descriptor), characters));
+    }
+
+    // Whether the stored text of a String value is the given text, compared ordinally, code unit by
+    // code unit: what a primary key compared with Ordinal needs (S07 brings the one comparison of the
+    // schema, ValueComparer, for every comparison and both encodings). In a UTF-8 database the text
+    // is encoded on the stack, a piece at a time, and each piece is compared with the stored bytes at
+    // its place, so nothing is allocated, whatever the length. Text that is not well-formed is never
+    // stored, so it equals no stored text.
+    public static bool EqualsOrdinal(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding)
+    {
+        if (encoding == LatticeStringEncodingEnum.Utf16)
+        {
+            var units = MemoryMarshal.AsBytes(text);
+
+            return units.Length == descriptor.Length && ValueBlocks.RangeEquals(arena, descriptor, rootPayload, 0, units);
+        }
+
+        Span<byte> piece = stackalloc byte[ComparedAtOnce];
+        var position = 0L;
+
+        while (!text.IsEmpty)
+        {
+            // A piece ends between two characters: the encoder stops before a character that does
+            // not fit whole, and the text is never cut inside a surrogate pair.
+            var status = System.Text.Unicode.Utf8.FromUtf16(text, piece, out var read, out var written, replaceInvalidSequences: false);
+
+            if (status == OperationStatus.InvalidData
+                || position + written > descriptor.Length
+                || !ValueBlocks.RangeEquals(arena, descriptor, rootPayload, position, piece[..written]))
+            {
+                return false;
+            }
+
+            position += written;
+            text = text[read..];
+        }
+
+        return position == descriptor.Length;
     }
 
     // Decodes the UTF-8 of a chunked value into the destination and returns the number of its

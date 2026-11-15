@@ -13,7 +13,7 @@ public sealed class CreateTests
         { "EntityTypes": [ { "Id": 1, "Name": "Note", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] } ] }
         """);
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public void Null_options_are_ArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() => EngineDatabase.Create(null!));
@@ -21,7 +21,7 @@ public sealed class CreateTests
 
     // Each of these options is invalid, and each would also ask for what the engine does not serve
     // yet: the invalid configuration is found first.
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [InlineData("a Durable master without a connection string")]
     [InlineData("a Durable master with an infinite synchronization timeout")]
     [InlineData("a Durable child")]
@@ -36,7 +36,7 @@ public sealed class CreateTests
         Assert.Equal(LatticeErrorEnum.InvalidConfiguration, exception.Error);
     }
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [InlineData("a Durable master")]
     [InlineData("a child")]
     [InlineData("a MemoryOnly master with a ListenUri")]
@@ -45,7 +45,7 @@ public sealed class CreateTests
         Assert.Throws<NotSupportedException>(() => EngineDatabase.Create(NotServed(options)));
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public void MemoryOnly_master_is_created_without_being_opened()
     {
         using var database = EngineDatabase.Create(new LatticeDatabaseOptions

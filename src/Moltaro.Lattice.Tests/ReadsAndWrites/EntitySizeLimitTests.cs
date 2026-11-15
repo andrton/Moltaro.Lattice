@@ -16,7 +16,7 @@ public sealed class EntitySizeLimitTests
 
     private const int FixedSize = 32 + 8 + 16;
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Entity_of_exactly_1_MiB_is_stored_and_one_byte_more_is_WriteRejected()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema("Binary", typeof(BinaryBlob)));
@@ -38,7 +38,7 @@ public sealed class EntitySizeLimitTests
         Assert.Equal(largest, blobs.Get(1L)!.Value);
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Size_of_a_String_is_its_encoded_bytes()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema("String"));

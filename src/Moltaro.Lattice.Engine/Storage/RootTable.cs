@@ -13,9 +13,13 @@ namespace Moltaro.Lattice.Storage;
 // are counted in an int. Add that would need one more page throws InvalidOperationException, and
 // the table stays as it was.
 //
-// In S04 the table takes no lock, and one thread at a time uses it. The claims and the protection
-// of the arena protocol, which make lookup, deletion and reuse safe together, come with S06 to
-// S08.
+// The table takes no lock; its owner says who may call what at the same time. In the database
+// (Engine.Protection.RootGates) Add and Release, which change the list of free slots, are called
+// only under the catalog gate held exclusively, while Entry, IsCurrent and EntryOfSlot are called
+// at the same time for lifetimes that the caller holds a claim on or knows to be live. Those read
+// only that entry and the directory of pages, which grows by replacing one array with another that
+// holds the same pages, so a reader that still has the old directory finds the same entry. The
+// claims of the arena protocol keep a slot from being released while a lookup holds it.
 internal sealed class RootTable
 {
     // The number of entries in one page.
@@ -105,6 +109,17 @@ internal sealed class RootTable
         }
 
         return ref EntryAt(handle.Slot);
+    }
+
+    // A reference to the entry in a slot, whatever lifetime it holds at the moment, for a caller that
+    // knows by other means which lifetime that is: the primary index of String keys, whose keys name
+    // the slot of the live root they belong to (Engine.Entities.TextKey). The reference has the
+    // lifetime Entry describes. ArgumentOutOfRangeException for a slot that was never given out.
+    public ref RootEntry EntryOfSlot(uint slot)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, (uint)_nextUnusedSlot);
+
+        return ref EntryAt(slot);
     }
 
     // Ends the lifetime the handle names, and the handle is no longer current. The entry becomes

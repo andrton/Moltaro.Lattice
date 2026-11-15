@@ -1,15 +1,22 @@
+using System.Collections.Concurrent;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Access.Batches;
+using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Positions;
+using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Engine.Sets;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine;
 
 // The database of the engine: an ILatticeDatabase over the native arena, the table of root
 // entries and the root layouts of this assembly, with the primary index. It is what the public
-// contract runs on once the placeholder of the core library is gone.
-//
-// Not implemented yet: Create and every member throw NotSupportedException. What follows is what
-// Epic 1, sprint S06, implements; the details are in its brief, in "What the engine does where
-// the block above does not say".
+// contract runs on once the placeholder of the core library is gone. In S06 it is a MemoryOnly
+// master that inserts, reads, replaces, upserts and deletes entities of scalar fields by primary
+// key, by class and by name (brief of Epic 1, sprint S06).
 //
 // How a test reaches it. Until S12 LatticeDatabase still opens the placeholder, and a test opens
 // the engine through Create, the internal entry of exception X4 (docs/work/exceptions.md): only
@@ -27,50 +34,29 @@ namespace Moltaro.Lattice.Engine;
 // block fails the open with InvalidSchema, and an entity type with a field the engine cannot
 // store yet gets no layout (the planner's answer to point 1 of Q35). A failed open closes the
 // instance. Before the open an operation is Unavailable; after a close it is
-// ObjectDisposedException. A close waits for the reads in progress before it frees the arena.
+// ObjectDisposedException. A close waits for the reads in progress before it frees the arena
+// (CloseBarrier): every read and write enters the barrier before it touches the database, and the
+// arena is freed by the last one to leave after the close, or by the close when none is in
+// progress. A wait for a position ends with the close.
+//
+// What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
+// for each entity type, with its root layout and its primary index), the writes in Writes
+// (WriteExecutor), the gates, the lookup claims and the barrier of the close in Protection (with
+// the order of the locks, RootGates), the history and the sequence in Positions (PositionClock), and
+// the sets of the public interfaces in Sets.
 //
 // Position and revision. Each open has a new random non-zero history; the sequence is 0 and grows
-// by 1 with each published write. A revision is the history and the root entry's
-// LastMutationSequence: in S06 every position changes one entity, so the revision of one entity
-// never satisfies a condition on another, and a recreated entity has a new one. LatticeRevision is
-// two opaque 64-bit values, so this composition is internal and can change; how a revision binds
-// its entity when several entities change at one position belongs to the stage with the batch
-// (milestone contract, "Write coordinator and revision semantics"; D4 of Epic 1).
-//
-// A read of one entity. A read by key copies one state of one entity under the protection of its
-// root, which covers every block the root owns, and returns an owned copy; it holds nothing once
-// it has returned. It finds the root through a claim on its entry, taken under the catalog gate,
-// and never waits for a root while it holds that gate. An entity deleted before the read reaches
-// it is absent, never the values of another entity (milestone contract, "Reader protection,
-// publication and compaction"; Q06 and Q06.1 of the decision on memory and access; the planner's
-// answer to Q32). It allocates the returned copy, the object or the record with everything
-// reachable from it, and nothing else; a key boxed by a public signature that takes object is the
-// caller's allocation. The sets of the core box the key and pass an array, so the engine has sets
-// of its own.
-//
-// A write of one entity. A write is atomic for its entity: it is checked and prepared before
-// anything is published, and a write that fails leaves nothing behind. In S06 writes are executed
-// one after another; the write coordinator comes with S09. No lock is held across an await.
+// by 1 with each published write, also one that changed nothing (the owner's answer to Q39). A
+// revision is the history and the root entry's LastMutationSequence: in S06 every position
+// changes at most one entity, so the revision of one entity never satisfies a condition on another,
+// and a recreated entity has a new one. LatticeRevision is two opaque 64-bit values, so this
+// composition is internal and can change; how a revision binds its entity when several entities
+// change at one position belongs to the stage with the batch (milestone contract, "Write
+// coordinator and revision semantics"; D4 of Epic 1).
 //
 // The limits before S09. The arena gets half of GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
-// read at open, and an entity at most 1 MiB, as internal values that S09 turns into options; a
-// refusal is WriteRejected without a Limit until S09.
-//
-// What is refused until a later sprint. Until S07 the engine accepts the key types the three test
-// classes of S06 use: Int64, and String with Ordinal comparison, Plain storage and UTF-8. It
-// refuses with NotSupportedException everything the public documentation says is not stored yet,
-// and every other key type: another key type, a field compared without case, an Enum field and a
-// schema in UTF-16 until S07; Dictionary storage until S13; a unique index until S16; owned
-// values, collections and references until S18 and S19. Every write of such an entity type, an
-// insert, a replace, an upsert or a delete, with or without a revision, is refused at the write,
-// after the checks of its arguments and the validation of the entity (Q25); a read of it by key
-// finds nothing, and an enumeration of it is empty. Binding a class and Index(name) work.
-//
-// Enumeration until S08. An enumeration is lazy, holds nothing between items and claims each
-// entry as a read by key does. It fails with NotSupportedException from the MoveNext that sees
-// the primary index of its entity type changed, by an insert or a delete; a replace does not
-// change it. What the enumeration returned before stays valid. Until S08 the primary index grows
-// under exclusive protection.
+// read at open, and an entity at most 1 MiB (WriteExecutor.MaxEntitySize), as internal values that
+// S09 turns into options; a refusal is WriteRejected without a Limit until S09.
 //
 // Sessions and the write batch. On a master the members that take a session, and
 // WaitForPositionAsync, are served: a master has applied every position it gave out.
@@ -78,41 +64,318 @@ namespace Moltaro.Lattice.Engine;
 // NotSupportedException until S17.
 internal sealed class EngineDatabase : ILatticeDatabase
 {
+    private readonly LatticeDatabaseOptions _options;
+
+    // Guards the changes of the state: an open and a close that race.
+    private readonly Lock _stateLock = new();
+
+    private readonly CloseBarrier _barrier;
+
+    // The sets of classes, made once for each class and shared.
+    private readonly ConcurrentDictionary<Type, object> _classSets = new();
+
+    private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
+
+    // The parts of the open database. Set by the open before the state becomes Ready, which a member
+    // reads first, and never changed afterwards.
+    private LatticeSchema? _schema;
+
+    private Arena? _arena;
+
+    private RootGates? _gates;
+
+    private LookupClaims? _claims;
+
+    private PositionClock? _clock;
+
+    // The lock of the writes, which the counters take as well (WriteExecutor).
+    private Lock? _writes;
+
+    private Dictionary<LatticeEntityType, SetOperations>? _operations;
+
+    private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
+
+    private EngineDatabase(LatticeDatabaseOptions options)
+    {
+        _options = options;
+        _barrier = new CloseBarrier(this);
+    }
+
     // Makes an instance for the options without opening it. In S06 a MemoryOnly master.
-    public static EngineDatabase Create(LatticeDatabaseOptions options) => throw NotImplemented();
+    public static EngineDatabase Create(LatticeDatabaseOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
 
-    // What the engine holds at this moment, for the tests and later for diagnostics.
-    public EngineCounters Counters => throw NotImplemented();
+        if (options.PersistenceMode == LatticePersistenceModeEnum.Durable)
+        {
+            throw new NotSupportedException("Durable persistence is not implemented yet in the engine. Select MemoryOnly explicitly.");
+        }
 
-    public LatticeDatabaseStateEnum State => throw NotImplemented();
+        if (options.Role == LatticeRoleEnum.Child)
+        {
+            throw new NotSupportedException("A child is not implemented yet in the engine.");
+        }
 
-    public LatticeSchema Schema => throw NotImplemented();
+        if (options.ListenUri is not null)
+        {
+            throw new NotSupportedException("A master that accepts children at a ListenUri is not implemented yet in the engine.");
+        }
 
-    public LatticePosition Position => throw NotImplemented();
+        return new EngineDatabase(options);
+    }
 
-    public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default) =>
-        throw NotImplemented();
+    // What the engine holds at this moment, for the tests and later for diagnostics: taken between
+    // two writes, under the lock of the writes, and under the catalog gate, so that no write and no
+    // release of an entry by a lookup is half done.
+    public EngineCounters Counters
+    {
+        get
+        {
+            ThrowIfNotReady();
+            _barrier.Enter();
 
-    public ValueTask WaitForPositionAsync(LatticeSession session, CancellationToken cancellationToken = default) =>
-        throw NotImplemented();
+            try
+            {
+                lock (_writes!)
+                {
+                    _gates!.Catalog.EnterReadLock();
 
-    public ValueTask OpenAsync(CancellationToken cancellationToken = default) => throw NotImplemented();
+                    try
+                    {
+                        var indexBytes = 0L;
+
+                        foreach (var operations in _operations!.Values)
+                        {
+                            indexBytes += operations.Table.IndexBytes;
+                        }
+
+                        return new EngineCounters(_arena!.Counters, indexBytes, _claims!.Table.Count, (long)_clock!.Sequence);
+                    }
+                    finally
+                    {
+                        _gates.Catalog.ExitReadLock();
+                    }
+                }
+            }
+            finally
+            {
+                _barrier.Exit();
+            }
+        }
+    }
+
+    public LatticeDatabaseStateEnum State => _state;
+
+    public LatticeSchema Schema
+    {
+        get
+        {
+            ThrowIfNotReady();
+
+            return _schema!;
+        }
+    }
+
+    public LatticePosition Position
+    {
+        get
+        {
+            ThrowIfNotReady();
+
+            return _clock!.Position;
+        }
+    }
+
+    public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        if (!position.IsValid)
+        {
+            throw new ArgumentException("The default value is not a position.", nameof(position));
+        }
+
+        if (timeout is { } requested && !LatticeDatabaseOptions.IsFiniteTimeout(requested))
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "The timeout must be finite and positive.");
+        }
+
+        ThrowIfNotReady();
+
+        return _clock!.WaitAsync(position, timeout ?? _options.SynchronizationTimeout, cancellationToken);
+    }
+
+    public ValueTask WaitForPositionAsync(LatticeSession session, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ThrowIfNotReady();
+
+        return _clock!.WaitAsync(session, _options.SynchronizationTimeout, cancellationToken);
+    }
+
+    // Opens the database: compiles the root layout of every entity type and makes the parts of an
+    // empty database, then becomes Ready. Its work is synchronous and short, so it completes before
+    // it returns. A failure, and a cancellation before it starts, close the instance.
+    public ValueTask OpenAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_stateLock)
+        {
+            if (_state == LatticeDatabaseStateEnum.Closed)
+            {
+                return ValueTask.FromException(new ObjectDisposedException(GetType().FullName));
+            }
+
+            if (_state != LatticeDatabaseStateEnum.Created)
+            {
+                return ValueTask.FromException(new InvalidOperationException("The database has already been opened."));
+            }
+
+            _state = LatticeDatabaseStateEnum.Loading;
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Load();
+        }
+        catch (Exception exception)
+        {
+            _ = CloseAsync(CancellationToken.None);
+
+            return ValueTask.FromException(exception);
+        }
+
+        return ValueTask.CompletedTask;
+    }
 
     public ILatticeSet<TEntity> Set<TEntity>()
-        where TEntity : class =>
-        throw NotImplemented();
+        where TEntity : class
+    {
+        ThrowIfNotReady();
 
-    public ILatticeSet Set(string entityName) => throw NotImplemented();
+        // A class that does not bind throws from the factory, and nothing is kept for it.
+        return (ILatticeSet<TEntity>)_classSets.GetOrAdd(typeof(TEntity), static (_, database) => database.ClassSetOf<TEntity>(), this);
+    }
 
-    public ILatticeWriteBatch CreateWriteBatch() => throw NotImplemented();
+    public ILatticeSet Set(string entityName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(entityName);
+        ThrowIfNotReady();
 
-    public ValueTask CloseAsync(CancellationToken cancellationToken = default) => throw NotImplemented();
+        return _schema!.TryGetEntityType(entityName, out var entityType)
+            ? _recordSets![entityType]
+            : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
+    }
 
-    public ValueTask DisposeAsync() => throw NotImplemented();
+    public ILatticeWriteBatch CreateWriteBatch()
+    {
+        ThrowIfNotReady();
 
-    public void Dispose() => throw NotImplemented();
+        return new WriteBatch(_schema!);
+    }
 
-    // The one refusal of every member until S06 implements the engine database.
-    private static NotSupportedException NotImplemented() =>
-        new("The engine database of Epic 1, sprint S06, is not implemented yet.");
+    // Lets no operation start any more, ends the waits for a position, and frees the arena once the
+    // reads and writes in progress have ended. The cancellation token ends only the wait for that:
+    // the database still closes, and the last operation to end frees the arena.
+    public ValueTask CloseAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_stateLock)
+        {
+            if (_state == LatticeDatabaseStateEnum.Closed)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            _state = LatticeDatabaseStateEnum.Closed;
+        }
+
+        _clock?.Close();
+
+        // The arena is the only native memory of the database; everything else is managed.
+        var drained = _barrier.Close(() => _arena?.Dispose());
+
+        return drained.IsCompleted ? ValueTask.CompletedTask : new ValueTask(drained.WaitAsync(cancellationToken));
+    }
+
+    public ValueTask DisposeAsync() => CloseAsync();
+
+    public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
+
+    // Builds the parts of the open database and makes it Ready. A close that came while it loaded
+    // wins: what was built is freed, and the open fails with ObjectDisposedException.
+    private void Load()
+    {
+        var schema = _options.Schema!;
+
+        // The memory of the process, as .NET reports it: half of it for the arena (brief of S06,
+        // "The limits before S09"; the owner's answer to Q37).
+        var arena = new Arena(new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 });
+
+        try
+        {
+            var gates = new RootGates();
+            var claims = new LookupClaims(new RootTable(), gates);
+
+            // A new history at every open: nothing of a MemoryOnly database survives it, so no
+            // position of an earlier run may be taken for one of this run.
+            var clock = new PositionClock((ulong)Random.Shared.NextInt64(1, long.MaxValue), this);
+            var writes = new Lock();
+            var executor = new WriteExecutor(writes, arena, gates, claims, clock, _barrier, _options.SynchronizationTimeout);
+            var operations = new Dictionary<LatticeEntityType, SetOperations>();
+            var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
+
+            foreach (var entityType in schema.EntityTypes)
+            {
+                var table = EntityTable.Open(entityType, schema, arena, gates, claims, clock, _barrier);
+                var forType = new SetOperations(table, executor, clock, _options.SynchronizationTimeout);
+
+                operations.Add(entityType, forType);
+                recordSets.Add(entityType, new RecordSet(forType));
+            }
+
+            lock (_stateLock)
+            {
+                if (_state == LatticeDatabaseStateEnum.Closed)
+                {
+                    throw new ObjectDisposedException(GetType().FullName);
+                }
+
+                _schema = schema;
+                _arena = arena;
+                _gates = gates;
+                _claims = claims;
+                _clock = clock;
+                _writes = writes;
+                _operations = operations;
+                _recordSets = recordSets;
+                _state = LatticeDatabaseStateEnum.Ready;
+            }
+        }
+        catch
+        {
+            // Nothing was published; the arena has no segment yet, so this frees nothing that a reader
+            // could reach.
+            arena.Dispose();
+            throw;
+        }
+    }
+
+    private ClassSet<TEntity> ClassSetOf<TEntity>()
+        where TEntity : class
+    {
+        var binding = EntityBinding<TEntity>.For(_schema!);
+
+        return new ClassSet<TEntity>(_operations![binding.EntityType], binding);
+    }
+
+    private void ThrowIfNotReady()
+    {
+        var state = _state;
+
+        ObjectDisposedException.ThrowIf(state == LatticeDatabaseStateEnum.Closed, this);
+
+        if (state != LatticeDatabaseStateEnum.Ready)
+        {
+            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The database is {state}, not Ready.");
+        }
+    }
 }

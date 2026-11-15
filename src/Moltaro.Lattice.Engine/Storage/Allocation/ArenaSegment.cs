@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Storage.Allocation;
 // The segment owns its native memory from its construction, which obtains it from the arena's
 // NativeAllocator, until Release, which returns it there. Only the arena calls Release, once per
 // segment: when the segment is left empty and the reserve has no room for it, and when the arena
-// is disposed. Like the arena, it takes no lock and is used by one thread at a time in S04.
+// is disposed. Like the arena, it takes no lock: one thread at a time changes it, and readers of a
+// block only read the bits of the block's own slot (Arena, "Who uses the arena at the same time").
 internal sealed unsafe class ArenaSegment
 {
     // The bytes of one region: the largest block, so that a region of every class holds at least
@@ -34,10 +35,16 @@ internal sealed unsafe class ArenaSegment
     // because each block clears its bit when it is freed.
     private readonly ulong[] _slotBits;
 
+    // One bit per slot, in the same order: set while the block in the slot is prepared, allocated
+    // for a write that has not published it yet (Arena.TryAllocatePrepared). It is clear for every
+    // free slot, because a block clears it when it is published or freed.
+    private readonly ulong[] _preparedBits;
+
     public ArenaSegment(int size, NativeAllocator allocator)
     {
         Regions = new ArenaRegion[size / RegionSize];
         _slotBits = new ulong[Regions.Length * SlotWordsPerRegion];
+        _preparedBits = new ulong[_slotBits.Length];
 
         // The native memory comes last. If the metadata cannot be allocated, nothing native is held
         // yet; if the native allocation fails, the metadata is left to the collector.
@@ -92,6 +99,19 @@ internal sealed unsafe class ArenaSegment
     // Whether the slot of the region holds an allocated block.
     public bool IsAllocated(int region, int slot) =>
         (_slotBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;
+
+    // Whether the block in the slot of the region is prepared.
+    public bool IsPrepared(int region, int slot) =>
+        (_preparedBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;
+
+    // Marks the block in the slot of the region as prepared, or as no longer prepared.
+    public void SetPrepared(int region, int slot, bool prepared)
+    {
+        ref var word = ref _preparedBits[region * SlotWordsPerRegion + slot / 64];
+        var bit = 1UL << (slot % 64);
+
+        word = prepared ? word | bit : word & ~bit;
+    }
 
     // Returns the native memory to the allocator it came from. Every address into it is then refused
     // by the arena, which no longer holds this segment.

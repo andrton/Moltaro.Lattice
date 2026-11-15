@@ -15,7 +15,7 @@ public sealed class FailedWriteTests
     // S06, "The limits before S09").
     private const int EntityLimit = 1024 * 1024;
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Write_that_fails_validation_or_is_refused_leaves_nothing_in_any_counter()
     {
         await using var database = await PieceSchema.OpenAsync();

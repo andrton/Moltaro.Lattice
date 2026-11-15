@@ -51,7 +51,7 @@ public sealed class NotStoredYetTests
 
     public static TheoryData<string> CaseNames => [.. Cases.Keys];
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [MemberData(nameof(CaseNames))]
     public async Task Every_write_of_an_entity_type_the_engine_cannot_store_yet_is_not_supported(string caseName)
     {
@@ -68,7 +68,7 @@ public sealed class NotStoredYetTests
         await @case.Class.ExpectEveryWriteNotSupportedAsync(database);
     }
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [MemberData(nameof(CaseNames))]
     public async Task Write_of_such_an_entity_type_checks_its_arguments_and_validates_the_entity_before_it_is_refused(string caseName)
     {
@@ -91,7 +91,7 @@ public sealed class NotStoredYetTests
         await @case.Class.ExpectValidatedFirstAsync(database);
     }
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [MemberData(nameof(CaseNames))]
     public async Task Read_of_such_an_entity_type_by_key_finds_nothing_and_an_enumeration_of_it_is_empty(string caseName)
     {
@@ -109,7 +109,7 @@ public sealed class NotStoredYetTests
         await @case.Class.ExpectNothingReadAsync(database);
     }
 
-    [Theory(Skip = NotImplemented.EngineDatabase)]
+    [Theory]
     [MemberData(nameof(CaseNames))]
     public async Task Class_of_such_an_entity_type_binds_and_its_index_is_selected(string caseName)
     {

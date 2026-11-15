@@ -31,6 +31,13 @@ internal sealed class EntityBinding<TEntity>
 
     public LatticeEntityType EntityType { get; }
 
+    // The property of every field, by LatticeField.Ordinal, for a reader that sets the stored values
+    // without boxing them: the engine, which compiles its own setters from their accessors.
+    public IReadOnlyList<BoundProperty> Properties => _properties;
+
+    // A new object of the class, made by its public parameterless constructor.
+    public TEntity CreateObject() => _create();
+
     public static EntityBinding<TEntity> For(LatticeSchema schema) => Cache.GetValue(schema, Create);
 
     private static EntityBinding<TEntity> Create(LatticeSchema schema)
@@ -92,7 +99,8 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Writes a stored value of a field that is not an owned value or a collection to its
-    // property: as it is, or converted to the .NET enum that the property is declared as.
+    // property: as it is, or converted to the .NET enum that the property is declared as. The value
+    // is set through the set accessor C# sees for the property, called virtually.
     private static Action<TEntity, object?>? Setter(BoundProperty property)
     {
         var declaration = property.Field.Declaration;
@@ -104,10 +112,8 @@ internal sealed class EntityBinding<TEntity>
         var entity = Expression.Parameter(typeof(TEntity), "entity");
         var value = Expression.Parameter(typeof(object), "value");
         var stored = Expression.Convert(value, declaration.PositionType);
-        var member = Expression.Property(entity, property.Property);
+        var set = Expression.Call(entity, property.SetAccessor, Expression.Convert(stored, property.Property.PropertyType));
 
-        return Expression
-            .Lambda<Action<TEntity, object?>>(Expression.Assign(member, Expression.Convert(stored, property.Property.PropertyType)), entity, value)
-            .Compile();
+        return Expression.Lambda<Action<TEntity, object?>>(set, entity, value).Compile();
     }
 }

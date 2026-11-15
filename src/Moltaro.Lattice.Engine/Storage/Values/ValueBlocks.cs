@@ -45,12 +45,14 @@ internal static class ValueBlocks
     // the blocks already allocated for the value are freed first and place is left as it was. The
     // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
     // or nothing (brief of S05, "The size of an entity").
-    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, int length, ref ValueSource source, scoped Span<byte> place)
+    //
+    // The blocks are prepared when prepared is true (Arena.TryAllocatePrepared), and live otherwise.
+    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, bool prepared, int length, ref ValueSource source, scoped Span<byte> place)
     {
         if (length <= RootLayout.SingleBlockLimit)
         {
             // One block: it is allocated or, when the allocation fails, nothing is.
-            if (!TryAllocate(arena, length, BlockKindEnum.Value, root, layoutVersion, default, 0, out var block))
+            if (!TryAllocate(arena, length, BlockKindEnum.Value, root, layoutVersion, prepared, default, 0, out var block))
             {
                 return false;
             }
@@ -63,7 +65,7 @@ internal static class ValueBlocks
 
         var chunks = (int)ChunkCount(length);
 
-        if (!TryAllocate(arena, chunks * DescriptorSize, BlockKindEnum.ChunkDirectory, root, layoutVersion, default, 0, out var directory))
+        if (!TryAllocate(arena, chunks * DescriptorSize, BlockKindEnum.ChunkDirectory, root, layoutVersion, prepared, default, 0, out var directory))
         {
             return false;
         }
@@ -84,7 +86,7 @@ internal static class ValueBlocks
                 var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
                 var entryOffset = chunk * DescriptorSize;
 
-                if (!TryAllocate(arena, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                if (!TryAllocate(arena, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, prepared, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
                 {
                     Free(arena, stored);
 
@@ -152,6 +154,30 @@ internal static class ValueBlocks
         }
     }
 
+    // Publishes every block of a value that TryStore stored as prepared: its value block, or its
+    // chunks and their directory (Arena.Publish). A value inline or null owns no block.
+    public static void Publish(Arena arena, in ValueDescriptor descriptor)
+    {
+        switch (descriptor.Kind)
+        {
+            case DescriptorKindEnum.Block:
+                arena.Publish(AddressOf(descriptor));
+                break;
+
+            case DescriptorKindEnum.Chunked:
+                var directory = AddressOf(descriptor);
+                var entries = arena.Payload(directory);
+
+                for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
+                {
+                    arena.Publish(AddressOf(Read(entries[entryOffset..])));
+                }
+
+                arena.Publish(directory);
+                break;
+        }
+    }
+
     // The bytes of a value that lies in one piece: inline in the root block, whose payload is given,
     // or in its one value block.
     public static ReadOnlySpan<byte> Contiguous(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload) =>
@@ -169,6 +195,38 @@ internal static class ValueBlocks
         var entry = Read(entries[(chunk * DescriptorSize)..]);
 
         return arena.Payload(AddressOf(entry))[..(int)entry.Length];
+    }
+
+    // Whether the bytes of a value from offset on begin with the given bytes, wherever the value
+    // lies; the caller has checked that offset plus their length is within the value. Every chunk
+    // but the last holds ChunkPayload bytes, so the chunk of an offset is found by arithmetic.
+    public static bool RangeEquals(Arena arena, in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload, long offset, ReadOnlySpan<byte> bytes)
+    {
+        if (descriptor.Kind != DescriptorKindEnum.Chunked)
+        {
+            return Contiguous(arena, descriptor, rootPayload).Slice((int)offset, bytes.Length).SequenceEqual(bytes);
+        }
+
+        var entries = Directory(arena, descriptor);
+        var chunk = (int)(offset / RootLayout.ChunkPayload);
+        var within = (int)(offset % RootLayout.ChunkPayload);
+
+        while (!bytes.IsEmpty)
+        {
+            var stored = Chunk(arena, entries, chunk)[within..];
+            var length = Math.Min(stored.Length, bytes.Length);
+
+            if (!stored[..length].SequenceEqual(bytes[..length]))
+            {
+                return false;
+            }
+
+            bytes = bytes[length..];
+            chunk++;
+            within = 0;
+        }
+
+        return true;
     }
 
     // Copies the bytes of a value, wherever it lies, into a destination of its length.
@@ -193,20 +251,25 @@ internal static class ValueBlocks
         }
     }
 
-    // Allocates a block of a root and completes its header: TryAllocate writes the root, the kind and
-    // the length; the layout version, the parent and the offset of the descriptor in the parent are
-    // written here.
+    // Allocates a block of a root, prepared or live, and completes its header: the arena writes the
+    // root, the kind and the length; the layout version, the parent and the offset of the descriptor
+    // in the parent are written here.
     private static bool TryAllocate(
         Arena arena,
         int payloadLength,
         BlockKindEnum kind,
         RootHandle root,
         uint layoutVersion,
+        bool prepared,
         ArenaAddress parent,
         uint descriptorOffset,
         out ArenaAddress address)
     {
-        if (!arena.TryAllocate(payloadLength, kind, root, out address))
+        var allocated = prepared
+            ? arena.TryAllocatePrepared(payloadLength, kind, root, out address)
+            : arena.TryAllocate(payloadLength, kind, root, out address);
+
+        if (!allocated)
         {
             return false;
         }

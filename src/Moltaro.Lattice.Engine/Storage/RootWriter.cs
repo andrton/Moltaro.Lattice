@@ -36,6 +36,11 @@ namespace Moltaro.Lattice.Storage;
 // field is not set, as after any refused call, and the writer stays usable, so the caller may set
 // the field again, complete or abandon.
 //
+// The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
+// prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
+// prepared until the write is published with RootStorage.Publish (brief of S06, the planner's
+// answer to Q30).
+//
 // A writer ends in one of two ways. Complete checks the root as a whole and returns the address of
 // its root block; the root then belongs to the caller, who publishes it (S06) and frees it later
 // with RootStorage.Free. Abandon frees everything the writer allocated. After Complete, whether
@@ -67,6 +72,9 @@ internal ref struct RootWriter
 
     private readonly int _maxEntitySize;
 
+    // Whether the blocks are allocated prepared.
+    private readonly bool _prepared;
+
     // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
@@ -88,9 +96,15 @@ internal ref struct RootWriter
     private WriterStateEnum _state;
 
     // Starts a root of the entity type of the layout, in the arena, for the root that the handle
-    // names, with the limit maxEntitySize. Refuses a null arena or layout with
+    // names, with the limit maxEntitySize, in live blocks. Refuses a null arena or layout with
     // ArgumentNullException, and a maxEntitySize below 1 with ArgumentOutOfRangeException.
     public RootWriter(Arena arena, RootLayout layout, RootHandle root, int maxEntitySize)
+        : this(arena, layout, root, maxEntitySize, prepared: false)
+    {
+    }
+
+    // The same, in prepared blocks when prepared is true.
+    public RootWriter(Arena arena, RootLayout layout, RootHandle root, int maxEntitySize, bool prepared)
     {
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
@@ -100,6 +114,7 @@ internal ref struct RootWriter
         _layout = layout;
         _root = root;
         _maxEntitySize = maxEntitySize;
+        _prepared = prepared;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
         _entitySize = layout.FixedSize;
@@ -335,8 +350,8 @@ internal ref struct RootWriter
     // is null. Refuses with LatticeException: ValidationFailed when a field that is not nullable was
     // never set; WriteRejected when the entity is over maxEntitySize, when the arena is out of
     // memory for it, or when a value needs more chunks than one directory block holds. When it
-    // fails, everything the writer allocated is freed: LiveBytes and ClassSlackBytes of the arena
-    // are as they were before the writer, while a segment the arena obtained for the writer may
+    // fails, everything the writer allocated is freed: LiveBytes, ClassSlackBytes and PreparedBytes
+    // of the arena are as they were before the writer, while a segment the arena obtained for the writer may
     // stay in its reserve, so Segments and ReservedSegments may differ.
     public ArenaAddress Complete()
     {
@@ -376,7 +391,12 @@ internal ref struct RootWriter
 
         try
         {
-            if (!_arena.TryAllocate(_rootBytes - BlockHeader.Size, BlockKindEnum.Root, _root, out root))
+            var payloadLength = _rootBytes - BlockHeader.Size;
+            var allocated = _prepared
+                ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
+                : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
+
+            if (!allocated)
             {
                 throw Refuse(LatticeErrorEnum.WriteRejected, $"The arena has no room for the entity of {_layout.EntityType.Name}.");
             }
@@ -490,7 +510,7 @@ internal ref struct RootWriter
         {
             _tooManyChunks = true;
         }
-        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, (int)length, ref source, descriptor))
+        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, (int)length, ref source, descriptor))
         {
             _refusedByArena = true;
         }

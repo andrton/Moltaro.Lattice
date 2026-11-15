@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // rules of S05.
 public sealed class ArenaCounterTests
 {
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Arena_holds_what_the_entities_hold_after_every_write()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -64,7 +64,7 @@ public sealed class ArenaCounterTests
         }
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Nothing_is_prepared_or_retired_once_replaces_raced_by_reads_have_returned()
     {
         await using var database = await PieceSchema.OpenAsync();

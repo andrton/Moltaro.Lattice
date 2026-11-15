@@ -10,12 +10,11 @@ namespace Moltaro.Lattice.Tests.Binding;
 // is BindingFailed with the member named: the hidden property is not bound in its place. Both rules
 // hold for the class of an owned type as for the class of an entity type.
 //
-// Both are fixes of the binding in the core library. Until they are made, a class that overrides one
-// accessor is BindingFailed and a hidden property binds; these tests are skipped with their own
-// reason.
+// Both are fixes of the binding in the core library, made in S06: before them, a class that
+// overrode one accessor was BindingFailed and a hidden property bound.
 public sealed class InheritedMemberTests
 {
-    [Theory(Skip = NotImplemented.BindingFixes)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Class_that_overrides_only_the_get_accessor_binds_and_is_set_through_the_accessor_of_its_base_class(DatabaseImplementationEnum implementation)
     {
@@ -37,7 +36,7 @@ public sealed class InheritedMemberTests
         Assert.Equal("WRITTEN", records.Get(2L)!["Text"]);
     }
 
-    [Theory(Skip = NotImplemented.BindingFixes)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Class_that_overrides_only_the_set_accessor_binds_and_is_read_through_the_accessor_of_its_base_class(DatabaseImplementationEnum implementation)
     {
@@ -58,7 +57,7 @@ public sealed class InheritedMemberTests
         Assert.Equal("written", records.Get(2L)!["Text"]);
     }
 
-    [Theory(Skip = NotImplemented.BindingFixes)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Class_of_an_owned_type_that_overrides_one_accessor_binds(DatabaseImplementationEnum implementation)
     {
@@ -73,14 +72,14 @@ public sealed class InheritedMemberTests
             new BindingSchema.Holder<SetterOverridingStamp> { Id = 1, Value = new SetterOverridingStamp { Text = "sealed" } });
     }
 
-    [Theory(Skip = NotImplemented.BindingFixes)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Public_field_that_hides_a_property_of_the_base_class_is_refused_with_the_member_named(DatabaseImplementationEnum implementation)
     {
         await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<FieldHidingNote>(), new FieldHidingNote { Id = 1 });
     }
 
-    [Theory(Skip = NotImplemented.BindingFixes)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Public_field_that_hides_a_property_in_the_class_of_an_owned_type_is_refused_with_the_member_named(DatabaseImplementationEnum implementation)
     {

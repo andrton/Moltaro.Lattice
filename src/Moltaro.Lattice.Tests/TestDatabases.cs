@@ -9,12 +9,11 @@ namespace Moltaro.Lattice.Tests;
 // opening differs: after it a test uses the public interfaces and nothing else.
 internal static class TestDatabases
 {
-    // The data of a theory that runs on both implementations. Its run on the engine is skipped until
-    // the engine database of S06 is implemented.
+    // The data of a theory that runs on both implementations.
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> Implementations =>
     [
         new(DatabaseImplementationEnum.Placeholder),
-        new(DatabaseImplementationEnum.Engine) { Skip = NotImplemented.EngineDatabase },
+        new(DatabaseImplementationEnum.Engine),
     ];
 
     // Creates a database without opening it, as LatticeDatabase.Create does.

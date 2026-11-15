@@ -75,7 +75,7 @@ public sealed class EnumerationTests
         Assert.Equal([1L, 2L, 3L, 4L, 5L], returned.Order());
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Enumeration_by_class_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
@@ -95,7 +95,7 @@ public sealed class EnumerationTests
         Assert.Equal([1L, 2L, 3L, 4L], users.Enumerate().Select(user => user.Id).Order());
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Enumeration_by_name_during_which_an_entity_is_deleted_fails_and_what_it_returned_stays_valid()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
@@ -114,7 +114,7 @@ public sealed class EnumerationTests
         Assert.Equal(2, users.Enumerate().Count());
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Enumeration_with_a_session_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid()
     {
         await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);

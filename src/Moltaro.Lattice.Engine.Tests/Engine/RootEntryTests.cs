@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // it, at once when there is none, otherwise by the reader that drops the last one.
 public sealed class RootEntryTests
 {
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task Table_of_root_entries_holds_one_entry_for_every_entity_and_none_of_a_deleted_one()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -51,7 +51,7 @@ public sealed class RootEntryTests
         Assert.Equal(8, database.Counters.RootEntries);
     }
 
-    [Fact(Skip = NotImplemented.EngineDatabase)]
+    [Fact]
     public async Task No_entry_of_a_deleted_entity_is_left_once_deletes_raced_by_reads_have_returned()
     {
         await using var database = await PieceSchema.OpenAsync();
