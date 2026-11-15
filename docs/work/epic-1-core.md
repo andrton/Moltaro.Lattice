@@ -68,6 +68,12 @@ entity types of scalar fields with the default text policies: read, enumerate, i
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
+**In the engine, not behind the contract yet.** Internal mechanisms of
+`Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
+arena of native memory — segments, size classes, regions, the block header, relative
+addresses, the reserve, the memory limit and its counters — and the table of root entries
+with generations (S04).
+
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
@@ -817,7 +823,7 @@ each when its sprint is prepared.
 The coordinator added the remark below while S01 was reviewed. It is settled in the same
 way, when its sprint is prepared.
 
-5. S01 created `Moltaro.Lattice.Engine` as a project that is not packed: it has no code,
+5. S01 created `Moltaro.Lattice.Engine` as a project that is not packed: it had no code,
    and the Publish workflow packs every packable project on a release tag. From S12 on
    the dependency injection package references the engine, and a package that depends on
    one that is never published cannot be restored; nothing in the build shows it. In the

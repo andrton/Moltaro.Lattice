@@ -40,6 +40,15 @@ in the meantime.
 | **Until answered** | Any set accessor binds; the documentation of `ILatticeDatabase.Set<TEntity>()` says "a public get and a set" and does not promise more. The review of S03 found two more edges of "the property C# finds by that name" that the brief does not settle and that belong to the same answer: a class that overrides only the getter of a virtual property is `BindingFailed`, although C# sees a get and a set there; and a public field that hides a property of the base class is not seen, so the property of the base class binds |
 | **Decides** | The planner, before the contracts of the stage with typed views (S22), whose generator has to know which properties of a class it may use |
 
+### Q31. Native bytes that no counter of the arena shows
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, implementation of Epic 1, sprint S04 |
+| **Question** | A region is 64 KiB and serves one size class. A class that does not divide 64 KiB leaves a tail at the end of each of its regions, at most 2,304 bytes (3.5 %) for the 3,328-byte class; and the free slots of a region that still holds blocks are counted nowhere either. `ArenaCounters` tells live bytes, class slack, free regions and the reserve apart, and neither the tails nor those free slots are in any of them, so the counters do not add up to the native capacity. Do the memory budget (S24), the memory gate (S25) and diagnostics (S39) need them as counters of their own, and is 64 KiB the region size they are judged with? |
+| **Until answered** | The arena of S04 has the counters its brief names and regions of 64 KiB, the implementer's choice. `Segments` times the segment size is the native capacity obtained; what the named counters do not cover is the tails and the free slots of regions in use |
+| **Decides** | The planner, before the contracts of the stage with the memory budget (S24) |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
