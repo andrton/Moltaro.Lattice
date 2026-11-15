@@ -34,7 +34,8 @@ storage encodings produce the same logical order; equivalent case-insensitive
 values remain tied without a hidden spelling tie-breaker.
 Encoding is selected in Q04.1; dictionary policy and scope are accepted in Q04.2
 and Q04.3; Q04.4 accepts stored-reference counts and deferred reclamation.
-The .NET ordinal comparison
+For comparison without case the addition of 15 November 2026 below replaces the
+reference to .NET with a case table of Lattice's own. The .NET ordinal comparison
 modes are the intended semantic reference, not a requirement to allocate a CLR string
 for every stored-value comparison.
 

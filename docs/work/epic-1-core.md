@@ -89,7 +89,10 @@ stores every key type of the catalog — the eight integers, String with either
 comparison, Guid —, a String field compared without case, Enum fields and a schema in
 UTF-16, through one comparison and hash service of the schema; the validation of the
 core checks enum values, and a write batch takes one operation per entity as the schema
-compares keys. The public entry keeps the refusals of the placeholder until S12.
+compares keys. Text compared without case is compared by a case table of Lattice's own
+in the core, the simple uppercase mapping of Unicode 16.0.0 in version 1 of the table,
+and not by the runtime: keys, Map keys, Set members and the identity of a batch read it
+through one rule. The public entry keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -260,14 +263,18 @@ documentation before this document is removed.
 | S05 | Bytes retained per user of the scalar form (100,000 users; live bytes and class slack of the arena), against 66 bytes of logical field sizes | 176 bytes, 2.67 times the logical size: 162 live and 14 slack; the fixed part of the root is 105 bytes | development | 15 November 2026 |
 | S05 | Bytes retained per setting of the scalar form (10,000 settings), against 160 bytes of logical field sizes | 288 bytes, 1.80 times the logical size: 288 live and no slack; the fixed part of the root is 96 bytes | development | 15 November 2026 |
 | S05 | Native capacity obtained per entity, with what no counter shows (Q31) | 209.72 bytes per user (5 segments), 419.43 per setting (1 segment) | development | 15 November 2026 |
-
 | S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
 | S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
-
-| S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | p50 300 to 400 ns, p99 1,400 to 1,900 ns, alike for a key compared with Ordinal, without case in the stored spelling, and without case in upper case | development-2 | 15 November 2026 |
+| S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | Ordinal: p50 400 to 500 ns, p99 1,600 to 2,000 ns. Without case, by the case table, in the stored spelling and in upper case: p50 400 to 500 ns, p99 1,600 to 2,100 ns; with the comparison of .NET before the table, p50 400 to 500 ns, p99 1,600 to 1,900 ns | development-2 | 15 November 2026 |
 
 The figure of S07 comes from the scenario `read-by-text-key`; its keys are 13 ASCII
-characters, and no key outside ASCII was measured.
+characters, and no key outside ASCII was measured by it. One hash and one equality of
+such a key cost about 40 ns by the table against 29 ns by .NET, and 94 ns against 73 ns
+for a key of 15 characters that starts in Cyrillic, in the implementer's own benchmark,
+not under a manifest. The table and `OrdinalIgnoreCase` of .NET 10 disagree on 16
+scalar values under ICU, 1,031 under NLS and 6 under invariant globalization; in every
+case the table holds equal what the runtime holds different. The table adds 17 KiB to
+the core assembly.
 
 The figures of S06 come from the scenario `read-by-key`
 (`dotnet run -c Release --project Moltaro.Lattice.Measurements -- read-by-key development-2`,
@@ -882,7 +889,7 @@ Why this order:
 | S04 | Arena | Full | Done |
 | S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Done |
-| S07 | Every key type and declared value | Full | Not started |
+| S07 | Every key type and declared value | Full | Done |
 | S08 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
@@ -2676,8 +2683,10 @@ fits, as before; a value that does not fit, a negative one for an unsigned key i
 is `ArgumentException`. A Guid key is given as a `Guid` and as nothing else: no text is
 parsed. A UInt64 key above the largest Int64 works like any other.
 
-A String key compared without case follows `StringComparison.OrdinalIgnoreCase` of .NET,
-the semantic reference Q04 names, with the same result in a UTF-8 and in a UTF-16
+A String key compared without case was first written to follow
+`StringComparison.OrdinalIgnoreCase` of .NET; the owner's decision on Q46, under "Also
+carried by this sprint" below, replaced that with the case table of Lattice's own. It was
+to have, and has, the same result in a UTF-8 and in a UTF-16
 database. Two keys that are equal under it are one key: an insert under another spelling
 of a stored key is `DuplicateKey`; a read, a replace, an upsert and a delete under another
 spelling address the stored entity. The primary key is immutable (accepted decision): the
@@ -2706,7 +2715,9 @@ commit of this sprint that touches those remarks; and the bound in a schema of t
 UTF-16 encoding gets its pair of cases here, where such a schema is first written:
 134,086,688 characters pass and 134,086,689 are `ValidationFailed`. The public "Not implemented yet" remarks on
 `OrdinalIgnoreCase`, on Enum fields and on UTF-16 stay true of the public entry until S12
-and are not edited in S07.
+and are not removed in S07; the remarks of `LatticeEnumType` gained the sentence that an
+invalid value is `ValidationFailed` before that refusal, because the validation of the
+core now checks it.
 
 **Carried by this sprint besides its own work**, under decision O16, after its
 implementation commit and tests first: the planner's answer to Q45 of the
