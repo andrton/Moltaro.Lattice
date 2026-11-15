@@ -16,7 +16,8 @@ internal enum DescriptorKindEnum : uint
 
     // The value lies whole in one block of its own, of kind Value, whose parent is the root block.
     // Length is its encoded bytes; Location is the relative address of that block, as
-    // ArenaAddress.Value gives it.
+    // ArenaAddress.Value gives it. In a chunk directory every descriptor has this kind and names one
+    // chunk: Length is the bytes of the value that chunk holds, Location its relative address.
     Block = 2,
 
     // The value lies in chunks, blocks of kind Chunk, in the order of its bytes. Length is its

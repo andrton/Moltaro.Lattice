@@ -17,7 +17,7 @@ public sealed class PlacementTests
         { 'Id': 5, 'Name': 'Thumbnail', 'Type': 'Binary', 'Nullable': true }
         """;
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_entity_whose_values_are_all_inline_is_one_block()
     {
         using var item = RootArena.Of(Fields);
@@ -34,7 +34,7 @@ public sealed class PlacementTests
         Assert.Equal(item.Layout.FixedSize + RootLayout.InlineLimit + 10, item.Arena.Counters.LiveBytes);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_above_the_inline_limit_adds_one_block_of_its_own()
     {
         using var item = RootArena.Of(Fields);
@@ -48,7 +48,7 @@ public sealed class PlacementTests
         Assert.Equal(item.Layout.FixedSize + 5 + (32 + RootLayout.InlineLimit + 1), item.Arena.Counters.LiveBytes);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_of_the_single_block_limit_still_has_one_block_of_its_own()
     {
         using var item = RootArena.Of(Fields);
@@ -62,7 +62,7 @@ public sealed class PlacementTests
         Assert.Equal(item.Layout.FixedSize + (32 + RootLayout.SingleBlockLimit), item.Arena.Counters.LiveBytes);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_above_the_single_block_limit_is_one_chunk_and_a_directory()
     {
         using var item = RootArena.Of(Fields);
@@ -77,7 +77,7 @@ public sealed class PlacementTests
         Assert.Equal(item.Layout.FixedSize + (32 + 16) + (32 + RootLayout.SingleBlockLimit + 1), item.Arena.Counters.LiveBytes);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_above_the_chunk_payload_is_a_full_chunk_a_partial_chunk_and_a_directory()
     {
         using var item = RootArena.Of(Fields);
@@ -93,7 +93,7 @@ public sealed class PlacementTests
             item.Arena.Counters.LiveBytes);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Several_large_values_of_one_entity_each_read_back_equal()
     {
         const string ManyFields = """
@@ -131,7 +131,7 @@ public sealed class PlacementTests
         Assert.Equal(StoredBytes.Of(item.Layout.FixedSize, a.Length, b.Length, c.Length, d.Length, e.Length, f.Length), StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_short_value_that_no_longer_fits_the_root_block_has_one_block_of_its_own()
     {
         // A fixed part of 65,526 bytes, 10 short of one block: 32 + 8 + 16 (the descriptor of Text)
@@ -159,7 +159,7 @@ public sealed class PlacementTests
         Assert.Equal(Payloads.Ascii(11), wide.Reader(outside).GetString(wide.Field("Text")));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_root_whose_fixed_part_fills_one_block_is_stored_and_read_back()
     {
         using var widest = new RootArena(WideSchema.Compile("Widest", decimals: 4_093, bytes: 8), "Widest");

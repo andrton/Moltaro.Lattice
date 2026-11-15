@@ -18,7 +18,7 @@ public sealed class RangeTests
         { 'Id': 4, 'Name': 'Word', 'UnderlyingType': 'UInt16', 'Members': [ { 'Name': 'One', 'Value': 1 } ] }
         """;
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("'Type': 'Int8'", "-129", "128", "-9223372036854775808", "9223372036854775807", "256", "-256")]
     [InlineData("'Type': 'Int16'", "-32769", "32768", "-9223372036854775808", "9223372036854775807", "65536")]
     [InlineData("'Type': 'Int32'", "-2147483649", "2147483648", "-9223372036854775808", "9223372036854775807", "4294967296")]
@@ -46,7 +46,7 @@ public sealed class RangeTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("'Type': 'UInt8'", "256", "65535", "18446744073709551615")]
     [InlineData("'Type': 'UInt16'", "65536", "18446744073709551615")]
     [InlineData("'Type': 'UInt32'", "4294967296", "18446744073709551615")]

@@ -39,7 +39,7 @@ public sealed class FieldOrderTests
         { 'Id': 3, 'Name': 'Wide', 'Type': 'Int32', 'Nullable': true }
         """;
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void The_fixed_size_does_not_depend_on_the_order_of_declaration()
     {
         var first = Layout(InIdentityOrder);
@@ -48,7 +48,7 @@ public sealed class FieldOrderTests
         Assert.Equal(first.FixedSize, second.FixedSize);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_root_written_with_one_order_of_declaration_reads_back_with_another()
     {
         using var written = RootArena.Of(InIdentityOrder);

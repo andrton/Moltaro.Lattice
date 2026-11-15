@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Scalars;
 // as a Guid, which compares all of them.
 public sealed class ExactValueRoundTripTests
 {
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Boolean_reads_back_as_written()
     {
         using var item = TypedItem.OfType("Boolean");
@@ -25,7 +25,7 @@ public sealed class ExactValueRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Decimal_reads_back_with_its_scale_and_its_sign()
     {
         decimal[] values =
@@ -51,7 +51,7 @@ public sealed class ExactValueRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Guid_reads_back_as_written()
     {
         Guid[] values =

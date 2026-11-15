@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Scalars;
 // Fields/NullAndMissingTests, and that a small integer is not widened in Layouts/FixedSizeTests.
 public sealed class IntegerRoundTripTests
 {
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Int8", (long)sbyte.MinValue, (long)sbyte.MaxValue)]
     [InlineData("Int16", (long)short.MinValue, (long)short.MaxValue)]
     [InlineData("Int32", (long)int.MinValue, (long)int.MaxValue)]
@@ -31,7 +31,7 @@ public sealed class IntegerRoundTripTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("UInt8", (ulong)byte.MaxValue)]
     [InlineData("UInt16", (ulong)ushort.MaxValue)]
     [InlineData("UInt32", (ulong)uint.MaxValue)]
@@ -53,7 +53,7 @@ public sealed class IntegerRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Neighbouring_small_integers_keep_their_own_values()
     {
         // Packed without padding, each field next to the other: a value that spilled into its

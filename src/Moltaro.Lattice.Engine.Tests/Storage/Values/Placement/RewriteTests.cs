@@ -19,7 +19,7 @@ public sealed class RewriteTests
         200_000, 0, RootLayout.SingleBlockLimit + 1, RootLayout.InlineLimit,
     ];
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Binary_value_written_again_longer_and_shorter_reads_back_equal_and_the_old_root_is_freed()
     {
         using var item = TypedItem.OfType("Binary");
@@ -52,7 +52,7 @@ public sealed class RewriteTests
         Assert.Equal(StoredBytes.Zero, StoredBytes.In(item.Arena));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void A_text_written_again_longer_and_shorter_reads_back_equal_and_the_old_root_is_freed(string encoding)
@@ -85,7 +85,7 @@ public sealed class RewriteTests
         Assert.Equal(StoredBytes.Zero, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void After_the_old_root_is_freed_the_arena_holds_what_an_arena_with_the_new_root_alone_holds()
     {
         // Measured, not computed: the same new root written into a fresh arena.
@@ -109,7 +109,7 @@ public sealed class RewriteTests
         Assert.Equal(StoredBytes.Zero, StoredBytes.In(rewritten.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_freed_root_is_no_longer_a_block_of_the_arena()
     {
         using var item = TypedItem.OfType("Binary");
@@ -121,7 +121,7 @@ public sealed class RewriteTests
         Assert.Equal(StoredBytes.Zero, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Freeing_a_root_does_not_touch_the_table_of_root_entries()
     {
         using var item = TypedItem.OfType("Binary");

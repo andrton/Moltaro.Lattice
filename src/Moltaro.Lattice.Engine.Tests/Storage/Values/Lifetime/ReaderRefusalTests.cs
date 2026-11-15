@@ -10,7 +10,7 @@ public sealed class ReaderRefusalTests
 {
     private const string Fields = "{ 'Id': 2, 'Name': 'Text', 'Type': 'String' }";
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_address_that_is_not_a_valid_block_is_refused()
     {
         using var item = RootArena.Of(Fields);
@@ -29,7 +29,7 @@ public sealed class ReaderRefusalTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_freed_root_is_refused()
     {
         using var item = RootArena.Of(Fields);
@@ -40,7 +40,7 @@ public sealed class ReaderRefusalTests
         Assert.Throws<ArgumentException>(() => item.Reader(root));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_block_that_is_not_a_root_is_refused()
     {
         using var item = RootArena.Of(Fields);
@@ -56,7 +56,7 @@ public sealed class ReaderRefusalTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData(0u)]
     [InlineData(2u)]
     [InlineData(uint.MaxValue)]

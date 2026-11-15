@@ -18,7 +18,7 @@ public sealed class GenerationTests
     // left out to keep the default lane fast; its records are counted and checked like the others.
     public static TheoryData<string> TwoForms => new(FixtureForms.Full, FixtureForms.Scalar);
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Generate_yields_121000_records_with_the_counts_of_the_table(string form)
     {
@@ -30,7 +30,7 @@ public sealed class GenerationTests
             records.CountBy(record => record.EntityType.Name).OrderBy(count => count.Key, StringComparer.Ordinal));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Every_record_is_of_an_entity_type_of_the_schema_and_has_every_field_set(string form)
     {
@@ -47,7 +47,7 @@ public sealed class GenerationTests
         }
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(TwoForms))]
     public void A_second_run_yields_the_same_records_in_the_same_order_and_the_same_digest(string form)
     {
@@ -72,7 +72,7 @@ public sealed class GenerationTests
         Assert.Equal(42, ReferenceFixture.Seed);
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void A_schema_that_is_neither_form_is_refused()
     {
         var unrelated = LatticeSchema.Compile("""

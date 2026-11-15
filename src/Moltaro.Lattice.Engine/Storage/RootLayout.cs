@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage;
 
@@ -22,6 +23,11 @@ namespace Moltaro.Lattice.Storage;
 // descriptors are: native memory is never a durable or a wire form, and the byte order of those
 // forms belongs to their sprints.
 //
+// The nullable fields have their bits in the order of their field identities, the first in the
+// lowest bit of the first byte. A bit is set while its field is null; the bits after the last
+// nullable field are zero. The bytes of a fixed field that is null are zero, and so is the
+// descriptor of a null String or Binary.
+//
 // A String or Binary value is placed by its encoded length; DescriptorKindEnum says what its
 // descriptor holds in each case:
 // - at most InlineLimit bytes: inline, in the root block after the fixed part, when the root block
@@ -38,11 +44,38 @@ namespace Moltaro.Lattice.Storage;
 // Text is Plain, every value stored on its own, in the database encoding that the schema declares
 // (LatticeSchema.StringEncoding, Q04.1): in a UTF-8 database the UTF-8 of its characters, in a
 // UTF-16 database its code units.
+//
+// The layout is compiled once into plain tables and never changes afterwards, so one layout can
+// serve any number of writers and readers on any number of threads.
 internal sealed class RootLayout
 {
+    // Every field by LatticeField.Ordinal, its position in the entity type: one array index finds
+    // it, without a lookup by name or by identity.
+    private readonly StoredField[] _fields;
+
+    // One bit for every field that is not nullable, by LatticeField.Ordinal: what Complete requires.
+    private readonly byte[] _requiredFields;
+
     // A layout is made by Compile only.
-    private RootLayout()
+    private RootLayout(
+        LatticeEntityType entityType,
+        LatticeStringEncodingEnum stringEncoding,
+        StoredField[] fields,
+        byte[] requiredFields,
+        int nullableCount,
+        int descriptorOffset,
+        int descriptorCount,
+        int fixedSize)
     {
+        EntityType = entityType;
+        StringEncoding = stringEncoding;
+        _fields = fields;
+        _requiredFields = requiredFields;
+        NullableCount = nullableCount;
+        DescriptorOffset = descriptorOffset;
+        DescriptorCount = descriptorCount;
+        FixedSize = fixedSize;
+        ImageCapacity = (int)Math.Min(fixedSize + (long)InlineLimit * descriptorCount, Arena.MaxBlockSize);
     }
 
     // Compiles the layout of an entity type of the schema; the schema gives what the entity type
@@ -54,23 +87,96 @@ internal sealed class RootLayout
     // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, with LatticeException,
     //   InvalidSchema, that names the entity type: the fixed part has to fit one block, and the
     //   milestone contract asks that an oversized fixed layout be reported before data is admitted.
-    public static RootLayout Compile(LatticeEntityType entityType, LatticeSchema schema) =>
-        throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
+    public static RootLayout Compile(LatticeEntityType entityType, LatticeSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(entityType);
+        ArgumentNullException.ThrowIfNull(schema);
+
+        // By reference: a schema compiled again from the same descriptor has entity types of its own.
+        if (!schema.EntityTypes.Contains(entityType))
+        {
+            throw new ArgumentException($"The entity type {entityType.Name} is not an entity type of the given schema.", nameof(entityType));
+        }
+
+        var declared = entityType.Fields;
+
+        foreach (var field in declared)
+        {
+            ThrowIfNotStorable(entityType, field);
+        }
+
+        var inIdentityOrder = declared.OrderBy(field => field.Id).ToArray();
+        var fields = new StoredField[declared.Count];
+        var requiredFields = new byte[BitBytes(declared.Count)];
+        var nullBits = new int[declared.Count];
+        var nullableCount = 0;
+
+        // The bits of the null bitmap go to the nullable fields in identity order, whatever their type.
+        foreach (var field in inIdentityOrder)
+        {
+            if (field.Declaration.IsNullable)
+            {
+                nullBits[field.Ordinal] = nullableCount++;
+            }
+            else
+            {
+                nullBits[field.Ordinal] = StoredField.NoNullBit;
+                requiredFields[field.Ordinal / 8] |= (byte)(1 << (field.Ordinal % 8));
+            }
+        }
+
+        // The fixed fields first and the descriptors after them, each group in identity order.
+        var offset = BlockHeader.Size + BitBytes(nullableCount);
+
+        foreach (var field in inIdentityOrder.Where(field => !IsVariable(field)))
+        {
+            var (type, width) = FixedTypeOf(field.Declaration);
+
+            fields[field.Ordinal] = new StoredField(field, type, width, offset, nullBits[field.Ordinal]);
+            offset += width;
+        }
+
+        var descriptorOffset = offset;
+        var descriptorCount = 0;
+
+        foreach (var field in inIdentityOrder.Where(IsVariable))
+        {
+            var type = field.Declaration.Type == LatticeFieldTypeEnum.String ? StoredTypeEnum.String : StoredTypeEnum.Binary;
+
+            fields[field.Ordinal] = new StoredField(field, type, ValueBlocks.DescriptorSize, offset, nullBits[field.Ordinal]);
+            offset += ValueBlocks.DescriptorSize;
+            descriptorCount++;
+        }
+
+        if (offset > Arena.MaxBlockSize)
+        {
+            throw new LatticeException(
+                LatticeErrorEnum.InvalidSchema,
+                $"The fixed part of a root of the entity type {entityType.Name} takes {offset} bytes, more than the {Arena.MaxBlockSize} bytes of one block.");
+        }
+
+        return new RootLayout(
+            entityType,
+            schema.StringEncoding,
+            fields,
+            requiredFields,
+            nullableCount,
+            descriptorOffset,
+            descriptorCount,
+            offset);
+    }
 
     // The entity type the layout was compiled for.
-    public LatticeEntityType EntityType =>
-        throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
+    public LatticeEntityType EntityType { get; }
 
     // The bytes of the fixed part of a root: the header, the nullable bitmap, the fixed fields and
     // the descriptors, as the comment of the class adds them up. At most Arena.MaxBlockSize.
-    public int FixedSize =>
-        throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
+    public int FixedSize { get; }
 
     // The version of this layout, which the header of every block of a root written with it carries
     // (BlockHeader.LayoutVersion). It is 1 for every layout of S05; how a changed layout is numbered
     // belongs to S37.
-    public uint LayoutVersion =>
-        throw new NotSupportedException("The root layout of Epic 1, sprint S05 is not implemented yet.");
+    public uint LayoutVersion => 1;
 
     // The most encoded bytes of a value stored inline, in the root block.
     public const int InlineLimit = 64;
@@ -81,4 +187,123 @@ internal sealed class RootLayout
     // The payload bytes of one chunk: the largest payload of a block, Arena.MaxBlockSize less the
     // 32-byte header. Every chunk of a value but the last holds this many.
     public const int ChunkPayload = 65_504;
+
+    // The text encoding of the database, in which every String of these roots is stored.
+    internal LatticeStringEncodingEnum StringEncoding { get; }
+
+    // How many fields are nullable, and so how many bits the null bitmap has.
+    internal int NullableCount { get; }
+
+    // Where the null bitmap begins: right after the header.
+    internal const int NullBitmapOffset = BlockHeader.Size;
+
+    // The bytes of the null bitmap.
+    internal int NullBitmapLength => BitBytes(NullableCount);
+
+    // Where the descriptors of the String and Binary fields begin, and how many there are: they
+    // close the fixed part, 16 bytes each, in identity order.
+    internal int DescriptorOffset { get; }
+
+    internal int DescriptorCount { get; }
+
+    // The most bytes a root block of this layout can take: the fixed part with every String and
+    // Binary value inline, never more than one block.
+    internal int ImageCapacity { get; }
+
+    // How many fields the entity type has, and so how many bits a set of its fields takes.
+    internal int FieldCount => _fields.Length;
+
+    // One bit for every field that is not nullable, by LatticeField.Ordinal.
+    internal ReadOnlySpan<byte> RequiredFields => _requiredFields;
+
+    // The bytes of a set of one bit for each field.
+    internal static int BitBytes(int bits) => (bits + 7) / 8;
+
+    // Where the field stands in the root block and how it is stored. A field that is not a field of
+    // the entity type of the layout is refused with ArgumentException: a field of another entity
+    // type that has the same position is a different object, so the comparison is by reference.
+    internal ref readonly StoredField StoredFieldOf(LatticeField field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+
+        var ordinal = field.Ordinal;
+
+        if ((uint)ordinal >= (uint)_fields.Length || !ReferenceEquals(_fields[ordinal].Field, field))
+        {
+            throw new ArgumentException($"The field {field.Name} is not a field of the entity type {EntityType.Name}.", nameof(field));
+        }
+
+        return ref _fields[ordinal];
+    }
+
+    // The payload of a root block written with this layout, after checking that the block is one:
+    // a valid block of the arena, of kind Root, with the layout version of this layout. Each refusal
+    // is ArgumentException. RootReader and RootStorage.Free recognize a root by the same checks.
+    internal Span<byte> RootPayload(Arena arena, ArenaAddress root)
+    {
+        ArgumentNullException.ThrowIfNull(arena);
+
+        ref var header = ref arena.Header(root);
+
+        if (header.Kind != BlockKindEnum.Root)
+        {
+            throw new ArgumentException($"The block at {root} is of kind {header.Kind}, not a root.", nameof(root));
+        }
+
+        if (header.LayoutVersion != LayoutVersion)
+        {
+            throw new ArgumentException($"The root at {root} has the layout version {header.LayoutVersion}, not {LayoutVersion} of the layout of {EntityType.Name}.", nameof(root));
+        }
+
+        return arena.Payload(root);
+    }
+
+    private static bool IsVariable(LatticeField field) =>
+        field.Declaration.Type is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
+
+    // Owned values and collections come with S18 and S19, references with S18, Dictionary text with
+    // S13.
+    private static void ThrowIfNotStorable(LatticeEntityType entityType, LatticeField field)
+    {
+        var declaration = field.Declaration;
+
+        if (declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set or LatticeFieldTypeEnum.Reference)
+        {
+            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} is {declaration.Type}, which a root cannot store yet.");
+        }
+
+        if (declaration.StringStorage == LatticeStringStorageEnum.Dictionary)
+        {
+            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} is a String with Dictionary storage, which a root cannot store yet.");
+        }
+    }
+
+    // The stored type and the width of a field that is neither a String nor a Binary.
+    private static (StoredTypeEnum Type, int Width) FixedTypeOf(LatticeValueDeclaration declaration) => declaration.Type switch
+    {
+        LatticeFieldTypeEnum.Boolean => (StoredTypeEnum.Boolean, 1),
+        LatticeFieldTypeEnum.Float32 => (StoredTypeEnum.Float32, 4),
+        LatticeFieldTypeEnum.Float64 => (StoredTypeEnum.Float64, 8),
+        LatticeFieldTypeEnum.Decimal => (StoredTypeEnum.Decimal, 16),
+        LatticeFieldTypeEnum.Guid => (StoredTypeEnum.Guid, 16),
+        LatticeFieldTypeEnum.DateTimeOffset => (StoredTypeEnum.DateTimeOffset, 8),
+        LatticeFieldTypeEnum.DateOnly => (StoredTypeEnum.DateOnly, 4),
+        LatticeFieldTypeEnum.TimeOnly => (StoredTypeEnum.TimeOnly, 8),
+        LatticeFieldTypeEnum.TimeSpan => (StoredTypeEnum.TimeSpan, 8),
+        LatticeFieldTypeEnum.Enum => IntegerTypeOf(declaration.EnumType!.UnderlyingType),
+        _ => IntegerTypeOf(declaration.Type),
+    };
+
+    private static (StoredTypeEnum Type, int Width) IntegerTypeOf(LatticeFieldTypeEnum type) => type switch
+    {
+        LatticeFieldTypeEnum.Int8 => (StoredTypeEnum.SignedInteger, 1),
+        LatticeFieldTypeEnum.UInt8 => (StoredTypeEnum.UnsignedInteger, 1),
+        LatticeFieldTypeEnum.Int16 => (StoredTypeEnum.SignedInteger, 2),
+        LatticeFieldTypeEnum.UInt16 => (StoredTypeEnum.UnsignedInteger, 2),
+        LatticeFieldTypeEnum.Int32 => (StoredTypeEnum.SignedInteger, 4),
+        LatticeFieldTypeEnum.UInt32 => (StoredTypeEnum.UnsignedInteger, 4),
+        LatticeFieldTypeEnum.Int64 => (StoredTypeEnum.SignedInteger, 8),
+        LatticeFieldTypeEnum.UInt64 => (StoredTypeEnum.UnsignedInteger, 8),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not an integer type."),
+    };
 }

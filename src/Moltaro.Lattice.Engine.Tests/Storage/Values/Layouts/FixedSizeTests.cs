@@ -14,14 +14,14 @@ public sealed class FixedSizeTests
 {
     private const int HeaderAndKey = 32 + 8;
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_entity_type_without_a_nullable_field_has_no_null_bitmap()
     {
         Assert.Equal(HeaderAndKey, FixedSizeOf(""));
         Assert.Equal(HeaderAndKey + 4, FixedSizeOf("{ 'Id': 2, 'Name': 'Count', 'Type': 'Int32' }"));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData(1, 1)]
     [InlineData(7, 1)]
     [InlineData(8, 1)]
@@ -37,7 +37,7 @@ public sealed class FixedSizeTests
         Assert.Equal(HeaderAndKey + bitmapBytes + 4 * nullableFields, FixedSizeOf(string.Join(", ", fields)));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Boolean", 1)]
     [InlineData("Int8", 1)]
     [InlineData("UInt8", 1)]
@@ -65,7 +65,7 @@ public sealed class FixedSizeTests
         Assert.Equal(HeaderAndKey + 1 + width, FixedSizeOf($"{{ 'Id': 2, 'Name': 'Value', 'Type': '{type}', 'Nullable': true }}"));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Int8", 1)]
     [InlineData("UInt8", 1)]
     [InlineData("Int16", 2)]
@@ -84,7 +84,7 @@ public sealed class FixedSizeTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Small_integers_are_not_widened()
     {
         // Ten one-byte and five two-byte integers take 20 bytes, not fifteen slots of eight.
@@ -94,7 +94,7 @@ public sealed class FixedSizeTests
         Assert.Equal(HeaderAndKey + 10 + 10, FixedSizeOf(string.Join(", ", bytes.Concat(shorts))));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Every_String_and_Binary_field_takes_one_descriptor_nullable_or_not()
     {
         const string Fields = """
@@ -109,7 +109,7 @@ public sealed class FixedSizeTests
         Assert.Equal(HeaderAndKey + 1 + 5 * 16, FixedSizeOf(Fields));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void The_fixed_part_adds_up_the_header_the_bitmap_the_fixed_fields_and_the_descriptors()
     {
         const string Fields = """

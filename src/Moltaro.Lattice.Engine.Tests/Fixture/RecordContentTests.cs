@@ -18,7 +18,7 @@ public sealed class RecordContentTests
 {
     public static TheoryData<string> Forms => FixtureForms.All;
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void The_text_of_every_record_has_the_format_of_the_table(string form)
     {
@@ -35,7 +35,7 @@ public sealed class RecordContentTests
         }
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Region_and_Section_are_drawn_from_16_values(string form)
     {
@@ -43,7 +43,7 @@ public sealed class RecordContentTests
         Assert.InRange(GeneratedRecords.Of(form, "Setting").Select(setting => (string)setting["Section"]!).Distinct().Count(), 1, 16);
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Every_Value_is_128_bytes_of_valid_UTF8_and_a_tenth_of_them_is_not_ASCII(string form)
     {
@@ -58,7 +58,7 @@ public sealed class RecordContentTests
         Assert.Equal(settings.Count / 10, settings.Count(setting => !Ascii.IsValid((string)setting["Value"]!)));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Keys_are_distinct_and_so_are_the_values_of_the_unique_indexes(string form)
     {
@@ -78,7 +78,7 @@ public sealed class RecordContentTests
         Assert.Equal(roles.Count, roles.Select(role => role["Name"]).Distinct().Count());
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void References_of_the_full_form_wrap_into_the_generated_range_of_their_target()
     {
         var groupKeys = GeneratedRecords.Of(FixtureForms.Full, "Group").Select(group => group["Id"]).ToHashSet();
@@ -101,7 +101,7 @@ public sealed class RecordContentTests
         }
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void Permissions_and_options_of_the_full_form_are_drawn_from_their_value_sets()
     {
         var permissions = new HashSet<object>();

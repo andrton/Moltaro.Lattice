@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 // given schema is ArgumentException.
 public sealed class LayoutRefusalTests
 {
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void The_largest_fixed_part_that_fits_one_block_compiles()
     {
         // 32 + 8 + 16 × 4,093 + 8 = 65,536 bytes.
@@ -23,7 +23,7 @@ public sealed class LayoutRefusalTests
         Assert.Equal(Arena.MaxBlockSize, layout.FixedSize);
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData(4_093, 9)]
     [InlineData(5_000, 0)]
     public void A_fixed_part_above_one_block_is_InvalidSchema_with_the_entity_type_named(int decimals, int bytes)
@@ -37,7 +37,7 @@ public sealed class LayoutRefusalTests
         Assert.Contains("Oversized", exception.Message, StringComparison.Ordinal);
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Home", "'Type': 'Owned', 'OwnedType': 'Address'")]
     [InlineData("Tags", "'Type': 'List', 'Element': { 'Type': 'String' }")]
     [InlineData("Options", "'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' }")]
@@ -57,7 +57,7 @@ public sealed class LayoutRefusalTests
         Assert.Contains(name, exception.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_entity_type_of_another_schema_is_refused()
     {
         var schema = ItemSchema.Compile("{ 'Id': 2, 'Name': 'Count', 'Type': 'Int32' }");
@@ -69,7 +69,7 @@ public sealed class LayoutRefusalTests
         Assert.Throws<ArgumentException>(() => RootLayout.Compile(foreign, schema));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_entity_type_belongs_to_the_schema_that_compiled_it_and_not_to_a_copy()
     {
         // The same descriptor compiled twice gives two schemas, each with its own entity types.

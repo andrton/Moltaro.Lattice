@@ -20,7 +20,7 @@ public sealed class EntitySizeTests
     // The header, the bitmap of one nullable field, Id and two descriptors.
     private const int FixedSize = 32 + 1 + 8 + 16 + 16;
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     [InlineData(-RootLayout.ChunkPayload)]
@@ -39,7 +39,7 @@ public sealed class EntitySizeTests
         Assert.Equal(payload, reader.GetBinary(item.Field("Payload")));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_entity_one_byte_above_the_starting_limit_is_WriteRejected_by_Complete()
     {
         using var item = RootArena.Of(Fields);
@@ -55,7 +55,7 @@ public sealed class EntitySizeTests
         Assert.Equal(before, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void No_Set_member_fails_for_a_value_far_above_the_limit()
     {
         using var item = RootArena.Of(Fields);
@@ -68,7 +68,7 @@ public sealed class EntitySizeTests
         WriterAssert.CompleteRefused(ref writer, LatticeErrorEnum.WriteRejected);
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData(10)]
     [InlineData(RootLayout.InlineLimit)]
     [InlineData(RootLayout.InlineLimit + 1)]
@@ -85,7 +85,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, RootArena.StartingEntityLimit, payloadLength, new string('n', noteLength + 1)));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_small_limit_bounds_the_entity_in_the_same_way()
     {
         using var item = RootArena.Of(Fields);
@@ -98,7 +98,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, 200, 128, null));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void The_fixed_part_counts_toward_the_limit_and_a_null_or_empty_value_adds_nothing()
     {
         using var item = RootArena.Of(Fields);
@@ -109,7 +109,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, 1, 0, null));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8", "é", 2)]
     [InlineData("Utf8", "😀", 4)]
     [InlineData("Utf16", "a", 2)]
@@ -122,7 +122,7 @@ public sealed class EntitySizeTests
         Assert.False(TryWrite(item, FixedSize + encodedLength - 1, 0, text));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Complete_refused_for_the_size_leaves_the_live_bytes_and_slack_as_before_the_writer()
     {
         using var item = RootArena.Of(Fields);

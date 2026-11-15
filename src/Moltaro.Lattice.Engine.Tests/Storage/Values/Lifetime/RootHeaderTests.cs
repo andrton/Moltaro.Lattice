@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 // block of a root a test can reach.
 public sealed class RootHeaderTests
 {
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void The_root_block_is_of_kind_Root_with_the_handle_of_the_writer_no_parent_and_the_layout_version()
     {
         using var item = RootArena.Of("{ 'Id': 2, 'Name': 'Text', 'Type': 'String' }");

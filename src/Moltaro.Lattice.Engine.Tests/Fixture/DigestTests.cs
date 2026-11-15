@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Fixture;
 // were.
 public sealed class DigestTests
 {
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void The_digest_is_the_lowercase_hexadecimal_of_a_SHA256()
     {
         foreach (var form in new[] { FixtureForms.Full, FixtureForms.Scalar })
@@ -28,7 +28,7 @@ public sealed class DigestTests
         }
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void The_digest_does_not_depend_on_the_order_in_which_a_Set_or_a_Map_enumerates()
     {
         var role = GeneratedRecords.Of(FixtureForms.Full, "Role")[0];
@@ -51,7 +51,7 @@ public sealed class DigestTests
         }
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void The_digest_changes_when_a_value_changes()
     {
         var records = GeneratedRecords.Of(FixtureForms.Full, "User").Take(1_000).ToList();

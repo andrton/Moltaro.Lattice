@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Text;
 // set, and the writer stays usable, so that a valid value may follow and reads back exactly.
 public sealed class MalformedTextTests
 {
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Malformed_text_is_refused_at_SetString_and_allocates_nothing(string encoding)
@@ -28,7 +28,7 @@ public sealed class MalformedTextTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void After_malformed_text_the_writer_takes_a_valid_value_which_reads_back_unchanged(string encoding)
@@ -52,7 +52,7 @@ public sealed class MalformedTextTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Refused_text_does_not_set_the_field(string encoding)
@@ -76,7 +76,7 @@ public sealed class MalformedTextTests
         WriterAssert.CompleteRefused(ref missing, LatticeErrorEnum.ValidationFailed);
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Long_malformed_text_allocates_nothing_wherever_the_lone_surrogate_lies(string encoding)

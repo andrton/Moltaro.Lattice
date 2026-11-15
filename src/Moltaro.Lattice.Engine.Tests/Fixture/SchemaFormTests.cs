@@ -16,7 +16,7 @@ public sealed class SchemaFormTests
 
     public static TheoryData<string> ScalarForms => new(FixtureForms.Scalar, FixtureForms.ScalarUnique);
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Every_form_compiles_with_the_four_entity_types_of_the_table(string form)
     {
@@ -25,7 +25,7 @@ public sealed class SchemaFormTests
         Assert.Equal(["Group", "Role", "Setting", "User"], schema.EntityTypes.Select(entityType => entityType.Name).Order(StringComparer.Ordinal));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Every_form_stores_its_text_in_UTF8_and_compares_it_Ordinal(string form)
     {
@@ -35,7 +35,7 @@ public sealed class SchemaFormTests
         Assert.All(Strings(schema), declaration => Assert.Equal(LatticeStringComparisonEnum.Ordinal, declaration.Comparison));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void No_field_of_any_form_is_nullable(string form)
     {
@@ -44,7 +44,7 @@ public sealed class SchemaFormTests
         Assert.All(schema.EntityTypes.SelectMany(entityType => entityType.Fields), field => Assert.False(field.Declaration.IsNullable, field.Name));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void The_scalar_fields_have_the_types_of_the_table(string form)
     {
@@ -70,7 +70,7 @@ public sealed class SchemaFormTests
         AssertField(setting, "Value", LatticeFieldTypeEnum.String);
     }
 
-    [Fact(Skip = NotImplemented.ReferenceFixture)]
+    [Fact]
     public void The_full_form_has_the_collections_and_the_Dictionary_strings_of_the_table()
     {
         var schema = FixtureForms.Compile(FixtureForms.Full);
@@ -110,7 +110,7 @@ public sealed class SchemaFormTests
         Assert.Equal(3, Strings(schema).Count(declaration => declaration.StringStorage == LatticeStringStorageEnum.Dictionary));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(ScalarForms))]
     public void The_scalar_form_has_no_collection_field_and_every_String_is_Plain(string form)
     {
@@ -126,7 +126,7 @@ public sealed class SchemaFormTests
         Assert.All(Strings(schema), declaration => Assert.Equal(LatticeStringStorageEnum.Plain, declaration.StringStorage));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void Every_form_has_the_indexes_of_the_table(string form)
     {
@@ -138,7 +138,7 @@ public sealed class SchemaFormTests
         Assert.Equal(["Section+Name"], IndexesOf(schema, "Setting"));
     }
 
-    [Theory(Skip = NotImplemented.ReferenceFixture)]
+    [Theory]
     [InlineData(FixtureForms.Full, true)]
     [InlineData(FixtureForms.ScalarUnique, true)]
     [InlineData(FixtureForms.Scalar, false)]

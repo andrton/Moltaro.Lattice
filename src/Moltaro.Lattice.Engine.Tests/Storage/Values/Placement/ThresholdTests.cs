@@ -29,7 +29,7 @@ public sealed class ThresholdTests
         3 * RootLayout.ChunkPayload + 18,
         RootArena.StartingEntityLimit - 100);
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [MemberData(nameof(Lengths))]
     public void A_Binary_value_reads_back_equal_and_is_placed_by_its_length(int length)
     {
@@ -46,7 +46,7 @@ public sealed class ThresholdTests
         Assert.Equal(StoredBytes.Of(item.Layout.FixedSize, length), StoredBytes.In(item.Arena));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [MemberData(nameof(Lengths))]
     public void A_UTF8_text_reads_back_equal_and_is_placed_by_its_encoded_length(int length)
     {
@@ -63,7 +63,7 @@ public sealed class ThresholdTests
         Assert.Equal(StoredBytes.Of(item.Layout.FixedSize, length), StoredBytes.In(item.Arena));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [MemberData(nameof(EvenLengths))]
     public void A_UTF16_text_reads_back_equal_and_is_placed_by_its_encoded_length(int length)
     {

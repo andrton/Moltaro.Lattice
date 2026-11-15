@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Text;
 // the tests can see of the stored bytes.
 public sealed class TextPreservationTests
 {
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Well_formed_text_reads_back_as_the_same_characters(string encoding)
@@ -33,7 +33,7 @@ public sealed class TextPreservationTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void The_length_of_a_text_is_the_number_of_its_bytes_in_the_database_encoding(string encoding)
@@ -51,7 +51,7 @@ public sealed class TextPreservationTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("abc", 3, 6)]
     [InlineData("é", 2, 2)]
     [InlineData("Ж", 2, 2)]
@@ -75,7 +75,7 @@ public sealed class TextPreservationTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Text_is_not_normalized(string encoding)
@@ -97,7 +97,7 @@ public sealed class TextPreservationTests
         Assert.Equal(Decomposed, reader.GetString(item.Field("Maybe")));
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void Long_text_of_every_width_reads_back_as_the_same_characters(string encoding)

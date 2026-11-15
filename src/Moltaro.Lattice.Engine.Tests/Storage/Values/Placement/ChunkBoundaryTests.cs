@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 // the split falls between the two halves of a surrogate pair.
 public sealed class ChunkBoundaryTests
 {
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("é")]
     [InlineData("€")]
     [InlineData("漢")]
@@ -40,7 +40,7 @@ public sealed class ChunkBoundaryTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_surrogate_pair_split_across_a_chunk_boundary_reads_back_undamaged_in_UTF16()
     {
         using var item = TypedItem.Open("'Type': 'String'", encoding: "Utf16");

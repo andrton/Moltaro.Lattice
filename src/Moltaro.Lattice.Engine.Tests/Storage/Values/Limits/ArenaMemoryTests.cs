@@ -14,7 +14,7 @@ public sealed class ArenaMemoryTests
 {
     private const string Fields = "{ 'Id': 2, 'Name': 'Payload', 'Type': 'Binary' }";
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void An_arena_with_no_room_left_refuses_the_entity_at_Complete()
     {
         // One segment, filled with blocks of the largest class until the arena refuses another.
@@ -34,7 +34,7 @@ public sealed class ArenaMemoryTests
         Assert.Equal(before, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_larger_than_the_arena_refuses_the_entity_at_Complete_and_frees_what_was_allocated()
     {
         // An arena of one 4 MiB segment and a value of 5 MiB under a limit of 8 MiB: only the memory
@@ -50,7 +50,7 @@ public sealed class ArenaMemoryTests
         Assert.Equal(before, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_value_that_needs_more_chunks_than_one_directory_block_holds_is_WriteRejected_by_Complete()
     {
         // A directory block holds ChunkPayload / 16 = 4,094 descriptors. One byte more than 4,094
@@ -70,7 +70,7 @@ public sealed class ArenaMemoryTests
         Assert.Equal(before, StoredBytes.In(item.Arena));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_failure_of_the_native_allocator_passes_through_and_leaves_nothing_the_writer_allocated()
     {
         // The arena holds one empty segment, in its reserve, and its next native allocation fails.

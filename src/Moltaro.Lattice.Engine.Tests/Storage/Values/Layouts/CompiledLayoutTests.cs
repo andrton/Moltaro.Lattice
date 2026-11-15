@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 // 4 KiB, then chunks of the largest payload a block holds.
 public sealed class CompiledLayoutTests
 {
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_layout_is_the_layout_of_the_entity_type_it_was_compiled_for()
     {
         var schema = EveryType.Compile();
@@ -20,7 +20,7 @@ public sealed class CompiledLayoutTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Every_layout_of_S05_has_the_layout_version_1()
     {
         string[] fields =

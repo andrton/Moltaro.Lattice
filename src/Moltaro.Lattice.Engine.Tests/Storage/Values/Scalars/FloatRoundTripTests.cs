@@ -18,7 +18,7 @@ public sealed class FloatRoundTripTests
         double.MinValue, double.MaxValue, double.NaN, double.PositiveInfinity, double.NegativeInfinity,
     ];
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Float32_reads_back_with_the_same_bits()
     {
         using var item = TypedItem.OfType("Float32");
@@ -36,7 +36,7 @@ public sealed class FloatRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_Float64_reads_back_with_the_same_bits()
     {
         using var item = TypedItem.OfType("Float64");

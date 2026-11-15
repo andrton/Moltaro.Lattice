@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Scalars;
 // none of them is converted.
 public sealed class TemporalRoundTripTests
 {
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_DateTimeOffset_reads_back_as_the_same_instant_with_offset_zero()
     {
         DateTimeOffset[] values =
@@ -42,7 +42,7 @@ public sealed class TemporalRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void Two_offsets_of_the_same_instant_read_back_as_the_same_value()
     {
         // The example of Q03.4.1.
@@ -61,7 +61,7 @@ public sealed class TemporalRoundTripTests
         Assert.True(utc.EqualsExact(reader.GetDateTimeOffset(item.Field("Maybe"))));
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_DateOnly_reads_back_as_written()
     {
         DateOnly[] values = [DateOnly.MinValue, DateOnly.MaxValue, new(1970, 1, 1), new(2024, 2, 29), new(2026, 11, 15)];
@@ -80,7 +80,7 @@ public sealed class TemporalRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_TimeOnly_reads_back_as_written_to_the_tick()
     {
         TimeOnly[] values = [TimeOnly.MinValue, TimeOnly.MaxValue, new(1), new(12, 0), new TimeOnly(23, 59, 59).Add(TimeSpan.FromTicks(1))];
@@ -99,7 +99,7 @@ public sealed class TemporalRoundTripTests
         }
     }
 
-    [Fact(Skip = NotImplemented.RootLayout)]
+    [Fact]
     public void A_TimeSpan_reads_back_as_written_negative_durations_included()
     {
         TimeSpan[] values =

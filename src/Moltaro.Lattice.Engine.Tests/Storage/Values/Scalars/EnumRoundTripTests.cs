@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Scalars;
 // the highest bit and a declared combination. The width itself is in Layouts/FixedSizeTests.
 public sealed class EnumRoundTripTests
 {
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("Int8", false, "-128", "-1", "0", "127")]
     [InlineData("Int16", false, "-32768", "-1", "0", "32767")]
     [InlineData("Int32", false, "-2147483648", "-1", "0", "2147483647")]
@@ -36,7 +36,7 @@ public sealed class EnumRoundTripTests
         }
     }
 
-    [Theory(Skip = NotImplemented.RootLayout)]
+    [Theory]
     [InlineData("UInt8", false, "0", "1", "255")]
     [InlineData("UInt16", false, "0", "1", "65535")]
     [InlineData("UInt32", false, "0", "2147483648", "4294967295")]
