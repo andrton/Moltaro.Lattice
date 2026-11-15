@@ -487,12 +487,15 @@ unversioned durable/wire format while those integration tests are absent.
 
 These are implementation starting settings, **not measured optimal values or new SLOs**.
 Expose public workload limits through options and validate relationships at open;
-allocator details remain internal tuning. By the owner's decision of 15 November 2026
+allocator details remain internal tuning. By the owner's decisions of 15 November 2026
 the instance budget is an option whose default is computed when the instance opens: half
-of the memory available to the process, which is the limit of its container where there
-is one and the physical memory of the machine otherwise. An application may set the
-budget explicitly, and has to when one process opens several instances, because each
-instance computes its default from the whole. The budget is enforced in either case. A
+of the memory the .NET runtime reports as available to the process. That is the physical
+memory on a machine without limits; in a container it is by default three quarters of the
+container's limit; a heap hard limit configured for the garbage collector lowers it. An
+application may set the budget explicitly. It has to when one process opens several
+instances, because each instance computes its default from the whole, and it should
+whenever it limits the heap of the collector, because that setting says nothing about the
+native memory the engine needs. The budget is enforced in either case. A
 timeout or a limit below that an
 application can observe is an option with this starting value as its default, never a
 constant in the code; "configurable" in a row is not the complete list of such options.
