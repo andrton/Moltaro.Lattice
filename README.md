@@ -378,9 +378,8 @@ Inside the core library:
 | (root) | Opening a database, its options, state and errors |
 | `Schema` | Schema model, JSON compilation, binary save and load |
 | `Access` | Sets, records and the binding of .NET classes to entity types |
-| `Storage` | Local data of one database instance |
-| `Replication` | Link between a master and its children |
-| `Engine` | The database instance: lifecycle, role and routing of reads and writes |
+| `Storage` | What the sets hand to the database behind them: a stored entity and the kind of a write |
+| `Placeholder` | The placeholder that stands behind the contract until the engine does: the database instance with its lifecycle, role and routing of reads and writes, in `Placeholder/Storage` its local data and in `Placeholder/Replication` the link between a master and its children. Deleted when the engine takes its place |
 
 ## Building
 
