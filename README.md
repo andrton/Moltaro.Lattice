@@ -189,8 +189,8 @@ LatticeWriteResult result = await batch.CommitAsync();
 ```
 
 The master executes the whole batch at one position or refuses it as a whole; no reader,
-on any node, sees a part of it. A batch takes one operation per entity and is bounded in
-size. It is not a transaction the application works inside: it cannot read, and it holds
+on any node, sees a part of it. A batch takes one operation per entity, and its size is
+limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
 no lock while it is built.
 
 **Master and children.** A master and its read replicas can run in one process or in

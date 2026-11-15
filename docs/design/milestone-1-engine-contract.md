@@ -503,7 +503,7 @@ constant in the code; "configurable" in a row is not the complete list of such o
 | Limit / setting | Starting value |
 | --- | --- |
 | Root encoded size, including owned data | 1 MiB; configurable |
-| Explicit WriteBatch | 8 MiB encoded/prepared input; configurable. No limit on the number of roots, by the owner's decision of 15 November 2026: the size bounds the memory, the transaction and what a child has to hold, and how long a large batch holds reads is measured before a number is chosen |
+| Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
 | Active prepare workers | 2; configurable and bounded |
 | Internal group | Up to 32 operations / 8 MiB / 1 ms collection delay; never split a WriteBatch |
 | Queued write input | 1,024 requests and min(16 MiB, 10% instance budget) |
@@ -522,7 +522,13 @@ constant in the code; "configurable" in a row is not the complete list of such o
 | Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
-Max single transaction/root must fit the reassembly, preparation and applier workspaces.
+One root must fit the reassembly, preparation and applier workspaces. One transaction may
+be larger than any bounded buffer of this table — the queued write input, an internal
+group, the pending replication, a batch of base application: each of them bounds what
+accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
+for its own size. What a transaction needs is reserved in the instance budget before it is
+committed, the copy for delivery to children included; a transaction the budget cannot
+hold is refused before it has any effect.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.

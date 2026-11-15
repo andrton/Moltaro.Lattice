@@ -544,21 +544,22 @@ after the review of S05: the decision first read "the limit of its container, or
 physical memory of the machine", which the runtime does not report, and the owner chose
 the runtime's figure, said plainly, over platform code of the project's own.
 
-**O18. A write batch has no limit on the number of its operations.** Decided on 15
-November 2026 and given through the planner's session, when the owner asked what the
-limit of 128 entities was for and called it excess configuration. A batch stays bounded
-by its size, 8 MiB by default: the size bounds the memory that is reserved up front, the
-one transaction and what a child has to hold to apply a batch whole. The number bounded
-only how long the publication of a batch holds every read, and neither that pause nor
-the number 128 was ever measured. *Not chosen:* keeping a limit just in case with an
-invented value. Shapes S17, whose measurement is widened to batches of 1, 32, 1,000 and
-10,000 entities so that a limit on the number can come back with a measured value if it
-is needed. It rode in the branch of S06 under O16, with one row of the engine contract
-and one sentence of the architecture. The size limit itself is before the owner on the
-same day: whether a batch has a fixed limit of its own, 8 MiB so far, or one that follows
-from the memory budget of the instance. Until that is decided the sentences that state
-8 MiB stand as they were before this decision, and the documentation of
-`ILatticeWriteBatch` is not changed.
+**O18. A write batch has no limit of its own.** Decided on 15 November 2026 and given
+through the planner's session. The owner first asked what the limit of 128 entities was
+for and called it excess configuration, then refused a size limit as well, fixed or taken
+as a share of the memory budget: the size of a batch is the application's choice, and the
+task of the database is to store it atomically. A batch has no limit on the number of its
+operations and none on its size, and no option for one; it is refused only when a
+resource cannot hold it — the memory budget of the instance, the hard limit of the
+journal. The rule that follows: a bounded buffer bounds what accumulates and never
+refuses one transaction for its own size; what a transaction needs is reserved in the
+instance budget before it is committed, and one the budget cannot hold is refused before
+it has any effect. *Not chosen:* 128 operations and 8 MiB by default; a size limit derived
+from the budget. Shapes S09 and S17 and the contracts of the later stages; it rode in the
+branch of S06 under O16, with the engine contract, the decision on the document model,
+the architecture, `README.md` and the documentation of `ILatticeWriteBatch`. Principle 5
+of `AGENTS.md` still calls a batch "bounded"; the planner reported that sentence to the
+owner, and it is not changed without the owner's word.
 
 **Questions that do not block are written down.** A gap that a sprint finds and that no
 brief, decision or rule answers is entered in the [open questions](open-questions.md),
@@ -2600,7 +2601,9 @@ table being built while the primary index grows.
   reviews; the size of a group is asserted through the counters. An instance opened
   without `MemoryLimit` has half of `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` as
   its limit, and one opened with it has the given value; the limits that are shares of the budget follow
-  the limit in force.
+  the limit in force. A single write larger than the limit of queued input is admitted and
+  executed when nothing else is queued; with other input queued it is refused with
+  `WriteRejected` and `WriteQueueMemory`.
 - **Measured.** Reported: completed writes per second and p99 for 1, 4 and 16 callers of
   single small writes in MemoryOnly; reader p99 while they run.
 - **Out of scope.** The batch (S17). The memory budget for the indexes, the text
@@ -2641,7 +2644,10 @@ anyone who limits the heap of the collector set the value explicitly, and that t
 counts what the engine holds, not the managed heap of the application. `Validate`
 compares `MaxEntitySize` and `WriteQueueMemoryLimit` with the limit in force — the given
 `MemoryLimit`, or the computed default when it is null. The limit in force is computed
-once, when the instance opens, and the validation of that open uses the same value.
+once, when the instance opens, and the validation of that open uses the same value. By
+decision O18: the limit on queued write input bounds the writes that wait behind others.
+It never refuses a write for its own size: a write or a batch larger than the limit is
+admitted when no other input is queued and the memory budget can hold it.
 
 `Validate` refuses: a limit that is not positive; `MaxEntitySize` above the limit in
 force; `WriteQueueMemoryLimit` above the limit in force; `PrepareWorkers` below 1 or
@@ -3067,7 +3073,8 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
 
 - **Goal.** Several writes of different entity types take effect together at one
   position, or not at all, on every node.
-- **Contract.** Exists. Added: an option for the size limit of a batch, 8 MiB by default.
+- **Contract.** Exists. No option is added: a batch has no limit of its own (decision
+  O18), and `LatticeLimitEnum` gets no member for a batch.
 - **To read.** [Q01 atomic write batch](../decisions/document-model.md#atomic-writebatch-within-one-database);
   [batch save with Upsert, repeated roots](../decisions/mutation-commands.md);
   [write coordinator](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -3079,13 +3086,14 @@ S10: the scheme `lattice`, a host, a port, no path; anything else is
   identities of a batch are claimed together; two batches with overlapping entities do
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value
   another member takes. A failing member refuses the whole batch and reports its number.
-  A batch over the size limit is refused with `WriteRejected`; a batch of 10,000 small
-  entities within the limit is executed as one. Two entities changed by one batch
+  A batch has no limit of its own: one of 10,000 small entities is executed as one, and
+  so is one that is larger than the limit of queued write input and than an internal
+  group. A batch that the memory budget cannot hold is refused with `WriteRejected` and
+  `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
   a batch. A child never acknowledges a part.
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
-  of 1, 32, 1,000 and 10,000 entities. The figure is reported; whether a limit on the
-  number is needed is the owner's to judge from it.
+  of 1, 32, 1,000 and 10,000 entities.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
 
 ### Stage 5. The full type model and access
