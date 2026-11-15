@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q45. A write batch tells two spellings of one key apart
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, tests of Epic 1, sprint S07 |
+| **Question** | A batch takes one operation per entity and refuses a second one for the same key when it is added. It tells entities apart by the key as given, with the default equality, so for an entity type whose String key is compared without case "Main" and "MAIN" are accepted as two operations, although they are one entity. The comparison of a key is declared by the schema and needs no engine, so the batch can know it when an operation is added. Is the second operation refused at adding, under the comparison of the key? |
+| **Until answered** | The batch keeps its present check; its commit is not implemented until S17, so nothing wrong can be stored through it yet |
+| **Decides** | The planner, before S17 starts |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
