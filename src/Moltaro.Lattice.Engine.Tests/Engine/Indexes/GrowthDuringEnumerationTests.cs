@@ -9,15 +9,16 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // Acceptance, and the notes of the coordinator for part 2), so the test states what the pass returns.
 //
 // The test fills the index until the next insert grows it, which a database of its own with the same
-// keys shows, since the index of the same keys grows at the same insert. It enumerates half of the
-// entities, then lets that insert grow the index and holds the growth between the store that
-// publishes the grown table and the change of the version, through the switch of the engine
+// keys shows, since the index grows by the count of its entries, at the same insert whatever the seed.
+// It enumerates half of the entities, then lets that insert grow the index and holds the growth after
+// it has published the grown table and before it retires the old one, through the switch of the engine
 // (EngineDatabase.HoldNextGrowth). While the growth is held there it takes the rest of the steps, on a
-// thread of its own: a step returns what it finds, or waits for the few stores of the publication, as
-// a read by key waits for a write of its entity between its stores. The test lets the growth go once
-// the steps have ended, or after a short while when they wait for it, and the pass ends; what the test
-// asserts does not depend on which. Every entity that was there before the growth is returned once;
-// the one whose insert grew the index, during the pass, at most once. Every wait is bounded.
+// thread of its own: they find the grown table, of another version than their position, and walk it
+// from its start, skipping the keys the pass has returned (PassAcrossGrowthTests states the same for
+// larger tables and every key type). The test lets the growth go once the steps have ended, or after a
+// short while if they have not, so that the pass ends either way; what the test asserts does not
+// depend on which. Every entity that was there before the growth is returned once; the one whose
+// insert grew the index, during the pass, at most once. Every wait is bounded.
 public sealed class GrowthDuringEnumerationTests
 {
     // The growth the test meets: the third, so that the half of the entities it enumerates first lies

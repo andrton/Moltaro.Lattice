@@ -21,10 +21,33 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // entity: the pass then fails at its next step, before its end. The limit is 100 ms, thousands of
 // times what the steps take that do not wait. Before it counts, the test takes the same passes on a
 // database without a limit, so that the first step it times does not include compiling the code of a
-// step. Every wait is bounded.
+// step.
+//
+// The limit is the sum over the steps of a pass, not the time of one step (review round 1 of S08, part
+// 2). With every slot held as above, a pass takes one step after another that waits for a slot, and
+// after each wait of 100 ms the test lets one held read go and holds a slot again once the step is
+// through: each step spends a little over 100 ms inside the engine, under a limit of 250 ms, so none
+// reaches the limit, and three of them together exceed it. The pass has to fail with ReadTime within
+// six such steps, 600 ms. The margins: the sum of the waits is at least 100 ms a step by construction,
+// since a slot is given only that long after the step began to wait, so no machine is too fast for the
+// pass to fail; a slow machine only adds to it. A single step reaches the limit only when it is held up
+// for 150 ms beyond its wait, which a pass that counted each step alone would need in order to fail as
+// well, so that pass cannot fail here except on a machine stalled for that long.
+//
+// Every wait is bounded.
 public sealed class ReadTimeInsideTheEngineTests
 {
     private const int Keys = 4;
+
+    // The entities of the test of the sum: more than the steps it takes.
+    private const int SumKeys = 10;
+
+    private const int MostWaitedSteps = 6;
+
+    private static readonly TimeSpan SumLimit = TimeSpan.FromMilliseconds(250);
+
+    // How long each step of the test of the sum waits for a slot at the least.
+    private static readonly TimeSpan StepWait = TimeSpan.FromMilliseconds(100);
 
     private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(100);
 
@@ -119,9 +142,85 @@ public sealed class ReadTimeInsideTheEngineTests
         }
     }
 
-    // A master of the engine with the stamps 0 to Keys - 1, each of the state of its own number, under
+    [Fact]
+    public async Task Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it()
+    {
+        var slots = new ReadEpochs(new object()).SlotCount;
+
+        await using (var warm = await OpenWithStampsAsync(readTimeLimit: null))
+        {
+            Assert.Equal(Keys, warm.Set<StampSchema.Stamp>().Enumerate().Count());
+        }
+
+        var database = await OpenWithStampsAsync(SumLimit, SumKeys);
+        var held = new List<HeldRead>();
+
+        try
+        {
+            var stamps = database.Set<StampSchema.Stamp>();
+            using var steps = stamps.Enumerate().GetEnumerator();
+
+            Assert.True(steps.MoveNext());
+
+            for (var read = 0; read < slots; read++)
+            {
+                held.Add(await HoldSlotAsync(database, read));
+            }
+
+            // Steps that each wait for a slot, until the pass fails.
+            Exception? failure = null;
+
+            for (var step = 0; step < MostWaitedSteps && failure is null; step++)
+            {
+                using var waiting = new ManualResetEventSlim();
+                var next = Task.Factory.StartNew(
+                    () =>
+                    {
+                        waiting.Set();
+
+                        return Record.Exception(() => Assert.True(steps.MoveNext(), "The pass ended before its time limit failed it."));
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+
+                Assert.True(waiting.Wait(Bound), "The step did not start.");
+                await Task.Delay(StepWait);
+                Assert.False(next.IsCompleted, "A step ended while every slot of the epoch table was held.");
+
+                await held[step].ReleaseAsync();
+                failure = await next.WaitAsync(Bound);
+
+                // The step is through and has left its slot: it is held again for the next step.
+                held.Add(await HoldSlotAsync(database, slots + step));
+            }
+
+            Assert.True(failure is not null, $"The pass did not fail although {MostWaitedSteps} of its steps each spent {StepWait.TotalMilliseconds} ms inside the engine, against a limit of {SumLimit.TotalMilliseconds} ms.");
+            ExpectReadTime(failure);
+        }
+        finally
+        {
+            foreach (var read in held)
+            {
+                read.Dispose();
+            }
+
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    // One read by key held inside the protection of reads, of a key the read number gives.
+    private static Task<HeldRead> HoldSlotAsync(EngineDatabase database, int read)
+    {
+        var stamps = database.Set<StampSchema.Stamp>();
+        var key = read % Keys;
+
+        return HeldRead.StartAsync(database, () => StampSchema.NumberOf(key, stamps.Get((long)key)));
+    }
+
+    // A master of the engine with the stamps 0 to count - 1, each of the state of its own number, under
     // the time limit given in its options.
-    private static async Task<EngineDatabase> OpenWithStampsAsync(TimeSpan? readTimeLimit)
+    private static async Task<EngineDatabase> OpenWithStampsAsync(TimeSpan? readTimeLimit, int count = Keys)
     {
         var database = EngineDatabase.Create(new LatticeDatabaseOptions
         {
@@ -132,7 +231,7 @@ public sealed class ReadTimeInsideTheEngineTests
 
         await database.OpenAsync();
 
-        for (var key = 0; key < Keys; key++)
+        for (var key = 0; key < count; key++)
         {
             await database.Set<StampSchema.Stamp>().InsertAsync(StampSchema.StampOf(key, key));
         }

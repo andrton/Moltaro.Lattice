@@ -22,6 +22,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // - Two instances with the same data and different seeds return the same entities from an
 //   enumeration, compared as sets: the order of an enumeration is unspecified and may differ between
 //   them, so no test asserts one.
+// - The seed enters the hash of every key type, the text of a String key under both comparisons
+//   included, and every instance draws its own (review round 1 of S08, part 2): the same keys,
+//   inserted in the same order, come out of an enumeration in another order under two seeds the test
+//   fixes, and in two instances that draw their seeds. Which order is not asserted, only that the two
+//   are not the same; the order is the walk of the table, which places a key by its hash, so the same
+//   order under two seeds would mean that the seed does not reach the hash, and in two instances that
+//   they drew the same seed, a chance of one in 2^64.
 public sealed class IndexSeedTests
 {
     private const int Colliding = 2_000;
@@ -36,6 +43,14 @@ public sealed class IndexSeedTests
     private const ulong SeedB = 0x9E3779B97F4A7C15;
 
     private const ulong SeedC = 0xD1B54A32D192ED03;
+
+    public static IEnumerable<TheoryDataRow<string, string>> KeyTypes =>
+    [
+        new("Int64", "Ordinal"),
+        new("Guid", "Ordinal"),
+        new("String", "Ordinal"),
+        new("String", "OrdinalIgnoreCase"),
+    ];
 
     public static IEnumerable<TheoryDataRow<string, string, string>> Cases =>
         from encoding in new[] { "Utf8", "Utf16" }
@@ -68,18 +83,18 @@ public sealed class IndexSeedTests
     [MemberData(nameof(Cases))]
     public async Task Every_key_is_found_and_enumerated_once_whatever_the_seed(string encoding, string comparison, string seed)
     {
-        await using var database = await OpenAsync(SchemaOf(encoding, comparison), seed);
+        await using var database = await OpenAsync(KeySchema.Of(encoding, comparison, "String", "Int64", "Guid"), seed);
         var ignoresCase = comparison == "OrdinalIgnoreCase";
 
-        await ExpectEveryKeyAsync(database.Set("Note"), Enumerable.Range(0, Count).Select(TextOf).ToArray(), TextOf(Count + 1), ignoresCase);
-        await ExpectEveryKeyAsync(database.Set("Count"), Enumerable.Range(0, Count).Select(key => (object)((long)key * 7_919)).ToArray(), -1L, ignoresCase: false);
-        await ExpectEveryKeyAsync(database.Set("Tick"), Enumerable.Range(0, Count).Select(key => (object)GuidOf(key)).ToArray(), GuidOf(Count + 1), ignoresCase: false);
+        await ExpectEveryKeyAsync(database.Set("String"), KeysOf("String"), TextOf(Count + 1), ignoresCase);
+        await ExpectEveryKeyAsync(database.Set("Int64"), KeysOf("Int64"), -1L, ignoresCase: false);
+        await ExpectEveryKeyAsync(database.Set("Guid"), KeysOf("Guid"), GuidOf(Count + 1), ignoresCase: false);
     }
 
     [Fact]
     public async Task Two_instances_with_the_same_data_and_different_seeds_return_the_same_entities_from_an_enumeration()
     {
-        var schema = SchemaOf("Utf8", "Ordinal");
+        var schema = KeySchema.Of("Utf8", "Ordinal", "String", "Int64");
 
         await using var first = await OpenAsync(schema, "B");
         await using var second = await OpenAsync(schema, "C");
@@ -88,12 +103,12 @@ public sealed class IndexSeedTests
         {
             for (var key = 0; key < Count; key++)
             {
-                await database.Set("Note").InsertAsync(RecordOf(database.Set("Note"), TextOf(key)));
-                await database.Set("Count").InsertAsync(RecordOf(database.Set("Count"), (long)key));
+                await database.Set("String").InsertAsync(RecordOf(database.Set("String"), TextOf(key)));
+                await database.Set("Int64").InsertAsync(RecordOf(database.Set("Int64"), (long)key));
             }
         }
 
-        foreach (var entityType in new[] { "Note", "Count" })
+        foreach (var entityType in new[] { "String", "Int64" })
         {
             foreach (var withSession in new[] { false, true })
             {
@@ -104,6 +119,23 @@ public sealed class IndexSeedTests
                 Assert.True(ofFirst.SetEquals(ofSecond), $"The two instances returned other {entityType} entities.");
             }
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(KeyTypes))]
+    public async Task Same_keys_come_out_in_another_order_under_another_seed_and_in_another_instance(string keyType, string comparison)
+    {
+        var schema = KeySchema.Of("Utf8", comparison, keyType);
+        var keys = KeysOf(keyType);
+
+        var underB = await OrderAsync(schema, keyType, "B", keys);
+        var underC = await OrderAsync(schema, keyType, "C", keys);
+        var drawn = await OrderAsync(schema, keyType, "drawn", keys);
+        var drawnAgain = await OrderAsync(schema, keyType, "drawn", keys);
+
+        Assert.All(new[] { underB, underC, drawn, drawnAgain }, order => Assert.True(order.ToHashSet().SetEquals(keys), "An enumeration did not return every key once."));
+        Assert.False(underB.SequenceEqual(underC), $"The {keyType} keys came out in the same order under two seeds: the seed does not reach their hash.");
+        Assert.False(drawn.SequenceEqual(drawnAgain), $"The {keyType} keys came out in the same order in two instances that drew their seeds: they drew the same one.");
     }
 
     // A key of every key type is inserted, found, through the spelling of the comparison as well,
@@ -148,6 +180,29 @@ public sealed class IndexSeedTests
         Assert.Null(records.Get(absent));
     }
 
+    // The keys in the order an enumeration returns them, in a database of its own, opened with the
+    // seed, into which they were inserted in the order given.
+    private static async Task<List<object>> OrderAsync(LatticeSchema schema, string keyType, string seed, object[] keys)
+    {
+        await using var database = await OpenAsync(schema, seed);
+        var records = database.Set(keyType);
+
+        foreach (var key in keys)
+        {
+            await records.InsertAsync(RecordOf(records, key));
+        }
+
+        return [.. records.Enumerate().Select(record => record["Id"]!)];
+    }
+
+    // The keys a test inserts of a key type.
+    private static object[] KeysOf(string keyType) => keyType switch
+    {
+        "String" => [.. Enumerable.Range(0, Count).Select(TextOf)],
+        "Int64" => [.. Enumerable.Range(0, Count).Select(key => (object)((long)key * 7_919))],
+        _ => [.. Enumerable.Range(0, Count).Select(key => (object)GuidOf(key))],
+    };
+
     // The keys an enumeration by name returns, with a session or without, as a set.
     private static async Task<HashSet<object>> KeysOfAsync(EngineDatabase database, string entityType, bool withSession)
     {
@@ -186,33 +241,7 @@ public sealed class IndexSeedTests
         _ => EngineMaster.OpenAsync(schema),
     };
 
-    // Note, with a String key compared as given, Count with an Int64 key and Tick with a Guid key, in a
-    // schema of the encoding given; none has a class.
-    private static LatticeSchema SchemaOf(string encoding, string comparison) => LatticeSchema.Compile($$"""
-        {
-          "StringEncoding": "{{encoding}}",
-          "EntityTypes": [
-            {
-              "Id": 1, "Name": "Note",
-              "Fields": [ { "Id": 1, "Name": "Name", "Type": "String", "Comparison": "{{comparison}}" }, { "Id": 2, "Name": "Body", "Type": "String" } ],
-              "PrimaryKey": [1]
-            },
-            {
-              "Id": 2, "Name": "Count",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Body", "Type": "String" } ],
-              "PrimaryKey": [1]
-            },
-            {
-              "Id": 3, "Name": "Tick",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Guid" }, { "Id": 2, "Name": "Body", "Type": "String" } ],
-              "PrimaryKey": [1]
-            }
-          ]
-        }
-        """);
-
-    private static LatticeRecord RecordOf(ILatticeSet records, object key) =>
-        new(records.EntityType) { [records.EntityType.Key.Name] = key, ["Body"] = $"body of {key}" };
+    private static LatticeRecord RecordOf(ILatticeSet records, object key) => KeySchema.RecordOf(records, key, $"body of {key}");
 
     // Text keys of one to four bytes a character in UTF-8, a surrogate pair among them, of lengths from
     // a few characters to a hundred, so that a hash of the text meets every form of it.

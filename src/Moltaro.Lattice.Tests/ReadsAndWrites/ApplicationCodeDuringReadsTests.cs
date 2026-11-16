@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.ApplicationCode;
+using Moltaro.Lattice.TestSupport.Enumeration;
 
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
@@ -19,7 +20,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // the tests take no further step: what a pass does then is stated by the tests of the enumeration
 // (ChangeBetweenStepsTests, EnumerationAfterCloseTests). Afterwards nothing stays locked: the entity
 // is written from another thread and read again. A constructor or a set accessor that throws: the
-// exception reaches the caller of the read, and the next read and write work.
+// exception reaches the caller of the read, and the next read and write work. When it throws while a
+// pass builds an entity, the step that built it throws and leaves it to the pass, and a later step
+// returns it: the pass loses no entity (review round 1 of Epic 1, sprint S08, part 2; on the engine,
+// whose pass is no iterator of C#, which would end at the exception, until S12).
 //
 // Every wait is bounded, so that code that cannot complete fails the test instead of hanging the
 // run. The placeholder holds no lock while it builds an object, so the tests run on it too.
@@ -83,6 +87,13 @@ public sealed class ApplicationCodeDuringReadsTests
         from hook in Hooks
         from action in EnumerationActions
         select new TheoryDataRow<DatabaseImplementationEnum, string, string, string>(implementation, enumeration, hook, action);
+
+    // The enumerations through the class, with each hook, on the engine: the placeholder enumerates by
+    // an iterator, which ends at the first exception, until S12.
+    public static IEnumerable<TheoryDataRow<string, string>> EnumerationsAndHooksOnTheEngine =>
+        from enumeration in new[] { EnumerationForms.ByClass, EnumerationForms.ByClassWithASession }
+        from hook in Hooks
+        select new TheoryDataRow<string, string>(enumeration, hook);
 
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndHooks =>
         from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
@@ -293,6 +304,64 @@ public sealed class ApplicationCodeDuringReadsTests
         {
             await database.DisposeAsync().AsTask().WaitAsync(Bound);
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(EnumerationsAndHooksOnTheEngine))]
+    public async Task Entity_whose_class_throws_while_a_pass_builds_it_is_returned_by_a_later_step(string enumeration, string hook)
+    {
+        var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+
+        try
+        {
+            var entities = database.Set<HookedEntity>();
+
+            for (var id = 1L; id <= 3; id++)
+            {
+                await entities.InsertAsync(new HookedEntity { Id = id, Text = "first" });
+            }
+
+            var failure = new InvalidOperationException("Thrown by the code of the application.");
+            var returned = await Task.Run(async () =>
+            {
+                // The code throws the first time it runs; it may be armed still when a later step runs
+                // in another flow, and does nothing then.
+                var thrown = false;
+
+                Arm(hook, () =>
+                {
+                    if (!thrown)
+                    {
+                        thrown = true;
+                        throw failure;
+                    }
+                });
+
+                await using var steps = EnumerationForms.Of(enumeration, entities, database.Set("Hooked"), entity => entity, NoRecord).GetAsyncEnumerator();
+
+                Assert.Same(failure, await Record.ExceptionAsync(async () => await steps.MoveNextAsync()));
+
+                var rest = new List<HookedEntity>();
+
+                while (await steps.MoveNextAsync())
+                {
+                    rest.Add(steps.Current);
+                }
+
+                return rest;
+            }).WaitAsync(Bound);
+
+            // The entity whose build failed was not lost: the pass returns every entity once.
+            Assert.Equal([1L, 2L, 3L], returned.Select(entity => entity.Id).Order());
+            Assert.All(returned, entity => Assert.Equal("first", entity.Text));
+        }
+        finally
+        {
+            await database.DisposeAsync().AsTask().WaitAsync(Bound);
+        }
+
+        // The forms of the test take the class; none reads a record.
+        static HookedEntity NoRecord(LatticeRecord record) => throw new InvalidOperationException("No record is read here.");
     }
 
     private static void Arm(string hook, Action code)
