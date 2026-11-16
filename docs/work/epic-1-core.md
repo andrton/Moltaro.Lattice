@@ -3507,6 +3507,19 @@ otherwise, these replace it.
   is withdrawn and leaves nothing in the counters; a write cancelled during the wait of a
   resolution ends, and the writes held back go on. Every wait of a write before dispatch
   has the token; the waits without a timeout are only those for steps of reads (X6).
+- **The order of writes and the wait of a session** (the planner, 16 November 2026, after
+  review round 1). No identity is reserved across a wait for a position: a reservation
+  held for up to the timeout of a session would hold every later write of that entity
+  behind a wait that may fail. The sentence on order of both sets becomes: "Writes to one
+  entity are executed in the order their calls were made: a call that is made after an
+  earlier call has returned its task is executed after it, whether or not the earlier task
+  was awaited. A write that first waits for the position of its session takes its place in
+  that order when the wait ends, so a later call may be executed before it. Calls that
+  race on different threads have no order between them. Writes to different entities have
+  no order beyond their positions." Written by the implementer with the fixes. One test: a
+  write with a session ahead of the database and a later write without a session to the
+  same entity — the later one completes first, the first completes when its position is
+  reached, and both results are those of that order.
 - **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
@@ -3778,7 +3791,8 @@ otherwise, these replace it.
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
 **Carried from S09:** a child forwards the writes of one entity in the order of their
-calls; the guarantee of S09 holds through a child.
+calls, each taking its place when the wait for the position of its session has ended;
+the guarantee of S09 holds through a child.
 
 **Carried from the review of S08, part 1:** when the engine library becomes packable in
 this sprint, `THIRD-PARTY-NOTICES.md` is packed into its package as it is into the
