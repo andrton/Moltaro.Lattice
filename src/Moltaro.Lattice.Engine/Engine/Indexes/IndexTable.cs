@@ -58,10 +58,24 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // Who reads and writes. Only the thread that holds the lock of the writes changes a table, and it
 // calls Reserve before the publication of every insert, so that Add finds room without allocating;
 // Add checks the room all the same and refuses before it writes. A reader inside the protection of
-// reads (Protection.ReadEpochs) reads the table at the same time, by ReadMain and ReadOverflow, which
-// are Volatile.Read: an acquire, which pairs with the release of the store that published the word or
-// the link (Add), so a reader that sees an entry sees the root entry and the root it names, and a
-// reader that sees a link sees the overflow bucket filled and the page that holds it.
+// reads (Protection.ReadEpochs) reads the table at the same time, and every way it can reach a word
+// goes through a load with acquire semantics of a store with release semantics that comes after what
+// it makes reachable (the .NET memory model, not that of x64):
+// - the table itself: PrimaryIndex publishes a grown table by one store, after every word, page and
+//   count of it was written, and a reader loads it with acquire semantics (PrimaryIndex.Find,
+//   TableAndVersion, TableAt);
+// - an entry: Add writes it by a store with release semantics after the insert wrote the root entry
+//   and published the root (Writes.WriteExecutor), into the main table and into an overflow bucket
+//   alike, and ReadMain and ReadOverflow load it with acquire semantics, so a reader that sees an
+//   entry sees the root entry and the root it names;
+// - an overflow bucket by key: the link to it, stored with release semantics after the bucket's first
+//   entry, which a lookup loads with acquire semantics (IndexProbe);
+// - an overflow bucket by an enumeration step: Taken, which OverflowBuckets.Take advances with release
+//   semantics after the page that holds the bucket was added (TryFindNext);
+// - a page of overflow buckets: the directory, published by a store with release semantics when it
+//   grows, and otherwise a place of it that no reader reads before one of the two loads above
+//   (OverflowBuckets.AddPage).
+// The count of entries (Count, IsFull) is the writer's alone; no read loads it.
 internal sealed class IndexTable
 {
     // On average at most this many entries per main bucket; see the class.
@@ -179,7 +193,10 @@ internal sealed class IndexTable
         {
             var overflow = _overflow.Take();
 
-            _overflow.BucketAt(overflow)[0] = entry;
+            // Published by its own store with release semantics, not by the link alone: an
+            // enumeration step reaches the new bucket through Taken (TryFindNext), before or without
+            // the link, and has to see the root entry and the root behind the entry it reads.
+            Volatile.Write(ref _overflow.BucketAt(overflow)[0], entry);
             Volatile.Write(ref BucketAt(place)[LinkWord], overflow);
         }
 
@@ -235,7 +252,10 @@ internal sealed class IndexTable
 
     // The slot of the next entry from position on, in the order of the words of the table, and the
     // position after it; false when there is none. A position counts the entry words of the main
-    // buckets, then those of the overflow buckets given out.
+    // buckets, then those of the overflow buckets given out. It reaches an overflow bucket by its
+    // address up to Taken, a load with acquire semantics that pairs with the store of Take, so the page
+    // that holds the bucket is in the directory it then reads; every word is read with acquire
+    // semantics, pairing with the store that published it (Add).
     public bool TryFindNext(ref long position, out uint slot)
     {
         var mainWords = (long)_mainBuckets * EntriesPerBucket;

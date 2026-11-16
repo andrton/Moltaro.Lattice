@@ -129,10 +129,13 @@ internal sealed class RetiredMemory
         }
 
         // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
-        // large. Once it is empty and its capacity is more than four looks' worth, it lets the places
-        // go; emptied, the list allocates nothing for that, and it grows again by doubling, before a
-        // publication (Reserve), when retiring needs it.
-        if (_items.Count == 0 && _capacity > 4 * _itemsPerLook)
+        // large: a read held for a second beside a million writes a second leaves a million places.
+        // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 448 KiB with
+        // 128 slots), it lets the places go; emptied, the list allocates nothing for that, and it grows
+        // again by doubling, before a publication (Reserve), when retiring needs it. The margin keeps
+        // an ordinary load, which holds one or two looks' worth, from trimming and growing again:
+        // only a peak of 64 looks' worth does, and its growth costs about as much as it retired.
+        if (_items.Count == 0 && _capacity > 64 * _itemsPerLook)
         {
             _items.TrimExcess();
             _capacity = 0;

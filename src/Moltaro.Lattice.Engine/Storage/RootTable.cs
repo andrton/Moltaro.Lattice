@@ -18,10 +18,13 @@ namespace Moltaro.Lattice.Storage;
 // lock of the writes (Engine.Writes.WriteExecutor), while reads inside the protection of reads call
 // EntryOfSlot at the same time for slots a primary index named to them. Those read only that entry
 // and the directory of pages, which grows by replacing one array with another that holds the same
-// pages, so a reader that still has the old directory finds the same entry. The protection of reads
-// keeps a slot from being released while a read that could have found it is inside: the entry of a
-// deleted root is retired and released only after those reads have left
-// (Engine.Protection.RetiredMemory).
+// pages, so a reader that still has the old directory finds the same entry. A reader learns of a slot
+// only through an entry of a primary index, which an insert stores with release semantics after it
+// took the slot and wrote its entry (Engine.Indexes.IndexTable.Add), and loads with acquire
+// semantics; so the plain stores of Add, of the directory and of the entry come before what the
+// reader reads. The protection of reads keeps a slot from being released while a read that could
+// have found it is inside: the entry of a deleted root is retired and released only after those
+// reads have left (Engine.Protection.RetiredMemory).
 internal sealed class RootTable
 {
     // The number of entries in one page.

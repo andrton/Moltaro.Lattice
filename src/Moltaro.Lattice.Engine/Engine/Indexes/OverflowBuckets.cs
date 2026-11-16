@@ -33,10 +33,15 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   free list.
 //
 // Who reads and writes. Only the thread that holds the lock of the writes takes buckets and adds
-// pages. A reader inside the protection of reads reads a bucket by its address, which it found in a
-// link it read with acquire semantics; the page and the directory that hold the bucket were stored
-// before that link was published (IndexTable.Add), so the reader reads the directory after the link
-// and finds the page in it.
+// pages. A reader inside the protection of reads reaches a bucket in one of two ways, and each goes
+// through a load with acquire semantics of a store with release semantics that comes after the page,
+// and after the directory that holds it, were stored (the .NET memory model, not that of x64):
+// - by key, through a link it read (IndexTable.Add publishes the link after the bucket);
+// - by an enumeration step, through Taken, the count of the buckets given out, which Take advances by
+//   a store with release semantics after the page was added (Reserve comes before Take).
+// The reader reads the directory after that load, by Read, and finds the page in it. The words of a
+// bucket are read with acquire semantics as well, each pairing with the store that published it
+// (IndexTable.Add); a word the reader sees as 0 is an empty word.
 internal sealed class OverflowBuckets
 {
     private const int LineBytes = 64;
@@ -94,7 +99,12 @@ internal sealed class OverflowBuckets
             throw new InvalidOperationException("No overflow bucket is free: the index was not reserved before the write.");
         }
 
-        return ++_taken;
+        // The store with release semantics that makes the bucket walkable for an enumeration step
+        // (Taken): the page that holds it, and the directory, were stored before it. Its words are
+        // still 0; each entry written into it is published by its own store (IndexTable.Add).
+        Volatile.Write(ref _taken, _taken + 1);
+
+        return _taken;
     }
 
     // A word of the bucket at the address, with acquire semantics.
@@ -130,8 +140,11 @@ internal sealed class OverflowBuckets
         }
         else
         {
-            // No reader reads this place before a bucket of the page is linked, which is published
-            // after it.
+            // A page is two fields, which no single store publishes. No reader reads this place before
+            // it has loaded, with acquire semantics, a store with release semantics that comes after
+            // this one: Taken once a bucket of the page is taken (Take), or a link to such a bucket
+            // (IndexTable.Add). The place is written once and never changed, so such a reader reads
+            // the page whole.
             _pages[_pageCount] = page;
         }
 
