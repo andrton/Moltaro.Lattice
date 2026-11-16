@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Findings;
-
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // An enumeration that a growth of the primary index meets halfway never returns an entity twice and
@@ -26,7 +24,7 @@ public sealed class GrowthDuringEnumerationTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = OpenFindings.ReviewRound1)]
+    [Fact]
     public async Task Enumeration_that_a_growth_of_the_index_meets_halfway_returns_no_entity_twice_and_never_ends_without_one()
     {
         var full = await KeysBeforeGrowthAsync(Growth);

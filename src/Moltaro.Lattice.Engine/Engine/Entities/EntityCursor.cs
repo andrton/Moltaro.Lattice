@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 internal struct EntityCursor
 {
     // The next entry of the index to look at.
-    public int Position;
+    public long Position;
 
     // The version of the index at the first item, while Started.
     public int Version;

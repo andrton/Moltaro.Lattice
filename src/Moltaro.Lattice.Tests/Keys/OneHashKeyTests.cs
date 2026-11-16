@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Findings;
-
 namespace Moltaro.Lattice.Tests.Keys;
 
 // Keys that all have one hash are keys like any other (review round 1 of Epic 1, sprint S08, part 1:
@@ -33,7 +31,7 @@ public sealed class OneHashKeyTests
         }
         """);
 
-    [Theory(Skip = OpenFindings.ReviewRound1)]
+    [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Entities_whose_keys_all_have_one_hash_are_inserted_found_enumerated_once_and_deleted(DatabaseImplementationEnum implementation)
     {

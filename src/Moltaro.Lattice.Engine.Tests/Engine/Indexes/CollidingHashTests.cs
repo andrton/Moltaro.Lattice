@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Findings;
-
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // Keys that collide systematically do not make the primary index double again and again (review
@@ -39,7 +37,7 @@ public sealed class CollidingHashTests
 
     private const int MostTimesTheCount = 2;
 
-    [Fact(Skip = OpenFindings.ReviewRound1)]
+    [Fact]
     public async Task Composite_keys_whose_hashes_collide_take_at_most_64_bytes_of_the_primary_index_an_entity()
     {
         await using var database = await ClashSchema.OpenAsync();
@@ -63,7 +61,7 @@ public sealed class CollidingHashTests
             $"The primary index takes {counters.PrimaryIndexBytes / (double)Entities:F1} bytes an entity for {Entities} composite keys, more than {MostBytesPerEntity}.");
     }
 
-    [Fact(Skip = OpenFindings.ReviewRound1)]
+    [Fact]
     public async Task Keys_of_one_hash_take_at_most_twice_the_primary_index_their_count_needs_and_leave_nothing_once_deleted()
     {
         var needed = await IndexBytesOfAsync(Enumerable.Range(1, OneHashCount).Select(number => (long)number));

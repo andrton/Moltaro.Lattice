@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -104,9 +105,6 @@ internal sealed class EntityTable
     public string? Refusal { get; }
 
     public KeyKindEnum KeyKind { get; }
-
-    // The version of the index: it changes with every insert, delete and growth of the index.
-    public int IndexVersion => _index?.Version ?? 0;
 
     // What the primary index holds, in bytes, and what it is building while it grows. For the writer
     // and the counters.
@@ -281,21 +279,24 @@ internal sealed class EntityTable
             while (true)
             {
                 var before = _clock.Sequence;
-                var version = _index!.Version;
+
+                // The table the step walks is the table of the version the enumeration started on, or the
+                // step fails: a position belongs to the table it was taken in (PrimaryIndex, Version).
+                IndexTable table;
 
                 if (!cursor.Started)
                 {
-                    cursor.Version = version;
+                    table = _index!.TableAndVersion(out cursor.Version);
                     cursor.Started = true;
                 }
-                else if (cursor.Version != version)
+                else
                 {
-                    throw IndexChanged();
+                    table = _index!.TableAt(cursor.Version) ?? throw IndexChanged();
                 }
 
                 var position = cursor.Position;
 
-                if (_index.TryFindNext(ref position, out var slot))
+                if (table.TryFindNext(ref position, out var slot))
                 {
                     // A root deleted between the index and its read is a change of the index as well.
                     if (!TryCopy<TCopy, TResult>(ref _roots.EntryOfSlot(slot), ref copy, out _, out sequence))
@@ -352,14 +353,42 @@ internal sealed class EntityTable
     private NotSupportedException IndexChanged() => new(
         $"Entities of {EntityType.Name} were inserted or deleted while they were enumerated. Until an enumeration under change is implemented, such an enumeration fails instead of returning entities it cannot vouch for; what it returned before stays valid. Start a new enumeration.");
 
-    // The hash of a key in the index: that of its .NET value for an integer, held as a long, and for a
-    // Guid; for a String the hash of the comparison its field declares, computed with the key.
-    private uint HashOf(in EntityKey key) => KeyKind switch
+    // The hash of a key in the index. For a String, the hash of the comparison its field declares,
+    // computed with the key. For an integer, held as a long, and for a Guid, all its bits mixed by the
+    // finalizer of MurmurHash3 (Mix): Int64.GetHashCode and Guid.GetHashCode are the exclusive or of
+    // the halves or the quarters of the value, which keys of a structure share systematically, such as
+    // (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of S08, part 1).
+    private uint HashOf(in EntityKey key)
     {
-        KeyKindEnum.Integer => (uint)key.Integer.GetHashCode(),
-        KeyKindEnum.Guid => (uint)key.Guid.GetHashCode(),
-        _ => (uint)key.TextHash,
-    };
+        if (KeyKind == KeyKindEnum.Text)
+        {
+            return (uint)key.TextHash;
+        }
+
+        if (KeyKind == KeyKindEnum.Integer)
+        {
+            return (uint)Mix((ulong)key.Integer);
+        }
+
+        var guid = key.Guid;
+        ref var halves = ref Unsafe.As<Guid, ulong>(ref guid);
+
+        return (uint)Mix(halves ^ Mix(Unsafe.Add(ref halves, 1)));
+    }
+
+    // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
+    // domain: every bit of the value changes every bit of the result with a probability near one half,
+    // by its published constants. Two multiplications, a few nanoseconds.
+    private static ulong Mix(ulong value)
+    {
+        value ^= value >> 33;
+        value *= 0xFF51AFD7ED558CCD;
+        value ^= value >> 33;
+        value *= 0xC4CEB9FE1A85EC53;
+        value ^= value >> 33;
+
+        return value;
+    }
 
     // The slot of the root entry of the key: the first entry of its hash whose root stores the key.
     private bool TryFindSlot(in EntityKey key, uint hash, out uint slot)

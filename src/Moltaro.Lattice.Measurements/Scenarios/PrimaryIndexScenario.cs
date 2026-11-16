@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // index mutations after it wait, the writes being executed one at a time.
 //
 // Each database holds one entity type, a key and one Int64 field, so that PrimaryIndexBytes is the
-// bytes of its one index: Int64 keys 1 to n, or String keys "key-0000001" to the same count, compared
+// bytes of its one index: Int64 keys 1 to n; composite Int64 keys (shard << 32) | id of 16 shards, the
+// keys whose halves an exclusive or folds onto few hashes (review round 1 of S08, part 1); or String
+// keys "key-0000001" to the same count, compared
 // with Ordinal. The entities are inserted by name, one after the other, and the bytes are read after
 // the inserts and a drain, when nothing retired is left. A growth is timed in a database of Int64
 // keys: every insert from 100,000 entities on is timed alone with Stopwatch.GetTimestamp until the
@@ -30,6 +32,9 @@ internal static class PrimaryIndexScenario
 
     private const int InsertsBefore = 1_000;
 
+    // The shards of the composite keys.
+    private const int Shards = 16;
+
     public static IReadOnlyList<string> Run()
     {
         List<string> lines =
@@ -40,6 +45,7 @@ internal static class PrimaryIndexScenario
         foreach (var count in new[] { 100_000, 1_000_000 })
         {
             lines.Add(BytesPerEntity("Int64", count));
+            lines.Add(BytesPerEntity("Composite", count));
             lines.Add(BytesPerEntity("String", count));
         }
 
@@ -69,7 +75,9 @@ internal static class PrimaryIndexScenario
         var bytes = database.Counters.PrimaryIndexBytes;
         var perEntity = (double)bytes / count;
 
-        return $"{keyType} key, {ReadSeries.Number(count)} entities: {ReadSeries.Number(bytes)} bytes, {perEntity.ToString("F1", CultureInfo.InvariantCulture)} bytes for each";
+        var name = keyType == "Composite" ? "Composite Int64 key of 16 shards" : $"{keyType} key";
+
+        return $"{name}, {ReadSeries.Number(count)} entities: {ReadSeries.Number(bytes)} bytes, {perEntity.ToString("F1", CultureInfo.InvariantCulture)} bytes for each";
     }
 
     private static string Growth()
@@ -116,7 +124,7 @@ internal static class PrimaryIndexScenario
               "EntityTypes": [
                 {
                   "Id": 1, "Name": "Entity",
-                  "Fields": [ { "Id": 1, "Name": "Key", "Type": "{{keyType}}" }, { "Id": 2, "Name": "Value", "Type": "Int64" } ],
+                  "Fields": [ { "Id": 1, "Name": "Key", "Type": "{{(keyType == "Composite" ? "Int64" : keyType)}}" }, { "Id": 2, "Name": "Value", "Type": "Int64" } ],
                   "PrimaryKey": [1]
                 }
               ]
@@ -138,7 +146,12 @@ internal static class PrimaryIndexScenario
     {
         var record = new LatticeRecord(entities.EntityType)
         {
-            ["Key"] = keyType == "Int64" ? (long)key : string.Create(CultureInfo.InvariantCulture, $"key-{key:D7}"),
+            ["Key"] = keyType switch
+            {
+                "Int64" => (long)key,
+                "Composite" => ((long)(key % Shards) << 32) | (uint)(key / Shards),
+                _ => string.Create(CultureInfo.InvariantCulture, $"key-{key:D7}"),
+            },
             ["Value"] = (long)key,
         };
 

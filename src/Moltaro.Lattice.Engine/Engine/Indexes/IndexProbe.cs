@@ -8,19 +8,21 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // The entries of one hash in one table of a primary index, one after another: the slots of the root
 // entries whose key has that hash, among them the one of the key looked for, if the table holds it.
 // The caller compares each with the key the root stores (Entities.EntityTable). It reads the table as
-// it is at each step: a reader inside the protection of reads (Protection.ReadEpochs) may meet an
-// entry the writer is adding, which it sees whole or not at all, and the slot of an entry the writer
-// has removed, which the protection keeps from being given to another root while the reader is
-// inside. A ref struct, so that it does not outlive the step of the read that made it.
+// it is at each step, the main bucket of the hash first and then the overflow buckets its link leads
+// to: a reader inside the protection of reads (Protection.ReadEpochs) may meet an entry the writer is
+// adding, which it sees whole or not at all, and the slot of an entry the writer has removed, which
+// the protection keeps from being given to another root while the reader is inside. A ref struct, so
+// that it does not outlive the step of the read that made it.
 internal ref struct IndexProbe
 {
-    private const int EntriesPerBucket = IndexTable.WordsPerBucket - 1;
-
     private readonly IndexTable _table;
 
     private readonly uint _hash;
 
-    private int _bucket;
+    // The main bucket of the hash while _overflow is 0; then the overflow bucket at that address.
+    private readonly int _bucket;
+
+    private long _overflow;
 
     private int _word;
 
@@ -37,9 +39,9 @@ internal ref struct IndexProbe
     {
         while (true)
         {
-            while (_word < EntriesPerBucket)
+            while (_word < IndexTable.EntriesPerBucket)
             {
-                var entry = _table.Read(_bucket, _word++);
+                var entry = Read(_word++);
 
                 if (entry != 0 && (uint)((ulong)entry >> 32) == _hash)
                 {
@@ -49,7 +51,7 @@ internal ref struct IndexProbe
                 }
             }
 
-            var link = (int)_table.Read(_bucket, EntriesPerBucket);
+            var link = Read(IndexTable.LinkWord);
 
             if (link == 0)
             {
@@ -58,8 +60,10 @@ internal ref struct IndexProbe
                 return false;
             }
 
-            _bucket = link;
+            _overflow = link;
             _word = 0;
         }
     }
+
+    private readonly long Read(int word) => _overflow == 0 ? _table.ReadMain(_bucket, word) : _table.ReadOverflow(_overflow, word);
 }

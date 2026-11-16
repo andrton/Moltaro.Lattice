@@ -2,7 +2,8 @@
 
 Moltaro.Lattice is licensed under the [Apache License 2.0](LICENSE). The repository also
 contains material from other projects, listed here with its own license. Each entry says
-where the material lies, in test code or in a shipped library.
+where the material lies: in test code, or in a library of the repository, and whether that
+library is packaged yet. This file travels in the package of the core library.
 
 ## ASP.NET Core — Identity specification tests
 
@@ -86,8 +87,8 @@ authorization of the copyright holder.
 
 ## Garnet — the epochs and the hash index of Tsavorite
 
-- **Where:** `src/Moltaro.Lattice.Engine`, in the shipped engine library: the protection of reads by epochs and what it retires (`Engine/Protection/EpochSlot.cs`, `ReadEpochs.cs`, `RetiredMemory.cs`) and the primary index (`Engine/Indexes/IndexTable.cs`, `IndexProbe.cs`, `PrimaryIndex.cs`), adapted from the code of these files; each names its source at its head
-- **Source:** <https://github.com/microsoft/garnet>, commit `3d104a76ec410499545bc7fb39d0e3168f8ee709`: `libs/storage/Tsavorite/cs/src/core/Epochs/LightEpoch.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/HashBucket.cs`, `HashBucketEntry.cs` and `TsavoriteBase.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/Implementation/SplitIndex.cs`
+- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the protection of reads by epochs and what it retires (`Engine/Protection/EpochSlot.cs`, `ReadEpochs.cs`, `RetiredMemory.cs`) and the primary index (`Engine/Indexes/IndexTable.cs`, `IndexProbe.cs`, `OverflowBuckets.cs`, `PrimaryIndex.cs`), adapted from the code of these files; each names its source at its head
+- **Source:** <https://github.com/microsoft/garnet>, commit `3d104a76ec410499545bc7fb39d0e3168f8ee709`: `libs/storage/Tsavorite/cs/src/core/Epochs/LightEpoch.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/HashBucket.cs`, `HashBucketEntry.cs` and `TsavoriteBase.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/Implementation/SplitIndex.cs`; `libs/storage/Tsavorite/cs/src/core/Allocator/MallocFixedPageSize.cs`
 - **License:** MIT
 
 ```text

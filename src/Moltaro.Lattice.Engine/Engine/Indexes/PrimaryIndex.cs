@@ -14,8 +14,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // which a lookup reads while the one writer inserts, deletes or grows it.
 //
 // Growth. Before an insert is published, Reserve makes sure the table has room for its entry, so that
-// the publication allocates nothing (milestone contract, "Index preparation and traversal"). When it
-// has none, the writer builds a table with twice the main buckets from the words of the current one,
+// the publication allocates nothing (milestone contract, "Index preparation and traversal"). The main
+// table grows by the count alone (IndexTable, "The capacity policy"): when it is full, the writer
+// builds a table with twice the main buckets from the words of the current one,
 // while readers go on with the current one, which nobody changes meanwhile because only the writer
 // changes a table; it publishes the new table by one store and retires the old one by the epoch of
 // the reads (Protection.RetiredMemory), which lets go of it once the readers that could hold it have
@@ -27,13 +28,19 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // old map").
 //
 // Version changes with every change of the entries, an insert, a delete or a growth, so that an
-// enumeration sees that the index changed under it (brief of S06, "Enumeration until S08").
+// enumeration sees that the index changed under it (brief of S06, "Enumeration until S08"). It is even
+// while the current table is the table of that version: an insert or a delete adds 2, and a growth
+// makes it odd before it publishes the grown table and even again after, so that a step of an
+// enumeration that reads the version, then the table, then the version again, and finds it even and
+// unchanged, holds the table of that version and applies its position to that table alone (review
+// round 1 of S08, part 1: a step had applied a position of the old table to the new one). The idea is
+// that of a sequence lock.
 //
-// Who calls what. Find and TryFindNext from reads inside the protection of reads and from the writer;
-// everything else only from the thread that holds the lock of the writes.
+// Who calls what. Find, TableAndVersion and TableAt from reads inside the protection of reads and from
+// the writer; everything else only from the thread that holds the lock of the writes.
 internal sealed class PrimaryIndex
 {
-    // The first table: two main buckets and one overflow bucket, 248 bytes.
+    // The first table: two main buckets and a page of one overflow bucket.
     private const int FirstBucketBits = 1;
 
     private readonly RetiredMemory _retired;
@@ -52,8 +59,6 @@ internal sealed class PrimaryIndex
         _retired = retired;
     }
 
-    public int Version => Volatile.Read(ref _changes.Version);
-
     // The bytes of the current table. For the writer and the counters.
     public long Bytes => _table.Bytes;
 
@@ -66,17 +71,56 @@ internal sealed class PrimaryIndex
     // pairs with the release of the store that published it (Grow).
     public IndexProbe Find(uint hash) => new(Volatile.Read(ref _table), hash);
 
-    // The slot of the next entry from position on, in the current table; see IndexTable.TryFindNext.
-    public bool TryFindNext(ref int position, out uint slot) => Volatile.Read(ref _table).TryFindNext(ref position, out slot);
+    // For the first step of an enumeration: the current table and the version it is the table of. A
+    // growth that publishes its table between the two reads of the version makes the step read them
+    // again; that waits for the few stores of the publication, or for a test that holds a growth there
+    // (EngineDatabase.HoldNextGrowth).
+    public IndexTable TableAndVersion(out int version)
+    {
+        var spinner = default(SpinWait);
 
-    // Makes room for the entry of one more key of the hash before it is published: grows the table
-    // when it has none. An OutOfMemoryException leaves the current table in place.
+        while (true)
+        {
+            var before = Volatile.Read(ref _changes.Version);
+            var table = Volatile.Read(ref _table);
+
+            if ((before & 1) == 0 && Volatile.Read(ref _changes.Version) == before)
+            {
+                version = before;
+
+                return table;
+            }
+
+            spinner.SpinOnce();
+        }
+    }
+
+    // For a later step of an enumeration: the current table when the index is still at the version
+    // the enumeration started on, null when it changed since. Every load is an acquire, so the table
+    // is read after the first load of the version and before the second.
+    public IndexTable? TableAt(int version)
+    {
+        if (Volatile.Read(ref _changes.Version) != version)
+        {
+            return null;
+        }
+
+        var table = Volatile.Read(ref _table);
+
+        return Volatile.Read(ref _changes.Version) == version ? table : null;
+    }
+
+    // Makes room for the entry of one more key of the hash before it is published: grows the main
+    // table when it is full, unless it is the largest, and then makes room in the chain of the hash
+    // (IndexTable.Reserve). An OutOfMemoryException leaves the current table in place.
     public void Reserve(uint hash)
     {
-        if (!_table.HasRoomFor(hash))
+        if (_table.IsFull && _table.BucketBits < IndexTable.MostBucketBits)
         {
             Grow();
         }
+
+        _table.Reserve(hash);
     }
 
     // Adds the entry of a key that the index does not hold, after Reserve; IndexTable.Add says which
@@ -84,14 +128,14 @@ internal sealed class PrimaryIndex
     public void Add(uint hash, uint slot)
     {
         _table.Add(hash, slot);
-        Changed();
+        ChangeVersion(2);
     }
 
     // Removes the entry of the slot, which the index holds under the hash.
     public void Remove(uint hash, uint slot)
     {
         _table.Remove(hash, slot);
-        Changed();
+        ChangeVersion(2);
     }
 
     // Arms the switch of the tests: the next growth runs hold once (EngineDatabase.HoldNextGrowth).
@@ -108,6 +152,12 @@ internal sealed class PrimaryIndex
 
         _changes.ReplacementBytes = grown.Bytes;
         current.CopyInto(grown);
+        _changes.ReplacementBytes = grown.Bytes;
+
+        // The version becomes odd before the grown table is visible, each a store with release
+        // semantics in this order: a step of an enumeration that reads the grown table reads an odd
+        // or a later version after it (TableAt).
+        ChangeVersion(1);
 
         // The release of this store publishes the new table with every entry written into it: a reader
         // that reads the new table (Find) sees them all. A reader that still has the old one finds
@@ -115,16 +165,16 @@ internal sealed class PrimaryIndex
         Volatile.Write(ref _table, grown);
 
         // The switch of the tests, between the store that publishes the grown table and the change of
-        // the version; it changes nothing when no test armed it.
+        // the version that ends the growth; it changes nothing when no test armed it.
         if (_growthHold is not null)
         {
             Interlocked.Exchange(ref _growthHold, null)?.Invoke();
         }
 
+        ChangeVersion(1);
         _changes.ReplacementBytes = 0;
         _retired.RetireTable(current, current.Bytes);
-        Changed();
     }
 
-    private void Changed() => Volatile.Write(ref _changes.Version, _changes.Version + 1);
+    private void ChangeVersion(int by) => Volatile.Write(ref _changes.Version, _changes.Version + by);
 }
