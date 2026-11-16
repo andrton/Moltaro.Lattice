@@ -256,6 +256,16 @@ what was adapted and what was only taken as an idea.
   pull request and the merge of a closed sprint while no decision of the owner is open;
   nothing covers a release tag.
 
+A measured fall of performance is not by itself a reason to stop (the owner, 16 November
+2026). First the cause is found, with a control or a profile. Then it is compared with
+what established systems do for the same problem: is this what the problem costs
+everywhere, or is something done wrong here. Then alternatives are tried, each kept only
+if a figure justifies it. The owner is asked only when nothing helped, the fall cannot be
+put down to what the problem costs in the industry, and a requirement of the project is
+missed; the question then comes with the cause, the evidence, the alternatives tried with
+their figures and the requirement that is missed. A fall that has a known cause and stays
+within the requirements is reported at the close.
+
 ## Where the state lives
 
 In the epic document: the list of sprints with the status of each. The coordinator updates

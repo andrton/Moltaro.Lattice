@@ -3367,8 +3367,12 @@ otherwise, these replace it.
   part 1 on the same scenario (replace, insert and delete), and reads by key on 16
   threads while 1, 4 and 16 callers write, next to S08. A fall of the single caller from
   the hand-over between threads is reported with its size and cause; reads by key do not
-  fall against S08 beyond noise, and a fall stops the sprint for the owner (reads first,
-  the rule of the owner of 16 November 2026).
+  fall against S08 beyond noise (reads first, the rule of the owner of 16 November 2026).
+  A fall is handled as the owner said in the coordinator's session on the same day and
+  as the [development process](process.md#when-to-stop-and-ask-the-owner) now states:
+  the cause is found, existing solutions are studied, alternatives are tried; the sprint
+  stops for the owner only when nothing helped, the fall is not what the problem costs
+  everywhere, and a requirement is missed.
 - **Answers of the planner to the contract author, 16 November 2026**, from standing
   decisions.
   - *Sizes.* `PreparedWrite.EncodedSize` is `long`, and so is every sum of it;
