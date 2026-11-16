@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -19,7 +18,7 @@ public sealed class InputCopyTests
 {
     private const int Size = 32 * 1024 * 1024;
 
-    [Theory(Skip = NotImplemented.WriteCoordinator)]
+    [Theory]
     [InlineData("by class")]
     [InlineData("by name")]
     public async Task Write_of_an_entity_with_a_Binary_value_of_32_MiB_allocates_no_managed_copy_of_the_value(string form)

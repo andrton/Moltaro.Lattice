@@ -5,9 +5,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // and "Who may touch what"). It is a real boundary of the engine: a durable storage provider plugs in
 // here (S27), and a test of the engine gives a storage of its own through EngineDatabase.Create, one
 // that holds a commit until the test releases it, so that later writes are admitted and prepared and
-// wait for the commit stage meanwhile. The default storage of MemoryOnly completes at once; it and
-// the commit stage that calls it are the implementer's. The storage of the tests lives in the engine
-// test project.
+// wait for the commit stage meanwhile. The default storage of MemoryOnly completes at once
+// (MemoryOnlyStorage); the commit stage that calls it is WriteCoordinator's. The storage of the tests
+// lives in the engine test project.
 internal interface ICommitStorage
 {
     // Makes the group durable and assigns its positions. Completes at once in MemoryOnly.

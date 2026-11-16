@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
@@ -31,7 +30,7 @@ public sealed class MemoryLimitTests
         Assert.Contains(database.Counters.MemoryLimit, new[] { DefaultOf(before), DefaultOf(after) });
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Instance_opened_with_a_MemoryLimit_has_that_value_as_its_limit()
     {
         var given = (12 * Segment) + 1;

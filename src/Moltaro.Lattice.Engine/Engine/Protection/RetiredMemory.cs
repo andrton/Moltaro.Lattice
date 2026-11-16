@@ -22,7 +22,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 // because the arena, the table of root entries and the indexes take no lock and have one writer.
 // A read never frees. Freeing happens on the path of the operations of the database, and no thread
 // or timer is started for it:
-// - after every write, the writer looks once enough was retired since its last look (AfterWrite):
+// - after every group of writes published, the writer looks once enough was retired since its last
+//   look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
 //   moves the epoch on and reads every slot, which costs about what reading the slots costs, so the
 //   look is made once for as many retired things as there are slots: about one read of a slot for
@@ -31,8 +32,14 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   They are derived from the table and the arena, not options.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
-// - a write that the arena refused, which drains, and while retired memory is left waits for the reads
-//   that hold it and drains again, before it is refused (WaitForReads; Writes.WriteExecutor).
+// - a write that the arena refused, which drains, and while retired memory is left waits, outside the
+//   lock, for the reads that hold it (ReadsToWaitFor) and drains again, before it is refused
+//   (Writes.WriteCoordinator, "The refusal").
+//
+// Room. A write that will retire something reserves a place for it while it is prepared (Reserve),
+// beside the places other writes prepared at the same time reserved, so that retiring it after its
+// publication allocates nothing; the place is taken when it retires and given back when the write is
+// withdrawn (Release).
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
@@ -63,10 +70,9 @@ internal sealed class RetiredMemory
     // The capacity of the list, as EnsureCapacity reports it.
     private int _capacity;
 
-    // What the next write that waits for the reads that hold retired memory runs, for the tests of the
-    // engine (EngineDatabase.HoldNextWaitForReads); null when no test armed it. Only a write the arena
-    // refused loads it.
-    private Action? _waitHold;
+    // The places reserved for things that writes prepared and not published yet will retire: several
+    // writes are prepared at once and published later, in their order (Writes.WriteCoordinator).
+    private int _reserved;
 
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
@@ -80,9 +86,17 @@ internal sealed class RetiredMemory
     // The bytes of the retired tables of the primary indexes, counted as an index counts its table.
     public long IndexBytes { get; private set; }
 
-    // Makes room for one more retired thing, so that retiring it after a publication allocates
-    // nothing and cannot fail. Called before the publication.
-    public void Reserve() => _capacity = _items.EnsureCapacity(_items.Count + 1);
+    // Makes room for one more retired thing beside those reserved before, so that retiring it after a
+    // publication allocates nothing and cannot fail. Called before the publication; the reservation
+    // ends when the thing is retired, or with Release for a write that is withdrawn.
+    public void Reserve()
+    {
+        _capacity = _items.EnsureCapacity(_items.Count + _reserved + 1);
+        _reserved++;
+    }
+
+    // Gives back the place a write reserved and does not use, because it was withdrawn.
+    public void Release() => _reserved--;
 
     // Retires the root a replace replaced: its blocks become retired in the arena (RootStorage.Retire).
     public void RetireRoot(RootLayout layout, ArenaAddress root) =>
@@ -131,44 +145,33 @@ internal sealed class RetiredMemory
         // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
         // large: a read held for a second beside a million writes a second leaves a million places.
         // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 448 KiB with
-        // 128 slots), it lets the places go; emptied, the list allocates nothing for that, and it grows
-        // again by doubling, before a publication (Reserve), when retiring needs it. The margin keeps
-        // an ordinary load, which holds one or two looks' worth, from trimming and growing again:
-        // only a peak of 64 looks' worth does, and its growth costs about as much as it retired.
-        if (_items.Count == 0 && _capacity > 64 * _itemsPerLook)
+        // 128 slots), it lets the places go, unless places are reserved for writes not published yet;
+        // emptied, the list allocates nothing for that, and it grows again by doubling, before a
+        // publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
+        // one or two looks' worth, from trimming and growing again: only a peak of 64 looks' worth
+        // does, and its growth costs about as much as it retired.
+        if (_items.Count == 0 && _reserved == 0 && _capacity > 64 * _itemsPerLook)
         {
             _items.TrimExcess();
             _capacity = 0;
         }
     }
 
-    // For a write the arena refused: returns once no read that could reach anything retired so far is
-    // inside, so that a drain after it frees everything. It does nothing when nothing of the arena is
-    // retired. The wait is finite (ReadEpochs.WaitForReadsBefore), has no timeout and no option, and
-    // the token of the write cancels it.
-    public void WaitForReads(CancellationToken cancellationToken)
+    // For a write the arena refused, under the lock of the writes: the epoch below which the reads
+    // still inside could reach something of the arena retired so far, or 0 when none can, because
+    // nothing of the arena is retired or no read that entered before the newest retirement is inside.
+    // The write waits for those reads outside every lock (ReadEpochs.WaitForReadsBefore), so that a
+    // drain after it frees everything retired up to now.
+    public long ReadsToWaitFor()
     {
         if (_arena.Counters.RetiredBytes == 0)
         {
-            return;
+            return 0;
         }
 
         // A read that enters from now on announces an epoch after the newest tag.
-        if (_epochs.Advance() < _newest)
-        {
-            // The switch of the tests, once the write knows it has to wait and before it waits.
-            if (_waitHold is not null)
-            {
-                Interlocked.Exchange(ref _waitHold, null)?.Invoke();
-            }
-
-            _epochs.WaitForReadsBefore(_newest + 1, cancellationToken);
-        }
+        return _epochs.Advance() < _newest ? _newest + 1 : 0;
     }
-
-    // Arms the switch of the tests: the next write that waits for the reads that hold retired memory
-    // runs hold once (EngineDatabase.HoldNextWaitForReads).
-    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
 
     // After the close, once no read and no write is in progress: forgets everything retired. The arena
     // is disposed with every block, retired ones included, and the retired tables are let go of.
@@ -187,10 +190,12 @@ internal sealed class RetiredMemory
         return _arena.Counters.RetiredBytes - before;
     }
 
+    // Retires a thing into the place its write reserved.
     private void Add(RetiredKindEnum kind, RootLayout? layout, ArenaAddress root, RootHandle handle, object? table, long bytes)
     {
         _newest = _epochs.Current;
         _items.Enqueue(new RetiredItem(kind, _newest, layout, root, handle, table, bytes));
+        _reserved--;
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
     }

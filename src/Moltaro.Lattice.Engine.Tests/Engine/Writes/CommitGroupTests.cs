@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Positions;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -37,7 +36,7 @@ public sealed class CommitGroupTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Writes_submitted_while_a_commit_is_held_are_admitted_and_prepared_and_wait_for_the_commit_stage()
     {
         var storage = new HeldCommitStorage();
@@ -73,7 +72,7 @@ public sealed class CommitGroupTests
         }
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Group_holds_at_most_32_writes_and_its_writes_take_consecutive_positions_in_its_order()
     {
         var storage = new HeldCommitStorage();
@@ -124,7 +123,7 @@ public sealed class CommitGroupTests
         }
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Group_holds_at_most_8_MiB_and_a_write_larger_than_that_forms_a_group_alone_and_completes()
     {
         var storage = new HeldCommitStorage();
@@ -181,7 +180,7 @@ public sealed class CommitGroupTests
         }
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Publication_obtains_no_memory_grows_no_index_and_adds_no_root_entry()
     {
         var storage = new HeldCommitStorage();

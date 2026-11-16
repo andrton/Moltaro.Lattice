@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Engine.Positions;
 // of its history with a later sequence, which only a caller can make up, is waited for until writes
 // reach it, within the timeout of the wait; a close ends every wait.
 //
-// One thread at a time publishes, the one that executes a write; any thread reads the sequence.
+// One thread at a time publishes, the one that holds the lock of the writes and publishes a group of
+// writes (Writes.WriteExecutor); any thread reads the sequence.
 internal sealed class PositionClock
 {
     // On lines of its own (SequenceLine).
@@ -23,6 +24,10 @@ internal sealed class PositionClock
     private TaskCompletionSource? _published;
 
     private volatile bool _closed;
+
+    // Set when a publication failed and the database faulted: a wait in progress, and every later one
+    // that is not complete at once, fails with Unavailable.
+    private volatile bool _faulted;
 
     // The database, which a wait after the close names as disposed.
     private readonly object _owner;
@@ -57,6 +62,15 @@ internal sealed class PositionClock
     public void Close()
     {
         _closed = true;
+        Wake();
+    }
+
+    // Ends every wait after a failed publication, which faulted the database: no later position will
+    // be published, so a wait in progress fails with Unavailable, as does a later one that is not
+    // complete at once.
+    public void Fault()
+    {
+        _faulted = true;
         Wake();
     }
 
@@ -120,6 +134,11 @@ internal sealed class PositionClock
             if (_closed)
             {
                 throw new LatticeException(LatticeErrorEnum.Unavailable, "The database was closed while the operation was waiting for a position.");
+            }
+
+            if (_faulted)
+            {
+                throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and no later position will be published.");
             }
 
             if (position.Sequence <= Sequence)

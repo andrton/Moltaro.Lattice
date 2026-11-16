@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Writes;
-
 namespace Moltaro.Lattice.Tests.Database;
 
 // The memory budget of an instance, LatticeDatabaseOptions.MemoryLimit (brief of Epic 1, sprint S09,
@@ -16,7 +14,7 @@ public sealed class MemoryLimitTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Write_the_memory_limit_cannot_hold_is_WriteRejected_with_Limit_Memory_has_no_effect_and_never_runs_later()
     {
         await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, Options(memoryLimit: 8L * Mebibyte));

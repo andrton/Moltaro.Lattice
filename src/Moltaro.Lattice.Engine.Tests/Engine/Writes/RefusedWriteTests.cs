@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -115,7 +114,7 @@ public sealed class RefusedWriteTests
         ExpectHeld(database, PieceSchema.Of(1, name: 11, data: Large));
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Write_that_fits_only_once_an_earlier_unpublished_replace_has_retired_its_old_root_waits_for_it_and_completes()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -149,7 +148,7 @@ public sealed class RefusedWriteTests
         }
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Write_that_waits_for_an_earlier_write_after_the_arena_refused_it_is_cancelled_by_its_token_and_never_runs()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -187,7 +186,7 @@ public sealed class RefusedWriteTests
         }
     }
 
-    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    [Fact]
     public async Task Write_that_does_not_fit_an_otherwise_idle_database_is_WriteRejected_with_Limit_Memory_and_never_runs_later()
     {
         var storage = new HeldCommitStorage(holding: false);

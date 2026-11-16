@@ -19,10 +19,10 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // array whose first record starts on a line; an address of a bucket that is its page and its place in
 // the page; the address 0 kept for none; a counter of the buckets given out, from which the next one
 // is taken, and a new page added when the pages are used up. What differs:
-// - Pages are added by the writer before it publishes the write that needs them (Reserve), never on
-//   the path of a read, and Take refuses when Reserve has not made room: no path writes outside the
-//   pages. Tsavorite allocates the next page ahead and takes addresses with an interlocked add,
-//   because many threads take them.
+// - Pages are added by the writer before it publishes the writes that need them (Reserve, for as many
+//   buckets as the inserts prepared at once may take), never on the path of a read, and Take refuses
+//   when Reserve has not made room: no path writes outside the pages. Tsavorite allocates the next
+//   page ahead and takes addresses with an interlocked add, because many threads take them.
 // - The number of buckets in a page is a sixteenth of the main buckets of the table, at least one, so
 //   that the overflow of a small table is small and that of a large one grows by large steps.
 //   Tsavorite's pages hold 2^16 records.
@@ -32,8 +32,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   entries reuse it, and is let go of with its table when the table is replaced. Tsavorite has a
 //   free list.
 //
-// Who reads and writes. Only the thread that holds the lock of the writes takes buckets and adds
-// pages. A reader inside the protection of reads reaches a bucket in one of two ways, and each goes
+// Who reads and writes. Only the thread that holds the lock of the writes (Writes.WriteExecutor)
+// takes buckets and adds pages. A reader inside the protection of reads reaches a bucket in one of two ways, and each goes
 // through a load with acquire semantics of a store with release semantics that comes after the page,
 // and after the directory that holds it, were stored (the .NET memory model, not that of x64):
 // - by key, through a link it read (IndexTable.Add publishes the link after the bucket);
@@ -80,11 +80,12 @@ internal sealed class OverflowBuckets
     // Whether a bucket can be taken without adding a page.
     public bool HasFree => _taken < ((long)_pageCount << _pageBits);
 
-    // Makes room for one more bucket, by a new page when the pages are used up. Before the publication
-    // that takes it; an OutOfMemoryException leaves the buckets as they were.
-    public void Reserve()
+    // Makes sure that this many buckets can be taken without adding a page, by new pages when the
+    // pages have fewer free. Before the publications that take them; an OutOfMemoryException leaves the
+    // buckets as they were, with the pages added before it.
+    public void Reserve(long buckets)
     {
-        if (!HasFree)
+        while (((long)_pageCount << _pageBits) - _taken < buckets)
         {
             AddPage();
         }

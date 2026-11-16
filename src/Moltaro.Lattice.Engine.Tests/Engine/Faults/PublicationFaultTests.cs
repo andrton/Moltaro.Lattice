@@ -3,7 +3,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
@@ -42,7 +41,7 @@ public sealed class PublicationFaultTests
         from kind in new[] { "replace", "delete", "insert" }
         select new TheoryDataRow<string, string>(point, kind);
 
-    [Theory(Skip = NotImplemented.WriteCoordinator)]
+    [Theory]
     [MemberData(nameof(Cases))]
     public async Task Fault_in_the_publication_of_a_write_faults_the_instance_and_leaves_no_read_retrying(string point, string kind)
     {

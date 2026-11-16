@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Storage;
@@ -71,11 +72,18 @@ internal sealed class ReadEpochs
     // The slots less one: a number masked with it is a slot of the table.
     private readonly int _mask;
 
+    // The bits of State: the database is closed, the database is faulted.
+    private const int Closed = 1;
+
+    private const int Faulted = 2;
+
     // The current epoch; 1 when the database opens. Only the writer and the close move it on.
     private long _current = 1;
 
-    // 1 once the database is closed: a read that finds it leaves at once.
-    private int _closed;
+    // Closed once the database is closed, and Faulted once a publication failed (Close, Fault): a read
+    // that finds either leaves at once. 0 while the database serves reads, which is all a read loads
+    // of it on its ordinary path. A bit, once set, stays set.
+    private int _state;
 
     // What the next read by key that finds its root runs inside the protection, for the tests of
     // the engine (EngineDatabase.HoldNextRead); null when no test armed it, which is all a read pays.
@@ -96,7 +104,8 @@ internal sealed class ReadEpochs
     public long Current => Volatile.Read(ref _current);
 
     // Enters a read and returns the slot it holds, which the read gives to Exit. A read takes no lock
-    // and writes only its slot. ObjectDisposedException of the database after the close.
+    // and writes only its slot. ObjectDisposedException of the database after the close, and
+    // LatticeException with Unavailable once the database is faulted.
     //
     // When every slot is held it waits for one to be left, spinning and then yielding its processor.
     // The wait ends: a read holds its slot only while it looks up and copies, which waits for nothing
@@ -113,32 +122,70 @@ internal sealed class ReadEpochs
             for (var probe = 0; probe < _slots.Length; probe++)
             {
                 var slot = (start + probe) & _mask;
-                ref var epoch = ref _slots[slot].Epoch;
 
-                if (Volatile.Read(ref epoch) != Free)
+                if (!TryClaim(slot))
                 {
                     continue;
                 }
 
-                // The full fence of the exchange orders the read of the mark and of everything the read
-                // reads after it (see the class).
-                if (Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) != Free)
-                {
-                    continue;
-                }
-
-                if (Volatile.Read(ref _closed) != 0)
+                if (Volatile.Read(ref _state) != 0)
                 {
                     Exit(slot);
-                    ObjectDisposedException.ThrowIf(true, _owner);
+                    ThrowForState();
                 }
 
                 return slot;
             }
 
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _closed) != 0, _owner);
+            if (Volatile.Read(ref _state) != 0)
+            {
+                ThrowForState();
+            }
+
             spinner.SpinOnce();
         }
+    }
+
+    // Enters the protection for a write being prepared, which looks its key up and reads the current
+    // entity as a read does (Writes.WriteExecutor), and returns the slot, which it gives to Exit. It does
+    // not look at the close or at a fault: a write admitted before the close goes on to its outcome,
+    // and the close waits for it through the barrier of the close (CloseBarrier) before it waits for
+    // the reads and frees the arena; the coordinator ends a write after a fault. It waits for a free
+    // slot as Enter does.
+    public int EnterForWrite()
+    {
+        var start = Thread.GetCurrentProcessorId();
+        var spinner = default(SpinWait);
+
+        while (true)
+        {
+            for (var probe = 0; probe < _slots.Length; probe++)
+            {
+                var slot = (start + probe) & _mask;
+
+                if (TryClaim(slot))
+                {
+                    return slot;
+                }
+            }
+
+            spinner.SpinOnce();
+        }
+    }
+
+    // Whether a read that retries on the mark of a write in progress has to give up: the database is
+    // faulted, and the write it waits for will never store its stamp (Entities.EntityTable). Loaded
+    // only on that retry, never on the ordinary path of a read.
+    public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
+
+    // The refusal of a read that found the state set: ObjectDisposedException after the close, which
+    // comes first, Unavailable after a fault.
+    [DoesNotReturn]
+    public void ThrowForState()
+    {
+        ObjectDisposedException.ThrowIf((Volatile.Read(ref _state) & Closed) != 0, _owner);
+
+        throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
     }
 
     // Leaves the slot a read took. The release orders everything the read read before the slot is
@@ -179,13 +226,28 @@ internal sealed class ReadEpochs
 
     // Marks the database closed and returns the epoch the reads after the mark announce at the
     // least. A read that entered before the mark goes on; one that enters after it sees the mark and
-    // leaves at once, and the close waits for the others with WaitForReadsBefore. The exchange and
-    // the increment are full fences: either a read sees the mark, or the close sees its slot.
+    // leaves at once, and the close waits for the others with WaitForReadsBefore. The interlocked or
+    // and the increment are full fences: either a read sees the mark, or the close sees its slot.
     public long Close()
     {
-        Interlocked.Exchange(ref _closed, 1);
+        Interlocked.Or(ref _state, Closed);
 
         return Interlocked.Increment(ref _current);
+    }
+
+    // Marks the database faulted: a read that enters from now on reports Unavailable, and a read inside
+    // that retries on the mark of the write whose publication failed gives up (IsFaulted).
+    public void Fault() => Interlocked.Or(ref _state, Faulted);
+
+    // A slot taken by a compare-and-swap of the current epoch into it, when it is free. The full fence
+    // of the exchange orders the read of the state and of everything the read reads after it (see the
+    // class).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool TryClaim(int slot)
+    {
+        ref var epoch = ref _slots[slot].Epoch;
+
+        return Volatile.Read(ref epoch) == Free && Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) == Free;
     }
 
     // Arms the switch of the tests: the next read by key that finds its root runs hold once.

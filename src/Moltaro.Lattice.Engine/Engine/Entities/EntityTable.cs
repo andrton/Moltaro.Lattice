@@ -42,14 +42,17 @@ namespace Moltaro.Lattice.Engine.Entities;
 //   tries again: at once after a failed validation, and while it finds the mark after a back-off by
 //   SpinWait, which spins, then gives up the processor, as the source's Backoff.snooze does for a
 //   writer that finds the lock held.
-// - The source has a write that releases the lock without a new stamp (abort). A write here never
-//   stops between its stores: the publication allocates nothing and cannot fail halfway.
+// - The source has a write that releases the lock without a new stamp (abort). A write here stops
+//   between its stores only when its publication fails, which allocates nothing and does no I/O, so
+//   only a fault injected by a test or a defect fails it; that faults the database, and a read that
+//   retries on the mark gives up with Unavailable (TryCopy).
 //
 // The entities of one entity type in an open database: the root layout they are stored with, the
 // primary index that finds them, and the reads by key and by enumeration, inside the protection of
 // reads by epochs (Protection.ReadEpochs; arena protocol, "Deferred reclamation, 16 November 2026").
-// The write executor changes the index and the root entries; this class says how they are read while
-// it does.
+// The write executor changes the index and the root entries under the lock of the writes; this class
+// says how they are read while it does, by reads and by the writes it prepares, which look their key
+// up as a read does (TryFind).
 //
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
@@ -238,8 +241,11 @@ internal sealed class EntityTable
         return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
     }
 
-    // For the writer, which reads the index and the root entries without the protection: finds a key
-    // of an entity type the engine stores, with the handle of the lifetime of its root.
+    // For a write being prepared, which calls it inside the protection of reads as a read looks a key
+    // up, while the holder of the lock of the writes changes the index and the root entries: finds a
+    // key of an entity type the engine stores, with the handle of the lifetime of its root. The write
+    // holds the reservation of its identity (Writes.WriteCoordinator), so no other write of that key is
+    // published until it is published or withdrawn, and what it finds stays the state of its key.
     public bool TryFind(in EntityKey key, out RootHandle handle)
     {
         if (TryFindSlot(key, HashOf(key), out var slot))
@@ -254,12 +260,27 @@ internal sealed class EntityTable
         return false;
     }
 
-    // Makes room in the index for one more key before an insert is published, so that its
-    // publication allocates nothing; the index grows while reads go on (Indexes.PrimaryIndex).
+    // Makes room in the index for one more key before an insert is published, beside the inserts
+    // prepared before it and not published yet, so that no publication allocates; the index grows
+    // while reads go on (Indexes.PrimaryIndex). Under the lock of the writes.
     public void Reserve(in EntityKey key) => _index!.Reserve(HashOf(key));
+
+    // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
+    public void ReleaseReservation() => _index!.Release();
 
     // Maps an absent key to the root entry of its new root, after Reserve.
     public void Add(in EntityKey key, RootHandle handle) => _index!.Add(HashOf(key), handle.Slot);
+
+    // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
+    // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
+    // so that two spellings of a key compared without case are one identity of a write
+    // (Writes.WriteIdentity).
+    public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
+    {
+        KeyKindEnum.Integer => left.Integer == right.Integer,
+        KeyKindEnum.Guid => left.Guid == right.Guid,
+        _ => EntityType.Key.Declaration.TextComparison!.Equals(left.Text, right.Text),
+    };
 
     // Removes the key of the root entry from the index.
     public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(HashOf(key), handle.Slot);
@@ -273,9 +294,10 @@ internal sealed class EntityTable
     // "Immutable primary keys"), so a write through another spelling of a String key compared without
     // case keeps the spelling the entity was created with, and replaces every other field. A key of
     // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
-    // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture), so
-    // nothing of the caller's is changed. Only the thread that executes writes calls it, and it reads
-    // the root without the protection, as it reads the index.
+    // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture): the
+    // array is the write's own, so nothing of the caller's is changed. A write being prepared calls it
+    // inside the protection of reads, as it looks its key up (TryFind); the reservation of its identity
+    // keeps the root it reads the current one.
     public void KeepStoredKey(RootHandle handle, object?[] values)
     {
         var key = EntityType.Key;
@@ -533,8 +555,10 @@ internal sealed class EntityTable
     // the integer and into the second half of the Guid: Int64.GetHashCode and Guid.GetHashCode are the
     // exclusive or of the halves or the quarters of the value, which keys of a structure share
     // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
-    // S08, part 1). Under the seed 0 a key enters the finalizer unchanged.
-    private uint HashOf(in EntityKey key)
+    // S08, part 1). Under the seed 0 a key enters the finalizer unchanged. Keys that are one key
+    // (KeysEqual) have one hash, so the coordinator of the writes hashes the identity of a write with
+    // it (Writes.WriteIdentity).
+    public uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)
         {
@@ -627,7 +651,15 @@ internal sealed class EntityTable
             if (stamp == MutationInProgress)
             {
                 // A write of this root is between its stores, which take a few nanoseconds and wait
-                // for nothing: the read backs off until the write has stored its sequence.
+                // for nothing: the read backs off until the write has stored its sequence. A
+                // publication that failed between its stores never stores it, and it faulted the
+                // database: the read then reports Unavailable instead of retrying (brief of S09, "A
+                // fault during publication and the reads that retry"). Only this retry looks.
+                if (_epochs.IsFaulted)
+                {
+                    _epochs.ThrowForState();
+                }
+
                 backoff.SpinOnce();
 
                 continue;

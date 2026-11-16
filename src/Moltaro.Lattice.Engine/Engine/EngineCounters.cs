@@ -36,10 +36,9 @@ namespace Moltaro.Lattice.Engine;
 // the number here (the planner's answer to Q38).
 //
 // The members of the write coordinator (brief of Epic 1, sprint S09, "Types and members of S09" and
-// "What is counted"). What waits is counted in the memory budget as the prepared capacity of the
-// arena, Arena.PreparedBytes; there is no second figure of queued bytes. Until the implementer of S09
-// builds the coordinator, writes are executed one after another under the lock of the writes, there
-// is no queue and no commit group, and the first three read 0; the implementer replaces those values.
+// "What is counted"; Writes.WriteCoordinator). What waits is counted in the memory budget as the
+// prepared capacity of the arena, Arena.PreparedBytes; there is no second figure of queued bytes. They
+// are read beside the others without the lock of the coordinator, each one value of its own.
 //
 // QueuedWrites: a current number, the writes admitted and not yet completed: waiting for their
 // identity, waiting to be prepared, being prepared, prepared, or in the commit stage. It is 0 when
@@ -57,9 +56,7 @@ namespace Moltaro.Lattice.Engine;
 // GC.GetGCMemoryInfo().TotalAvailableMemoryBytes and never less than one segment when none was, so
 // that a test can state the default. When a test gave the options of the arena (EngineTestInputs.Arena)
 // they are the options of the arena, MemoryLimit of the options of the database is not read, and this
-// is the limit of those options. It is the limit of the arena (brief of S09, "The refusal"), and it
-// reads that limit already; until the implementer of S09 makes the option the limit of the arena, that
-// is half of the memory available, or the limit a test gave.
+// is the limit of those options. It is the limit of the arena (brief of S09, "The refusal").
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,

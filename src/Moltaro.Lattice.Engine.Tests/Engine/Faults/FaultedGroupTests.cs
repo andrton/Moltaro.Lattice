@@ -2,7 +2,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
@@ -35,7 +34,7 @@ public sealed class FaultedGroupTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Theory(Skip = NotImplemented.WriteCoordinator)]
+    [Theory]
     [InlineData(nameof(EngineFaultPointEnum.BeforePublication))]
     [InlineData(nameof(EngineFaultPointEnum.DuringPublication))]
     public async Task Fault_in_the_publication_of_a_group_ends_every_write_in_progress_by_how_far_it_had_come(string point)
