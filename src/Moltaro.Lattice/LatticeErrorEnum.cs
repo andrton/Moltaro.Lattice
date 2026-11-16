@@ -87,14 +87,14 @@ public enum LatticeErrorEnum
     UniqueConstraintViolation = 13,
 
     /// <summary>
-    /// A read would have exceeded a limit set for it: of the temporary memory it may use or
-    /// of the time it may spend inside the engine, as <see cref="Access.LatticeReadLimits"/>
-    /// states. <see cref="LatticeException.Limit"/> names the limit. What the read returned
-    /// before stays valid, but the read did not complete and never ends as if it had.
+    /// A read would have exceeded a limit of the database options: of the temporary memory it
+    /// may use, <see cref="LatticeDatabaseOptions.ReadMemoryLimit"/>, or of the time it may
+    /// spend inside the engine, <see cref="LatticeDatabaseOptions.ReadTimeLimit"/>.
+    /// <see cref="LatticeException.Limit"/> names the limit. What the read returned before
+    /// stays valid, but the read did not complete and never ends as if it had.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> Read limits are not enforced yet, as
-    /// <see cref="Access.LatticeReadLimits"/> states.
+    /// <b>Not implemented yet.</b> Read limits are not enforced yet, as the two options state.
     /// </remarks>
     ReadLimitExceeded = 14,
 }

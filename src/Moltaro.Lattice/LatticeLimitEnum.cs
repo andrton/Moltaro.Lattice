@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Access;
-
 namespace Moltaro.Lattice;
 
 /// <summary>
@@ -9,14 +7,12 @@ namespace Moltaro.Lattice;
 public enum LatticeLimitEnum
 {
     /// <summary>
-    /// The temporary memory of a read: <see cref="LatticeReadLimits.Memory"/>, or
-    /// <see cref="LatticeDatabaseOptions.ReadMemoryLimit"/> when the read set none.
+    /// The temporary memory of a read: <see cref="LatticeDatabaseOptions.ReadMemoryLimit"/>.
     /// </summary>
     ReadMemory = 1,
 
     /// <summary>
-    /// The time of a read inside the engine: <see cref="LatticeReadLimits.Time"/>, or
-    /// <see cref="LatticeDatabaseOptions.ReadTimeLimit"/> when the read set none.
+    /// The time of a read inside the engine: <see cref="LatticeDatabaseOptions.ReadTimeLimit"/>.
     /// </summary>
     ReadTime = 2,
 }
