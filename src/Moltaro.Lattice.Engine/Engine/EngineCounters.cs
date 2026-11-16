@@ -23,10 +23,8 @@ namespace Moltaro.Lattice.Engine;
 // counted as PrimaryIndexBytes counts a table.
 //
 // ReplacementIndexBytes: the table being built while the primary index grows, before it replaces
-// the old one, in bytes counted in the same way.
-//
-// Until the protection of reads of S08 part 1 is built, nothing is retired and the index grows in
-// place, so RetiredIndexBytes and ReplacementIndexBytes are 0.
+// the old one, in bytes counted in the same way. The one writer builds it within the insert that
+// needs the room, and the counters are taken between two writes, so they read 0 here.
 //
 // RootEntries: the count of the table of root entries, the slots that hold a lifetime
 // (RootTable.Count); the entry of a deleted root is counted until it is released. After the deletes

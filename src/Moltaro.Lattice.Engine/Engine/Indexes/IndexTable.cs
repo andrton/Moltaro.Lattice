@@ -44,8 +44,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // average leave about 5% of the buckets with an overflow, and an index takes 17 to 34 bytes an entry
 // whatever its key type, against 28 to 56 for an Int64 key and 36 to 72 for a Guid or String key in
 // the map of Arc.Collections before S08. A table whose overflow buckets run out before it holds 4B
-// entries grows early, which uneven hashes can cause. The entries of a bucket of a table twice the size need no
-// more overflow buckets than the bucket had, so the entries of a table always fit the next.
+// entries grows early, which uneven hashes can cause. The entries of a bucket of a table twice the
+// size need no more overflow buckets than the bucket had, so the entries of a table always fit the
+// next.
 //
 // Who reads and writes. Only the thread that holds the lock of the writes changes a table. A reader
 // inside the protection of reads (Protection.ReadEpochs) reads it at the same time, by Read, which is
