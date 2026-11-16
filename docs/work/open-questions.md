@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q50. Keys chosen to share one hash make reads of them slow
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, review of Epic 1, sprint S08, part 1, round 2 |
+| **Question** | The primary index hashes Int64 and Guid keys through a mixing function that has no seed and can be inverted, so whoever chooses the keys can put many on one 32-bit hash. Memory stays bounded (26 bytes per entry for 2,000 such keys), and every key is found, but a read of one of them walks the chain: 287 µs against 0.2 µs. String keys compared with Ordinal use the hash of .NET, which is seeded per process; String keys compared without case use the case table and an unseeded hash. Does the index get a seed of its own per instance — the index is local and rebuilt on every node, so a seed changes nothing a node shares — or is a key an application generates, not one an outsider chooses? |
+| **Until answered** | No seed. Correctness and the memory bound hold for any keys; only the time of reads by keys of one chain grows with the chain |
+| **Decides** | The planner, and the owner if it is a choice, before the first release |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
