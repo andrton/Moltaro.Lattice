@@ -82,7 +82,7 @@ public sealed class RootTableTests
     }
 
     [Fact]
-    public void Release_looks_at_neither_the_claim_count_nor_the_state()
+    public void Release_looks_at_neither_the_reserved_word_nor_the_state()
     {
         var table = new RootTable();
         RootStateEnum[] states = [RootStateEnum.Prepared, RootStateEnum.Live, RootStateEnum.Deleted];

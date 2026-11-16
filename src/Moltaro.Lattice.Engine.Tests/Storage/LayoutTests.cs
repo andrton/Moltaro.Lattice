@@ -57,7 +57,8 @@ public sealed class LayoutTests
         var entry = new RootEntry();
 
         // Root address (8), last mutation position (8), key-descriptor address (8), stored-root id
-        // (8), generation (4), type id (4), state (4), claim count (4).
+        // (8), generation (4), type id (4), state (4), and the four bytes the contract gives to the
+        // claims of lookups, reserved since reads are protected by epochs (4).
         Assert.Equal(0, OffsetOf(ref entry, ref entry.Root));
         Assert.Equal(8, OffsetOf(ref entry, ref entry.LastMutationSequence));
         Assert.Equal(16, OffsetOf(ref entry, ref entry.KeyDescriptor));

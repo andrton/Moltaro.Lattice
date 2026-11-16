@@ -9,9 +9,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // - A read is coherent: it returns one written state, never a mix of two writes and never memory that
 //   was freed or reused, whether a value lies in the fixed part, inline, in a block of its own or in
 //   a chunk.
-// - A deleted entry is reused only after the readers that could see it are gone, and an old claim
-//   never follows a key that was created again: a read returns its own key's entity or absence,
-//   never the entity of another key.
+// - A deleted entry is reused only after the readers that could see it are gone, and a read never
+//   follows an old entry to a key that was created again: a read returns its own key's entity or
+//   absence, never the entity of another key.
 // - A read is never stale and never falsely absent: what it returns is a state its key had at some
 //   moment of the read. Every write of a key has an index, and the state after it is the entity
 //   with that number or, after a delete, absence. A read that started after write b had returned and
