@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How reads are protected: epochs — Moltaro.Lattice</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c2330; --muted: #5d6878; --line: #c9d1dc; --panel: #f4f6f9;
+    --reader-a: #1f6feb; --reader-b: #8250df; --writer: #bf5b04;
+    --live: #1a7f37; --live-bg: #dcf5e3; --old: #9a6700; --old-bg: #fff3cd;
+    --retired-bg: #fde8e8; --retired: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --fg: #e3e8ef; --muted: #98a4b3; --line: #3a4350; --panel: #1b212a;
+      --reader-a: #6cb0ff; --reader-b: #c4a0ff; --writer: #f0a55a;
+      --live: #56d37a; --live-bg: #173a24; --old: #e3b341; --old-bg: #3d3212;
+      --retired-bg: #43201f; --retired: #ff8f85;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { color: var(--muted); }
+  .status { border-left: 3px solid var(--old); background: var(--panel); padding: 10px 14px; margin: 18px 0; font-size: .93rem; }
+  blockquote { margin: 16px 0; padding: 10px 16px; border-left: 3px solid var(--live); background: var(--panel); font-size: 1.05rem; }
+  figure { margin: 20px 0 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  svg { display: block; width: 100%; height: auto; background: var(--panel); }
+  .controls { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--fg); }
+  button:disabled { opacity: .45; cursor: default; }
+  .count { color: var(--muted); font-size: .9rem; margin-left: auto; }
+  .caption { padding: 14px; border-top: 1px solid var(--line); min-height: 104px; }
+  .caption b { display: block; margin-bottom: 2px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .93rem; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  a { color: var(--reader-a); }
+
+  /* drawing */
+  text { fill: var(--fg); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .small { font-size: 11.5px; fill: var(--muted); }
+  .head { font-size: 12px; fill: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+  .box { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+  .dashed { stroke-dasharray: 5 4; }
+  .arrow { stroke: var(--fg); stroke-width: 2; fill: none; }
+  .moving { transition: transform .9s ease, opacity .6s ease; }
+  .fading { transition: opacity .6s ease; }
+  #v1 rect { fill: var(--old-bg); stroke: var(--old); stroke-width: 1.5; }
+  #v2 rect { fill: var(--live-bg); stroke: var(--live); stroke-width: 1.5; }
+  #tray { fill: var(--retired-bg); stroke: var(--retired); stroke-width: 1.2; }
+  #tokA circle { fill: var(--reader-a); } #tokB circle { fill: var(--reader-b); }
+  #tokW circle { fill: var(--writer); }
+  .tok text { fill: #fff; font-weight: 600; font-size: 12px; text-anchor: middle; }
+  .la { fill: var(--reader-a); font-weight: 600; } .lb { fill: var(--reader-b); font-weight: 600; }
+  .lw { fill: var(--writer); font-weight: 600; }
+  #epoch { font-size: 26px; font-weight: 700; text-anchor: middle; }
+  @media (prefers-reduced-motion: reduce) { .moving, .fading { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>How reads are protected: epochs and memory that is freed later</h1>
+  <p class="lead">Moltaro.Lattice · an explanation, not a specification. The same text without the
+    animation is in <a href="epoch-protection.md">epoch-protection.md</a>; the rule is in the
+    <a href="arena-protocol.md">arena protocol</a>.</p>
+  <p class="status"><b>Status.</b> Decided on 16 November 2026 and built in Epic 1, sprint S08, part 1,
+    for reads by key and the primary index.</p>
+
+  <h2>The idea</h2>
+  <blockquote>A writer never frees memory a reader might still be looking at. It puts that memory
+    aside, and it is freed a moment later, once every reader that could have seen it has left.</blockquote>
+  <p>Nobody waits: a reader does not wait for the writer, and the writer does not wait for readers.
+    Step through one replace of an entity while two readers are at work.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" role="img" aria-labelledby="capTitle capText">
+      <defs>
+        <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+        </marker>
+      </defs>
+
+      <!-- epoch -->
+      <text class="head" x="30" y="34">Epoch of the database</text>
+      <rect class="box" x="30" y="44" width="110" height="46" rx="8"/>
+      <text id="epoch" x="85" y="77">5</text>
+
+      <!-- reader slots -->
+      <text class="head" x="30" y="128">Each reader's own slot</text>
+      <rect class="box" x="30" y="138" width="200" height="46" rx="8"/>
+      <text class="la" x="44" y="166">Reader A</text>
+      <text id="slotA" x="216" y="166" text-anchor="end">outside</text>
+      <rect class="box" x="30" y="194" width="200" height="46" rx="8"/>
+      <text class="lb" x="44" y="222">Reader B</text>
+      <text id="slotB" x="216" y="222" text-anchor="end">outside</text>
+      <rect class="box" x="30" y="290" width="200" height="46" rx="8"/>
+      <text class="lw" x="44" y="318">Writer</text>
+      <text id="slotW" x="216" y="318" text-anchor="end">idle</text>
+      <text class="small" x="30" y="356">The writer has no slot: it never</text>
+      <text class="small" x="30" y="371">waits for readers.</text>
+
+      <!-- index entry -->
+      <text class="head" x="300" y="128">Index</text>
+      <rect class="box" x="300" y="138" width="110" height="46" rx="8"/>
+      <text x="355" y="166" text-anchor="middle">key 42</text>
+      <path id="toV1" class="arrow fading" marker-end="url(#tip)" d="M410 161 L498 161"/>
+      <path id="toV2" class="arrow fading" marker-end="url(#tip)" d="M410 165 C450 165 450 283 498 283" opacity="0"/>
+
+      <!-- retired tray -->
+      <text class="head" x="710" y="34">Retired, not freed yet</text>
+      <rect id="tray" class="dashed" x="700" y="44" width="180" height="70" rx="8"/>
+      <text id="trayNote" class="small" x="790" y="84" text-anchor="middle">empty</text>
+
+      <!-- entity states -->
+      <text class="head" x="500" y="128">Entity in memory</text>
+      <g id="v1" class="moving">
+        <rect x="500" y="138" width="150" height="46" rx="8"/>
+        <text x="575" y="158" text-anchor="middle">state 1</text>
+        <text id="v1note" class="small" x="575" y="175" text-anchor="middle">live</text>
+      </g>
+      <g id="v2" class="moving" opacity="0">
+        <rect id="v2rect" x="500" y="260" width="150" height="46" rx="8"/>
+        <text x="575" y="280" text-anchor="middle">state 2</text>
+        <text id="v2note" class="small" x="575" y="297" text-anchor="middle">prepared</text>
+      </g>
+
+      <!-- tokens -->
+      <g id="tokA" class="tok moving"><circle cx="262" cy="161" r="13"/><text x="262" y="165">A</text></g>
+      <g id="tokB" class="tok moving"><circle cx="262" cy="217" r="13"/><text x="262" y="221">B</text></g>
+      <g id="tokW" class="tok moving"><circle cx="262" cy="313" r="13"/><text x="262" y="317">W</text></g>
+    </svg>
+    <div class="controls">
+      <button id="prev" type="button">← Back</button>
+      <button id="next" type="button">Next →</button>
+      <button id="play" type="button">Play</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="caption" aria-live="polite"><b id="capTitle"></b><span id="capText"></span></div>
+  </figure>
+
+  <h2>Why this scales</h2>
+  <ul>
+    <li>The only thing a read writes is its own slot. No other reader writes there, so processors
+      do not pass one piece of memory around, as they do with a shared lock.</li>
+    <li>The writer switches one pointer and goes on. It never waits for readers to finish.</li>
+    <li>The index is read the same way: an entry is one machine word, and a table that has to grow
+      is built beside the old one, switched in, and the old table retired like an old state.</li>
+  </ul>
+
+  <h2>What an application can rely on</h2>
+  <table>
+    <tr><th>Guarantee</th><th>What it means</th></tr>
+    <tr><td>Nothing changes in the API</td><td>No call, option or error is added for this.</td></tr>
+    <tr><td>A read is coherent for one entity</td><td>It returns one written state, never a mixture. Several reads are still not a snapshot.</td></tr>
+    <tr><td>Reads and writes do not block each other</td><td>More reading threads read more in total, up to the number of processors, and writes keep their pace. Any number of threads may write; their changes are published one after another, and &ldquo;the writer&rdquo; on this page is whichever of them is publishing at that moment.</td></tr>
+    <tr><td>A close is complete</td><td>Closing waits for the reads in progress and frees everything.</td></tr>
+  </table>
+
+  <h2>What it costs</h2>
+  <ul>
+    <li>Old memory lives slightly longer: a small, bounded amount waits for the writer's next look at
+      the readers. A read holds memory back only while it copies an entity; no application code runs
+      and nothing waits while a read is inside.</li>
+    <li>Retired memory is counted and counts against the memory budget of the instance. A write
+      that meets the budget first frees what can be freed.</li>
+    <li>It is not a snapshot and not versioning: an old state lives only until the readers that
+      were already copying it are done.</li>
+  </ul>
+
+  <h2>A known technique</h2>
+  <p>Nothing here is invented for this database. Protecting readers by epochs and freeing memory
+    later is a long-established technique of operating systems and in-memory databases, usually
+    called epoch-based reclamation.</p>
+</main>
+
+<script>
+(function () {
+  // Where a token rests: at its lane, on state 1 (shelf or tray), or on state 2.
+  var HOME = [0, 0];
+  var steps = [
+    { title: "At rest.", text: "The index leads from key 42 to state 1 of the entity. The epoch of the database is 5. Nobody is reading.",
+      epoch: 5, a: "outside", b: "outside", w: "idle", ptr: 1, v1: "shelf", v1note: "live", v2: 0, v2note: "prepared",
+      tokA: HOME, tokB: HOME, tokW: HOME, tray: "empty" },
+    { title: "Reader A enters.", text: "It writes the current epoch, 5, into its own slot. That is the only thing a read writes, and no other reader writes there. It takes no lock. Then it follows the index to state 1 and starts copying it.",
+      epoch: 5, a: "inside, epoch 5", b: "outside", w: "idle", ptr: 1, v1: "shelf", v1note: "live", v2: 0, v2note: "prepared",
+      tokA: [258, -22], tokB: HOME, tokW: HOME, tray: "empty" },
+    { title: "The writer prepares state 2.", text: "The new state is built beside the old one. The index does not lead to it yet, so no reader can see it. Reader A goes on copying state 1.",
+      epoch: 5, a: "inside, epoch 5", b: "outside", w: "preparing", ptr: 1, v1: "shelf", v1note: "live", v2: 1, v2note: "prepared",
+      tokA: [258, -22], tokB: HOME, tokW: [258, -52], tray: "empty" },
+    { title: "The writer publishes and does not wait.", text: "One pointer is switched: from this instant every new reader finds state 2. State 1 is retired — set aside, marked with epoch 5, not freed. The writer returns at once. Here the epoch also moves to 6; the writer moves it once enough has been retired, not at every write. Reader A is still copying state 1, and it is still whole.",
+      epoch: 6, a: "inside, epoch 5", b: "outside", w: "done", ptr: 2, v1: "tray", v1note: "retired at 5", v2: 1, v2note: "live",
+      tokA: [458, -99], tokB: HOME, tokW: HOME, tray: "" },
+    { title: "Reader B enters.", text: "It writes epoch 6 into its slot and follows the index to state 2. It cannot find state 1: the pointer already leads elsewhere. Two readers, two states, each one whole.",
+      epoch: 6, a: "inside, epoch 5", b: "inside, epoch 6", w: "idle", ptr: 2, v1: "tray", v1note: "retired at 5", v2: 1, v2note: "live",
+      tokA: [458, -99], tokB: [258, 44], tokW: HOME, tray: "" },
+    { title: "Reader A leaves.", text: "It has its copy of state 1 and marks its slot empty. Now no slot holds epoch 5 or an older one: everyone who could have been inside when state 1 was retired has left.",
+      epoch: 6, a: "outside", b: "inside, epoch 6", w: "idle", ptr: 2, v1: "tray", v1note: "retired at 5", v2: 1, v2note: "live",
+      tokA: HOME, tokB: [258, 44], tokW: HOME, tray: "" },
+    { title: "State 1 is freed.", text: "At its next write the writer sees that no reader can reach it any more, and its memory goes back to the database. Reader B is not asked: it entered after the switch. Nobody waited for anybody at any step.",
+      epoch: 6, a: "outside", b: "inside, epoch 6", w: "idle", ptr: 2, v1: "gone", v1note: "retired at 5", v2: 1, v2note: "live",
+      tokA: HOME, tokB: [258, 44], tokW: HOME, tray: "empty" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var at = 0, timer = null;
+
+  function move(el, to) { el.style.transform = "translate(" + to[0] + "px," + to[1] + "px)"; }
+
+  function show() {
+    var s = steps[at];
+    $("epoch").textContent = s.epoch;
+    $("slotA").textContent = s.a;
+    $("slotB").textContent = s.b;
+    $("slotW").textContent = s.w;
+    $("toV1").setAttribute("opacity", s.ptr === 1 ? 1 : 0);
+    $("toV2").setAttribute("opacity", s.ptr === 2 ? 1 : 0);
+    move($("v1"), s.v1 === "shelf" ? [0, 0] : [215, -82]);
+    $("v1").setAttribute("opacity", s.v1 === "gone" ? 0 : 1);
+    $("v1note").textContent = s.v1note;
+    $("v2").setAttribute("opacity", s.v2);
+    $("v2note").textContent = s.v2note;
+    $("v2rect").setAttribute("stroke-dasharray", s.v2note === "prepared" ? "5 4" : "none");
+    $("trayNote").textContent = s.tray;
+    move($("tokA"), s.tokA);
+    move($("tokB"), s.tokB);
+    move($("tokW"), s.tokW);
+    $("capTitle").textContent = s.title;
+    $("capText").textContent = " " + s.text;
+    $("count").textContent = "Step " + (at + 1) + " of " + steps.length;
+    $("prev").disabled = at === 0;
+    $("next").disabled = at === steps.length - 1;
+  }
+
+  function stop() { clearInterval(timer); timer = null; $("play").textContent = "Play"; }
+
+  $("prev").onclick = function () { stop(); if (at > 0) { at--; show(); } };
+  $("next").onclick = function () { stop(); if (at < steps.length - 1) { at++; show(); } };
+  $("play").onclick = function () {
+    if (timer) { stop(); return; }
+    if (at === steps.length - 1) { at = 0; show(); }
+    $("play").textContent = "Pause";
+    timer = setInterval(function () {
+      if (at === steps.length - 1) { stop(); return; }
+      at++; show();
+    }, 4200);
+  };
+
+  show();
+})();
+</script>
+</body>
+</html>
