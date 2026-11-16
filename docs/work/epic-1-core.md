@@ -3197,7 +3197,7 @@ the arena.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
-text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
+text table, the pages of root entries and the native scratch of reads, if any exists by then; until then those are not
 counted, and the documentation of `MemoryLimit` says so. Retired memory counts against
 the budget; a write that meets the budget drains first and waits for the reads in
 progress before it is refused (the owner's decision of 16 November 2026 on deferred
@@ -3355,8 +3355,11 @@ otherwise, these replace it.
   and between the mark of a write in progress and the new stamp a read of that entity
   retries. Added to "Faulted": a fault during publication never leaves a read retrying: a
   read that retries checks the state of the instance and reports `Unavailable` once it is
-  `Faulted`. "No reader sees a partial state" means: no read returns a root, a position or
-  a key of the write that faulted unless all of its stores were made. Acceptance: with
+  `Faulted`. "No reader sees a partial state" means: no read returns a mixture of two states
+  of an entity, and none is left retrying. A read that overlaps a faulted publication
+  returns the state before the write, the whole state of the write, which the storage step
+  had taken, or `Unavailable`; a read that begins after the instance is `Faulted` reports
+  `Unavailable`. Acceptance, for a replace, a delete and an insert: with
   `DuringPublication` armed for a replace, a read of that entity started before and one
   started after both end, with the old state or `Unavailable`, within the time of the
   test.
@@ -3366,6 +3369,67 @@ otherwise, these replace it.
   the hand-over between threads is reported with its size and cause; reads by key do not
   fall against S08 beyond noise, and a fall stops the sprint for the owner (reads first,
   the rule of the owner of 16 November 2026).
+- **Answers of the planner to the contract author, 16 November 2026**, from standing
+  decisions.
+  - *Sizes.* `PreparedWrite.EncodedSize` is `long`, and so is every sum of it;
+    `CommitGroup.MaxEncodedSize` is a `long` constant. No rule bounds an entity (O19).
+  - *The computed default* is never refused: half of the memory the runtime reports, and
+    not less than the minimum of `MemoryLimit`, one segment. The sentence "the validation
+    of that open uses the same value" is dropped; `Validate` checks only an explicit
+    `MemoryLimit`, and the documentation of the option gains "and never less than" the
+    minimum.
+  - *The internal `Create` with `ArenaOptions`.* They are the options of the arena and
+    `MemoryLimit` of the public options is not read; `EngineCounters.MemoryLimit` reports
+    the limit in force. Tests of a small arena use `ArenaOptions`; tests of the option use
+    the public open.
+  - *The fault points* both lie after the storage step and both fault the instance.
+    `BeforePublication`: the storage step of the group has completed and no store of its
+    publication has been made; in MemoryOnly "committed" means that the storage step
+    returned. "A preparation that fails releases everything and the instance stays Ready"
+    needs no fault point: it is shown by real failures of a preparation (a refusal of the
+    arena, a cancelled write, a value the writer refuses). `DuringPublication`: for a
+    replace, after the store of the root and before the new stamp, the mark set; for a
+    delete, after the store of the state and before the new stamp, the mark set; for an
+    insert, after the store of the index entry and before the position is published. An
+    armed point throws `InvalidOperationException` with a message naming the point.
+  - *After a fault.* A write of the group whose stores were all made before the fault gets
+    its real result: it is published. The write whose publication faulted and the writes
+    of the group after it get `LatticeException` with `IndeterminateOutcome`: the storage
+    step took them and the instance cannot show them; the injected exception is the
+    `InnerException` of the first of them. Writes prepared and not yet taken by the commit
+    stage, writes being prepared and writes waiting for their identity get `Unavailable`:
+    they did not run, and everything they held is released. Every later operation is
+    `Unavailable`; a close works.
+  - *The counters.* `QueuedWrites` is a current number: the writes admitted and not yet
+    completed — waiting for their identity, waiting to be prepared, being prepared,
+    prepared, in the commit stage; 0 when every call has returned. `LargestCommitGroup` and
+    `LargestCommitGroupBytes` are maxima since the open, taken independently of each
+    other; a lone large write is a group of one and counts in both.
+  - *Dispatch* is the moment the commit stage takes the write into a group and hands the
+    group to the storage step: the call of `ICommitStorage.CommitAsync`. Before it a
+    cancelled write is withdrawn, releases what it prepared and ends in
+    `OperationCanceledException`; from it on the call returns the real outcome and the
+    token is not looked at. No switch is added: the internal `Create` takes an
+    `ICommitStorage`, a real boundary of the engine, and the storage of a test holds a
+    commit until the test releases it. While it is held, later writes are admitted and
+    prepared and wait for the commit stage, so a test can cancel one before its dispatch
+    and state through `PreparedBytes` and `QueuedWrites` that nothing of it is left, state
+    that several are prepared at once, and form groups of a known size. The default
+    storage of MemoryOnly completes at once. The storage of the tests lives in the engine
+    test project.
+  - *Positions.* The writes of a group take consecutive positions from `FirstSequence`, in
+    the order the commit stage took them, which for one entity is the order of admission;
+    a delete of an absent key takes one as any write does.
+  - *The order of writes to one entity* is a public guarantee, documented on the write
+    members of both sets in the contract commit: "Writes to one entity are executed in the
+    order their calls were made: a call that is made after an earlier call has returned
+    its task is executed after it, whether or not the earlier task was awaited. Calls that
+    race on different threads have no order between them. Writes to different entities
+    have no order beyond their positions."
+  - *The refusal and decision Q14* of the decision on write admission: a dated addition
+    there says that the write waits for reads and for the writes admitted before it; the
+    wait for earlier writes is the planner's reading of O20, reported to the owner.
+  - *Coordinator:* the commit types live in `Engine/Writes`, by the folder rule.
 - **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
@@ -3635,6 +3699,9 @@ otherwise, these replace it.
   whole. A delete of an absent key on the master moves the position of the child.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
+
+**Carried from S09:** a child forwards the writes of one entity in the order of their
+calls; the guarantee of S09 holds through a child.
 
 **Carried from the review of S08, part 1:** when the engine library becomes packable in
 this sprint, `THIRD-PARTY-NOTICES.md` is packed into its package as it is into the
@@ -4084,8 +4151,8 @@ otherwise, these replace it.
 - **Acceptance.** A write that cannot reserve its memory is refused before commit and
   does not wait for compaction; reads continue, and after memory is freed writes are
   accepted again. The budget counts the arena with its reserve, both tables of a growing
-  primary index, secondary index nodes, the text table, prepared capacity of writes in flight, the scratch of reads, the pages of root entries
-  and the queued write input; S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
+  primary index, secondary index nodes, the text table, the native scratch of reads if any exists, and the pages of root entries
+  (prepared capacity is counted in the arena since S09, and a waiting write holds nothing in the engine); S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
   shown by the counters. A child over its budget pauses application, keeps its reads and
   resumes when memory is free again; reloading after a long pause is S34. Nothing queued
   runs after its cancellation.
