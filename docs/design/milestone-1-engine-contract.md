@@ -142,9 +142,13 @@ does not change logical revisions or write a durable relocation record.
 ## Reader protection, publication and compaction
 
 Use the proven [arena protocol](arena-protocol.md), extended with the database
-publication barrier. Initial synchronization is ReaderWriterLockSlim: one database
-barrier, 1,024 root stripes, a catalog/index gate, dictionary gate and allocator gate.
-Root stripes bound lock-object memory; collisions can contend. One logical root
+publication barrier. Reads are protected by epochs and retired memory is freed later, as
+the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
+owner's decision of 16 November 2026): a read by key writes to no memory another reader
+writes to on its ordinary path, the one writer does not wait for readers, and a lookup
+runs while the writer changes the index. The writer side keeps its order of
+acquisition; which gates remain beside the epoch — the allocator, the dictionary — is
+stated by the sprint that builds each. One logical root
 protection still covers all its owned blocks. No separate heap lock per object.
 
 Acquisition order for nested work is database barrier -> distinct root stripes in

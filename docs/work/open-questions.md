@@ -76,6 +76,15 @@ in the meantime.
 | **Until answered** | The notice is in the repository. Nothing has been released, so no package without it exists |
 | **Decides** | The owner, before the first package is published |
 
+### Q48. Can the selected map of the primary index be read while the writer changes it?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, the planner, with the owner's decision on deferred reclamation; for Epic 1, sprint S08, part 1 |
+| **Question** | The decision on index structures selects `UnorderedMapSlim` of `Arc.Collections` as an engineering selection and foresees readers on the old map only during growth, with mutations otherwise excluding lookups. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it, without touching its internals? If it cannot, the selection has to change, and that reaches `AGENTS.md` (the engine owns `Arc.Collections`), the pin test of Q3 and principle 11 |
+| **Until answered** | The implementer of S08, part 1 establishes it first and reports before building. The package is not removed before the owner has spoken |
+| **Decides** | The planner, and the owner where the selection changes |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -355,6 +364,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S04 |
 | **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
 | **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
+| **Amended** | 16 November 2026, with the owner's decision on deferred reclamation: there are no claims; the entry of a deleted root is retired and released once the reads that could see it have left. After the deletes have returned and a drain with no read in progress, the table holds no entry of a deleted entity |
 | **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
 
 ### Q36. Exception X3 does not name the tests of the reference fixture
@@ -436,6 +446,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S06 |
 | **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes as the initial one, and gate G2 asks for 10,000 reads per second, so no rule was broken. Does the scaling matter, and when is it dealt with? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: reads by key have to scale with threads, and the work is done in S08, where the gate of the index changes anyway, not judged at S25. That more threads read less in total is a very bad signal. The implementer of S08 studies in their source how open-source databases that read fast on many threads protect a read, and repeats a solution that is proven there; how many protections there are and how fine they are is decided by those systems and by measurement, not by a stated preference. The guarantees do not move |
+| **Amended** | 16 November 2026, the owner: deferred reclamation by epochs, for reads and for the index, after a first implementation whose writer waited for the reads was stopped. The rule is in the arena protocol, "Deferred reclamation, 16 November 2026" |
 | **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md); S25 checks the read mix against what S08 reached |
 
 ### Q45. A write batch tells two spellings of one key apart

@@ -71,6 +71,35 @@ No catalog, root, dictionary or allocator gate spans database/network I/O. Prote
 reads are short synchronous internal work. Test hooks used to force an interleaving
 are not a public callback API or permission for application code to wait under a gate.
 
+## Deferred reclamation, 16 November 2026
+
+Where the text above says otherwise, this section replaces it for the engine.
+
+By the owner's decision of 16 November 2026 the engine protects a read by an epoch and
+frees later, as `LightEpoch` of Garnet/Tsavorite does. A read enters the protection when
+its step inside the engine begins and leaves when the step ends. Memory that a read
+could still reach when a write replaces or removes it — an old root with its blocks, a
+replaced table of an index, the entry of a deleted root — is retired, not freed: it is
+detached from its owner, counted as retired, and freed once every read that had entered
+before it was retired has left. The one writer never waits for readers, and a reader
+never waits for the writer on its ordinary path.
+
+What does not move: a read is coherent for one entity, it sees one written state and
+never a mixture; a retired entry is reused only after the reads that could see it have
+left, and a read never follows an old entry to a key that was created again; a close
+waits for the reads in progress and frees everything retired; no code of the
+application runs, and nothing waits — no I/O, no `await`, no wait for a position —
+while a read is inside the protection, so retired memory waits for the length of one
+step of a read and no longer. An enumeration enters and leaves at each step and holds
+nothing between two steps.
+
+Retired memory is the engine's until it is freed: it is counted, it counts against the
+memory budget of the instance, and a write that meets the budget first frees what can be
+freed and waits for the reads that hold the rest before it is refused. The engine frees
+retired memory on the path of its own operations, as the mechanism it follows does; it
+starts no thread and no timer for it. A database nobody uses may therefore hold the last
+retired memory until its next operation or its close.
+
 ## Read and mutation paths
 
 An ordinary copy read claims the root, acquires protection, copies scalar fields,

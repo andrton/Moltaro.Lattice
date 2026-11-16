@@ -2911,39 +2911,53 @@ be studied: how they do it is to be learned from their source and, in essence, r
 - **To read, added.** The review of S06 on the scaling of reads (Q42), and "Reader
   protection, publication and compaction" of the milestone contract, which calls
   `ReaderWriterLockSlim` the initial synchronization.
-- **Types and members, added.** The protection of a read is reworked in this sprint. Today
-  a read by key makes four writes to memory that all readers share — the counter of the
-  close barrier, the catalog gate twice (for the lookup and when the claim is dropped), the
-  stripe of its root —
-  which is why more threads read less in total. What the sprint
-  has to reach: a read by key writes to no memory that other readers write to on its
-  ordinary path, or as near to that as the guarantees allow, and takes the gate of the
-  index once. The implementer first studies how open-source databases that read fast from
-  memory on many threads protect a read — their source, not a summary of it — and writes
-  down in the pull request which of them it looked at, what each does for this problem,
-  and which it follows. The aim is to repeat a solution that is proven there, not to
-  invent one. Among the candidates are reader counts kept apart per thread or per
-  processor, optimistic reads checked by a version, and protection of memory by epochs;
-  how many protections there are and how fine they are is decided by what those systems
-  do and by the figures the implementer measures, not by a preference stated here. The
-  guarantees do not move: a read is coherent, a deleted entry is reused only after the
-  readers that could see it are gone, a close waits for the reads in progress, no
-  application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
-  replaces what the milestone contract names as the initial synchronization, the
-  coordinator corrects that section with the sprint and reports it to the owner.
-- **Acceptance, added**, as the owner set it on 15 November 2026 through the planner's
-  session. The total of reads by key grows with the number of reading threads up to the
-  number of processors, with and without a writer; the growth need not be linear. A step
-  at which more threads read less in total, beyond the noise of the measurement, stops
-  the sprint for the owner. The mechanism is one used by an established open-source
-  database or runtime, named in the report; nothing is invented here. The figure for 1,
-  2, 4, 8 and 16 threads is measured on the machine of the review and reported to the
-  owner at the close in any case; when the three conditions hold — every test of the
-  sprint passes, the total grows, the mechanism is a proven one — it does not gate the
-  merge. The model-checked storms and the close cycles of S06 pass on the new protection.
-  The scaling is a figure of a measurement and not a test of the default lane.
-- **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
-  and 16 threads, without a writer and with one, before and after the change.
+- **Types and members, part 1** (the owner's decision of 16 November 2026, after the
+  first implementation was stopped: its reads scaled, and its writer fell from 1.10 M to
+  0.087 M replaces a second beside 20 readers, while reads beside a writer of inserts
+  fell tenfold). One mechanism: protection of reads by epochs with deferred reclamation,
+  repeated from `LightEpoch` of Garnet/Tsavorite — its source is read, and what is taken
+  from it and what differs is written in the pull request. A read by key enters the
+  epoch, looks up, copies and leaves; it takes no lock and writes to no memory another
+  reader writes to. The one writer publishes a new root, a changed index entry or a
+  replacement table and retires the old one; it does not wait for readers. A lookup in
+  the primary index runs while the writer inserts, deletes or grows the index: growth
+  builds the replacement while readers use the old table and retires the old table by
+  the same epoch. How the index lets a reader look up during a change is taken from an
+  established source too and named; nothing is invented. Internal members:
+  `EngineCounters.RetiredIndexBytes`, `EngineCounters.ReplacementIndexBytes`,
+  `EngineDatabase.DrainRetired()`. No public member changes. The rule is in the
+  [arena protocol](../design/arena-protocol.md#deferred-reclamation-16-november-2026).
+- **Counters and the drain, part 1.** No new counter for arena memory:
+  `ArenaCounters.RetiredBytes` is the one, and it stops being 0. `RetiredIndexBytes` is
+  the replaced tables of the primary index not freed yet. `RootEntries` goes on counting
+  the entry of a deleted root until it is released. `DrainRetired()` frees every retired
+  thing no read in progress can reach and returns; with no read in progress it leaves
+  nothing retired. It is what a write under memory pressure calls, what a close calls
+  after it has waited for the reads, and what a test calls before it counts. It does not
+  wait and takes no timeout: a test that must count while reads run ends its reads
+  first, and no test sleeps or polls for the counters. The tests that counted at once
+  are restated by the test author as "after the writes returned and a drain"; that is a
+  change of what they assert which the decision forces, entered here as such. The
+  comments of `EngineCounters` and of `ArenaCounters.RetiredBytes` say the same.
+- **Acceptance, part 1.** On the scenario `read-by-key-threads`, 1, 2, 4, 8, 16 threads
+  and the number of processors, three runs each: (1) the total of reads by key grows
+  with the reading threads up to the number of processors, without a writer and beside a
+  writer of each kind — replaces, inserts and deletes without growth, inserts with
+  growth; it need not be linear; (2) the writes a second of the one writer, of each
+  kind, do not fall as readers are added, beyond the noise of the measurement; (3) reads
+  beside a writer of any kind are not lower than on the protection of S06 at the same
+  thread count. A step that breaks (1), (2) or (3) stops the sprint for the owner.
+  Tests: the storms and the close cycles of S06 pass; after the writes have returned and
+  a drain with no read in progress, nothing is retired and the counters equal the tally;
+  a read that began before a replace, a delete or a growth returns one written state; a
+  deleted entry is not reused while a read that could see it is in progress, shown
+  through the internal switch that holds a read inside the protection; a close under
+  reads frees everything retired. The primary index grows by building a replacement
+  table while readers use the old one, and both tables are counted until the old one is
+  released. The figures are reported to the owner at the close in any case and do not
+  gate the merge when the conditions hold.
+- **Measured, part 1.** The scenario above, before and after; how long index mutations
+  wait while the index grows from 100,000 entries.
 - **Split by the coordinator on 15 November 2026**, as the sentence that stood here
   allowed: the sprint is done as two, each with its own branch, test author, implementer,
   review and pull request. Part 1, `epic-1/sprint-08-read-protection`: the protection of
@@ -2953,8 +2967,13 @@ be studied: how they do it is to be learned from their source and, in essence, r
   and deletes on few keys with reuse of root entries, and close cycles under reads; they
   pass on the protection of S06 before the implementer changes it, and are not skipped.
   The scenario of the measurement on 1, 2, 4, 8 and 16 threads is written by the
-  implementer. Part 2, `epic-1/sprint-08-enumeration`, cut from `main` after part 1 is
-  merged: everything else of this brief, on the new protection.
+  implementer. As amended on 16 November 2026 — part 1: the protection of reads, the
+  index that is read while it changes, growth of the primary index included, deferred
+  reclamation and their measurement. Part 2, `epic-1/sprint-08-enumeration`, cut from
+  `main` after part 1 is merged: enumeration under change and the read limits, on the
+  new protection. The first implementation of part 1, per-processor reader slots with a
+  writer that waited for the reads, was stopped and reverted on the branch; its figures
+  are in the bullet on types and members above.
 
 #### S09 · Write coordinator and write limits
 
@@ -3035,7 +3054,10 @@ the arena.
 memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
 text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
-counted, and the documentation of `MemoryLimit` says so. Internal, in the engine
+counted, and the documentation of `MemoryLimit` says so. Retired memory counts against
+the budget; a write that meets the budget drains first and waits for the reads in
+progress before it is refused (the owner's decision of 16 November 2026 on deferred
+reclamation). Internal, in the engine
 assembly:
 
 ```csharp
