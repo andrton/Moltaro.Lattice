@@ -92,12 +92,13 @@ returned to application code. A separate short, synchronous protected read offer
 read-only arena view; it cannot escape, await, perform I/O or make nested database calls.
 Keeping it short is the caller's obligation: while it is held, publication can be delayed.
 
-One logical gate protects a root and all its owned blocks. A read is coherent for that
+A read is protected by an epoch and takes no lock: what a write replaces or removes is
+freed only after every read that could reach it has left. A read is coherent for one
 entity. Several reads, an enumeration or a graph walk do not create a shared snapshot.
 
 | Access path | Selected mechanism |
 | --- | --- |
-| Primary key | Arc.Collections UnorderedMapSlim → stable root control entry |
+| Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
 | Declared secondary index | Arc.Collections OrderedMultiMap; single or composite keys |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
