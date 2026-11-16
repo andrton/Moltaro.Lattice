@@ -489,7 +489,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             foreach (var entityType in schema.EntityTypes)
             {
                 var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock);
-                var forType = new SetOperations(table, executor, clock, _options.SynchronizationTimeout);
+                var forType = new SetOperations(table, executor, clock, _options);
 
                 operations.Add(entityType, forType);
                 recordSets.Add(entityType, new RecordSet(forType));

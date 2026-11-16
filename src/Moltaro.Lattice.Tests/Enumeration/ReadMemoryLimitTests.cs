@@ -30,7 +30,7 @@ public sealed class ReadMemoryLimitTests
 
     private const long Large = 8 * 1024 * 1024;
 
-    [Theory(Skip = NotImplemented.EnumerationUnderChange)]
+    [Theory]
     [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
     public async Task Enumeration_whose_remembered_keys_exceed_the_memory_limit_fails_with_ReadMemory_after_what_it_returned(string form)
     {
@@ -39,7 +39,7 @@ public sealed class ReadMemoryLimitTests
         ExpectUsers(await ExpectReadMemoryAsync(UserPass.Of(database, form), Users));
     }
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Larger_memory_limit_returns_at_least_as_many_entities_before_it_fails()
     {
         await using var small = await OpenWithUsersAsync(Small);
@@ -58,7 +58,7 @@ public sealed class ReadMemoryLimitTests
         ExpectUsers(underLarge);
     }
 
-    [Theory(Skip = NotImplemented.EnumerationUnderChange)]
+    [Theory]
     [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
     public async Task Entity_larger_than_the_memory_limit_is_read(string form)
     {
@@ -80,7 +80,7 @@ public sealed class ReadMemoryLimitTests
         static string NameOf(long id) => $"{id} ".PadRight(70_000, 'n');
     }
 
-    [Theory(Skip = NotImplemented.EnumerationUnderChange)]
+    [Theory]
     [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
     public async Task Text_of_the_String_keys_a_pass_remembers_counts_against_the_memory_limit(string form)
     {

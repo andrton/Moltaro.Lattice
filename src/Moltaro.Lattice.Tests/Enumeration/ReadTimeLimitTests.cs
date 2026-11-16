@@ -28,7 +28,7 @@ public sealed class ReadTimeLimitTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Caller_that_is_slow_between_two_steps_does_not_use_up_the_time_limit()
     {
         await WarmUpAsync();
@@ -59,7 +59,7 @@ public sealed class ReadTimeLimitTests
         }
     }
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Wait_for_the_position_of_a_session_does_not_use_up_the_time_limit()
     {
         await WarmUpAsync();

@@ -17,7 +17,7 @@ public sealed class ReadLimitsTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Cancellation_of_an_enumeration_under_read_limits_is_OperationCanceledException_and_never_ReadLimitExceeded()
     {
         var timeLimit = TimeSpan.FromMilliseconds(100);

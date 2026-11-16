@@ -33,7 +33,7 @@ public sealed class ReadTimeInsideTheEngineTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Step_that_waits_inside_the_engine_longer_than_the_time_limit_fails_the_enumeration_with_ReadTime()
     {
         var slots = new ReadEpochs(new object()).SlotCount;

@@ -102,9 +102,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 //    (ReturnedKeys): that keeps a key from being returned twice, after a growth, whose walk meets
 //    again what was walked, and after a delete and an insert of a returned key, whose new entry the
 //    walk may meet at a later word.
-// 3. Otherwise it copies the root as a read by key does (TryCopy), skips a root deleted meanwhile, and
-//    stages the key and the position after the entry; the pass takes both once the entity is built
-//    outside the protection (EntityPass.Commit).
+// 3. Otherwise, once the room the key would take is within the memory limit of a read, it copies the
+//    root as a read by key does (TryCopy), skips a root deleted meanwhile, and stages the key and the
+//    position after the entry; the pass takes both once the entity is built outside the protection
+//    (EntityPass.Commit). The time limit is looked at when the step has entered the protection and
+//    as it walks; the pass counts the time of every step and fails the one that would exceed a limit.
 // 4. At the end of the table, the sequence of the database read before the walk is the position of
 //    the end when it is unchanged after the walk, as for an absent key; otherwise the step walks on.
 // Why every entity that nobody changes during the pass is returned once: its entry is in the index
@@ -118,6 +120,10 @@ internal sealed class EntityTable
     // The sequence of the last mutation of a root entry while a write changes its root or its state,
     // the mark of the stamp (see the head of the file): no published write has it, the first has 1.
     public const ulong MutationInProgress = 0;
+
+    // The entries a step of an enumeration walks between two looks at the time limit of a read: a look
+    // takes a timestamp, some tens of nanoseconds, and 64 entries take a few microseconds.
+    private const int TimeCheckEntries = 64;
 
     private readonly Arena _arena;
 
@@ -315,23 +321,31 @@ internal sealed class EntityTable
         }
     }
 
-    // A new enumeration of the entity type, standing before its first step.
-    public EntityPass StartPass() => new(new ReturnedKeys(this));
+    // A new enumeration of the entity type under the read limits of the options, standing before its
+    // first step.
+    public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
+        new(EntityType.Name, new ReturnedKeys(this), memoryLimit, timeLimit);
 
     // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
     // says: true when there is one, which the caller builds and then commits to the pass; false at the
     // end, with the sequence under which the index showed no more, taken as for an absent key. Each
     // call enters the protection of reads and leaves it, and holds nothing between two calls; a pass
     // whose entity was not committed, because its build failed, finds it again at its next step.
-    // ObjectDisposedException after the close, at every call.
+    // ObjectDisposedException after the close, at every call; LatticeException with ReadLimitExceeded
+    // from a call that would exceed a read limit and from every call after it (EntityPass).
     public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
+        // The time of the step begins before the protection, whose slot it may wait for.
+        var started = pass.StartStep();
         var protection = _epochs.Enter();
 
         try
         {
+            pass.ThrowIfFailed();
+            pass.CheckTime(started);
+
             if (Layout is null)
             {
                 sequence = _clock.Sequence;
@@ -341,6 +355,7 @@ internal sealed class EntityTable
 
             var position = pass.Position;
             var version = pass.Version;
+            var visited = 0;
 
             while (true)
             {
@@ -356,6 +371,13 @@ internal sealed class EntityTable
 
                 while (table.TryFindNext(ref position, out var slot, out var hash))
                 {
+                    // A step that walks many entries, such as the walk of a grown table past what was
+                    // returned, looks at the time as it goes.
+                    if (++visited % TimeCheckEntries == 0)
+                    {
+                        pass.CheckTime(started);
+                    }
+
                     ref var entry = ref _roots.EntryOfSlot(slot);
 
                     // Any root of the entry holds the key of its lifetime (see the class); it is live or
@@ -365,6 +387,12 @@ internal sealed class EntityTable
                     if (pass.Returned.Contains(hash, stored))
                     {
                         continue;
+                    }
+
+                    // The room for the key is counted before anything is copied or allocated for it.
+                    if (pass.LimitsMemory)
+                    {
+                        pass.CheckMemory(pass.Returned.BytesWithRoomFor(stored));
                     }
 
                     if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
@@ -390,6 +418,7 @@ internal sealed class EntityTable
         finally
         {
             _epochs.Exit(protection);
+            pass.EndStep(started);
         }
     }
 
