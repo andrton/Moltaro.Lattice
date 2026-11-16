@@ -2935,6 +2935,23 @@ be studied: how they do it is to be learned from their source and, in essence, r
   key, at 100,000 and 1,000,000 entities. `PrimaryIndexBytes` keeps its meaning. Carried
   under O16: `THIRD-PARTY-NOTICES.md` is packed into the package of the core library
   beside `README.md` (the owner's answer to Q47).
+- **Sources and licences, part 1** (the planner, 16 November 2026; the rule is in the
+  [development process](process.md#code-modelled-on-another-project)). Garnet/Tsavorite
+  is MIT and is the source of the epochs and of the hash index. The Linux kernel (RCU,
+  percpu-rwsem, seqcount) and liburcu are GPL or LGPL: their code is not opened and
+  nothing is ported from it. The first implementation, which named those among its
+  sources, is reverted; the new one is written from Tsavorite's source and takes no
+  code from the reverted commit.
+- **Tests the sprint breaks, part 1.** `TextKeyTests` addresses the type `TextKey`, which
+  goes with the index of the package, and `RootTableTests` and `LayoutTests` name
+  `RootEntry.ClaimCount`, which is no claim count any more while the entry keeps its 48
+  bytes. The implementer makes the smallest change that lets them compile against the new
+  types, changes no assertion of behavior, and lists each such edit in its report; the
+  test author checks the list afterwards. The assertion on which slot a new entity gets
+  (`HeldReadTests`) relies on the allocation order of the root table of S05; if that
+  order changes, it is reported and restated by the test author. On a refusal of the
+  arena a write drains and retries, and waits for the reads that still hold retired
+  memory before it is refused; the wait is finite by construction and has no option.
 - **Counters and the drain, part 1.** No new counter for arena memory:
   `ArenaCounters.RetiredBytes` is the one, and it stops being 0. `RetiredIndexBytes` is
   the replaced tables of the primary index not freed yet. `RootEntries` goes on counting

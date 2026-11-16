@@ -219,6 +219,17 @@ sprint. The decision is recorded in the epic document, and in the
 open P1, P2 or P3 on the coordinator's own word. The report of a closed sprint says how
 many rounds it took.
 
+## Code modelled on another project
+
+When a sprint repeats a proven solution, its code is modelled only on sources under a
+permissive licence (MIT, Apache-2.0, BSD). Sources under GPL or LGPL may be read about
+in their papers and documentation to understand an idea; their code is not opened while
+ours is written, and nothing is ported from it. A type that follows the code of a source
+closely enough to be an adaptation of it says so in a comment at the head of its file —
+which project, which file, which commit — and `THIRD-PARTY-NOTICES.md` gains the
+project's copyright line and licence text in the same change. The pull request lists
+what was adapted and what was only taken as an idea.
+
 ## Commits
 
 - A sprint is a short series of commits in this order: contract, tests, implementation,
