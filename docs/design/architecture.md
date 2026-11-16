@@ -20,6 +20,8 @@ The same engine runs embedded in an application or in a dedicated service.
 **Many callers, one authoritative master.** Application threads may submit writes
 concurrently. Independent preparation overlaps; short bounded groups commit and
 publish in order. Children forward writes and apply the master's confirmed changes.
+Lattice has no second master and no node that accepts a write by itself: a child that
+cannot reach the master cannot write, and goes on reading its own memory.
 
 **Local reads.** A ready child reads its own arena. PostgreSQL belongs to the Durable
 master; children never connect to it. An embedded MemoryOnly master also works without
