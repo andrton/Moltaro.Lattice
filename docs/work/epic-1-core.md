@@ -916,7 +916,7 @@ Why this order:
 | S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Done |
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
-| S08, part 2 | Enumeration under change and the growth of the index | Full | Not started |
+| S08, part 2 | Enumeration under change and the read limits | Full | In progress |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
