@@ -1,18 +1,16 @@
 namespace Moltaro.Lattice.Engine.Protection;
 
-// What a close waits for, besides the reads, before the arena of the database is freed: the writes
-// in progress, and a reading of the counters (brief of S06, "States"; milestone contract: a close
-// cannot free an arena until outstanding protected scopes release it). The reads are not counted
-// here: they pass the read gate, which the close shuts and drains first (ReadGate, EngineDatabase).
-// Every write enters before it touches the database and exits when it is done. After the close none
-// enters, and the arena is freed when the last one in progress has exited: by that write, or by the
-// close itself when none is in progress. The close does not wait inside a lock for that; a caller
-// of CloseAsync awaits Drained, with its cancellation token.
+// What a close waits for before the arena of the database is freed: the operations in progress
+// that may reach it, the reads and the writes (brief of S06, "States"; milestone contract: a close
+// cannot free an arena until outstanding protected scopes release it). Every such operation enters
+// before it touches the database and exits when it is done. After the close no operation enters,
+// and the arena is freed when the last operation in progress has exited: by that operation, or by
+// the close itself when none is in progress. The close does not wait inside a lock for that; a
+// caller of CloseAsync awaits Drained, with its cancellation token.
 //
-// The count and the mark of the close are one word that every change makes atomically, so a write
-// is either counted before the close or refused after it, and the thread that brings the count to
-// zero after the close is the one that frees. Writes run one at a time, so the word all of them
-// write costs them nothing they would not wait for anyway.
+// The count and the mark of the close are one word that every change makes atomically, so an
+// operation is either counted before the close or refused after it, and the thread that brings the
+// count to zero after the close is the one that frees.
 internal sealed class CloseBarrier
 {
     // The sign bit marks the close; the bits below it count the operations in progress.

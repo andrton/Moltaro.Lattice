@@ -13,14 +13,13 @@ namespace Moltaro.Lattice.Storage;
 // are counted in an int. Add that would need one more page throws InvalidOperationException, and
 // the table stays as it was.
 //
-// The table takes no lock; its owner says who may call what at the same time. In the database Add
-// and Release, which change the list of free slots, are called only by the thread that executes
-// writes, while reads call Entry, IsCurrent and EntryOfSlot at the same time, inside the read gate,
-// for lifetimes that an index maps a key to (Engine.Protection.ReadGate). Those read only that entry
-// and the directory of pages, which grows by replacing one array with another that holds the same
-// pages, so a reader that still has the old directory finds the same entry. A lifetime that an
-// index maps a key to is released only after its key has left the index while no read was inside
-// the gate.
+// The table takes no lock; its owner says who may call what at the same time. In the database
+// (Engine.Protection.RootGates) Add and Release, which change the list of free slots, are called
+// only under the catalog gate held exclusively, while Entry, IsCurrent and EntryOfSlot are called
+// at the same time for lifetimes that the caller holds a claim on or knows to be live. Those read
+// only that entry and the directory of pages, which grows by replacing one array with another that
+// holds the same pages, so a reader that still has the old directory finds the same entry. The
+// claims of the arena protocol keep a slot from being released while a lookup holds it.
 internal sealed class RootTable
 {
     // The number of entries in one page.

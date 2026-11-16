@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -9,9 +8,9 @@ using Moltaro.Lattice.Storage;
 namespace Moltaro.Lattice.Engine.Entities;
 
 // The entities of one entity type in an open database: the root layout they are stored with, the
-// primary index that finds them, and the reads by key and by enumeration, under the read gate (brief
-// of S08, "The scaling of reads"). The write executor changes the index; this class says how it may
-// be read, and how a replace changes the root entry that reads read at the same time.
+// primary index that finds them, and the reads by key and by enumeration, which follow the lookup
+// claim of the milestone contract ("Reader protection, publication and compaction"). The write
+// executor changes the index; this class says how it may be read.
 //
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
@@ -21,45 +20,36 @@ namespace Moltaro.Lattice.Engine.Entities;
 // to another, and hashed, under the comparison its field declares, by the comparison of the schema
 // (Comparison.ValueComparer).
 //
-// A read by key, in its order. It passes the read gate (Protection.ReadGate) and holds it until the
-// end of its copy:
-// 1. It finds the key in the index. No insert, delete or growth of an index changes the index while
-//    a read is inside the gate, because those exclude the reads, so the entry the key maps to is
-//    live and stays the entry of this lifetime until the read leaves: it is released, and its slot
-//    given to another key, only by a delete, which removes the key while no read is inside. An old
-//    lookup therefore never follows a key that was created again, and no read claims anything.
-// 2. It reads the root of the entry and the sequence of its last mutation as one pair, by that
-//    sequence: a replace, which does not exclude the reads, first sets the sequence to
-//    ReplaceInProgress, then installs the new root and the new sequence (InstallRoot). A read that
-//    finds a write in progress, or another sequence after it read the root, reads again; what it
-//    keeps is a root and the sequence it was written with (Linux's seqcount, whose count here is the
-//    sequence of the entry itself). Reads write nothing for this.
-// 3. It copies that root whole, with every block it owns, into memory of the engine
-//    (IRootCopy.Copy). The blocks of a published root never change, and a replace frees the blocks
-//    of the root it replaced only after the reads that were inside the gate have left
-//    (ReadGate.WaitForReads), so the copy is one state (Q06.1), never memory that was freed or
-//    reused.
-// 4. It leaves the gate. The caller then builds its result from the copy (IRootCopy.Build), and
-//    only then does code of the application run, outside the gate. A read allocates the returned
-//    copy and nothing else.
+// A read by key, in its order (the planner's answer to Q32):
+// 1. Under the catalog gate, shared, it finds the key in the index and claims the entry the key
+//    maps to (LookupClaims). It releases the gate; it never waits for a root while it holds it.
+// 2. Under the root's stripe, shared, it checks the entry again. A root whose delete was published
+//    meanwhile is absent, never the values of another root: the claim kept the slot from being
+//    given to another lifetime, and the entry is not followed to a recreated key. A live root is
+//    copied whole, with every block it owns, into memory of the engine (IRootCopy.Copy): a write
+//    installs a new root only while it holds the stripe exclusively, so the copy is one state
+//    (Q06.1).
+// 3. It drops the claim, after it released the stripe, and leaves the close barrier.
+// The caller then builds its result from the copy (IRootCopy.Build), and only then does code of the
+// application run, outside every gate and the barrier. A read allocates the returned copy and
+// nothing else.
 //
-// The position of an answer is a sequence the read takes inside the gate: for a root it copied, the
-// sequence of the database read between the two reads of the entry's sequence, so at a moment the
-// copied state was the entity's (a replace publishes its sequence before it sets the entry's); for
-// an absent key, the sequence while the read is inside the gate, where no insert can be published.
+// The position of an answer is the sequence the read sees under the gate that showed it the
+// answer: for a root it copied, the sequence under the root's stripe, which no write of that root
+// changes while the stripe is held; for an absent key, the sequence under the catalog gate, which
+// no insert changes while the gate is held; for a root deleted before the read reached it, the
+// sequence of its delete.
 internal sealed class EntityTable
 {
-    // The sequence a root entry has while a replace installs its new root: no published write has it,
-    // the first has 1.
-    private const ulong ReplaceInProgress = 0;
-
     private readonly Arena _arena;
 
-    private readonly ReadGate _gate;
+    private readonly RootGates _gates;
 
-    private readonly RootTable _roots;
+    private readonly LookupClaims _claims;
 
     private readonly PositionClock _clock;
+
+    private readonly CloseBarrier _barrier;
 
     // The index for the key kind of the entity type, when the engine stores it; the others are null.
     // What each holds of a key is said by KeyKindEnum and EntityKey.
@@ -74,18 +64,20 @@ internal sealed class EntityTable
         RootLayout? layout,
         string? refusal,
         Arena arena,
-        ReadGate gate,
-        RootTable roots,
-        PositionClock clock)
+        RootGates gates,
+        LookupClaims claims,
+        PositionClock clock,
+        CloseBarrier barrier)
     {
         EntityType = entityType;
         Layout = layout;
         Refusal = refusal;
         KeyKind = KeyKindOf(entityType.Key);
         _arena = arena;
-        _gate = gate;
-        _roots = roots;
+        _gates = gates;
+        _claims = claims;
         _clock = clock;
+        _barrier = barrier;
 
         if (layout is not null)
         {
@@ -120,9 +112,10 @@ internal sealed class EntityTable
         LatticeEntityType entityType,
         LatticeSchema schema,
         Arena arena,
-        ReadGate gate,
-        RootTable roots,
-        PositionClock clock)
+        RootGates gates,
+        LookupClaims claims,
+        PositionClock clock,
+        CloseBarrier barrier)
     {
         var refusal = RefusalOf(entityType);
         RootLayout? layout = null;
@@ -141,10 +134,10 @@ internal sealed class EntityTable
             }
         }
 
-        return new EntityTable(entityType, layout, refusal, arena, gate, roots, clock);
+        return new EntityTable(entityType, layout, refusal, arena, gates, claims, clock, barrier);
     }
 
-    // Finds a key in the index of an entity type the engine stores. A lookup is inside the read gate;
+    // Finds a key in the index of an entity type the engine stores. A lookup holds the catalog gate;
     // the write executor, the only one that changes the index, reads it without the gate.
     public bool TryFind(in EntityKey key, out RootHandle handle) => KeyKind switch
     {
@@ -154,8 +147,7 @@ internal sealed class EntityTable
     };
 
     // Makes room in the index for one more key before an insert is published, so that its
-    // publication allocates nothing. Growing excludes the reads while it builds the larger map, until
-    // the second part of S08 builds it while reads use the old one.
+    // publication allocates nothing. Growing takes the catalog gate exclusively until S08.
     public void Reserve()
     {
         var hasRoom = KeyKind switch
@@ -170,7 +162,7 @@ internal sealed class EntityTable
             return;
         }
 
-        _gate.ExcludeReads();
+        _gates.Catalog.EnterWriteLock();
 
         try
         {
@@ -180,12 +172,12 @@ internal sealed class EntityTable
         }
         finally
         {
-            _gate.AdmitReads();
+            _gates.Catalog.ExitWriteLock();
         }
     }
 
-    // Maps an absent key to the handle of its new root, after Reserve. The caller has excluded the
-    // reads.
+    // Maps an absent key to the handle of its new root, after Reserve. The caller holds the catalog
+    // gate exclusively.
     public void Add(in EntityKey key, RootHandle handle)
     {
         switch (KeyKind)
@@ -203,7 +195,7 @@ internal sealed class EntityTable
     }
 
     // Removes a key that the index holds, given in any spelling its comparison holds equal. The
-    // caller has excluded the reads.
+    // caller holds the catalog gate exclusively.
     public void Remove(in EntityKey key)
     {
         switch (KeyKind)
@@ -237,7 +229,7 @@ internal sealed class EntityTable
             return;
         }
 
-        var stored = new RootReader(_arena, Layout!, _roots.Entry(handle).Root);
+        var stored = new RootReader(_arena, Layout!, _claims.Table.Entry(handle).Root);
 
         if (!ValueComparer.SameText(stored, key, (string)values[key.Ordinal]!))
         {
@@ -252,11 +244,11 @@ internal sealed class EntityTable
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var slot = _gate.Enter();
+        _barrier.Enter();
 
         try
         {
-            if (Layout is null || !TryFind(key, out var handle))
+            if (Layout is null)
             {
                 revision = default;
                 sequence = _clock.Sequence;
@@ -264,27 +256,46 @@ internal sealed class EntityTable
                 return false;
             }
 
-            revision = CopyRoot<TCopy, TResult>(handle, ref copy, out sequence);
+            RootHandle handle;
 
-            return true;
+            _gates.Catalog.EnterReadLock();
+
+            try
+            {
+                if (!TryFind(key, out handle))
+                {
+                    revision = default;
+                    sequence = _clock.Sequence;
+
+                    return false;
+                }
+
+                _claims.Claim(handle);
+            }
+            finally
+            {
+                _gates.Catalog.ExitReadLock();
+            }
+
+            return TryReadClaimed<TCopy, TResult>(handle, ref copy, out revision, out sequence);
         }
         finally
         {
-            _gate.Exit(slot);
+            _barrier.Exit();
         }
     }
 
     // Reads the next entity of an enumeration into the copy: true when there is one; false at the
-    // end, with the sequence under which the index showed no more. Each call passes the read gate as
-    // a read by key does and holds nothing between two calls. Until S08 an enumeration during which
-    // the index changed fails, from the call that sees the change, with NotSupportedException instead
-    // of returning a set it cannot vouch for: an insert, a delete or a growth changes the index, a
+    // end, with the sequence under which the index showed no more. It claims each entry as a read by
+    // key does and holds nothing between two calls. Until S08 an enumeration during which the index
+    // changed fails, from the call that sees the change, with NotSupportedException instead of
+    // returning a set it cannot vouch for: an insert, a delete or a growth changes the index, a
     // replace does not. ObjectDisposedException after the close.
     public bool TryReadNext<TCopy, TResult>(ref EntityCursor cursor, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var slot = _gate.Enter();
+        _barrier.Enter();
 
         try
         {
@@ -295,67 +306,56 @@ internal sealed class EntityTable
                 return false;
             }
 
-            if (!cursor.Started)
-            {
-                cursor.Version = IndexVersion;
-                cursor.Started = true;
-            }
-            else if (cursor.Version != IndexVersion)
-            {
-                throw IndexChanged();
-            }
-
             RootHandle handle;
 
-            var found = KeyKind switch
-            {
-                KeyKindEnum.Integer => _byInteger!.TryFindNext(ref cursor.Position, out handle),
-                KeyKindEnum.Guid => _byGuid!.TryFindNext(ref cursor.Position, out handle),
-                _ => _byText!.TryFindNext(ref cursor.Position, out handle),
-            };
+            _gates.Catalog.EnterReadLock();
 
-            if (!found)
+            try
             {
-                sequence = _clock.Sequence;
+                if (!cursor.Started)
+                {
+                    cursor.Version = IndexVersion;
+                    cursor.Started = true;
+                }
+                else if (cursor.Version != IndexVersion)
+                {
+                    throw IndexChanged();
+                }
 
-                return false;
+                var found = KeyKind switch
+                {
+                    KeyKindEnum.Integer => _byInteger!.TryFindNext(ref cursor.Position, out handle),
+                    KeyKindEnum.Guid => _byGuid!.TryFindNext(ref cursor.Position, out handle),
+                    _ => _byText!.TryFindNext(ref cursor.Position, out handle),
+                };
+
+                if (!found)
+                {
+                    sequence = _clock.Sequence;
+
+                    return false;
+                }
+
+                _claims.Claim(handle);
+            }
+            finally
+            {
+                _gates.Catalog.ExitReadLock();
             }
 
-            CopyRoot<TCopy, TResult>(handle, ref copy, out sequence);
-
-            return true;
+            // A root deleted between the claim and its read is a change of the index as well.
+            return TryReadClaimed<TCopy, TResult>(handle, ref copy, out _, out sequence) ? true : throw IndexChanged();
         }
         finally
         {
-            _gate.Exit(slot);
+            _barrier.Exit();
         }
     }
 
-    // For a replace: installs the new root of a live entry while reads may read the entry, publishes
-    // the sequence of the write, as the comment of the class says, and returns the root it replaced.
-    // The new root is published in the arena before; the replaced one is freed after the reads that
-    // were inside the gate have left. Only the thread that executes writes calls it, so the stores
-    // need no interlocked operation: each is a release, which keeps them in this order for a read
-    // that sees a later one, and the reads read them with acquire.
-    public ArenaAddress InstallRoot(RootHandle handle, ArenaAddress root, ulong sequence)
-    {
-        ref var entry = ref _roots.Entry(handle);
-        var replaced = entry.Root;
-
-        Volatile.Write(ref entry.LastMutationSequence, ReplaceInProgress);
-        Volatile.Write(ref Unsafe.As<ArenaAddress, ulong>(ref entry.Root), root.Value);
-        _clock.Publish(sequence);
-        Volatile.Write(ref entry.LastMutationSequence, sequence);
-
-        return replaced;
-    }
-
     // Whether the key of the live root in the slot is the text, under the comparison the key field
-    // declares. The index calls it inside the read gate, or on the thread that executes writes
-    // (TextKey). A replace may install another root in the entry meanwhile: the root read here is the
-    // old or the new one, both with the same key, and neither is freed while the read is inside.
+    // declares. The index calls it while the catalog gate is held (TextKey).
     public bool KeyEquals(uint slot, string text) =>
-        ValueComparer.TextEquals(new RootReader(_arena, Layout!, RootOf(ref _roots.EntryOfSlot(slot))), EntityType.Key, text);
+        ValueComparer.TextEquals(new RootReader(_arena, Layout!, _claims.Table.EntryOfSlot(slot).Root), EntityType.Key, text);
 
     // The kind of index a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
@@ -386,47 +386,46 @@ internal sealed class EntityTable
     private NotSupportedException IndexChanged() => new(
         $"Entities of {EntityType.Name} were inserted or deleted while they were enumerated. Until an enumeration under change is implemented, such an enumeration fails instead of returning entities it cannot vouch for; what it returned before stays valid. Start a new enumeration.");
 
-    // The root an entry names, read once, with acquire, as InstallRoot writes it.
-    private static ArenaAddress RootOf(ref RootEntry entry)
-    {
-        var value = Volatile.Read(ref Unsafe.As<ArenaAddress, ulong>(ref entry.Root));
-
-        return new ArenaAddress((uint)(value >> 32), (uint)value);
-    }
-
-    // Steps 2 and 3 of a read, inside the gate: reads the root of the live entry and its sequence as
-    // one pair, copies the root, and returns the revision of the state copied, with the position of
-    // the answer.
-    private LatticeRevision CopyRoot<TCopy, TResult>(RootHandle handle, ref TCopy copy, out ulong sequence)
+    // Steps 2 and 3 of a read: copies the root under its stripe if it is still live, and drops the
+    // claim the caller took.
+    private bool TryReadClaimed<TCopy, TResult>(RootHandle handle, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        ref var entry = ref _roots.Entry(handle);
-
-        Debug.Assert(entry.State == RootStateEnum.Live, "An entry the index maps a key to is live while a read is inside the gate.");
-
-        var spinner = default(SpinWait);
-
-        while (true)
+        try
         {
-            var mutation = Volatile.Read(ref entry.LastMutationSequence);
+            var gate = _gates.Root(handle.Slot);
 
-            if (mutation != ReplaceInProgress)
+            gate.EnterReadLock();
+
+            try
             {
-                var root = RootOf(ref entry);
-                var at = _clock.Sequence;
+                // The claim keeps the entry this lifetime's, so the handle is current; Entry checks
+                // its generation all the same.
+                ref var entry = ref _claims.Table.Entry(handle);
 
-                if (Volatile.Read(ref entry.LastMutationSequence) == mutation)
+                if (entry.State != RootStateEnum.Live)
                 {
-                    copy.Copy(new RootReader(_arena, Layout!, root));
-                    sequence = at;
+                    revision = default;
+                    sequence = entry.LastMutationSequence;
 
-                    return new LatticeRevision(_clock.History, mutation);
+                    return false;
                 }
-            }
 
-            // A replace of this entry is between its stores, a few of them, which wait for nothing.
-            spinner.SpinOnce(sleep1Threshold: -1);
+                copy.Copy(new RootReader(_arena, Layout!, entry.Root));
+                revision = new LatticeRevision(_clock.History, entry.LastMutationSequence);
+                sequence = _clock.Sequence;
+
+                return true;
+            }
+            finally
+            {
+                gate.ExitReadLock();
+            }
+        }
+        finally
+        {
+            _claims.Drop(handle);
         }
     }
 }

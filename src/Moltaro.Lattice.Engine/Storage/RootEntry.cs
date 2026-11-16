@@ -43,9 +43,8 @@ internal struct RootEntry
     // Where the slot and its lifetime stand.
     public RootStateEnum State;
 
-    // The count of temporary claims on this lifetime, which the milestone contract lays out here. No
-    // lookup claims an entry since S08, because a read holds the read gate from its lookup to the end
-    // of its copy, and an entry is released only while no read can reach it
-    // (Engine.Protection.ReadGate); so it is 0 in every entry. RootTable.Release does not look at it.
+    // How many lookups hold a temporary claim on this lifetime. While one does, the slot must not
+    // be released (arena protocol, "Lock and lifetime order"). RootTable.Release does not look at
+    // it; its caller does.
     public int ClaimCount;
 }

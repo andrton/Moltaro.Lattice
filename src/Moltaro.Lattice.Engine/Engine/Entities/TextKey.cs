@@ -17,9 +17,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // The index holds every key once under its comparison, because a write adds a key only after it found
 // it absent under that comparison. So two keys in the index are equal exactly when they name the same
 // slot, and only a lookup key is ever compared with stored text; the index never compares two lookup
-// keys. That comparison reads the root block of a live entry inside the read gate: a replace may
-// install another root of the same key meanwhile, and frees the old one only after the reads inside
-// the gate have left (EntityTable.KeyEquals, Protection.ReadGate).
+// keys. That comparison reads the root block of a live entry while the catalog gate is held, and a
+// write changes the root block of an indexed entry only while it holds the catalog gate exclusively
+// (Protection.RootGates).
 internal readonly struct TextKey : IEquatable<TextKey>
 {
     // The slot of a lookup key, which no entry has: the table of root entries ends below 2^31.

@@ -34,17 +34,16 @@ namespace Moltaro.Lattice.Engine;
 // block fails the open with InvalidSchema, and an entity type with a field the engine cannot
 // store yet gets no layout (the planner's answer to point 1 of Q35). A failed open closes the
 // instance. Before the open an operation is Unavailable; after a close it is
-// ObjectDisposedException. A close waits for the reads and the writes in progress before it frees
-// the arena: every read passes the read gate, which the close shuts and waits for until no read is
-// inside (ReadGate), and every write enters the close barrier (CloseBarrier), so the arena is freed
-// by the last write to leave after the close, or by the close when none is in progress. A wait for a
-// position ends with the close.
+// ObjectDisposedException. A close waits for the reads in progress before it frees the arena
+// (CloseBarrier): every read and write enters the barrier before it touches the database, and the
+// arena is freed by the last one to leave after the close, or by the close when none is in
+// progress. A wait for a position ends with the close.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
 // for each entity type, with its root layout and its primary index), the writes in Writes
-// (WriteExecutor), the read gate and the barrier of the close in Protection (with the order of the
-// locks, ReadGate), the history and the sequence in Positions (PositionClock), and the sets of the
-// public interfaces in Sets.
+// (WriteExecutor), the gates, the lookup claims and the barrier of the close in Protection (with
+// the order of the locks, RootGates), the history and the sequence in Positions (PositionClock), and
+// the sets of the public interfaces in Sets.
 //
 // Position and revision. Each open has a new random non-zero history; the sequence is 0 and grows
 // by 1 with each published write, also one that changed nothing (the owner's answer to Q39). A
@@ -75,10 +74,6 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private readonly CloseBarrier _barrier;
 
-    // The gate of the reads. Made with the instance, like the barrier, so that a close before the
-    // open shuts it too.
-    private readonly ReadGate _gate;
-
     // The sets of classes, made once for each class and shared.
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
@@ -90,7 +85,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Arena? _arena;
 
-    private RootTable? _roots;
+    private RootGates? _gates;
+
+    private LookupClaims? _claims;
 
     private PositionClock? _clock;
 
@@ -105,7 +102,6 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         _options = options;
         _barrier = new CloseBarrier(this);
-        _gate = new ReadGate(this);
     }
 
     // Makes an instance for the options without opening it. In S06 a MemoryOnly master.
@@ -133,8 +129,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // What the engine holds at this moment, for the tests and later for diagnostics: taken between
-    // two writes, under the lock of the writes, so that no write is half done. Only the thread that
-    // executes writes changes what the counters count; a read changes none of it.
+    // two writes, under the lock of the writes, and under the catalog gate, so that no write and no
+    // release of an entry by a lookup is half done.
     public EngineCounters Counters
     {
         get
@@ -146,14 +142,23 @@ internal sealed class EngineDatabase : ILatticeDatabase
             {
                 lock (_writes!)
                 {
-                    var indexBytes = 0L;
+                    _gates!.Catalog.EnterReadLock();
 
-                    foreach (var operations in _operations!.Values)
+                    try
                     {
-                        indexBytes += operations.Table.IndexBytes;
-                    }
+                        var indexBytes = 0L;
 
-                    return new EngineCounters(_arena!.Counters, indexBytes, _roots!.Count, (long)_clock!.Sequence);
+                        foreach (var operations in _operations!.Values)
+                        {
+                            indexBytes += operations.Table.IndexBytes;
+                        }
+
+                        return new EngineCounters(_arena!.Counters, indexBytes, _claims!.Table.Count, (long)_clock!.Sequence);
+                    }
+                    finally
+                    {
+                        _gates.Catalog.ExitReadLock();
+                    }
                 }
             }
             finally
@@ -288,14 +293,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         _clock?.Close();
 
-        // The reads first: from here on none passes the gate, and Close returns once none is inside,
-        // which takes no longer than the copy of a root by the reads in progress, since no read waits
-        // inside the gate. The cancellation token cannot end that wait; it ends the wait for the
-        // writes below.
-        _gate.Close();
-
-        // The arena is the only native memory of the database; everything else is managed. No read
-        // reaches it any more, so it is freed once the writes in progress have left.
+        // The arena is the only native memory of the database; everything else is managed.
         var drained = _barrier.Close(() => _arena?.Dispose());
 
         return drained.IsCompleted ? ValueTask.CompletedTask : new ValueTask(drained.WaitAsync(cancellationToken));
@@ -317,19 +315,20 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         try
         {
-            var roots = new RootTable();
+            var gates = new RootGates();
+            var claims = new LookupClaims(new RootTable(), gates);
 
             // A new history at every open: nothing of a MemoryOnly database survives it, so no
             // position of an earlier run may be taken for one of this run.
             var clock = new PositionClock((ulong)Random.Shared.NextInt64(1, long.MaxValue), this);
             var writes = new Lock();
-            var executor = new WriteExecutor(writes, arena, _gate, roots, clock, _barrier, _options.SynchronizationTimeout);
+            var executor = new WriteExecutor(writes, arena, gates, claims, clock, _barrier, _options.SynchronizationTimeout);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
             foreach (var entityType in schema.EntityTypes)
             {
-                var table = EntityTable.Open(entityType, schema, arena, _gate, roots, clock);
+                var table = EntityTable.Open(entityType, schema, arena, gates, claims, clock, _barrier);
                 var forType = new SetOperations(table, executor, clock, _options.SynchronizationTimeout);
 
                 operations.Add(entityType, forType);
@@ -345,7 +344,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
                 _schema = schema;
                 _arena = arena;
-                _roots = roots;
+                _gates = gates;
+                _claims = claims;
                 _clock = clock;
                 _writes = writes;
                 _operations = operations;

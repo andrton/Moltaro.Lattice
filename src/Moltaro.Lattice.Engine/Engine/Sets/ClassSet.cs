@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 // a read by key converts its key without boxing it and copies the root into the object through
 // pooled scratch, without boxing a value: a read allocates the returned object, with what is
 // reachable from it, and nothing else (brief of S06, "The allocation of a read"). The constructor and
-// the set accessors of the class run after the read left the read gate (ClassCopier). A write takes
+// the set accessors of the class run after the read released every gate (ClassCopier). A write takes
 // the values of the object through the binding of the core, which checks them against the schema at
 // every depth.
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>

@@ -23,16 +23,16 @@ namespace Moltaro.Lattice.Storage;
 // yet, and Publish makes it live when the write is published. Both kinds are valid from their
 // allocation until Free (brief of S06, the planner's answer to Q30). A block is counted in exactly
 // one place: a prepared block with its whole slot in PreparedBytes, a live one with its header and
-// payload in LiveBytes and the rest of its slot in ClassSlackBytes. No block is retired: the
-// database frees the blocks of a replaced or deleted root within the write, once no reader can reach
-// them any more (Engine.Protection.ReadGate; arena protocol, "Reclamation and relocation"), so
-// RetiredBytes is 0.
+// payload in LiveBytes and the rest of its slot in ClassSlackBytes. No block is retired in S06:
+// the database frees the blocks of a replaced or deleted root while it holds the root's exclusive
+// protection, which no reader of the root holds at the same time (arena protocol, "Reclamation and
+// relocation"), so RetiredBytes is 0.
 //
 // Who uses the arena at the same time. The arena takes no lock. One thread at a time changes it, by
 // TryAllocate, TryAllocatePrepared, Publish and Free: in the database that is the thread executing
-// a write, and writes are executed one after another. Readers inside the read gate of the database
-// (Engine.Protection.ReadGate) call IsValid, Header and Payload for the blocks of the roots they
-// read at the same time, which the write frees only after those readers have left. Those read only
+// a write, and writes are executed one after another. Readers that hold the protection of a root,
+// its stripe or, for the text of the key of an indexed root, the catalog gate (Engine.Protection),
+// call IsValid, Header and Payload for the blocks of that root at the same time. Those read only
 // the metadata of the block's own slot, region and segment, which no change of the arena alters
 // while the block is allocated; a change for another block writes other bits of the same words and
 // other elements of the same arrays, and a reader sees their old or their new value, either of

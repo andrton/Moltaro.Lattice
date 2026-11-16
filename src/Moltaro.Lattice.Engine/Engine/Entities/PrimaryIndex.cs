@@ -13,15 +13,15 @@ namespace Moltaro.Lattice.Engine.Entities;
 // takes 28 bytes for a long and 36 for a Guid or a TextKey. The equality and the hash of a key are
 // those of TKey, which for a TextKey come from the comparison of the schema.
 //
-// The index takes no lock. Lookups read it inside the read gate; the thread that executes writes is
-// the only one that changes it, while it has excluded the reads, and reads it without the gate
-// (Protection.ReadGate).
+// The index takes no lock. Lookups read it under the catalog gate held shared; the thread that
+// executes a write is the only one that changes it, under the catalog gate held exclusively, and
+// reads it without the gate (Protection.RootGates).
 //
 // Room before publication. The package grows its arrays when it adds a key to a full map, and
 // publication must not allocate (milestone contract, "Index preparation and traversal"). So a write
-// calls Reserve first, and Add then never grows the map. Until the second part of S08 the index
-// grows under exclusive protection: Reserve builds the larger map while the caller has excluded the
-// reads (brief of S06, Acceptance); that part builds it while lookups use the old one.
+// calls Reserve first, and Add then never grows the map. Until S08 the index grows under exclusive
+// protection: Reserve builds the larger map while the caller holds the catalog gate exclusively
+// (brief of S06, Acceptance); S08 builds it while lookups use the old one.
 //
 // Version changes with every change of the map, an added or a removed key and a growth, so that an
 // enumeration sees that the index changed under it (brief of S06, "Enumeration until S08").
@@ -42,8 +42,8 @@ internal sealed class PrimaryIndex<TKey>
 
     public bool TryFind(TKey key, out RootHandle handle) => _map.TryGetValue(key, out handle);
 
-    // Grows the map to twice its capacity when it has no room for one more key. The caller has
-    // excluded the reads. An OutOfMemoryException leaves the old map in place.
+    // Grows the map to twice its capacity when it has no room for one more key. The caller holds
+    // the catalog gate exclusively. An OutOfMemoryException leaves the old map in place.
     public void Reserve()
     {
         if (HasRoom)
@@ -62,7 +62,7 @@ internal sealed class PrimaryIndex<TKey>
         Version++;
     }
 
-    // Adds a key that is absent, after Reserve. The caller has excluded the reads.
+    // Adds a key that is absent, after Reserve. The caller holds the catalog gate exclusively.
     public void Add(TKey key, RootHandle handle)
     {
         Debug.Assert(HasRoom, "Reserve made room before the publication.");
@@ -73,7 +73,7 @@ internal sealed class PrimaryIndex<TKey>
         Version++;
     }
 
-    // Removes a key that is there. The caller has excluded the reads.
+    // Removes a key that is there. The caller holds the catalog gate exclusively.
     public void Remove(TKey key)
     {
         var removed = _map.Remove(key);
@@ -83,7 +83,7 @@ internal sealed class PrimaryIndex<TKey>
     }
 
     // The handle of the next key from position on, in the order of the nodes of the map, and the
-    // position after it; false when there is none. The caller is inside the read gate; between two
+    // position after it; false when there is none. The caller holds the catalog gate; between two
     // calls the map may change, which Version tells.
     public bool TryFindNext(ref int position, out RootHandle handle)
     {
