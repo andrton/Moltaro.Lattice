@@ -169,7 +169,8 @@ public interface ILatticeSet<TEntity>
 
     /// <summary>
     /// Enumerates owned copies of all entities of the entity type from what this node has
-    /// now, in no particular order, within the read limits of the database options.
+    /// now, in no particular order, within the read limits of the database options. The
+    /// order may differ between two instances that hold the same data.
     /// </summary>
     /// <remarks>
     /// <para>

@@ -34,10 +34,19 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // pieces and the whole texts differ. No byte order of UTF-8 stands for UTF-16, no culture is consulted,
 // and nothing of the casing of the runtime is called.
 //
+// The hash of a key in the primary index (TextHash) is the engine's own, seeded with the seed of the
+// instance, so that the index depends on nothing a process sets and nobody who does not know the seed
+// can choose keys that share a hash (the planner's answer to Q50): Marvin32, the hash of text of the
+// .NET runtime (Marvin), over the UTF-16 code units of the text, and for a comparison without case
+// over the code units the case rule maps the text to (TextComparison.ToUpper), the mapping every hash
+// without case follows. It is a hash of code units, so a text hashes the same in a UTF-8 and in a
+// UTF-16 database; the engine computes it from the text a caller gives, when it makes the key
+// (Sets.KeyArgument), before the read enters the protection of reads, and the index keeps it in its
+// entry, so no stored text is ever hashed.
+//
 // What it reserves: nothing. The buffer is 512 bytes of the stack of the comparison, and a comparison
-// allocates nothing, whatever the length of the text and wherever it lies. The hash of the rule maps
-// the text, without case, into 512 bytes of the stack as well. The engine computes the hash of a key
-// before it takes a gate (Sets.KeyArgument).
+// allocates nothing, whatever the length of the text and wherever it lies. The hash without case maps
+// the text into 512 bytes of the stack as well.
 //
 // What a lookup costs: the hash of the given text, one pass over it; and for each key of the index
 // with the same hash, in practice the one that is looked for, one pass over its stored text, decoded
@@ -48,9 +57,30 @@ internal static class ValueComparer
     // The code units of stored text compared at a time.
     private const int PieceLength = 256;
 
-    // The hash of a text under the comparison the String field declares: texts that are equal under
-    // it have the same hash. Computed from the given text, never from stored text.
-    public static int TextHash(LatticeField field, ReadOnlySpan<char> text) => ComparisonOf(field).GetHashCode(text);
+    // The hash of a text in the primary index under the comparison the String field declares and the
+    // seed (see the class): texts that are equal under the comparison have the same hash under every
+    // seed. Without case the text is mapped a piece of PieceLength code units at a time, and the
+    // pieces are hashed one after the other as one text. Allocates nothing.
+    public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed)
+    {
+        if (!ComparisonOf(field).IgnoresCase)
+        {
+            return Marvin.Hash(text, seed);
+        }
+
+        Span<char> mapped = stackalloc char[PieceLength];
+        var marvin = new Marvin(seed);
+
+        while (!text.IsEmpty)
+        {
+            var length = TextComparison.ToUpper(text, mapped);
+
+            marvin.Append(mapped[..length]);
+            text = text[length..];
+        }
+
+        return marvin.Finish();
+    }
 
     // Whether the stored text of the String field of the root is the given text under the comparison
     // the field declares. Allocates nothing.

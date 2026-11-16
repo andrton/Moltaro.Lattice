@@ -11,7 +11,9 @@ namespace Moltaro.Lattice.Schema;
 // engine, so the rule lives here.
 //
 // - Ordinal: two texts are equal when their UTF-16 code units are equal, one by one. The hash is the
-//   ordinal hash of .NET over the code units, which depends on no culture and no globalization mode.
+//   ordinal hash of .NET over the code units, which depends on no culture and no globalization mode;
+//   the primary index of the engine does not use it, but a seeded hash of its own over the same code
+//   units (Engine.Comparison.ValueComparer.TextHash).
 // - Without case (OrdinalIgnoreCase): two texts are equal when they are equal scalar value by scalar
 //   value after each scalar value is replaced by its simple uppercase mapping of the case table of
 //   Lattice's own (CaseTable; decision on strings, Q04, the addition of 15 November 2026). A surrogate
@@ -120,8 +122,11 @@ internal sealed class TextComparison : IEqualityComparer<string>
     // cutting a surrogate pair, and returns how many code units it mapped: as many as it wrote. Equal
     // texts are cut at the same places, since they have their pairs at the same places. The ASCII that
     // begins the text is mapped at once by Ascii.ToUpper, which maps a to z as the table does and stops
-    // at the first code unit that is not ASCII.
-    private static int ToUpper(ReadOnlySpan<char> text, Span<char> destination)
+    // at the first code unit that is not ASCII. The destination holds two code units at least. The
+    // hash of this class and the seeded hash of the primary index of the engine
+    // (Engine.Comparison.ValueComparer.TextHash) are hashes of the mapped text, so both follow this one
+    // mapping.
+    public static int ToUpper(ReadOnlySpan<char> text, Span<char> destination)
     {
         var length = Math.Min(text.Length, destination.Length);
 

@@ -1,7 +1,6 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.TestSupport.Enumeration;
 using Moltaro.Lattice.TestSupport.Text;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
@@ -15,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   seed: they take of the primary index no more than a quarter beyond what 2,000 sequential keys take,
 //   as CollidingHashTests measures keys that spread, while under the seed 0 their one chain takes more
 //   than that, one overflow bucket of 64 bytes for every seven entries. The bytes are read after a
-//   drain, and no time is measured. Skipped until the indexes take the seed.
+//   drain, and no time is measured.
 // - Under two seeds the test fixes and under one the instance draws, in a UTF-8 and in a UTF-16
 //   database, with a String key compared with Ordinal and without case, and with an Int64 and a Guid
 //   key: every key is found, through the spelling of the comparison as well, absent keys are absent,
@@ -44,7 +43,7 @@ public sealed class IndexSeedTests
         from seed in new[] { "B", "C", "drawn" }
         select new TheoryDataRow<string, string, string>(encoding, comparison, seed);
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Keys_built_to_share_one_hash_under_one_seed_are_spread_under_another()
     {
         var keys = CollidingKeys.Of(Colliding);

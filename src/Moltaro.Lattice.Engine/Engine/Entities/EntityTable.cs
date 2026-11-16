@@ -139,6 +139,10 @@ internal sealed class EntityTable
     // Whether an integer key is of an unsigned type, which the root stores as such.
     private readonly bool _unsignedKey;
 
+    // The seed of the hashes of the primary index, the one of the instance (HashOf). Kept here alone,
+    // never stored, sent or shown.
+    private readonly ulong _seed;
+
     private EntityTable(
         LatticeEntityType entityType,
         RootLayout? layout,
@@ -147,7 +151,8 @@ internal sealed class EntityTable
         RootTable roots,
         ReadEpochs epochs,
         RetiredMemory retired,
-        PositionClock clock)
+        PositionClock clock,
+        ulong seed)
     {
         EntityType = entityType;
         Layout = layout;
@@ -160,6 +165,7 @@ internal sealed class EntityTable
         _index = layout is null ? null : new PrimaryIndex(retired);
         _unsignedKey = entityType.Key.Declaration.Type
             is LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.UInt16 or LatticeFieldTypeEnum.UInt32 or LatticeFieldTypeEnum.UInt64;
+        _seed = seed;
     }
 
     public LatticeEntityType EntityType { get; }
@@ -179,10 +185,11 @@ internal sealed class EntityTable
 
     public long ReplacementIndexBytes => _index?.ReplacementBytes ?? 0;
 
-    // The table of an entity type of the schema, when the database opens. The root layout is
-    // compiled here, before any data is admitted; an entity type whose fixed part does not fit one
-    // block fails the open with the LatticeException, InvalidSchema, of RootLayout.Compile. An entity
-    // type the engine cannot store yet is not compiled, so its fixed part is not checked.
+    // The table of an entity type of the schema, when the database opens, whose primary index hashes
+    // with the seed of the instance. The root layout is compiled here, before any data is admitted;
+    // an entity type whose fixed part does not fit one block fails the open with the
+    // LatticeException, InvalidSchema, of RootLayout.Compile. An entity type the engine cannot store
+    // yet is not compiled, so its fixed part is not checked.
     public static EntityTable Open(
         LatticeEntityType entityType,
         LatticeSchema schema,
@@ -190,7 +197,8 @@ internal sealed class EntityTable
         RootTable roots,
         ReadEpochs epochs,
         RetiredMemory retired,
-        PositionClock clock)
+        PositionClock clock,
+        ulong seed)
     {
         var refusal = RefusalOf(entityType);
         RootLayout? layout = null;
@@ -209,7 +217,7 @@ internal sealed class EntityTable
             }
         }
 
-        return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock);
+        return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
     }
 
     // For the writer, which reads the index and the root entries without the protection: finds a key
@@ -444,10 +452,14 @@ internal sealed class EntityTable
     }
 
     // The hash of an integer key in the index, of its 64 bits as EntityKey.Integer holds them (HashOf).
-    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer);
+    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer ^ _seed);
 
     // The hash of a Guid key in the index, of its two halves (HashOf).
-    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high));
+    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ _seed));
+
+    // The hash of a String key in the index, of the text a caller gave (HashOf); for Sets.KeyArgument,
+    // which computes it before the read enters the protection of reads.
+    public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(EntityType.Key, text, _seed);
 
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
@@ -475,16 +487,21 @@ internal sealed class EntityTable
         return null;
     }
 
-    // The hash of a key in the index. For a String, the hash of the comparison its field declares,
+    // The hash of a key in the index, under the seed the instance drew when it opened (the planner's
+    // answer to Q50), so that nobody who does not know the seed can choose keys that share a hash and
+    // lengthen one chain of the index, and the index depends on nothing a process sets. For a String,
+    // the seeded hash of the comparison its field declares (Comparison.ValueComparer.TextHash),
     // computed with the key. For an integer, held as a long, and for a Guid, all its bits mixed by the
-    // finalizer of MurmurHash3 (Mix): Int64.GetHashCode and Guid.GetHashCode are the exclusive or of
-    // the halves or the quarters of the value, which keys of a structure share systematically, such as
-    // (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of S08, part 1).
+    // finalizer of MurmurHash3 (Mix), the seed mixed in by an exclusive or before the finalizer, into
+    // the integer and into the second half of the Guid: Int64.GetHashCode and Guid.GetHashCode are the
+    // exclusive or of the halves or the quarters of the value, which keys of a structure share
+    // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
+    // S08, part 1). Under the seed 0 a key enters the finalizer unchanged.
     private uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)
         {
-            return (uint)key.TextHash;
+            return key.TextHash;
         }
 
         if (KeyKind == KeyKindEnum.Integer)
