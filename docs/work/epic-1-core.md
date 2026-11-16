@@ -2941,7 +2941,12 @@ be studied: how they do it is to be learned from their source and, in essence, r
   percpu-rwsem, seqcount) and liburcu are GPL or LGPL: their code is not opened and
   nothing is ported from it. The first implementation, which named those among its
   sources, is reverted; the new one is written from Tsavorite's source and takes no
-  code from the reverted commit.
+  code from the reverted commit. After review round 1 the sequence of a root entry and the
+  version of the primary index, which had kept the shape of the reverted commit, were
+  matched to a named source by an agent that had not seen that commit: the `SeqLock` of
+  crossbeam (MIT), at a pinned commit named in `EntityTable.cs`; its notice is in
+  `THIRD-PARTY-NOTICES.md`. The 64-bit mixing of integer and Guid keys is the finalizer
+  of MurmurHash3, which is in the public domain.
 - **Tests the sprint breaks, part 1.** `TextKeyTests` addresses the type `TextKey`, which
   goes with the index of the package, and `RootTableTests` and `LayoutTests` name
   `RootEntry.ClaimCount`, which is no claim count any more while the entry keeps its 48
