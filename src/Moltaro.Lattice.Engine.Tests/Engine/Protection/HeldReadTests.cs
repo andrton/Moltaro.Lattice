@@ -19,8 +19,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // - The entry of a deleted entity is not given to another while the read is held; once the read has
 //   left and a drain has released it, it is given out again with the next generation of its slot.
 // - The held read returns one written state of its own key: the state it found or one written while
-//   it was held, or absence when its entity was deleted meanwhile, never the entity of a key created
-//   again; other reads go on, during a growth too.
+//   it was held, with the revision of that same write, or absence when its entity was deleted
+//   meanwhile, never the entity of a key created again; other reads go on, during a growth too.
 // - A close waits for the held read and completes once it has left. That it frees everything retired
 //   is not visible once the database is closed; the test states that the held read was served whole
 //   and that the close completes.
@@ -44,10 +44,16 @@ public sealed class HeldReadTests
             var stamps = database.Set<StampSchema.Stamp>();
             await stamps.InsertAsync(StampSchema.StampOf(1, 0));
             var root = HeldBytes(database);
+            Assert.True(stamps.TryGet(1L, out _, out var first));
 
-            using var held = await HeldRead.StartAsync(database, () => StampSchema.NumberOf(1, stamps.Get(1L)));
+            // The held read returns the revision it read beside the state.
+            var heldRevision = default(LatticeRevision);
+            using var held = await HeldRead.StartAsync(
+                database,
+                () => stamps.TryGet(1L, out var stamp, out heldRevision) ? StampSchema.NumberOf(1, stamp) : null);
 
             await WrittenAsync(() => stamps.ReplaceAsync(StampSchema.StampOf(1, 1)));
+            Assert.True(stamps.TryGet(1L, out _, out var second));
             database.DrainRetired();
 
             // The new root is live, and the old one is retired, whole, while the held read may reach it.
@@ -57,9 +63,12 @@ public sealed class HeldReadTests
             Assert.Equal(root, during.Arena.RetiredBytes);
             Assert.Equal(1, during.RootEntries);
 
-            // The held read returns the state it found or the one that replaced it; afterwards a drain
-            // frees the old root.
-            Assert.Contains(await held.ReleaseAsync(), new long?[] { 0, 1 });
+            // The held read returns the state it found or the one that replaced it, with the revision of
+            // the write of that state; afterwards a drain frees the old root.
+            var number = await held.ReleaseAsync();
+
+            Assert.Contains(number, new long?[] { 0, 1 });
+            Assert.Equal(number == 0 ? first : second, heldRevision);
             Assert.Equal(root, HeldBytes(database));
             Assert.Equal(0, database.Counters.Arena.RetiredBytes);
             Assert.Equal<long?>(1, StampSchema.NumberOf(1, stamps.Get(1L)));

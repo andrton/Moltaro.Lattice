@@ -9,6 +9,7 @@ using Moltaro.Lattice.Engine.Sets;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Allocation;
 
 namespace Moltaro.Lattice.Engine;
 
@@ -88,6 +89,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private readonly ReadEpochs _epochs;
 
+    // The options of the arena and the allocator of its native memory that a test of the engine gave
+    // (the second Create); both null for every other instance, whose arena gets the limit before S09
+    // and the native allocator itself.
+    private readonly ArenaOptions? _arenaOptions;
+
+    private readonly NativeAllocator? _allocator;
+
     // The sets of classes, made once for each class and shared.
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
@@ -112,15 +120,40 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
 
-    private EngineDatabase(LatticeDatabaseOptions options)
+    private EngineDatabase(LatticeDatabaseOptions options, ArenaOptions? arenaOptions, NativeAllocator? allocator)
     {
         _options = options;
+        _arenaOptions = arenaOptions;
+        _allocator = allocator;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
     }
 
     // Makes an instance for the options without opening it. In S06 a MemoryOnly master.
     public static EngineDatabase Create(LatticeDatabaseOptions options)
+    {
+        Check(options);
+
+        return new EngineDatabase(options, arenaOptions: null, allocator: null);
+    }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
+    // first Create does, with the same refusals, whose arena takes these options and obtains and
+    // returns its native memory through this allocator, instead of the limit before S09 and the native
+    // allocator itself. So a test can bound the arena to a few segments and count every native byte
+    // the database obtained and returned (Storage.Allocation.NativeAllocator). Nothing else differs,
+    // and an instance made by the first Create pays nothing for it.
+    public static EngineDatabase Create(LatticeDatabaseOptions options, ArenaOptions arenaOptions, NativeAllocator allocator)
+    {
+        Check(options);
+        ArgumentNullException.ThrowIfNull(arenaOptions);
+        ArgumentNullException.ThrowIfNull(allocator);
+
+        return new EngineDatabase(options, arenaOptions, allocator);
+    }
+
+    // The refusals of Create, in the order of LatticeDatabase.Create.
+    private static void Check(LatticeDatabaseOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -139,8 +172,6 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             throw new NotSupportedException("A master that accepts children at a ListenUri is not implemented yet in the engine.");
         }
-
-        return new EngineDatabase(options);
     }
 
     // What the engine holds at this moment, for the tests and later for diagnostics: taken between
@@ -218,6 +249,25 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ThrowIfNotReady();
 
         _epochs.HoldNext(hold);
+    }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the
+    // primary index of the entity type runs hold, once, on the thread of the write that grows it and
+    // inside the lock of the writes, after it has published the grown table and before it changes
+    // the version of the index, the two stores between which an enumeration step can meet the new
+    // table with the version of the old one. A test waits inside hold, with a bounded wait, to keep
+    // the growth there while it takes steps of an enumeration; it neither writes nor counts meanwhile,
+    // since the lock of the writes is held. When hold returns the growth goes on as it would have. A
+    // growth when no test has armed the switch pays one load of a field that is null, and a read
+    // pays nothing. The entity type has to be one the engine stores. Unavailable before the open,
+    // ObjectDisposedException after the close.
+    public void HoldNextGrowth(LatticeEntityType entityType, Action hold)
+    {
+        ArgumentNullException.ThrowIfNull(entityType);
+        ArgumentNullException.ThrowIfNull(hold);
+        ThrowIfNotReady();
+
+        _operations![entityType].Table.HoldNextGrowth(hold);
     }
 
     public LatticeDatabaseStateEnum State => _state;
@@ -390,7 +440,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         // The memory of the process, as .NET reports it: half of it for the arena (brief of S06,
         // "The limit before S09"; the owner's answer to Q37).
-        var arena = new Arena(new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 });
+        var arena = _allocator is null
+            ? new Arena(new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 })
+            : new Arena(_arenaOptions!, _allocator);
 
         try
         {

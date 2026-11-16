@@ -43,6 +43,10 @@ internal sealed class PrimaryIndex
     // The version and the bytes of a table being built, on lines of their own (IndexChanges).
     private IndexChanges _changes;
 
+    // What the next growth runs for the tests of the engine (EngineDatabase.HoldNextGrowth); null when
+    // no test armed it, which is all a growth pays: one load of a field nothing else writes.
+    private Action? _growthHold;
+
     public PrimaryIndex(RetiredMemory retired)
     {
         _retired = retired;
@@ -90,6 +94,9 @@ internal sealed class PrimaryIndex
         Changed();
     }
 
+    // Arms the switch of the tests: the next growth runs hold once (EngineDatabase.HoldNextGrowth).
+    public void HoldNextGrowth(Action hold) => Volatile.Write(ref _growthHold, hold);
+
     private void Grow()
     {
         var current = _table;
@@ -106,6 +113,14 @@ internal sealed class PrimaryIndex
         // that reads the new table (Find) sees them all. A reader that still has the old one finds
         // the same entries in it, unchanged.
         Volatile.Write(ref _table, grown);
+
+        // The switch of the tests, between the store that publishes the grown table and the change of
+        // the version; it changes nothing when no test armed it.
+        if (_growthHold is not null)
+        {
+            Interlocked.Exchange(ref _growthHold, null)?.Invoke();
+        }
+
         _changes.ReplacementBytes = 0;
         _retired.RetireTable(current, current.Bytes);
         Changed();

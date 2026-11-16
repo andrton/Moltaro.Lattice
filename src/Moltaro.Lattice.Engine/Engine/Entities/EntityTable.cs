@@ -173,6 +173,10 @@ internal sealed class EntityTable
     // Removes the key of the root entry from the index.
     public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(HashOf(key), handle.Slot);
 
+    // Arms the switch of the tests on the primary index of an entity type the engine stores
+    // (EngineDatabase.HoldNextGrowth).
+    public void HoldNextGrowth(Action hold) => _index!.HoldNextGrowth(hold);
+
     // For a replace of a stored entity, and an upsert that replaces one: makes the key among the
     // values the key as it is stored. The primary key is immutable (decision on mutation commands,
     // "Immutable primary keys"), so a write through another spelling of a String key compared without

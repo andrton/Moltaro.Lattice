@@ -1,0 +1,96 @@
+using Moltaro.Lattice.TestSupport.Findings;
+
+namespace Moltaro.Lattice.Tests.Keys;
+
+// Keys that all have one hash are keys like any other (review round 1 of Epic 1, sprint S08, part 1:
+// the primary index of the engine wrote past its table when many keys shared a hash). Int64.GetHashCode
+// is the exclusive or of the two halves of the value, so every key (i << 32) | i has the hash 0, and
+// the engine, which hashes an integer key by its .NET value, puts all of them into one chain. On the
+// placeholder and on the engine: every one of 300 such keys is inserted and found, through the class
+// and by name; 50 other keys of the same hash that were never inserted are absent; an enumeration
+// returns each key once; each is deleted, half through the class and half by name, after which none is
+// found and an enumeration is empty; and all of them can be inserted again. The deletes reach the
+// entries that lie in the overflow of the chain as well as those in its first bucket.
+//
+// String keys of one hash cannot be made cheaply: the hash of a String key compared with Ordinal is
+// string.GetHashCode, which is seeded at random in every process, so 300 texts of one hash would take
+// about 2^32 tries each.
+public sealed class OneHashKeyTests
+{
+    private const int Count = 300;
+
+    private const int Absent = 50;
+
+    private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
+        {
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Clash", "ClrType": "{{typeof(Clash).FullName}}",
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Label", "Type": "String" } ],
+              "PrimaryKey": [1]
+            }
+          ]
+        }
+        """);
+
+    [Theory(Skip = OpenFindings.ReviewRound1)]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Entities_whose_keys_all_have_one_hash_are_inserted_found_enumerated_once_and_deleted(DatabaseImplementationEnum implementation)
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        var clashes = database.Set<Clash>();
+        var records = database.Set("Clash");
+        long[] keys = [.. Enumerable.Range(1, Count).Select(KeyOf)];
+
+        // The premise: one hash for every key, also for the absent ones.
+        Assert.All(keys, key => Assert.Equal(0, key.GetHashCode()));
+        Assert.Equal(0, KeyOf(Count + Absent).GetHashCode());
+
+        foreach (var key in keys)
+        {
+            await clashes.InsertAsync(new Clash { Id = key, Label = LabelOf(key) });
+        }
+
+        foreach (var key in keys)
+        {
+            Assert.Equal(LabelOf(key), clashes.Get(key)?.Label);
+            Assert.Equal(LabelOf(key), records.Get(key)?["Label"]);
+        }
+
+        for (var absent = Count + 1; absent <= Count + Absent; absent++)
+        {
+            Assert.Null(clashes.Get(KeyOf(absent)));
+            Assert.Null(records.Get(KeyOf(absent)));
+        }
+
+        Assert.Equal(keys, clashes.Enumerate().Select(clash => clash.Id).Order());
+
+        for (var index = 0; index < keys.Length; index++)
+        {
+            var deleted = index % 2 == 0 ? await clashes.DeleteAsync(keys[index]) : await records.DeleteAsync(keys[index]);
+
+            Assert.True(deleted.Changed);
+        }
+
+        Assert.All(keys, key => Assert.Null(clashes.Get(key)));
+        Assert.Empty(clashes.Enumerate());
+
+        foreach (var key in keys)
+        {
+            await clashes.InsertAsync(new Clash { Id = key, Label = LabelOf(key) });
+        }
+
+        Assert.Equal(keys, clashes.Enumerate().Select(clash => clash.Id).Order());
+    }
+
+    private static long KeyOf(int number) => ((long)number << 32) | (uint)number;
+
+    private static string LabelOf(long key) => $"clash {key}";
+
+    private sealed class Clash
+    {
+        public long Id { get; set; }
+
+        public string Label { get; set; } = "";
+    }
+}
