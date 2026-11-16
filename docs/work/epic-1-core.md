@@ -3281,8 +3281,6 @@ Where a sentence above says otherwise, these replace it.
 - **The placeholder** ignores `MemoryLimit` until S12; the documentation of the option
   says "not enforced yet" for the public entry, as the other options of this stage do.
 
-### Stage 3. Master and children
-
 **Added by the planner on 16 November 2026, after S08.** Where a sentence above says
 otherwise, these replace it.
 
@@ -3372,6 +3370,8 @@ otherwise, these replace it.
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
   ignores `MemoryLimit` until S12.
+
+### Stage 3. Master and children
 
 #### S10 · A child loads the database
 
