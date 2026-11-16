@@ -11,14 +11,15 @@ namespace Moltaro.Lattice.Engine.Entities;
 //   key above the largest Int64 is a negative Integer. Within one key type that is one Integer for each
 //   value and one value for each Integer, which is all an index needs;
 // - a Guid key holds the Guid;
-// - a String key holds the text and its hash under the comparison the key field declares, computed
-//   when the key is made, before any gate is taken (Comparison.ValueComparer.TextHash).
+// - a String key holds the text and its hash in the primary index, under the comparison the key field
+//   declares and the seed of the instance, computed when the key is made, before the read enters the
+//   protection of reads (EntityTable.TextHash).
 // The members of the other kinds are empty.
 internal readonly struct EntityKey
 {
     private readonly LatticeFieldTypeEnum _type;
 
-    private EntityKey(LatticeFieldTypeEnum type, long integer, Guid guid, string? text, int textHash)
+    private EntityKey(LatticeFieldTypeEnum type, long integer, Guid guid, string? text, uint textHash)
     {
         _type = type;
         Integer = integer;
@@ -33,14 +34,14 @@ internal readonly struct EntityKey
 
     public string? Text { get; }
 
-    public int TextHash { get; }
+    public uint TextHash { get; }
 
     // An integer key of the key type, given as its 64 bits as Integer says.
     public static EntityKey OfInteger(LatticeFieldTypeEnum type, long bits) => new(type, bits, default, null, 0);
 
     public static EntityKey OfGuid(Guid guid) => new(LatticeFieldTypeEnum.Guid, 0, guid, null, 0);
 
-    public static EntityKey OfText(string text, int hash) => new(LatticeFieldTypeEnum.String, 0, default, text, hash);
+    public static EntityKey OfText(string text, uint hash) => new(LatticeFieldTypeEnum.String, 0, default, text, hash);
 
     // The key for a message, as the caller gave it.
     public override string ToString() => _type switch

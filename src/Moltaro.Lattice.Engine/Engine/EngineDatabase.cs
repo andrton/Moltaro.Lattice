@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
@@ -96,6 +98,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private readonly NativeAllocator? _allocator;
 
+    // The seed of the hashes of the primary indexes that a test of the engine gave (the third Create);
+    // null for every other instance, which draws its own when it opens (Load).
+    private readonly ulong? _indexSeed;
+
     // The sets of classes, made once for each class and shared.
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
@@ -120,11 +126,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
 
-    private EngineDatabase(LatticeDatabaseOptions options, ArenaOptions? arenaOptions, NativeAllocator? allocator)
+    private EngineDatabase(LatticeDatabaseOptions options, ArenaOptions? arenaOptions, NativeAllocator? allocator, ulong? indexSeed)
     {
         _options = options;
         _arenaOptions = arenaOptions;
         _allocator = allocator;
+        _indexSeed = indexSeed;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
     }
@@ -134,7 +141,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         Check(options);
 
-        return new EngineDatabase(options, arenaOptions: null, allocator: null);
+        return new EngineDatabase(options, arenaOptions: null, allocator: null, indexSeed: null);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
@@ -149,7 +156,20 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentNullException.ThrowIfNull(arenaOptions);
         ArgumentNullException.ThrowIfNull(allocator);
 
-        return new EngineDatabase(options, arenaOptions, allocator);
+        return new EngineDatabase(options, arenaOptions, allocator, indexSeed: null);
+    }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
+    // first Create does, with the same refusals, whose primary indexes compute every hash with this
+    // seed instead of one the instance draws when it opens (the planner's answer to Q50; brief of
+    // S08, part 2), so that a test can build keys that share one hash under one seed and show them
+    // spread under another, and find every key under two seeds it chose. Nothing else differs, and
+    // an instance made by the first Create pays nothing for it.
+    public static EngineDatabase Create(LatticeDatabaseOptions options, ulong indexSeed)
+    {
+        Check(options);
+
+        return new EngineDatabase(options, arenaOptions: null, allocator: null, indexSeed);
     }
 
     // The refusals of Create, in the order of LatticeDatabase.Create.
@@ -253,14 +273,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the
     // primary index of the entity type runs hold, once, on the thread of the write that grows it and
-    // inside the lock of the writes, after it has published the grown table and before it changes
-    // the version of the index, the two stores between which an enumeration step can meet the new
-    // table with the version of the old one. A test waits inside hold, with a bounded wait, to keep
-    // the growth there while it takes steps of an enumeration; it neither writes nor counts meanwhile,
-    // since the lock of the writes is held. When hold returns the growth goes on as it would have. A
-    // growth when no test has armed the switch pays one load of a field that is null, and a read
-    // pays nothing. The entity type has to be one the engine stores. Unavailable before the open,
-    // ObjectDisposedException after the close.
+    // inside the lock of the writes, after it has published the grown table and before it retires the
+    // old one, while a step that entered before may still walk the old table and a step that enters
+    // now walks the new one. A test waits inside hold, with a bounded wait, to keep the growth there
+    // while it takes steps of an enumeration, or counts the growths; it neither writes nor counts the
+    // counters meanwhile, since the lock of the writes is held. When hold returns the growth goes on
+    // as it would have. A growth when no test has armed the switch pays one load of a field that is
+    // null, and a read pays nothing. The entity type has to be one the engine stores. Unavailable
+    // before the open, ObjectDisposedException after the close.
     public void HoldNextGrowth(LatticeEntityType entityType, Action hold)
     {
         ArgumentNullException.ThrowIfNull(entityType);
@@ -467,6 +487,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // A new history at every open: nothing of a MemoryOnly database survives it, so no
             // position of an earlier run may be taken for one of this run.
             var clock = new PositionClock((ulong)Random.Shared.NextInt64(1, long.MaxValue), this);
+
+            // The seed of the hashes of the primary indexes, drawn at every open from the random source
+            // of the system unless a test fixed it, so that nobody who does not know it can choose keys
+            // that share a hash (the planner's answer to Q50). It is never stored, sent or shown: a
+            // child and a reopened database draw their own, and the order of an enumeration, which
+            // follows the hashes, may differ between two instances that hold the same data.
+            var seed = _indexSeed ?? DrawSeed();
             var writes = new Lock();
             var executor = new WriteExecutor(writes, arena, roots, retired, clock, _barrier, _options.SynchronizationTimeout);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
@@ -474,8 +501,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
             foreach (var entityType in schema.EntityTypes)
             {
-                var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock);
-                var forType = new SetOperations(table, executor, clock, _options.SynchronizationTimeout);
+                var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed);
+                var forType = new SetOperations(table, executor, clock, _options);
 
                 operations.Add(entityType, forType);
                 recordSets.Add(entityType, new RecordSet(forType));
@@ -506,6 +533,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
             arena.Dispose();
             throw;
         }
+    }
+
+    // 64 bits from the random source of the system (RandomNumberGenerator).
+    private static ulong DrawSeed()
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(ulong)];
+
+        RandomNumberGenerator.Fill(bytes);
+
+        return BinaryPrimitives.ReadUInt64LittleEndian(bytes);
     }
 
     private ClassSet<TEntity> ClassSetOf<TEntity>()

@@ -115,9 +115,41 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ```
 
+## .NET runtime — Marvin32, the hash of text
+
+- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the seeded hash of the text of String keys in the primary index, `Engine/Comparison/Marvin.cs`, adapted from the code of this file; it names its source at its head
+- **Source:** <https://github.com/dotnet/runtime>, commit `2dada4c5d6fb82f9d7f274d7bd980e508cdf52e2`: `src/libraries/System.Private.CoreLib/src/System/Marvin.cs`
+- **License:** MIT
+
+```text
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## crossbeam — the sequence lock of crossbeam-utils
 
-- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the stamp of a root entry, read in `Engine/Entities/EntityTable.cs` and written in `Engine/Writes/WriteExecutor.cs`, and the version of the primary index in `Engine/Indexes/PrimaryIndex.cs`, adapted from the protocol of this code; each names its source at its head
+- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the stamp of a root entry, read in `Engine/Entities/EntityTable.cs` and written in `Engine/Writes/WriteExecutor.cs`, adapted from the protocol of this code; each names its source at its head
 - **Source:** <https://github.com/crossbeam-rs/crossbeam>, commit `a28f40fdddb70bea8e5faf0efad9af0be4b9dbea`: `crossbeam-utils/src/atomic/seq_lock.rs`, with its optimistic read in `atomic_load` of `crossbeam-utils/src/atomic/atomic_cell.rs`
 - **License:** MIT or Apache-2.0, at the licensee's option; taken here under MIT
 

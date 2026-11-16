@@ -87,11 +87,61 @@ namespace Moltaro.Lattice.Engine.Entities;
 // ended with the sequence unchanged; otherwise the read looks up again. An insert publishes its entry
 // in the index before the sequence of the database and a delete the sequence before it removes the
 // entry (Writes.WriteExecutor), so an absence seen at an unchanged sequence holds at that sequence.
+//
+// An enumeration, a step at a time (TryReadNext). Between two steps nothing is held but what its pass
+// holds (EntityPass), managed memory of the enumeration. A step is made of rounds, each inside the
+// protection of reads, which it enters and leaves, and each walking at most WordsPerRound words of
+// the index, so that no round holds back what writes retire for longer than a bounded piece of work,
+// however many entries a step has to pass, as after a growth (review round 1 of S08, part 2). A round:
+// 1. It looks at the time limit of a read, then takes the current table of the index with its version.
+//    A version other than the one its position belongs to means that the index grew since, and the
+//    walk starts again at the start of the new table: a growth places every entry anew, so a position
+//    in the old table means nothing in the new one. Mapping it, bucket b to buckets 2b and 2b + 1,
+//    would miss the entries the growth moved from the overflow buckets of the old table into main
+//    buckets that the position has passed.
+// 2. It walks the words of the table from the position (IndexTable.TryFindNext). For each entry it
+//    reads the key the root of the entry stores and skips it when the pass has returned that key
+//    (ReturnedKeys): that keeps a key from being returned twice, after a growth, whose walk meets
+//    again what was walked, and after a delete and an insert of a returned key, whose new entry the
+//    walk may meet at a later word.
+// 3. Otherwise it copies the root as a read by key does (TryCopy) and skips a root deleted meanwhile.
+//    When the key it is about to remember has room in the pass, it stages the key and the position
+//    after the entry, and the pass takes both once the entity is built outside the protection
+//    (EntityPass.Commit). When it has none, the round gives the copy back and ends before the entry;
+//    outside the protection the room is counted against the memory limit of a read and made, and the
+//    next round reads the entry anew. So the limit fails a pass only for a key it is going to
+//    remember, and nothing large is allocated inside the protection.
+// 4. At the end of the table, the sequence of the database read when the round began is the position
+//    of the end when it is unchanged after the walk, as for an absent key; otherwise, and when the
+//    round walked its words without finding an entity, the next round goes on from the position.
+// The pass counts the time of every step, its rounds and what lies between them included, and fails
+// the round that would exceed a limit.
+// Why every entity that nobody changes during the pass is returned once: its entry is in the index
+// throughout the pass, an entry does not move within a table, so a walk of a table meets it at its
+// word, and a walk of a grown table from its start meets it too; the key it stores is the same in
+// every root of its lifetime, so it is skipped only once it has been returned. Every returned entity
+// is one written state, by the stamp of its entry. An insert, a replace, a delete or a growth never
+// ends the pass, and a replace changes no entry of the index at all.
 internal sealed class EntityTable
 {
     // The sequence of the last mutation of a root entry while a write changes its root or its state,
     // the mark of the stamp (see the head of the file): no published write has it, the first has 1.
     public const ulong MutationInProgress = 0;
+
+    // The words of the index a round of a step of an enumeration walks at most inside the protection
+    // of reads (see the class). Measured in Release, two runs each on a loaded machine, on 1,000,000
+    // entities with an Int64 or a String key: a pass returned all but 10 of them, the index grew, and
+    // the keys inserted for the growth were deleted again, so that the 10 steps left walked the whole
+    // grown table, nearly every word an entry to skip, at 0.5 to 1 microsecond an entry. In one
+    // round each, as before this bound, the longest step stayed inside the protection 117 to 269 ms.
+    // In rounds of 256 words the longest round stayed inside 0.14 to 2.6 ms, of 1,024 words 1.9 to
+    // 3.6 ms and of 4,096 words 2.5 to 7.9 ms; an ordinary round of 256 such words takes some tens of
+    // microseconds, and the longest are rounds the machine interrupted. The 10 steps took 0.2 to 0.9 s together in
+    // rounds of 256 words and 0.4 to 1.0 s in one round each: leaving the protection and entering it
+    // again, some tens of nanoseconds, is lost in that. A round over empty words takes about a
+    // microsecond. A step that finds an entity among the first words, as every step does while the
+    // index does not grow, takes one round.
+    private const int WordsPerRound = 256;
 
     private readonly Arena _arena;
 
@@ -107,6 +157,10 @@ internal sealed class EntityTable
     // Whether an integer key is of an unsigned type, which the root stores as such.
     private readonly bool _unsignedKey;
 
+    // The seed of the hashes of the primary index, the one of the instance (HashOf). Kept here alone,
+    // never stored, sent or shown.
+    private readonly ulong _seed;
+
     private EntityTable(
         LatticeEntityType entityType,
         RootLayout? layout,
@@ -115,7 +169,8 @@ internal sealed class EntityTable
         RootTable roots,
         ReadEpochs epochs,
         RetiredMemory retired,
-        PositionClock clock)
+        PositionClock clock,
+        ulong seed)
     {
         EntityType = entityType;
         Layout = layout;
@@ -128,6 +183,7 @@ internal sealed class EntityTable
         _index = layout is null ? null : new PrimaryIndex(retired);
         _unsignedKey = entityType.Key.Declaration.Type
             is LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.UInt16 or LatticeFieldTypeEnum.UInt32 or LatticeFieldTypeEnum.UInt64;
+        _seed = seed;
     }
 
     public LatticeEntityType EntityType { get; }
@@ -147,10 +203,11 @@ internal sealed class EntityTable
 
     public long ReplacementIndexBytes => _index?.ReplacementBytes ?? 0;
 
-    // The table of an entity type of the schema, when the database opens. The root layout is
-    // compiled here, before any data is admitted; an entity type whose fixed part does not fit one
-    // block fails the open with the LatticeException, InvalidSchema, of RootLayout.Compile. An entity
-    // type the engine cannot store yet is not compiled, so its fixed part is not checked.
+    // The table of an entity type of the schema, when the database opens, whose primary index hashes
+    // with the seed of the instance. The root layout is compiled here, before any data is admitted;
+    // an entity type whose fixed part does not fit one block fails the open with the
+    // LatticeException, InvalidSchema, of RootLayout.Compile. An entity type the engine cannot store
+    // yet is not compiled, so its fixed part is not checked.
     public static EntityTable Open(
         LatticeEntityType entityType,
         LatticeSchema schema,
@@ -158,7 +215,8 @@ internal sealed class EntityTable
         RootTable roots,
         ReadEpochs epochs,
         RetiredMemory retired,
-        PositionClock clock)
+        PositionClock clock,
+        ulong seed)
     {
         var refusal = RefusalOf(entityType);
         RootLayout? layout = null;
@@ -177,7 +235,7 @@ internal sealed class EntityTable
             }
         }
 
-        return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock);
+        return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
     }
 
     // For the writer, which reads the index and the root entries without the protection: finds a key
@@ -289,75 +347,156 @@ internal sealed class EntityTable
         }
     }
 
-    // Reads the next entity of an enumeration into the copy: true when there is one; false at the
+    // A new enumeration of the entity type under the read limits of the options, standing before its
+    // first step.
+    public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
+        new(EntityType.Name, new ReturnedKeys(this), memoryLimit, timeLimit);
+
+    // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
+    // says: true when there is one, which the caller builds and then commits to the pass; false at the
     // end, with the sequence under which the index showed no more, taken as for an absent key. Each
-    // call enters the protection of reads and leaves it, and holds nothing between two calls. Until
-    // S08, part 2, an enumeration during which the index changed fails, from the call that sees the
-    // change, with NotSupportedException instead of returning a set it cannot vouch for: an insert, a
-    // delete or a growth changes the index, a replace does not. ObjectDisposedException after the
-    // close.
-    public bool TryReadNext<TCopy, TResult>(ref EntityCursor cursor, ref TCopy copy, out ulong sequence)
+    // round enters the protection of reads and leaves it, and a call holds nothing when it returns; a
+    // pass whose entity was not committed, because its build failed, finds it again at its next step.
+    // ObjectDisposedException after the close, at every call; LatticeException with ReadLimitExceeded
+    // from a call that would exceed a read limit and from every call after it (EntityPass).
+    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var protection = _epochs.Enter();
+        // The time of the step begins before the protection, whose slot it may wait for.
+        var started = pass.StartStep();
 
         try
         {
-            if (Layout is null)
-            {
-                sequence = _clock.Sequence;
-
-                return false;
-            }
+            var position = pass.Position;
+            var version = pass.Version;
 
             while (true)
             {
-                var before = _clock.Sequence;
+                // The bound of the text of a key that needs room in the pass, or -1 when none does.
+                var room = -1;
+                var protection = _epochs.Enter();
 
-                // The table the step walks is the table of the version the enumeration started on, or the
-                // step fails: a position belongs to the table it was taken in (PrimaryIndex, Version).
-                IndexTable table;
-
-                if (!cursor.Started)
+                try
                 {
-                    table = _index!.TableAndVersion(out cursor.Version);
-                    cursor.Started = true;
-                }
-                else
-                {
-                    table = _index!.TableAt(cursor.Version) ?? throw IndexChanged();
-                }
+                    pass.ThrowIfFailed();
+                    pass.CheckTime(started);
 
-                var position = cursor.Position;
-
-                if (table.TryFindNext(ref position, out var slot))
-                {
-                    // A root deleted between the index and its read is a change of the index as well.
-                    if (!TryCopy<TCopy, TResult>(ref _roots.EntryOfSlot(slot), ref copy, out _, out sequence))
+                    if (Layout is null)
                     {
-                        throw IndexChanged();
+                        sequence = _clock.Sequence;
+
+                        return false;
                     }
 
-                    cursor.Position = position;
+                    var before = _clock.Sequence;
+                    var table = _index!.TableAndVersion(out var current);
 
-                    return true;
+                    // Step 1 of the class: a grown table is walked from its start.
+                    if (current != version)
+                    {
+                        position = 0;
+                        version = current;
+                    }
+
+                    var stop = position + WordsPerRound;
+
+                    while (table.TryFindNext(ref position, stop, out var slot, out var hash))
+                    {
+                        ref var entry = ref _roots.EntryOfSlot(slot);
+
+                        // Any root of the entry holds the key of its lifetime (see the class); it is
+                        // live or retired, never freed, while the round is inside.
+                        var stored = new RootReader(_arena, Layout, entry.AcquireRoot());
+
+                        if (pass.Returned.Contains(hash, stored))
+                        {
+                            continue;
+                        }
+
+                        if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
+                        {
+                            continue;
+                        }
+
+                        // Step 3 of the class: without room, the round ends before the entry, which the
+                        // next one reads again once the room is made.
+                        if (!pass.Returned.HasRoomFor(stored, out var bound))
+                        {
+                            copy.Return();
+                            position--;
+                            room = bound;
+
+                            break;
+                        }
+
+                        pass.Returned.Stage(hash, stored, bound);
+                        pass.Stage(position, version);
+
+                        return true;
+                    }
+
+                    // The end of the table, when the round neither stopped at its bound nor for room.
+                    if (room < 0 && position < stop && _clock.Sequence == before)
+                    {
+                        sequence = before;
+
+                        return false;
+                    }
+                }
+                finally
+                {
+                    _epochs.Exit(protection);
                 }
 
-                if (_clock.Sequence == before)
+                // Outside the protection: the room is counted against the memory limit, then made.
+                if (room >= 0)
                 {
-                    cursor.Position = position;
-                    sequence = before;
+                    if (pass.LimitsMemory)
+                    {
+                        pass.CheckMemory(pass.Returned.BytesWithRoomFor(room));
+                    }
 
-                    return false;
+                    pass.Returned.MakeRoom(room);
                 }
             }
         }
         finally
         {
-            _epochs.Exit(protection);
+            pass.EndStep(started);
         }
     }
+
+    // The integer key a root stores, as EntityKey.Integer holds it: read as the unsigned type it is
+    // stored as when the key type is unsigned.
+    public long StoredInteger(in RootReader stored) =>
+        _unsignedKey ? unchecked((long)stored.GetUnsigned(EntityType.Key)) : stored.GetInteger(EntityType.Key);
+
+    // The code units the text of a String key that a root stores takes at most: its bytes in a UTF-8
+    // database, where every byte is at most one code unit, and half its bytes in a UTF-16 one; at least
+    // 2 for a text that is not empty, the room a read of stored text needs for a surrogate pair
+    // (StoredTextReader.Read).
+    public int TextBound(in RootReader stored)
+    {
+        var bytes = stored.GetLength(EntityType.Key);
+
+        if (bytes == 0)
+        {
+            return 0;
+        }
+
+        return Math.Max(2, Layout!.StringEncoding == LatticeStringEncodingEnum.Utf16 ? bytes / 2 : bytes);
+    }
+
+    // The hash of an integer key in the index, of its 64 bits as EntityKey.Integer holds them (HashOf).
+    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer ^ _seed);
+
+    // The hash of a Guid key in the index, of its two halves (HashOf).
+    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ _seed));
+
+    // The hash of a String key in the index, of the text a caller gave (HashOf); for Sets.KeyArgument,
+    // which computes it before the read enters the protection of reads.
+    public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(EntityType.Key, text, _seed);
 
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
@@ -385,30 +524,32 @@ internal sealed class EntityTable
         return null;
     }
 
-    private NotSupportedException IndexChanged() => new(
-        $"Entities of {EntityType.Name} were inserted or deleted while they were enumerated. Until an enumeration under change is implemented, such an enumeration fails instead of returning entities it cannot vouch for; what it returned before stays valid. Start a new enumeration.");
-
-    // The hash of a key in the index. For a String, the hash of the comparison its field declares,
+    // The hash of a key in the index, under the seed the instance drew when it opened (the planner's
+    // answer to Q50), so that nobody who does not know the seed can choose keys that share a hash and
+    // lengthen one chain of the index, and the index depends on nothing a process sets. For a String,
+    // the seeded hash of the comparison its field declares (Comparison.ValueComparer.TextHash),
     // computed with the key. For an integer, held as a long, and for a Guid, all its bits mixed by the
-    // finalizer of MurmurHash3 (Mix): Int64.GetHashCode and Guid.GetHashCode are the exclusive or of
-    // the halves or the quarters of the value, which keys of a structure share systematically, such as
-    // (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of S08, part 1).
+    // finalizer of MurmurHash3 (Mix), the seed mixed in by an exclusive or before the finalizer, into
+    // the integer and into the second half of the Guid: Int64.GetHashCode and Guid.GetHashCode are the
+    // exclusive or of the halves or the quarters of the value, which keys of a structure share
+    // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
+    // S08, part 1). Under the seed 0 a key enters the finalizer unchanged.
     private uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)
         {
-            return (uint)key.TextHash;
+            return key.TextHash;
         }
 
         if (KeyKind == KeyKindEnum.Integer)
         {
-            return (uint)Mix((ulong)key.Integer);
+            return IntegerHash(key.Integer);
         }
 
         var guid = key.Guid;
-        ref var halves = ref Unsafe.As<Guid, ulong>(ref guid);
+        ref var halves = ref Unsafe.As<Guid, long>(ref guid);
 
-        return (uint)Mix(halves ^ Mix(Unsafe.Add(ref halves, 1)));
+        return GuidHash(halves, Unsafe.Add(ref halves, 1));
     }
 
     // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
@@ -451,7 +592,7 @@ internal sealed class EntityTable
 
         return KeyKind switch
         {
-            KeyKindEnum.Integer => (_unsignedKey ? unchecked((long)stored.GetUnsigned(field)) : stored.GetInteger(field)) == key.Integer,
+            KeyKindEnum.Integer => StoredInteger(stored) == key.Integer,
             KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
             _ => ValueComparer.TextEquals(stored, field, key.Text),
         };

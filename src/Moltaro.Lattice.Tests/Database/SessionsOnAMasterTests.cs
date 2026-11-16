@@ -12,8 +12,7 @@ namespace Moltaro.Lattice.Tests.Database;
 // depends on such a position, by key and in an enumeration, waits the same way, for the timeout of
 // the options of the database unless the session sets its own, and answers once a write reaches the
 // position; an enumeration that timed out returned nothing. A test makes one up from
-// the text of a position, whose form the documentation does not describe: its history, a hyphen and
-// its sequence in hexadecimal, as LatticePosition.ToString writes it.
+// the text of a position (TestData.Ahead).
 public sealed class SessionsOnAMasterTests
 {
     [Theory]
@@ -130,7 +129,7 @@ public sealed class SessionsOnAMasterTests
         await using var database = await TestDatabases.OpenMasterAsync(implementation);
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
-        var ahead = Ahead(database.Position);
+        var ahead = TestData.Ahead(database.Position);
 
         // No write reaches it: the wait ends by its timeout, however short.
         var timedOut = await Assert.ThrowsAsync<LatticeException>(async () => await database.WaitForPositionAsync(ahead, TimeSpan.FromMilliseconds(1)));
@@ -159,7 +158,7 @@ public sealed class SessionsOnAMasterTests
         var users = database.Set<User>();
         var records = database.Set("User");
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
-        var ahead = Ahead(database.Position);
+        var ahead = TestData.Ahead(database.Position);
 
         // Reads whose session sets a timeout long enough: by key and in an enumeration, through the
         // class and by name.
@@ -233,15 +232,5 @@ public sealed class SessionsOnAMasterTests
 
         // The default value is no position at all.
         await Assert.ThrowsAsync<ArgumentException>(async () => await database.WaitForPositionAsync(default(LatticePosition)));
-    }
-
-    // The position of the same history with the next sequence, made up from the text of the position.
-    private static LatticePosition Ahead(LatticePosition position)
-    {
-        var text = position.ToString();
-        var separator = text.IndexOf('-', StringComparison.Ordinal);
-        var sequence = ulong.Parse(text.AsSpan(separator + 1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
-
-        return LatticePosition.Parse($"{text[..separator]}-{sequence + 1:x}");
     }
 }

@@ -39,4 +39,10 @@ public class LatticeException : Exception
     /// that operation in the order the operations were added, starting at zero.
     /// </summary>
     public int? OperationIndex { get; init; }
+
+    /// <summary>
+    /// Set for <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the limit the read would
+    /// have exceeded.
+    /// </summary>
+    public LatticeLimitEnum? Limit { get; init; }
 }

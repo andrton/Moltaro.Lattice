@@ -1,16 +1,13 @@
-namespace Moltaro.Lattice.Tests.ReadsAndWrites;
+namespace Moltaro.Lattice.Tests.Enumeration;
 
 // An enumeration of the entities of one entity type (ILatticeSet<TEntity>.Enumerate): each primary
 // key at most once per pass, and a completed pass includes every entity that existed unchanged
 // throughout it, so entities that nobody changes are each returned once (brief of Epic 1, sprint
-// S06, Acceptance).
+// S06, Acceptance). A replace, and a change of another entity type, do not end a pass.
 //
-// Until S08 the engine fails an enumeration during which the primary index of its entity type
-// changed, with NotSupportedException from the MoveNext that sees the change, instead of returning
-// a set it cannot vouch for; what it returned before stays valid. An insert or a delete changes the
-// index, a replace does not, and neither does a change of another entity type ("Enumeration until
-// S08"). The placeholder enumerates a copy taken when the enumeration starts and does not fail, so
-// the tests of the failure run on the engine only.
+// What a pass returns when entities are inserted, replaced or deleted between two of its steps is
+// stated by ChangeBetweenStepsTests, what the code of the application may do between two steps by
+// ApplicationCodeBetweenStepsTests, and a step after a close by EnumerationAfterCloseTests.
 public sealed class EnumerationTests
 {
     [Theory]
@@ -73,62 +70,6 @@ public sealed class EnumerationTests
 
         // The four entities that nobody changed are there, and every key once.
         Assert.Equal([1L, 2L, 3L, 4L, 5L], returned.Order());
-    }
-
-    [Fact]
-    public async Task Enumeration_by_class_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid()
-    {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
-        var users = database.Set<User>();
-        await InsertUsersAsync(users, 3);
-
-        using var enumerator = users.Enumerate().GetEnumerator();
-        Assert.True(enumerator.MoveNext());
-        var first = enumerator.Current;
-
-        await users.InsertAsync(new User { Id = 4, Name = "user 4" });
-
-        Assert.Throws<NotSupportedException>(() => enumerator.MoveNext());
-        Assert.Equal($"user {first.Id}", first.Name);
-
-        // Each new enumeration is a pass of its own.
-        Assert.Equal([1L, 2L, 3L, 4L], users.Enumerate().Select(user => user.Id).Order());
-    }
-
-    [Fact]
-    public async Task Enumeration_by_name_during_which_an_entity_is_deleted_fails_and_what_it_returned_stays_valid()
-    {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
-        var users = database.Set("User");
-        await InsertUsersAsync(database.Set<User>(), 3);
-
-        using var enumerator = users.Enumerate().GetEnumerator();
-        Assert.True(enumerator.MoveNext());
-        var first = enumerator.Current;
-        var other = first.Get<long>("Id") == 1 ? 2L : 1L;
-
-        await users.DeleteAsync(other);
-
-        Assert.Throws<NotSupportedException>(() => enumerator.MoveNext());
-        Assert.Equal($"user {first.Get<long>("Id")}", first["Name"]);
-        Assert.Equal(2, users.Enumerate().Count());
-    }
-
-    [Fact]
-    public async Task Enumeration_with_a_session_during_which_an_entity_is_inserted_fails_and_what_it_returned_stays_valid()
-    {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
-        var users = database.Set<User>();
-        await InsertUsersAsync(users, 3);
-
-        await using var enumerator = users.EnumerateAsync(new LatticeSession()).GetAsyncEnumerator();
-        Assert.True(await enumerator.MoveNextAsync());
-        var first = enumerator.Current;
-
-        await users.InsertAsync(new User { Id = 4, Name = "user 4" });
-
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await enumerator.MoveNextAsync());
-        Assert.Equal($"user {first.Id}", first.Name);
     }
 
     private static async Task InsertUsersAsync(ILatticeSet<User> users, int count)

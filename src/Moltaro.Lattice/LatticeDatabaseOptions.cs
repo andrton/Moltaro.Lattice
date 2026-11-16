@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice;
@@ -54,17 +55,80 @@ public sealed class LatticeDatabaseOptions
     public TimeSpan SynchronizationTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// The temporary memory, in bytes, that one enumeration of this instance may use.
+    /// <see langword="null"/>, the default: no limit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It counts the temporary memory the engine holds for one enumeration: the identities it
+    /// has returned, with the text of their keys, the candidates it took from the index, and
+    /// its workspace. That memory grows with the pass. It does not count the copies the
+    /// enumeration returns, so an entity larger than the limit is read, nor the memory of the
+    /// stored entities and their indexes. The limit reserves nothing: it takes no memory of its
+    /// own, and several enumerations use it at the same time, each for itself.
+    /// </para>
+    /// <para>
+    /// An enumeration that would exceed it fails with
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
+    /// <see cref="LatticeLimitEnum.ReadMemory"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
+    /// states. Without a limit an enumeration of any length runs to its end.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
+    /// enumeration is limited by it.
+    /// </para>
+    /// </remarks>
+    public long? ReadMemoryLimit { get; init; }
+
+    /// <summary>
+    /// The time that one enumeration of this instance may spend inside the engine.
+    /// <see langword="null"/>, the default: no limit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It counts the time inside the steps of the enumeration, added up over the pass, a wait
+    /// inside the engine included. It does not count the wait for the position of a session,
+    /// which <see cref="SynchronizationTimeout"/> or the timeout of the session bounds, nor the
+    /// time between two steps: a caller that is slow between two entities does not use it up.
+    /// The engine checks it at the points of a step where it can stop safely, so a step may
+    /// end shortly after the limit is reached.
+    /// </para>
+    /// <para>
+    /// An enumeration that would exceed it fails with
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
+    /// <see cref="LatticeLimitEnum.ReadTime"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
+    /// states. Without a limit an enumeration of any length runs to its end.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
+    /// enumeration is limited by it.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? ReadTimeLimit { get; init; }
+
+    /// <summary>
     /// Checks that the options describe a supported instance.
     /// </summary>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing or the
-    /// values are incompatible.
+    /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing, a
+    /// timeout or a limit is out of its range, such as a limit that is set and not positive,
+    /// or the values are incompatible.
     /// </exception>
     public void Validate()
     {
         if (!IsFiniteTimeout(SynchronizationTimeout))
         {
             throw Invalid($"{nameof(SynchronizationTimeout)} must be finite and positive.");
+        }
+
+        if (ReadMemoryLimit is { } readMemory && readMemory <= 0)
+        {
+            throw Invalid($"{nameof(ReadMemoryLimit)} must be positive when it is set; leave it null for no limit.");
+        }
+
+        if (ReadTimeLimit is { } readTime && readTime <= TimeSpan.Zero)
+        {
+            throw Invalid($"{nameof(ReadTimeLimit)} must be positive when it is set; leave it null for no limit.");
         }
 
         switch (Role)

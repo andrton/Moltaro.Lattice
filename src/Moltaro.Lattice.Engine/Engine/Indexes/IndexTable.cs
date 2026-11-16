@@ -63,7 +63,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // it makes reachable (the .NET memory model, not that of x64):
 // - the table itself: PrimaryIndex publishes a grown table by one store, after every word, page and
 //   count of it was written, and a reader loads it with acquire semantics (PrimaryIndex.Find,
-//   TableAndVersion, TableAt);
+//   TableAndVersion); its version is written by the constructor, before that store, and never
+//   changes;
 // - an entry: Add writes it by a store with release semantics after the insert wrote the root entry
 //   and published the root (Writes.WriteExecutor), into the main table and into an overflow bucket
 //   alike, and ReadMain and ReadOverflow load it with acquire semantics, so a reader that sees an
@@ -114,13 +115,14 @@ internal sealed class IndexTable
     private IndexTableCounts _counts;
 
     // A table of 2^bucketBits main buckets, empty, with overflow pages of a sixteenth of them, at
-    // least one bucket. bucketBits is 1 to MostBucketBits. The arrays are allocated before anything
-    // else, so an OutOfMemoryException leaves nothing behind.
-    public IndexTable(int bucketBits)
+    // least one bucket, of the version given. bucketBits is 1 to MostBucketBits. The arrays are
+    // allocated before anything else, so an OutOfMemoryException leaves nothing behind.
+    public IndexTable(int bucketBits, int version)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(bucketBits, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(bucketBits, MostBucketBits);
 
+        Version = version;
         _mainBuckets = 1 << bucketBits;
         _words = GC.AllocateArray<long>((_mainBuckets * WordsPerBucket) + (LineBytes / sizeof(long)) - 1, pinned: true);
         _first = FirstOnLine(_words);
@@ -129,6 +131,11 @@ internal sealed class IndexTable
     }
 
     public int BucketBits => 64 - _shift;
+
+    // Which table of its index this is: 0 for the first, and one more for each growth, since a growth
+    // replaces the table (PrimaryIndex). A position of an enumeration belongs to the table of one
+    // version (Entities.EntityPass).
+    public int Version { get; }
 
     // The entries the table holds. For the writer.
     public int Count => _counts.Entries;
@@ -250,16 +257,19 @@ internal sealed class IndexTable
         }
     }
 
-    // The slot of the next entry from position on, in the order of the words of the table, and the
-    // position after it; false when there is none. A position counts the entry words of the main
-    // buckets, then those of the overflow buckets given out. It reaches an overflow bucket by its
-    // address up to Taken, a load with acquire semantics that pairs with the store of Take, so the page
-    // that holds the bucket is in the directory it then reads; every word is read with acquire
-    // semantics, pairing with the store that published it (Add).
-    public bool TryFindNext(ref long position, out uint slot)
+    // The slot of the next entry from position on and before stop, with the hash the entry holds, in
+    // the order of the words of the table, and the position after it; false when there is none, with
+    // the position at stop, or before it at the end of the table. A position counts the entry words of
+    // the main buckets, then those of the overflow buckets given out. It reaches an overflow bucket by
+    // its address up to Taken, a load with acquire semantics that pairs with the store of Take, so the
+    // page that holds the bucket is in the directory it then reads; every word is read with acquire
+    // semantics, pairing with the store that published it (Add), and once, so the slot and the hash
+    // are those of one entry. An entry does not move within a table: one that is there throughout a
+    // walk is met once, at its word, and only a growth places entries anew.
+    public bool TryFindNext(ref long position, long stop, out uint slot, out uint hash)
     {
         var mainWords = (long)_mainBuckets * EntriesPerBucket;
-        var end = mainWords + (_overflow.Taken * EntriesPerBucket);
+        var end = Math.Min(stop, mainWords + (_overflow.Taken * EntriesPerBucket));
 
         while (position < end)
         {
@@ -272,15 +282,20 @@ internal sealed class IndexTable
             if (entry != 0)
             {
                 slot = (uint)entry - 1;
+                hash = (uint)((ulong)entry >> 32);
 
                 return true;
             }
         }
 
         slot = 0;
+        hash = 0;
 
         return false;
     }
+
+    // The same, for a walk that needs the slots alone.
+    public bool TryFindNext(ref long position, out uint slot) => TryFindNext(ref position, long.MaxValue, out slot, out _);
 
     private void CopyBucket(long place, IndexTable grown)
     {

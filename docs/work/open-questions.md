@@ -67,15 +67,6 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
-### Q50. Keys chosen to share one hash make reads of them slow
-
-| | |
-| --- | --- |
-| **Found** | 16 November 2026, review of Epic 1, sprint S08, part 1, round 2 |
-| **Question** | The primary index hashes Int64 and Guid keys through a mixing function that has no seed and can be inverted, so whoever chooses the keys can put many on one 32-bit hash. Memory stays bounded (26 bytes per entry for 2,000 such keys), and every key is found, but a read of one of them walks the chain: 287 µs against 0.2 µs. String keys compared with Ordinal use the hash of .NET, which is seeded per process; String keys compared without case use the case table and an unseeded hash. Does the index get a seed of its own per instance — the index is local and rebuilt on every node, so a seed changes nothing a node shares — or is a key an application generates, not one an outsider chooses? |
-| **Until answered** | No seed. Correctness and the memory bound hold for any keys; only the time of reads by keys of one chain grows with the chain |
-| **Decides** | The planner, and the owner if it is a choice, before the first release |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -484,3 +475,12 @@ in the meantime.
 | **Question** | "Fixed-width fields may change in place under exclusive access" was an accepted decision. Reads now take no exclusion, so a reader would see a root half changed. Does a partial update copy the root block and publish it like a replace, or does a root carry a sequence that every read checks? |
 | **Answer** | The owner, 16 November 2026, through the planner's session: a published root is never changed. A partial update builds a new root block with the changed fields, shares the value blocks it does not change, publishes it as a replace does and retires the old root block; a read checks nothing more. The owner's rule with it: when a design choice trades the cost of a read against the cost of a write, the read wins, as long as writes stay above their targets |
 | **Where the rule lives** | The decision on memory and access, the addition of 16 November 2026; the arena protocol, "Deferred reclamation". The contract of S20 says who owns a shared value block and reports the cost |
+
+### Q50. Keys chosen to share one hash make reads of them slow
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, review of Epic 1, sprint S08, part 1, round 2 |
+| **Question** | The primary index hashed Int64 and Guid keys through a mixing function without a seed that can be inverted, so whoever chooses the keys could put many on one 32-bit hash: memory stayed bounded and every key was found, but a read of one of them walked the chain, 287 µs against 0.2 µs. Does the index get a seed of its own per instance? |
+| **Answer** | The planner, 16 November 2026, from standing rules: yes. The cost is one word of state and one operation per hash; nothing a node shares depends on the hash; and "nobody outside chooses the keys" is something the database cannot know of an application. Each instance draws a seed when it opens; every hash of the primary index uses it, for every key type and both comparisons; the seed is never stored, sent or shown; the order of an enumeration is unspecified |
+| **Where the rule lives** | The brief of S08, part 2 in the [document of Epic 1](epic-1-core.md), which carries the work |

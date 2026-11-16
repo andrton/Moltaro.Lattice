@@ -15,6 +15,7 @@ await DependencyInjectionSample.RunAsync(schema);
 await RunPlannedAsync(NestedValuesSample.RunAsync, nameof(NestedValuesSample));
 await RunPlannedAsync(() => IndexSample.RunAsync(schema), nameof(IndexSample));
 await RunPlannedAsync(UniqueIndexSample.RunAsync, nameof(UniqueIndexSample));
+await RunPlannedAsync(() => ReadLimitsSample.RunAsync(schema), nameof(ReadLimitsSample));
 await RunPlannedAsync(() => WriteBatchSample.RunAsync(schema), nameof(WriteBatchSample));
 await RunPlannedAsync(IdentitySample.RunAsync, nameof(IdentitySample));
 

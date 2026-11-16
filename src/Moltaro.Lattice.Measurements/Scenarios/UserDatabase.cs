@@ -45,8 +45,9 @@ internal sealed class UserDatabase : IDisposable
     // The line of a report that says what was loaded into which database, and how long it took.
     public string Loaded { get; }
 
-    // Generates the fixture, opens the database and inserts the users by name.
-    public static UserDatabase Load()
+    // Generates the fixture, opens the database, under the read limits given or none, and inserts the
+    // users by name.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null)
     {
         var schema = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
         var records = ReferenceFixture.Generate(schema).ToList();
@@ -56,6 +57,8 @@ internal sealed class UserDatabase : IDisposable
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,
+            ReadMemoryLimit = readMemoryLimit,
+            ReadTimeLimit = readTimeLimit,
         });
 
         database.OpenAsync().AsTask().GetAwaiter().GetResult();
@@ -140,6 +143,10 @@ internal sealed class UserDatabase : IDisposable
 
         return next;
     }
+
+    // Runs the action inside the next growth of the main table of the primary index of the users, on
+    // the thread of the insert that grows it (EngineDatabase.HoldNextGrowth).
+    public void OnNextGrowth(Action action) => _database.HoldNextGrowth(ByName.EntityType, action);
 
     // What the primary indexes hold, in bytes: it doubles when the index of the users grows.
     public long IndexBytes => _database.Counters.PrimaryIndexBytes;

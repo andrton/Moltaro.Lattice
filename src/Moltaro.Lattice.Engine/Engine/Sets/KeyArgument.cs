@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access.Values;
-using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Schema;
 
@@ -80,7 +79,7 @@ internal static class KeyArgument
         {
             KeyKindEnum.Integer => Integer(table, IntegerOf(key)!.Value),
             KeyKindEnum.Guid => EntityKey.OfGuid((Guid)key),
-            _ => EntityKey.OfText((string)key, ValueComparer.TextHash(table.EntityType.Key, (string)key)),
+            _ => EntityKey.OfText((string)key, table.TextHash((string)key)),
         };
     }
 
@@ -167,6 +166,6 @@ internal static class KeyArgument
         ArgumentNullException.ThrowIfNull(text, "key");
         FieldValues.ThrowIfNotWellFormed(table.EntityType.Key, text, "key");
 
-        return EntityKey.OfText(text, ValueComparer.TextHash(table.EntityType.Key, text));
+        return EntityKey.OfText(text, table.TextHash(text));
     }
 }
