@@ -67,15 +67,6 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
-### Q49. Does a partial update change a published root in place?
-
-| | |
-| --- | --- |
-| **Found** | 16 November 2026, with the design of Epic 1, sprint S08, part 1 |
-| **Question** | "Fixed-width fields may change in place under exclusive access" is an accepted decision (memory and access; mutation commands with Q16 of physical storage). Reads now take no exclusion, so a reader would see a root half changed. Either a partial update copies the root block and publishes it like a replace, sharing the value blocks it did not change, or a root carries a sequence that every read checks and retries on. It is a choice between a cost on writes and a cost on reads, and it changes an accepted decision |
-| **Until answered** | Published roots are immutable and no code updates one in place. Nothing before S20 depends on it |
-| **Decides** | The owner, on the planner's proposal with figures, before the contracts of the stage S18 to S25 |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -475,3 +466,12 @@ in the meantime.
 | **Question** | The decision on index structures selected `UnorderedMapSlim` of `Arc.Collections` and foresaw readers on the old map only during growth. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it? |
 | **Answer** | No: its own remarks require external synchronization whenever a writer is present, and the planner read the code at the pinned commit to the same end. The owner, 16 November 2026, through the planner's session: the primary index becomes a hash table of the engine's own, modelled on the hash index of Garnet/Tsavorite; and where the engine can replace a package by its own structure written after an established open-source one, it does. Whether `Arc.Collections` leaves the engine altogether is settled with the ordered indexes of S14; until then the reference, the pin test of Q3 and the sentence of `AGENTS.md` stay |
 | **Where the rule lives** | The decision on index structures, the addition of 16 November 2026; the brief of S08 in the [document of Epic 1](epic-1-core.md) |
+
+### Q49. Does a partial update change a published root in place?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, with the design of Epic 1, sprint S08, part 1 |
+| **Question** | "Fixed-width fields may change in place under exclusive access" was an accepted decision. Reads now take no exclusion, so a reader would see a root half changed. Does a partial update copy the root block and publish it like a replace, or does a root carry a sequence that every read checks? |
+| **Answer** | The owner, 16 November 2026, through the planner's session: a published root is never changed. A partial update builds a new root block with the changed fields, shares the value blocks it does not change, publishes it as a replace does and retires the old root block; a read checks nothing more. The owner's rule with it: when a design choice trades the cost of a read against the cost of a write, the read wins, as long as writes stay above their targets |
+| **Where the rule lives** | The decision on memory and access, the addition of 16 November 2026; the arena protocol, "Deferred reclamation". The contract of S20 says who owns a shared value block and reports the cost |

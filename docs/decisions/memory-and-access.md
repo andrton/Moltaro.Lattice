@@ -302,6 +302,12 @@ rules; a record gate is not a lock on every index or every segment containing it
   One writer waiting here may hold up later queued changes. Protecting the whole
   document does not require copying it for each update: fixed-width fields may
   change in place under exclusive access, subject to commit/failure rules.
+  **Superseded on 16 November 2026 (owner).** Reads take no exclusion since they are
+  protected by epochs, so nothing a reader can reach is changed in place. A partial
+  update writes a new root block with the changed fields, shares the unchanged value
+  blocks and publishes it as a replacement; the old root block is retired. The owner's
+  reason: reads are the first purpose of the library and are not made dearer to make a
+  write cheaper.
 - **Memory:** no per-block version is required solely to support an ordinary
   copied result. Gate metadata still costs space. A native state word or shared
   stripes are candidates; stripes reduce gate count but can make unrelated

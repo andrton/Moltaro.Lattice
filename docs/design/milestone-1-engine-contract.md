@@ -145,7 +145,7 @@ Use the proven [arena protocol](arena-protocol.md), extended with the database
 publication barrier. Reads are protected by epochs and retired memory is freed later, as
 the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
 owner's decision of 16 November 2026): a read by key writes to no memory another reader
-writes to on its ordinary path, the one writer does not wait for readers, and a lookup
+writes to on its ordinary path, a write being published does not wait for readers, and a lookup
 runs while the writer changes the index. The writer side keeps its order of
 acquisition; which gates remain beside the epoch — the allocator, the dictionary — is
 stated by the sprint that builds each. One logical root
@@ -198,7 +198,7 @@ unbounded rescue wait. Native free and the OS working-set decrease are different
 ## Index preparation and traversal
 
 The primary lookup is a hash table of the engine's own after the hash index of
-Garnet/Tsavorite, read without locks while the one writer changes it (the owner's
+Garnet/Tsavorite, read without locks while a write being published changes it (the owner's
 decision of 16 November 2026, [index structures](../decisions/index-structures.md)). Arc
 OrderedMultiMap remains the selection for secondary keys until the contract of S14
 reviews it under the same direction: an own structure after a named open-source one

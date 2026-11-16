@@ -2918,7 +2918,7 @@ be studied: how they do it is to be learned from their source and, in essence, r
   repeated from `LightEpoch` of Garnet/Tsavorite — its source is read, and what is taken
   from it and what differs is written in the pull request. A read by key enters the
   epoch, looks up, copies and leaves; it takes no lock and writes to no memory another
-  reader writes to. The one writer publishes a new root, a changed index entry or a
+  reader writes to. The publishing thread publishes a new root, a changed index entry or a
   replacement table and retires the old one; it does not wait for readers. A lookup in
   the primary index runs while the writer inserts, deletes or grows the index: growth
   builds the replacement while readers use the old table and retires the old table by
@@ -2983,7 +2983,7 @@ be studied: how they do it is to be learned from their source and, in essence, r
   and the number of processors, three runs each: (1) the total of reads by key grows
   with the reading threads up to the number of processors, without a writer and beside a
   writer of each kind — replaces, inserts and deletes without growth, inserts with
-  growth; it need not be linear; (2) the writes a second of the one writer, of each
+  growth; it need not be linear; (2) the writes a second of the writing thread of the scenario, of each
   kind, do not fall as readers are added, beyond the noise of the measurement; (3) reads
   beside a writer of any kind are not lower than on the protection of S06 at the same
   thread count. A step that breaks (1), (2) or (3) stops the sprint for the owner.

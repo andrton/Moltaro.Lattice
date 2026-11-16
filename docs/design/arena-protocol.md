@@ -81,7 +81,7 @@ its step inside the engine begins and leaves when the step ends. Memory that a r
 could still reach when a write replaces or removes it — an old root with its blocks, a
 replaced table of an index, the entry of a deleted root — is retired, not freed: it is
 detached from its owner, counted as retired, and freed once every read that had entered
-before it was retired has left. The one writer never waits for readers, and a reader
+before it was retired has left. A write being published never waits for readers, and a reader
 never waits for the writer on its ordinary path.
 
 What does not move: a read is coherent for one entity, it sees one written state and
@@ -90,14 +90,14 @@ left, and a read never follows an old entry to a key that was created again; a c
 waits for the reads in progress and frees everything retired; no code of the
 application runs, and nothing waits — no I/O, no `await`, no wait for a position —
 while a read is inside the protection, so a read holds retired memory back only for the
-length of one step. The writer looks at the readers when the items retired since its
+length of one step. The publishing thread looks at the readers when the items retired since its
 last look reach the number of slots or their bytes reach one segment, and whenever
 memory is short, a drain is asked for or the database closes; what waits between two
 looks is bounded by those two thresholds. An enumeration enters and leaves at each step
 and holds nothing between two steps. A reader that finds no free slot of the epoch
-table waits for one and never fails. Whether a partial update copies the root or changes
-it in place under a sequence that reads check is decided with the contract of S20; until
-then a published root is never changed.
+table waits for one and never fails. A published root is never changed: a partial update
+publishes a new root block that shares the unchanged value blocks (the owner's decision
+of 16 November 2026).
 
 Retired memory is the engine's until it is freed: it is counted, it counts against the
 memory budget of the instance, and a write that meets the budget first frees what can be
