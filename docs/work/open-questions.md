@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q49. Does a partial update change a published root in place?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, with the design of Epic 1, sprint S08, part 1 |
+| **Question** | "Fixed-width fields may change in place under exclusive access" is an accepted decision (memory and access; mutation commands with Q16 of physical storage). Reads now take no exclusion, so a reader would see a root half changed. Either a partial update copies the root block and publishes it like a replace, sharing the value blocks it did not change, or a root carries a sequence that every read checks and retries on. It is a choice between a cost on writes and a cost on reads, and it changes an accepted decision |
+| **Until answered** | Published roots are immutable and no code updates one in place. Nothing before S20 depends on it |
+| **Decides** | The owner, on the planner's proposal with figures, before the contracts of the stage S18 to S25 |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

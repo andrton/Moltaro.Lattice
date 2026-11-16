@@ -197,8 +197,12 @@ unbounded rescue wait. Native free and the OS working-set decrease are different
 
 ## Index preparation and traversal
 
-Use Arc.Collections 2.2.0 UnorderedMapSlim for primary lookup, with schema-bound
-unboxed key adapters; Arc OrderedMultiMap for secondary keys. Standard Dictionary
+The primary lookup is a hash table of the engine's own after the hash index of
+Garnet/Tsavorite, read without locks while the one writer changes it (the owner's
+decision of 16 November 2026, [index structures](../decisions/index-structures.md)). Arc
+OrderedMultiMap remains the selection for secondary keys until the contract of S14
+reviews it under the same direction: an own structure after a named open-source one
+where that is possible. Standard Dictionary
 is not the primary index. Both packages remain behind engine-owned protection.
 Physical indexes are rebuilt locally; no disk or replica images are persisted.
 [Unique enforcement](../decisions/unique-indexes.md) is explicit in schema and checked

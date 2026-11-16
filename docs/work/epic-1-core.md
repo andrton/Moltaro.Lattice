@@ -2951,7 +2951,22 @@ be studied: how they do it is to be learned from their source and, in essence, r
   (`HeldReadTests`) relies on the allocation order of the root table of S05; if that
   order changes, it is reported and restated by the test author. On a refusal of the
   arena a write drains and retries, and waits for the reads that still hold retired
-  memory before it is refused; the wait is finite by construction and has no option.
+  memory before it is refused. The wait has no option and no timeout: it is finite
+  because it waits only for steps of reads, which run engine code alone, wait for nothing
+  and run no code of the application; it honors the cancellation of the write's token
+  while the write has not passed its commit point.
+- **Added by the planner on 16 November 2026, after the implementer's study.** The epoch
+  is not bumped by every write: the writer bumps and looks at the readers when the items
+  retired since its last look reach the number of slots or their bytes reach one
+  segment, and whenever memory is short, a drain is asked for or the database closes.
+  The thresholds are derived from the table and the segment and are not options. Test:
+  after more retired items than the threshold with no read in progress, `RetiredBytes`
+  falls without a drain being called. The table has max(128, 2 × processors) slots; a
+  reader that finds no free slot waits for one, never fails and takes no part in any
+  refusal. Test: more reading threads inside at once than slots, through the switch that
+  holds reads inside. These two tests are written by the test author after the
+  implementation commit, because the working tree was the implementer's when they were
+  asked for, and before the review.
 - **Counters and the drain, part 1.** No new counter for arena memory:
   `ArenaCounters.RetiredBytes` is the one, and it stops being 0. `RetiredIndexBytes` is
   the replaced tables of the primary index not freed yet. `RootEntries` goes on counting
