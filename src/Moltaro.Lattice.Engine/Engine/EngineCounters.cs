@@ -41,19 +41,25 @@ namespace Moltaro.Lattice.Engine;
 // builds the coordinator, writes are executed one after another under the lock of the writes, there
 // is no queue and no commit group, and the first three read 0; the implementer replaces those values.
 //
-// QueuedWrites: the writes that wait for their turn in the write coordinator.
+// QueuedWrites: a current number, the writes admitted and not yet completed: waiting for their
+// identity, waiting to be prepared, being prepared, prepared, or in the commit stage. It is 0 when
+// every call of a write has returned.
 //
-// LargestCommitGroup: the most writes one commit group held, at most CommitGroup.MaxOperations.
+// LargestCommitGroup: the most writes one commit group held since the open, at most
+// CommitGroup.MaxOperations.
 //
-// LargestCommitGroupBytes: the most bytes of PreparedWrite.EncodedSize one commit group held, at most
-// CommitGroup.MaxEncodedSize unless a larger write formed a group alone.
+// LargestCommitGroupBytes: the most bytes of PreparedWrite.EncodedSize one commit group held since the
+// open, at most CommitGroup.MaxEncodedSize unless a larger write formed a group alone. The two maxima
+// are taken independently of each other, and a lone large write is a group of one that counts in both.
 //
 // MemoryLimit: the memory budget in force, in bytes, fixed when the instance opened: the
 // LatticeDatabaseOptions.MemoryLimit that was given, or half of
-// GC.GetGCMemoryInfo().TotalAvailableMemoryBytes when none was, so that a test can state the default.
-// It is the limit of the arena (brief of S09, "The refusal"), and it reads that limit already; until
-// the implementer of S09 makes the option the limit of the arena, that is the default, or the
-// ArenaOptions a test of the engine gave.
+// GC.GetGCMemoryInfo().TotalAvailableMemoryBytes and never less than one segment when none was, so
+// that a test can state the default. When a test gave the options of the arena (EngineTestInputs.Arena)
+// they are the options of the arena, MemoryLimit of the options of the database is not read, and this
+// is the limit of those options. It is the limit of the arena (brief of S09, "The refusal"), and it
+// reads that limit already; until the implementer of S09 makes the option the limit of the arena, that
+// is half of the memory available, or the limit a test gave.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,

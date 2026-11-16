@@ -60,6 +60,12 @@ public enum LatticeErrorEnum
     /// The outcome of the write is unknown: it may or may not have been committed. Losing the
     /// response does not prove a rollback, so the write must not be blindly repeated.
     /// </summary>
+    /// <remarks>
+    /// A write is reported so as well when the instance became
+    /// <see cref="LatticeDatabaseStateEnum.Faulted"/> during its publication, or during the
+    /// publication of a write taken for storage together with it and before it: storage took the
+    /// write, and the instance cannot show it.
+    /// </remarks>
     IndeterminateOutcome = 8,
 
     /// <summary>

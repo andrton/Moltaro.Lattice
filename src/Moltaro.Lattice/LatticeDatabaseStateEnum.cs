@@ -29,17 +29,30 @@ public enum LatticeDatabaseStateEnum
 
     /// <summary>
     /// The instance has stopped because it can no longer guarantee coherent local state, for
-    /// example because the publication of a write failed. It serves nothing: every operation, a
-    /// read included, reports <see cref="LatticeErrorEnum.Unavailable"/>, and
-    /// <see cref="ILatticeDatabase.CloseAsync"/> works. Close it and create a new instance to
+    /// example because the publication of a write failed. It serves nothing: every operation that
+    /// begins in this state, a read included, reports <see cref="LatticeErrorEnum.Unavailable"/>,
+    /// and <see cref="ILatticeDatabase.CloseAsync"/> works. Close it and create a new instance to
     /// recover.
     /// </summary>
     /// <remarks>
-    /// No read returns a part of the write whose publication failed: a read sees that write
-    /// whole or not at all. A read that was in progress when the instance faulted ends as well,
-    /// with the state before that write or with <see cref="LatticeErrorEnum.Unavailable"/>; it
-    /// does not wait for a publication that will not finish. A MemoryOnly instance that faulted
-    /// has lost its data.
+    /// <para>
+    /// No read returns a mixture of two states of an entity, and none is left waiting. A read that
+    /// overlaps the publication that failed returns the state before the write, the whole state of
+    /// the write, or <see cref="LatticeErrorEnum.Unavailable"/>; a read that begins after the
+    /// instance is Faulted reports <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </para>
+    /// <para>
+    /// The writes in progress end as follows. A write that was published before the failure
+    /// returns its result. The write whose publication failed, and the writes the database had
+    /// taken for storage together with it and after it, fail with
+    /// <see cref="LatticeErrorEnum.IndeterminateOutcome"/>: storage took them, and the instance
+    /// cannot show them. The first of them carries the cause of the failure as its
+    /// <see cref="Exception.InnerException"/>. Writes that had not been handed to storage yet fail
+    /// with <see cref="LatticeErrorEnum.Unavailable"/>: they did not run, and they hold nothing.
+    /// </para>
+    /// <para>
+    /// A MemoryOnly instance that faulted has lost its data.
+    /// </para>
     /// </remarks>
     Faulted = 5,
 

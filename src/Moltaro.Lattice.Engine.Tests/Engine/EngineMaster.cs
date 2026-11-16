@@ -22,7 +22,7 @@ internal static class EngineMaster
 
     public static async Task<EngineDatabase> OpenAsync(LatticeSchema schema, ulong indexSeed)
     {
-        var database = EngineDatabase.Create(OptionsOf(schema), indexSeed);
+        var database = EngineDatabase.Create(OptionsOf(schema), new EngineTestInputs { IndexSeed = indexSeed });
 
         await database.OpenAsync();
         return database;
@@ -30,7 +30,7 @@ internal static class EngineMaster
 
     public static async Task<EngineDatabase> OpenAsync(LatticeSchema schema, ArenaOptions arena, NativeAllocator allocator)
     {
-        var database = EngineDatabase.Create(OptionsOf(schema), arena, allocator);
+        var database = EngineDatabase.Create(OptionsOf(schema), new EngineTestInputs { Arena = arena, Allocator = allocator });
 
         await database.OpenAsync();
         return database;

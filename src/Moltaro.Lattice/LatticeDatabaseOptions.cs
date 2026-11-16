@@ -109,13 +109,14 @@ public sealed class LatticeDatabaseOptions
     /// <summary>
     /// The memory budget of this instance, in bytes: the most memory the engine may hold for the
     /// database. <see langword="null"/>, the default: half of the memory the .NET runtime reports
-    /// as available to the process, taken when the instance opens.
+    /// as available to the process, taken when the instance opens, and never less than 4 MiB.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The default is half of <see cref="GCMemoryInfo.TotalAvailableMemoryBytes"/> of
-    /// <see cref="GC.GetGCMemoryInfo()"/>, read when the instance opens. On a machine without
-    /// limits that figure is its physical memory. In a container it is by default three quarters
+    /// <see cref="GC.GetGCMemoryInfo()"/>, read when the instance opens, and never less than
+    /// 4 MiB, the smallest value the option accepts; the default is never refused. On a machine
+    /// without limits that figure is its physical memory. In a container it is by default three quarters
     /// of the memory limit of the container. A heap hard limit configured for the garbage
     /// collector lowers it, although that setting limits the managed heap and says nothing about
     /// the memory the engine needs. The budget in force is fixed when the instance opens and does
@@ -125,8 +126,9 @@ public sealed class LatticeDatabaseOptions
     /// The default is per instance: each instance computes it from the memory of the whole
     /// process, so two instances that rely on it may together take all of that memory. Set the
     /// value explicitly when one process opens several instances, in production, and whenever
-    /// the heap of the garbage collector is limited. A value above the physical memory is allowed, for an
-    /// application that prefers its memory to be paged out rather than have writes refused.
+    /// the heap of the garbage collector is limited. A value above the physical memory is
+    /// allowed, for an application that prefers its memory to be paged out rather than have
+    /// writes refused.
     /// </para>
     /// <para>
     /// The budget counts what the engine holds, not the managed heap of the application, nor what
@@ -146,9 +148,8 @@ public sealed class LatticeDatabaseOptions
     /// the budget: any number of writes may wait, and none is refused for their number.
     /// </para>
     /// <para>
-    /// A value smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes memory, is
-    /// refused by <see cref="Validate"/>. The default is checked by the same rule when the
-    /// instance opens.
+    /// A value set smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes
+    /// memory, is refused by <see cref="Validate"/>.
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no default is
@@ -158,7 +159,8 @@ public sealed class LatticeDatabaseOptions
     public long? MemoryLimit { get; init; }
 
     // One segment of the arena of the engine, the unit in which it takes native memory, and so the
-    // smallest MemoryLimit: an arena holds at least one segment. The engine takes the default size
+    // smallest MemoryLimit: an arena holds at least one segment. Validate refuses an explicit value
+    // below it, and the computed default is never less than it. The engine takes the default size
     // of its segments from here (Storage.ArenaOptions.SegmentSize), so that Validate and the arena
     // agree on it.
     internal const int ArenaSegmentSize = 4 * 1024 * 1024;
@@ -169,7 +171,7 @@ public sealed class LatticeDatabaseOptions
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing, a
     /// timeout or a limit is out of its range, such as a limit that is set and not positive or a
-    /// <see cref="MemoryLimit"/> smaller than 4 MiB, or the values are incompatible.
+    /// <see cref="MemoryLimit"/> that is set and smaller than 4 MiB, or the values are incompatible.
     /// </exception>
     public void Validate()
     {

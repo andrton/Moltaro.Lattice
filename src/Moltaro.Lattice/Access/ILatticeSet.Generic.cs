@@ -33,6 +33,12 @@ namespace Moltaro.Lattice.Access;
 /// wait for other children. A failed write changes nothing.
 /// </para>
 /// <para>
+/// Writes to one entity are executed in the order their calls were made: a call that is made
+/// after an earlier call has returned its task is executed after it, whether or not the earlier
+/// task was awaited. Calls that race on different threads have no order between them. Writes to
+/// different entities have no order beyond their positions.
+/// </para>
+/// <para>
 /// A write that takes a <see cref="LatticeSession"/> is executed by the master after the
 /// position the session depends on, and moves the session forward to its own position.
 /// </para>

@@ -91,16 +91,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private readonly ReadEpochs _epochs;
 
-    // The options of the arena and the allocator of its native memory that a test of the engine gave
-    // (the second Create); both null for every other instance, whose arena gets the limit before S09
-    // and the native allocator itself.
-    private readonly ArenaOptions? _arenaOptions;
-
-    private readonly NativeAllocator? _allocator;
-
-    // The seed of the hashes of the primary indexes that a test of the engine gave (the third Create);
-    // null for every other instance, which draws its own when it opens (Load).
-    private readonly ulong? _indexSeed;
+    // What a test of the engine gave besides the options (the second Create); null for every other
+    // instance, which uses what each null member of EngineTestInputs stands for.
+    private readonly EngineTestInputs? _testInputs;
 
     // The sets of classes, made once for each class and shared.
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
@@ -126,12 +119,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
 
-    private EngineDatabase(LatticeDatabaseOptions options, ArenaOptions? arenaOptions, NativeAllocator? allocator, ulong? indexSeed)
+    private EngineDatabase(LatticeDatabaseOptions options, EngineTestInputs? testInputs)
     {
         _options = options;
-        _arenaOptions = arenaOptions;
-        _allocator = allocator;
-        _indexSeed = indexSeed;
+        _testInputs = testInputs;
         _barrier = new CloseBarrier(this);
         _epochs = new ReadEpochs(this);
     }
@@ -141,35 +132,25 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         Check(options);
 
-        return new EngineDatabase(options, arenaOptions: null, allocator: null, indexSeed: null);
+        return new EngineDatabase(options, testInputs: null);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
-    // first Create does, with the same refusals, whose arena takes these options and obtains and
-    // returns its native memory through this allocator, instead of the limit before S09 and the native
-    // allocator itself. So a test can bound the arena to a few segments and count every native byte
-    // the database obtained and returned (Storage.Allocation.NativeAllocator). Nothing else differs,
-    // and an instance made by the first Create pays nothing for it.
-    public static EngineDatabase Create(LatticeDatabaseOptions options, ArenaOptions arenaOptions, NativeAllocator allocator)
+    // first Create does, with the same refusals, that takes what the inputs give instead of what an
+    // instance makes for itself: the options of its arena, the allocator of its native memory, the
+    // seed of the hashes of its primary indexes and the storage step of its commit stage, each when it
+    // is set (EngineTestInputs). When the inputs give the options of the arena, MemoryLimit of the
+    // options of the database is not read. Nothing else differs, and an instance made by the first
+    // Create pays nothing for it.
+    //
+    // The storage step is a stub until the implementer of S09 builds the commit stage: nothing reads
+    // EngineTestInputs.CommitStorage yet.
+    public static EngineDatabase Create(LatticeDatabaseOptions options, EngineTestInputs inputs)
     {
         Check(options);
-        ArgumentNullException.ThrowIfNull(arenaOptions);
-        ArgumentNullException.ThrowIfNull(allocator);
+        ArgumentNullException.ThrowIfNull(inputs);
 
-        return new EngineDatabase(options, arenaOptions, allocator, indexSeed: null);
-    }
-
-    // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
-    // first Create does, with the same refusals, whose primary indexes compute every hash with this
-    // seed instead of one the instance draws when it opens (the planner's answer to Q50; brief of
-    // S08, part 2), so that a test can build keys that share one hash under one seed and show them
-    // spread under another, and find every key under two seeds it chose. Nothing else differs, and
-    // an instance made by the first Create pays nothing for it.
-    public static EngineDatabase Create(LatticeDatabaseOptions options, ulong indexSeed)
-    {
-        Check(options);
-
-        return new EngineDatabase(options, arenaOptions: null, allocator: null, indexSeed);
+        return new EngineDatabase(options, inputs);
     }
 
     // The refusals of Create, in the order of LatticeDatabase.Create.
@@ -318,9 +299,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write
-    // through the point throws; tests only. A failure at DuringPublication puts the instance into
-    // Faulted, in which every operation, reads included, is Unavailable and a close works (brief of
-    // Epic 1, sprint S09, "Faulted"). A point does nothing unless a test arms it.
+    // through the point throws InvalidOperationException with a message that names the point; tests
+    // only. Both points lie after the storage step, and a failure at either puts the instance into
+    // Faulted (EngineFaultPointEnum): a write of the group published before the fault gets its result;
+    // the write whose publication faulted and the writes of its group
+    // after it get IndeterminateOutcome, the first of them with the injected exception as its
+    // InnerException; writes not yet dispatched get Unavailable; every later operation, reads
+    // included, is Unavailable, and a close works (brief of Epic 1, sprint S09, "Faulted" and the
+    // answers of the planner to the contract author). A point does nothing unless a test arms it.
     //
     // Not implemented yet: the points come with the write coordinator, and the implementer of S09
     // replaces the body.
@@ -496,10 +482,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
         var schema = _options.Schema!;
 
         // The memory of the process, as .NET reports it: half of it for the arena (brief of S06,
-        // "The limit before S09"; the owner's answer to Q37).
-        var arena = _allocator is null
-            ? new Arena(new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 })
-            : new Arena(_arenaOptions!, _allocator);
+        // "The limit before S09"; the owner's answer to Q37), unless a test gave the options of the
+        // arena, which are then the options of the arena.
+        var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2 };
+        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator());
 
         try
         {
@@ -515,7 +501,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // that share a hash (the planner's answer to Q50). It is never stored, sent or shown: a
             // child and a reopened database draw their own, and the order of an enumeration, which
             // follows the hashes, may differ between two instances that hold the same data.
-            var seed = _indexSeed ?? DrawSeed();
+            var seed = _testInputs?.IndexSeed ?? DrawSeed();
             var writes = new Lock();
             var executor = new WriteExecutor(writes, arena, roots, retired, clock, _barrier, _options.SynchronizationTimeout);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
