@@ -92,7 +92,12 @@ core checks enum values, and a write batch takes one operation per entity as the
 compares keys. Text compared without case is compared by a case table of Lattice's own
 in the core, the simple uppercase mapping of Unicode 16.0.0 in version 1 of the table,
 and not by the runtime: keys, Map keys, Set members and the identity of a batch read it
-through one rule. The public entry keeps the refusals of the placeholder until S12.
+through one rule. From S08, part 1, a read of the engine is protected by an epoch and
+takes no lock; what a write replaces or removes is retired and freed once the reads that
+could reach it have left; the primary index is a hash table of the engine's own that is
+read while a write is published, and `Arc.Collections` is referenced by the engine and
+used by none of its code until the ordered indexes of S14 settle it. The public entry
+keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -266,6 +271,22 @@ documentation before this document is removed.
 | S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
 | S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
 | S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | Ordinal: p50 400 to 500 ns, p99 1,600 to 2,000 ns. Without case, by the case table, in the stored spelling and in upper case: p50 400 to 500 ns, p99 1,600 to 2,100 ns; with the comparison of .NET before the table, p50 400 to 500 ns, p99 1,600 to 1,900 ns | development-2 | 15 November 2026 |
+| S08, part 1 | Reads by key in total, by class, of 100,000 users, without a writer; windows of 2 s, three runs | 1 thread 2.0 to 2.3 M/s, 2: 4.4 to 5.0, 4: 8.4 to 9.3, 8: 14.2 to 14.7, 16: 16.2 to 17.6 (one disturbed run left out); on the protection of S06 1.9, 2.6, 2.4, 2.1, 2.1 | development-3 | 16 November 2026 |
+| S08, part 1 | Writes a second of one writing thread beside 20 readers of its own database, medians of five runs | replaces 408 k/s (S06: 757 k/s); inserts and deletes 640 k/s (S06: 19 k/s); inserts with growth 421 k/s (S06: 8 k/s); reads beside them 14.2 to 14.7 M/s in total (S06: 1.7 to 1.8) | development-3 | 16 November 2026 |
+| S08, part 1 | The same writes beside N readers of its own database, divided by those beside N readers of another database of the process; N of 1, 2, 4, 8, 16, 19; three runs | 0.72 to 1.42 in two runs; in the third, a disturbed one, one point at 0.68; the median of every point at least 0.74 | development-3 | 16 November 2026 |
+| S08, part 1 | Bytes of the primary index per entry at 100,000 and at 1,000,000 entities | 22.3 and 17.8, for an Int64 key, a composite Int64 key and a String key alike; the map of the package took 36.7 and 29.4 for Int64, 47.2 and 37.7 for String | development-3 | 16 November 2026 |
+| S08, part 1 | The insert that grows the primary index from 131,072 entries; an ordinary insert takes 0.2 to 0.5 µs | 1.3 to 1.9 ms, median 1.56 ms, in the implementer's runs; 2.3 to 8.0 ms on a loaded machine in the review | development-3 | 16 November 2026 |
+
+The figures of S08, part 1 come from the scenarios `read-by-key-threads` and
+`primary-index`. The machine has cores of two kinds and carried 15 to 25% of other load
+on that day, and the same series varied up to twofold between runs, so the figures say
+how the protections compare and no more. The replaces of a writing thread beside 20
+readers are lower than on the protection of S06 because the readers now run: beside
+as many readers of another database the same thread is as slow. The growth of the index
+takes longer than with the hash of S07, which spread consecutive integers evenly; the
+mixed hash spreads them as it spreads any keys. Per instance the protection costs 16 KiB
+for the table of epochs and about 0.8 KiB of padding, and 16 KiB per segment of 4 MiB
+for the marks of retired blocks; the 1,025 locks of S06, about 100 KiB, are gone.
 
 The figure of S07 comes from the scenario `read-by-text-key`; its keys are 13 ASCII
 characters, and no key outside ASCII was measured by it. One hash and one equality of
@@ -894,7 +915,7 @@ Why this order:
 | S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Done |
-| S08, part 1 | The protection of reads: reads by key scale with threads | Full | In progress |
+| S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
@@ -2966,7 +2987,9 @@ be studied: how they do it is to be learned from their source and, in essence, r
   segment, and whenever memory is short, a drain is asked for or the database closes.
   The thresholds are derived from the table and the segment and are not options. Test:
   after more retired items than the threshold with no read in progress, `RetiredBytes`
-  falls without a drain being called. The table has max(128, 2 × processors) slots; a
+  falls without a drain being called. The table has max(128, 2 × processors) slots,
+  rounded up to a power of two so that a processor number picks a slot without a
+  division (the coordinator, at the close: the code is the rule); a
   reader that finds no free slot waits for one, never fails and takes no part in any
   refusal. Test: more reading threads inside at once than slots, through the switch that
   holds reads inside. These two tests are written by the test author after the
