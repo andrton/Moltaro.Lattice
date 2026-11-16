@@ -20,6 +20,8 @@ The same engine runs embedded in an application or in a dedicated service.
 **Many callers, one authoritative master.** Application threads may submit writes
 concurrently. Independent preparation overlaps; short bounded groups commit and
 publish in order. Children forward writes and apply the master's confirmed changes.
+Lattice has no second master and no node that accepts a write by itself: a child that
+cannot reach the master cannot write, and goes on reading its own memory.
 
 **Local reads.** A ready child reads its own arena. PostgreSQL belongs to the Durable
 master; children never connect to it. An embedded MemoryOnly master also works without
@@ -90,12 +92,13 @@ returned to application code. A separate short, synchronous protected read offer
 read-only arena view; it cannot escape, await, perform I/O or make nested database calls.
 Keeping it short is the caller's obligation: while it is held, publication can be delayed.
 
-One logical gate protects a root and all its owned blocks. A read is coherent for that
+A read is protected by an epoch and takes no lock: what a write replaces or removes is
+freed only after every read that could reach it has left. A read is coherent for one
 entity. Several reads, an enumeration or a graph walk do not create a shared snapshot.
 
 | Access path | Selected mechanism |
 | --- | --- |
-| Primary key | Arc.Collections UnorderedMapSlim → stable root control entry |
+| Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
 | Declared secondary index | Arc.Collections OrderedMultiMap; single or composite keys |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 

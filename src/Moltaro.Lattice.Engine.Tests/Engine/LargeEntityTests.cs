@@ -5,7 +5,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // By decision O19 an entity has no size limit of its own, and an entity of tens of mebibytes is an
 // ordinary case (brief of Epic 1, sprint S06, Acceptance): an entity with a String value of 32 MiB
 // and a Binary value of 32 MiB is inserted, read back equal through its class and by name, replaced
-// by a small one and deleted, and after that the counters of the arena are what they were before it.
+// by a small one and deleted, and after that and a drain the counters of the arena are what they were
+// before it (brief of S08, "Counters and the drain, part 1": the replaced and the deleted root are
+// retired until a drain with no read in progress frees them).
 // Until S09 gives the option, the arena of the engine gets half of the memory the runtime reports
 // ("The limit before S09"), which holds the entity on every machine the tests run on.
 //
@@ -53,6 +55,7 @@ public sealed class LargeEntityTests
         await pieces.DeleteAsync(2L);
 
         Assert.Null(pieces.Get(2L));
+        database.DrainRetired();
         Assert.Equal(before, Held(database.Counters.Arena));
     }
 

@@ -2,16 +2,17 @@ using Moltaro.Lattice.Access;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
-// By the planner's answer to Q30 (brief of Epic 1, sprint S06, Acceptance): when every write has
-// returned and no read is in progress, PreparedBytes and RetiredBytes of the arena are 0, and the
-// counters of the arena equal an independent tally of what the entities hold. A block is counted in
-// exactly one place: prepared from its allocation until its write is published, then live, then
-// retired while what still refers to it is kept, until it is freed. The tally is PieceTally, from the
-// rules of S05.
+// By the planner's answer to Q30 (brief of Epic 1, sprint S06, Acceptance), as the owner's decision
+// on deferred reclamation of 16 November 2026 restates it (brief of S08, "Counters and the drain,
+// part 1"): when every write has returned and no read is in progress, after a drain, PreparedBytes
+// and RetiredBytes of the arena are 0, and the counters of the arena equal an independent tally of
+// what the entities hold. A block is counted in exactly one place: prepared from its allocation until
+// its write is published, then live, then retired while a read may still reach it, until it is
+// freed. The tally is PieceTally, from the rules of S05; it drains before it counts.
 public sealed class ArenaCounterTests
 {
     [Fact]
-    public async Task Arena_holds_what_the_entities_hold_after_every_write()
+    public async Task Arena_holds_what_the_entities_hold_after_every_write_and_a_drain()
     {
         await using var database = await PieceSchema.OpenAsync();
         var pieces = database.Set<PieceSchema.Piece>();
@@ -65,7 +66,7 @@ public sealed class ArenaCounterTests
     }
 
     [Fact]
-    public async Task Nothing_is_prepared_or_retired_once_replaces_raced_by_reads_have_returned()
+    public async Task Nothing_is_prepared_or_retired_once_replaces_raced_by_reads_have_returned_and_a_drain()
     {
         await using var database = await PieceSchema.OpenAsync();
         var pieces = database.Set<PieceSchema.Piece>();

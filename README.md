@@ -28,6 +28,25 @@ The [engine design reference](docs/design/README.md),
 For milestone planning, start with the [planning handoff](docs/design/planning-handoff.md).
 Design acceptance and prototype results do not mean the production engine exists.
 
+## What it is, and what it is not
+
+Lattice is one database with one master. The master executes every write. A child is a
+full copy of the database in the memory of another process, kept current by the master;
+it answers reads from its own memory, without a call over the network. This is the
+design; what of it runs today is under [Status](#status).
+
+An application uses a master and a child through the same interface. A write called on
+a child is sent to the master, executed there, and its result is returned to the caller.
+The calling code is the same on both and does not need to know which it runs on.
+
+Lattice is not a distributed database that accepts a write on any node. There is no
+second master, and a child never executes a write by itself: when a child cannot reach
+the master, its writes fail with `Unavailable` — or with `IndeterminateOutcome` when the
+reply of a write already sent is lost — while reads from its own memory that wait for no
+position go on. A fair picture is a database with a master and, in every other process,
+a read replica that works like a cache which never misses and which the application
+never has to invalidate.
+
 ## Schema
 
 A JSON descriptor declares the entity types, their fields, primary keys and indexes, and

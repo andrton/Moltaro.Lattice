@@ -20,9 +20,8 @@ namespace Moltaro.Lattice.Storage;
 // published yet (TryAllocatePrepared), whole, until Publish or Free.
 //
 // RetiredBytes: the capacity of the slots of retired blocks, detached from their owner but not
-// reusable yet, because a reader or another retainer may still reach them. 0 in S06, which retires
-// no block: the blocks of a replaced or deleted root are freed under the root's exclusive
-// protection, which no reader of the root holds at the same time.
+// reusable yet, because a reader or another retainer may still reach them. They are freed once the
+// reads that could reach them have left (arena protocol, "Deferred reclamation, 16 November 2026").
 //
 // FreeRegions: the regions of the segments in use that serve no size class at the moment, such as
 // a region returned to its segment when its last block was freed. The regions of reserved

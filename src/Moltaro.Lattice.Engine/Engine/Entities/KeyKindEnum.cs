@@ -1,19 +1,17 @@
 namespace Moltaro.Lattice.Engine.Entities;
 
-// Which primary index an entity type has, by the type of its key (Q03.4.1: the eight integers,
-// String and Guid).
+// How a key of an entity type is compared and hashed, by the type of its key (Q03.4.1: the eight
+// integers, String and Guid). The primary index holds no key of any kind, only its hash and the slot
+// of its root entry (Indexes.IndexTable); a lookup compares the key with the key the root stores
+// (EntityTable).
 internal enum KeyKindEnum
 {
-    // A key of any of the eight integer types, held in the index as the 64 bits of a long,
-    // EntityKey.Integer. A narrower key would not take less: the handle beside it is aligned to 8
-    // bytes, so a slot of the index takes 28 bytes with a key of 32 bits as with one of 64
-    // (PrimaryIndex).
+    // A key of any of the eight integer types, as the 64 bits of a long, EntityKey.Integer.
     Integer,
 
-    // A Guid key, held in the index as the Guid.
+    // A Guid key.
     Guid,
 
-    // A String key, compared with either comparison: the index holds the slot of the root entry and
-    // compares with the text stored in the root (TextKey).
+    // A String key, compared with the comparison its field declares, Ordinal or OrdinalIgnoreCase.
     Text,
 }

@@ -160,6 +160,8 @@ After durable PostgreSQL commit, assign prepared fixed-size values in place and
 install the necessary prepared replacement blocks under exclusive root protection
 and the coherent index-publication protocol. Preserve untouched owned payloads;
 do not clone the complete owned tree for every partial update.
+**Amended on 16 November 2026 (owner):** fixed-size values are not published in place;
+the update publishes a new root block, see [memory and access](memory-and-access.md).
 
 Full Save/Replace prepares a complete replacement from the supplied final object,
 without automatic diff or change tracking. It may temporarily retain both old and

@@ -14,9 +14,9 @@ internal enum RootStateEnum : uint
     // root yet. Every new entry starts here.
     Prepared = 2,
 
-    // The deletion of the root is published: a lookup that still holds a claim on the entry sees
-    // absence. Its owner releases the slot only after the last claim has drained (arena protocol,
-    // "Lock and lifetime order").
+    // The deletion of the root is published: a read that reached the entry before sees absence. Its
+    // owner releases the slot only after the reads that could reach it have left (arena protocol,
+    // "Deferred reclamation, 16 November 2026").
     Deleted = 3,
 
     // The slot was released at generation uint.MaxValue. It is never given out again.

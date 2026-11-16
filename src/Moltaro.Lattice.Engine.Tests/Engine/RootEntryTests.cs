@@ -3,13 +3,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // RootEntries is the count of the table of root entries, the slots that hold the lifetime of a root
 // (EngineCounters). An insert takes an entry for its entity, and a replace keeps it: the entry stays
 // where it is while the root it names changes (RootEntry.Root). After the deletes have returned and
-// no read is in progress, the table holds no entry of a deleted entity (brief of Epic 1, sprint S06,
-// the planner's answer to Q32): the entry of a deleted root is released when no claim is held on
-// it, at once when there is none, otherwise by the reader that drops the last one.
+// a drain with no read in progress, the table holds no entry of a deleted entity (brief of Epic 1,
+// sprint S06, the planner's answer to Q32, as amended on 16 November 2026): the entry of a deleted
+// root is retired and released once the reads that could see it have left, which a drain with no
+// read in progress makes sure of (EngineDatabase.DrainRetired).
 public sealed class RootEntryTests
 {
     [Fact]
-    public async Task Table_of_root_entries_holds_one_entry_for_every_entity_and_none_of_a_deleted_one()
+    public async Task Table_of_root_entries_holds_one_entry_for_every_entity_and_none_of_a_deleted_one_after_a_drain()
     {
         await using var database = await PieceSchema.OpenAsync();
         var pieces = database.Set<PieceSchema.Piece>();
@@ -34,13 +35,15 @@ public sealed class RootEntryTests
 
         Assert.Equal(10, database.Counters.RootEntries);
 
-        // Deletes release theirs, a delete of an absent key releases nothing.
+        // Deletes release theirs once a drain finds no read in progress, a delete of an absent key
+        // releases nothing.
         await pieces.DeleteAsync(1L);
         await pieces.DeleteAsync(2L);
         await records.DeleteAsync(3L);
         Assert.True(records.TryGet(4L, out _, out var revision));
         await records.DeleteAsync(4L, revision);
         await pieces.DeleteAsync(1L);
+        database.DrainRetired();
 
         Assert.Equal(6, database.Counters.RootEntries);
 
@@ -52,7 +55,7 @@ public sealed class RootEntryTests
     }
 
     [Fact]
-    public async Task No_entry_of_a_deleted_entity_is_left_once_deletes_raced_by_reads_have_returned()
+    public async Task No_entry_of_a_deleted_entity_is_left_once_deletes_raced_by_reads_have_returned_and_a_drain()
     {
         await using var database = await PieceSchema.OpenAsync();
         var pieces = database.Set<PieceSchema.Piece>();
@@ -92,6 +95,9 @@ public sealed class RootEntryTests
                     }
                 }
             });
+
+        // The readers have ended.
+        database.DrainRetired();
 
         Assert.Equal(Keys / 2, database.Counters.RootEntries);
 

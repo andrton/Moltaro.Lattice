@@ -40,11 +40,17 @@ internal sealed unsafe class ArenaSegment
     // free slot, because a block clears it when it is published or freed.
     private readonly ulong[] _preparedBits;
 
+    // One bit per slot, in the same order: set while the block in the slot is retired, detached from
+    // its owner but still readable by the reads that could reach it (Arena.Retire). It is clear for
+    // every free slot, because a block clears it when it is freed.
+    private readonly ulong[] _retiredBits;
+
     public ArenaSegment(int size, NativeAllocator allocator)
     {
         Regions = new ArenaRegion[size / RegionSize];
         _slotBits = new ulong[Regions.Length * SlotWordsPerRegion];
         _preparedBits = new ulong[_slotBits.Length];
+        _retiredBits = new ulong[_slotBits.Length];
 
         // The native memory comes last. If the metadata cannot be allocated, nothing native is held
         // yet; if the native allocation fails, the metadata is left to the collector.
@@ -111,6 +117,19 @@ internal sealed unsafe class ArenaSegment
         var bit = 1UL << (slot % 64);
 
         word = prepared ? word | bit : word & ~bit;
+    }
+
+    // Whether the block in the slot of the region is retired.
+    public bool IsRetired(int region, int slot) =>
+        (_retiredBits[region * SlotWordsPerRegion + slot / 64] & (1UL << (slot % 64))) != 0;
+
+    // Marks the block in the slot of the region as retired, or as no longer retired.
+    public void SetRetired(int region, int slot, bool retired)
+    {
+        ref var word = ref _retiredBits[region * SlotWordsPerRegion + slot / 64];
+        var bit = 1UL << (slot % 64);
+
+        word = retired ? word | bit : word & ~bit;
     }
 
     // Returns the native memory to the allocator it came from. Every address into it is then refused

@@ -1191,6 +1191,8 @@ an application copy remains separate from the engine's physical publication work
 The subsequent [Q16 decision](physical-storage.md#targeted-mutation-preparation-and-publication)
 accepts targeted preparation for explicit partial updates: publish fixed-size values
 in place and install necessary prepared blocks after commit under root protection.
+**Amended on 16 November 2026 (owner):** fixed-size values are not published in place;
+the update publishes a new root block, see [memory and access](memory-and-access.md).
 Full Save prepares a complete replacement without diff. Concrete scheduling, resource
 reservation and failure transitions remain engineering work.
 

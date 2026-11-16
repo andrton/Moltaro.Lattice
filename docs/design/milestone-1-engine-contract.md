@@ -41,7 +41,7 @@ with recovery within 60 seconds at ordinary load. These remain unproven product 
 | --- | --- |
 | Schema/catalog | Compile JSON/builder input into immutable field/layout/index metadata; no transport or persistence dependency |
 | Arena | Native segments, owned blocks, string storage, root entries and lifetime protection; depends on compiled schema |
-| Index owner | Arc primary/secondary adapters, comparison, capacity/node reservations, candidate claims; depends on arena key views |
+| Index owner | The primary hash table of the engine's own and the Arc secondary adapters, comparison, capacity/node reservations; depends on arena key views |
 | Mutation coordinator | Admission, per-root ordering, preparation, ordered commit/publication and results; owns reservations, never application callbacks inside publication |
 | PostgreSQL provider | Catalog, independent base units, logical journal, receipts and recovery; consumes versioned encoded effects, not native pointers |
 | Replication session | Binary framing, initial capture and ordered application; consumes the same prepared-effect application path; no SQL dependency on children |
@@ -101,7 +101,7 @@ partial changes; full Save prepares a complete replacement without automatic dif
 
 Use segmented managed arrays of 4,096 root entries. Initial logical entry fields:
 root address (8), last mutation position (8), key-descriptor address (8), stored-root
-ID (8), generation (4), type ID (4), state (4), claim count (4): 48 bytes before CLR alignment checks.
+ID (8), generation (4), type ID (4), state (4), reserved (4): 48 bytes before CLR alignment checks.
 Assert actual layout in implementation tests; do not silently rely on an estimated
 struct size. Root handle = generation UInt32 plus slot UInt32. Increment generation
 on reuse; permanently retire a slot on generation exhaustion. Entry-array growth
@@ -142,19 +142,23 @@ does not change logical revisions or write a durable relocation record.
 ## Reader protection, publication and compaction
 
 Use the proven [arena protocol](arena-protocol.md), extended with the database
-publication barrier. Initial synchronization is ReaderWriterLockSlim: one database
-barrier, 1,024 root stripes, a catalog/index gate, dictionary gate and allocator gate.
-Root stripes bound lock-object memory; collisions can contend. One logical root
+publication barrier. Reads are protected by epochs and retired memory is freed later, as
+the [arena protocol](arena-protocol.md#deferred-reclamation-16-november-2026) says (the
+owner's decision of 16 November 2026): a read by key writes to no memory another reader
+writes to on its ordinary path, a write being published does not wait for readers, and a lookup
+runs while the writer changes the index. The writer side keeps its order of
+acquisition; which gates remain beside the epoch — the allocator, the dictionary — is
+stated by the sprint that builds each. One logical root
 protection still covers all its owned blocks. No separate heap lock per object.
 
-Acquisition order for nested work is database barrier -> distinct root stripes in
-ascending order -> catalog/index -> dictionary -> allocator. Candidate lookup briefly
-claims an entry under catalog/index protection, releases it, then acquires root
-protection and rechecks generation/liveness. Never wait for a root while holding
-the catalog gate. Drop claims after releasing the root gate. Deleted entries become
-reusable only after claims drain; an old claim never follows a recreated key.
+Since 16 November 2026 a read takes no gate: it enters the epoch, looks up, copies and
+leaves. A write is published under the barrier of the database and the lock of the
+writes, and takes nothing after them; the dictionary and the allocator state their
+place in the order when they are built. There are no root stripes, no catalog gate and
+no claims. A deleted entry becomes reusable only after the reads that could see it have
+left, and a read never follows an old entry to a recreated key.
 
-Ordinary reads hold shared database/root protection only while evaluating/copying
+Ordinary reads are inside the epoch only while evaluating/copying
 one root. Borrowed reads are synchronous, read-only scoped callbacks/ref-struct views;
 no await, retained native pointer or writable alias is supported. Generated and
 dynamic views use the same lifetime. The engine cannot safely preempt arbitrary
@@ -170,9 +174,14 @@ cannot itself be a ref struct; expose borrowed bytes only as read-only scoped sp
 not escapable Memory owners. Compiler/lifetime misuse tests and callback-exception
 cleanup are mandatory. Unsafe caller code is outside the managed borrowing contract.
 
-Ordinary publication takes shared database protection and exclusive affected root
-protection; explicit WriteBatch takes exclusive database protection and its root
-stripes. All read, index, scan and compaction entry points participate. Publication
+Publication is one at a time under the lock of the writes and excludes no read. An
+explicit WriteBatch is published so that no operation observes it half published: a read
+by key reads one entity, the position of the batch is published after the last of its
+roots, and an operation that reads several entities in one step validates against the
+publication of batches. The mechanism is stated by the sprint that builds the batch
+(S17); a child never exposes a prefix of a batch nor advances its applied position past
+a part of one.
+All read, index, scan and compaction entry points participate. Publication
 only installs reserved values/nodes/descriptors and advances the applied position;
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
 the instance Faulted before reopening access. No partially published state is served.
@@ -193,8 +202,12 @@ unbounded rescue wait. Native free and the OS working-set decrease are different
 
 ## Index preparation and traversal
 
-Use Arc.Collections 2.2.0 UnorderedMapSlim for primary lookup, with schema-bound
-unboxed key adapters; Arc OrderedMultiMap for secondary keys. Standard Dictionary
+The primary lookup is a hash table of the engine's own after the hash index of
+Garnet/Tsavorite, read without locks while a write being published changes it (the owner's
+decision of 16 November 2026, [index structures](../decisions/index-structures.md)). Arc
+OrderedMultiMap remains the selection for secondary keys until the contract of S14
+reviews it under the same direction: an own structure after a named open-source one
+where that is possible. Standard Dictionary
 is not the primary index. Both packages remain behind engine-owned protection.
 Physical indexes are rebuilt locally; no disk or replica images are persisted.
 [Unique enforcement](../decisions/unique-indexes.md) is explicit in schema and checked

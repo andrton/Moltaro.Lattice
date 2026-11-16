@@ -92,7 +92,12 @@ core checks enum values, and a write batch takes one operation per entity as the
 compares keys. Text compared without case is compared by a case table of Lattice's own
 in the core, the simple uppercase mapping of Unicode 16.0.0 in version 1 of the table,
 and not by the runtime: keys, Map keys, Set members and the identity of a batch read it
-through one rule. The public entry keeps the refusals of the placeholder until S12.
+through one rule. From S08, part 1, a read of the engine is protected by an epoch and
+takes no lock; what a write replaces or removes is retired and freed once the reads that
+could reach it have left; the primary index is a hash table of the engine's own that is
+read while a write is published, and `Arc.Collections` is referenced by the engine and
+used by none of its code until the ordered indexes of S14 settle it. The public entry
+keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -266,6 +271,22 @@ documentation before this document is removed.
 | S06 | Read by key of one of 100,000 users of the scalar form, by class, one thread; 1,000,000 reads after 100,000 of warm-up, three runs | p50 400 to 600 ns, p99 2,000 to 3,300 ns alone; p50 600 to 1,100 ns, p99 1,300 to 5,400 ns with one writer replacing entities | development-2 | 15 November 2026 |
 | S06 | The same read by name | p50 1,000 to 1,200 ns, p99 2,600 to 4,100 ns alone; p50 1,400 to 1,500 ns, p99 3,500 to 4,900 ns with one writer | development-2 | 15 November 2026 |
 | S07 | Read by a String key of one of 10,000 settings of the scalar form, by name, one thread; 1,000,000 reads, three runs | Ordinal: p50 400 to 500 ns, p99 1,600 to 2,000 ns. Without case, by the case table, in the stored spelling and in upper case: p50 400 to 500 ns, p99 1,600 to 2,100 ns; with the comparison of .NET before the table, p50 400 to 500 ns, p99 1,600 to 1,900 ns | development-2 | 15 November 2026 |
+| S08, part 1 | Reads by key in total, by class, of 100,000 users, without a writer; windows of 2 s, three runs | 1 thread 2.0 to 2.3 M/s, 2: 4.4 to 5.0, 4: 8.4 to 9.3, 8: 14.2 to 14.7, 16: 16.2 to 17.6 (one disturbed run left out); on the protection of S06 1.9, 2.6, 2.4, 2.1, 2.1 | development-3 | 16 November 2026 |
+| S08, part 1 | Writes a second of one writing thread beside 20 readers of its own database, medians of five runs | replaces 408 k/s (S06: 757 k/s); inserts and deletes 640 k/s (S06: 19 k/s); inserts with growth 421 k/s (S06: 8 k/s); reads beside them 14.2 to 14.7 M/s in total (S06: 1.7 to 1.8) | development-3 | 16 November 2026 |
+| S08, part 1 | The same writes beside N readers of its own database, divided by those beside N readers of another database of the process; N of 1, 2, 4, 8, 16, 19; three runs | 0.72 to 1.42 in two runs; in the third, a disturbed one, one point at 0.68; the median of every point at least 0.74 | development-3 | 16 November 2026 |
+| S08, part 1 | Bytes of the primary index per entry at 100,000 and at 1,000,000 entities | 22.3 and 17.8, for an Int64 key, a composite Int64 key and a String key alike; the map of the package took 36.7 and 29.4 for Int64, 47.2 and 37.7 for String | development-3 | 16 November 2026 |
+| S08, part 1 | The insert that grows the primary index from 131,072 entries; an ordinary insert takes 0.2 to 0.5 µs | 1.3 to 1.9 ms, median 1.56 ms, in the implementer's runs; 2.3 to 8.0 ms on a loaded machine in the review | development-3 | 16 November 2026 |
+
+The figures of S08, part 1 come from the scenarios `read-by-key-threads` and
+`primary-index`. The machine has cores of two kinds and carried 15 to 25% of other load
+on that day, and the same series varied up to twofold between runs, so the figures say
+how the protections compare and no more. The replaces of a writing thread beside 20
+readers are lower than on the protection of S06 because the readers now run: beside
+as many readers of another database the same thread is as slow. The growth of the index
+takes longer than with the hash of S07, which spread consecutive integers evenly; the
+mixed hash spreads them as it spreads any keys. Per instance the protection costs 16 KiB
+for the table of epochs and about 0.8 KiB of padding, and 16 KiB per segment of 4 MiB
+for the marks of retired blocks; the 1,025 locks of S06, about 100 KiB, are gone.
 
 The figure of S07 comes from the scenario `read-by-text-key`; its keys are 13 ASCII
 characters, and no key outside ASCII was measured by it. One hash and one equality of
@@ -894,7 +915,8 @@ Why this order:
 | S05 | Root layout and values | Full | Done |
 | S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Done |
-| S08 | Enumeration under change and the growth of the index | Full | Not started |
+| S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
+| S08, part 2 | Enumeration under change and the growth of the index | Full | Not started |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
@@ -2910,42 +2932,125 @@ be studied: how they do it is to be learned from their source and, in essence, r
 - **To read, added.** The review of S06 on the scaling of reads (Q42), and "Reader
   protection, publication and compaction" of the milestone contract, which calls
   `ReaderWriterLockSlim` the initial synchronization.
-- **Types and members, added.** The protection of a read is reworked in this sprint. Today
-  a read by key makes four writes to memory that all readers share — the counter of the
-  close barrier, the catalog gate twice (for the lookup and when the claim is dropped), the
-  stripe of its root —
-  which is why more threads read less in total. What the sprint
-  has to reach: a read by key writes to no memory that other readers write to on its
-  ordinary path, or as near to that as the guarantees allow, and takes the gate of the
-  index once. The implementer first studies how open-source databases that read fast from
-  memory on many threads protect a read — their source, not a summary of it — and writes
-  down in the pull request which of them it looked at, what each does for this problem,
-  and which it follows. The aim is to repeat a solution that is proven there, not to
-  invent one. Among the candidates are reader counts kept apart per thread or per
-  processor, optimistic reads checked by a version, and protection of memory by epochs;
-  how many protections there are and how fine they are is decided by what those systems
-  do and by the figures the implementer measures, not by a preference stated here. The
-  guarantees do not move: a read is coherent, a deleted entry is reused only after the
-  readers that could see it are gone, a close waits for the reads in progress, no
-  application code runs inside a protection, and the storms of the reviews of S06 pass unchanged. When the choice
-  replaces what the milestone contract names as the initial synchronization, the
-  coordinator corrects that section with the sprint and reports it to the owner.
-- **Acceptance, added**, as the owner set it on 15 November 2026 through the planner's
-  session. The total of reads by key grows with the number of reading threads up to the
-  number of processors, with and without a writer; the growth need not be linear. A step
-  at which more threads read less in total, beyond the noise of the measurement, stops
-  the sprint for the owner. The mechanism is one used by an established open-source
-  database or runtime, named in the report; nothing is invented here. The figure for 1,
-  2, 4, 8 and 16 threads is measured on the machine of the review and reported to the
-  owner at the close in any case; when the three conditions hold — every test of the
-  sprint passes, the total grows, the mechanism is a proven one — it does not gate the
-  merge. The model-checked storms and the close cycles of S06 pass on the new protection.
-  The scaling is a figure of a measurement and not a test of the default lane.
-- **Measured.** The line on reads by key becomes: reads by key per second on 1, 2, 4, 8
-  and 16 threads, without a writer and with one, before and after the change.
-- If the coordinator judges that this makes the sprint too large for one implementer and
-  one review, it splits it and tells the planner: the protection of reads first, the
-  enumeration and the growth of the index after it.
+- **Types and members, part 1** (the owner's decision of 16 November 2026, after the
+  first implementation was stopped: its reads scaled, and its writer fell from 1.10 M to
+  0.087 M replaces a second beside 20 readers, while reads beside a writer of inserts
+  fell tenfold). One mechanism: protection of reads by epochs with deferred reclamation,
+  repeated from `LightEpoch` of Garnet/Tsavorite — its source is read, and what is taken
+  from it and what differs is written in the pull request. A read by key enters the
+  epoch, looks up, copies and leaves; it takes no lock and writes to no memory another
+  reader writes to. The publishing thread publishes a new root, a changed index entry or a
+  replacement table and retires the old one; it does not wait for readers. A lookup in
+  the primary index runs while the writer inserts, deletes or grows the index: growth
+  builds the replacement while readers use the old table and retires the old table by
+  the same epoch. How the index lets a reader look up during a change is taken from an
+  established source too and named; nothing is invented. Internal members:
+  `EngineCounters.RetiredIndexBytes`, `EngineCounters.ReplacementIndexBytes`,
+  `EngineDatabase.DrainRetired()`. No public member changes. The rule is in the
+  [arena protocol](../design/arena-protocol.md#deferred-reclamation-16-november-2026).
+  The primary index is the engine's own hash table after the hash index of
+  Garnet/Tsavorite (the owner's decision on Q48); `Arc.Collections` is not used for it,
+  and the package reference, the pin test of Q3 and the sentence of `AGENTS.md` stay
+  until the ordered indexes of S14 settle whether the package leaves the engine.
+  Reported: bytes per entry of the index before and after, for an Int64 key and a String
+  key, at 100,000 and 1,000,000 entities. `PrimaryIndexBytes` keeps its meaning. Carried
+  under O16: `THIRD-PARTY-NOTICES.md` is packed into the package of the core library
+  beside `README.md` (the owner's answer to Q47).
+- **Sources and licences, part 1** (the planner, 16 November 2026; the rule is in the
+  [development process](process.md#code-modelled-on-another-project)). Garnet/Tsavorite
+  is MIT and is the source of the epochs and of the hash index. The Linux kernel (RCU,
+  percpu-rwsem, seqcount) and liburcu are GPL or LGPL: their code is not opened and
+  nothing is ported from it. The first implementation, which named those among its
+  sources, is reverted; the new one is written from Tsavorite's source and takes no
+  code from the reverted commit. After review round 1 the sequence of a root entry and the
+  version of the primary index, which had kept the shape of the reverted commit, were
+  matched to a named source by an agent that had not seen that commit: the `SeqLock` of
+  crossbeam (MIT), at a pinned commit named in `EntityTable.cs`; its notice is in
+  `THIRD-PARTY-NOTICES.md`. The 64-bit mixing of integer and Guid keys is the finalizer
+  of MurmurHash3, which is in the public domain.
+- **Tests the sprint breaks, part 1.** `TextKeyTests` addresses the type `TextKey`, which
+  goes with the index of the package, and `RootTableTests` and `LayoutTests` name
+  `RootEntry.ClaimCount`, which is no claim count any more while the entry keeps its 48
+  bytes. The implementer makes the smallest change that lets them compile against the new
+  types, changes no assertion of behavior, and lists each such edit in its report; the
+  test author checks the list afterwards. The assertion on which slot a new entity gets
+  (`HeldReadTests`) relies on the allocation order of the root table of S05; if that
+  order changes, it is reported and restated by the test author. On a refusal of the
+  arena a write drains and retries, and waits for the reads that still hold retired
+  memory before it is refused. The wait has no option and no timeout: it is finite
+  because it waits only for steps of reads, which run engine code alone, wait for nothing
+  and run no code of the application; it honors the cancellation of the write's token
+  while the write has not passed its commit point.
+- **Added by the planner on 16 November 2026, after the implementer's study.** The epoch
+  is not bumped by every write: the writer bumps and looks at the readers when the items
+  retired since its last look reach the number of slots or their bytes reach one
+  segment, and whenever memory is short, a drain is asked for or the database closes.
+  The thresholds are derived from the table and the segment and are not options. Test:
+  after more retired items than the threshold with no read in progress, `RetiredBytes`
+  falls without a drain being called. The table has max(128, 2 × processors) slots,
+  rounded up to a power of two so that a processor number picks a slot without a
+  division (the coordinator, at the close: the code is the rule); a
+  reader that finds no free slot waits for one, never fails and takes no part in any
+  refusal. Test: more reading threads inside at once than slots, through the switch that
+  holds reads inside. These two tests are written by the test author after the
+  implementation commit, because the working tree was the implementer's when they were
+  asked for, and before the review.
+- **Counters and the drain, part 1.** No new counter for arena memory:
+  `ArenaCounters.RetiredBytes` is the one, and it stops being 0. `RetiredIndexBytes` is
+  the replaced tables of the primary index not freed yet. `RootEntries` goes on counting
+  the entry of a deleted root until it is released. `DrainRetired()` frees every retired
+  thing no read in progress can reach and returns; with no read in progress it leaves
+  nothing retired. It is what a write under memory pressure calls, what a close calls
+  after it has waited for the reads, and what a test calls before it counts. It does not
+  wait and takes no timeout: a test that must count while reads run ends its reads
+  first, and no test sleeps or polls for the counters. The tests that counted at once
+  are restated by the test author as "after the writes returned and a drain"; that is a
+  change of what they assert which the decision forces, entered here as such. The
+  comments of `EngineCounters` and of `ArenaCounters.RetiredBytes` say the same.
+- **Acceptance, part 1.** On the scenario `read-by-key-threads`, 1, 2, 4, 8, 16 threads
+  and the number of processors, three runs each: (1) the total of reads by key grows
+  with the reading threads up to the number of processors, without a writer and beside a
+  writer of each kind — replaces, inserts and deletes without growth, inserts with
+  growth; it need not be linear; (2), as restated by the planner on 16 November 2026
+  after the first figures showed that the sentence which stood here measured the machine:
+  nothing waits — the thread that publishes does not wait for readers on its ordinary
+  path, and a reader does not wait for it. Beside N readers of its own database, the
+  writes a second of a writing thread — replaces, inserts and deletes, inserts with
+  growth — are not lower by more than 30% than those of the same thread beside N
+  readers of another database in the same process, for N of 1, 4, 8, 16 and the number
+  of processors; and they are not lower than on the protection of S06 for inserts and
+  deletes and for growth. The control is part of the scenario. Each point says how many
+  threads ran against how many logical processors; a point at which the threads exceed
+  the processors is reported and is not the one the 30% is judged at. (3) reads
+  beside a writer of any kind are not lower than on the protection of S06 at the same
+  thread count. A step that breaks (1), (2) or (3) stops the sprint for the owner.
+  Tests: the storms and the close cycles of S06 pass; after the writes have returned and
+  a drain with no read in progress, nothing is retired and the counters equal the tally;
+  a read that began before a replace, a delete or a growth returns one written state; a
+  deleted entry is not reused while a read that could see it is in progress, shown
+  through the internal switch that holds a read inside the protection; a close under
+  reads frees everything retired. The primary index grows by building a replacement
+  table while readers use the old one, and both tables are counted until the old one is
+  released. The figures are reported to the owner at the close in any case and do not
+  gate the merge when the conditions hold.
+- **Measured, part 1.** The scenario above, before and after; how long index mutations
+  wait while the index grows from 100,000 entries.
+- **Split by the coordinator on 15 November 2026**, as the sentence that stood here
+  allowed: the sprint is done as two, each with its own branch, test author, implementer,
+  review and pull request. Part 1, `epic-1/sprint-08-read-protection`: the protection of
+  reads and its measurement; no public member changes. The storms of the reviews of S06
+  were probes of the reviewer and are in no test project, so the test author of part 1
+  first writes them as tests of the engine, sized as the process asks: readers, writers
+  and deletes on few keys with reuse of root entries, and close cycles under reads; they
+  pass on the protection of S06 before the implementer changes it, and are not skipped.
+  The scenario of the measurement on 1, 2, 4, 8 and 16 threads is written by the
+  implementer. As amended on 16 November 2026 — part 1: the protection of reads, the
+  index that is read while it changes, growth of the primary index included, deferred
+  reclamation and their measurement. Part 2, `epic-1/sprint-08-enumeration`, cut from
+  `main` after part 1 is merged: enumeration under change and the read limits, on the
+  new protection. The first implementation of part 1, per-processor reader slots with a
+  writer that waited for the reads, was stopped and reverted on the branch; its figures
+  are in the bullet on types and members above.
 
 #### S09 · Write coordinator and write limits
 
@@ -3026,7 +3131,10 @@ the arena.
 memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
 text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
-counted, and the documentation of `MemoryLimit` says so. Internal, in the engine
+counted, and the documentation of `MemoryLimit` says so. Retired memory counts against
+the budget; a write that meets the budget drains first and waits for the reads in
+progress before it is refused (the owner's decision of 16 November 2026 on deferred
+reclamation). Internal, in the engine
 assembly:
 
 ```csharp
@@ -3248,6 +3356,14 @@ otherwise, these replace it.
   the arena, in the byte order of the sending machine. `LayoutFormat` of the Hello
   includes the byte order, and a peer of another byte order is refused with `Format`. No
   conversion is built.
+- **The version of the case table** (the owner's decision on Q46; added by the planner on
+  15 November 2026). The Hello carries the version of the case table
+  (`CaseTable.Version`) of the sender. A peer whose version is another is refused as a
+  peer of another layout format is, with the same error, before any block is sent: two
+  nodes with different tables would hold different keys equal. The version is compared
+  for equality only; nothing is converted. Acceptance: a peer that announces another
+  case table version is refused with the error of an incompatible peer, and no data of
+  it is applied — a test through the internal frame, as the byte-order test is written.
 - **A root larger than a frame.** A block with its framing does not fit one data frame,
   and by decision O19 a root of tens of mebibytes is ordinary. The export of one root is
   one stream, cut into `Blocks` frames of at most `MaxDataBody`; bit 0 of
@@ -3362,6 +3478,10 @@ otherwise, these replace it.
   whole. A delete of an absent key on the master moves the position of the child.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
+
+**Carried from the review of S08, part 1:** when the engine library becomes packable in
+this sprint, `THIRD-PARTY-NOTICES.md` is packed into its package as it is into the
+package of the core: the engine holds the files adapted from Garnet/Tsavorite.
 
 **Track:** full · **Needs:** S11 · **Decisions:** O1, O2, P10 · **Owners:** E07, E08
 
@@ -4021,6 +4141,11 @@ otherwise, these replace it.
 - **Out of scope.** Removing applied journal, retiring receipts and the limits of the
   journal (S31): until then the store only grows, and `README.md` lists it among what is not implemented
   yet. Killing processes (S32). Restore (S36).
+- **The version of the case table**, a note of the planner of 15 November 2026 until the
+  contracts of the stage are written: the saved base records the case table version it
+  was written under; a base of another version is not opened as it is — whether it is
+  refused or its case-insensitive keys and indexes are validated and rebuilt is decided
+  with the contract of S30 and of S37 (upgrade).
 
 #### S31 · Journal limits, cleanup and receipt retirement
 

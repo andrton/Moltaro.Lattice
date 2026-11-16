@@ -18,26 +18,29 @@ namespace Moltaro.Lattice.Storage;
 // it closes and no read is in progress any more. The arena has no finalizer, so an arena that is
 // never disposed keeps its native memory until the process ends.
 //
-// The states of a block. A block is free, prepared or live. TryAllocate gives a live block, as in
-// S04. TryAllocatePrepared gives a prepared one, allocated for a write that has not published it
-// yet, and Publish makes it live when the write is published. Both kinds are valid from their
+// The states of a block. A block is free, prepared, live or retired. TryAllocate gives a live
+// block, as in S04. TryAllocatePrepared gives a prepared one, allocated for a write that has not
+// published it yet, and Publish makes it live when the write is published. Retire detaches a live
+// block from its owner while reads may still reach it: a write that replaced or deleted its root
+// retires the blocks of the old root, and frees them once the reads that could reach them have left
+// (arena protocol, "Deferred reclamation, 16 November 2026"). Every kind is valid from its
 // allocation until Free (brief of S06, the planner's answer to Q30). A block is counted in exactly
 // one place: a prepared block with its whole slot in PreparedBytes, a live one with its header and
-// payload in LiveBytes and the rest of its slot in ClassSlackBytes. No block is retired in S06:
-// the database frees the blocks of a replaced or deleted root while it holds the root's exclusive
-// protection, which no reader of the root holds at the same time (arena protocol, "Reclamation and
-// relocation"), so RetiredBytes is 0.
+// payload in LiveBytes and the rest of its slot in ClassSlackBytes, a retired one with its whole
+// slot in RetiredBytes.
 //
 // Who uses the arena at the same time. The arena takes no lock. One thread at a time changes it, by
-// TryAllocate, TryAllocatePrepared, Publish and Free: in the database that is the thread executing
-// a write, and writes are executed one after another. Readers that hold the protection of a root,
-// its stripe or, for the text of the key of an indexed root, the catalog gate (Engine.Protection),
-// call IsValid, Header and Payload for the blocks of that root at the same time. Those read only
-// the metadata of the block's own slot, region and segment, which no change of the arena alters
-// while the block is allocated; a change for another block writes other bits of the same words and
-// other elements of the same arrays, and a reader sees their old or their new value, either of
-// which leaves the bit of its own block set. A grown segment table is a new array: a reader that
-// still has the old one finds the same segments in it.
+// TryAllocate, TryAllocatePrepared, Publish, Retire and Free: in the database that is the thread
+// that holds the lock of the writes (Engine.Writes.WriteExecutor). Reads inside the protection of
+// reads (Engine.Protection) call IsValid, Header and Payload at the same time, for the
+// blocks of the roots they reached, which are live or retired and are not freed while such a read
+// is inside. Those read only the metadata of the block's own slot, region and segment, which no
+// change of the arena alters while the block is allocated; a change for another block writes other
+// bits of the same words and other elements of the same arrays, and a reader sees their old or
+// their new value, either of which leaves the bit of its own block set. A grown segment table is a
+// new array: a reader that still has the old one finds the same segments in it. A reader learns of
+// a block only through the publication of a root, which is ordered after everything the arena wrote
+// for that block (Engine.Writes.WriteExecutor says which store publishes).
 internal sealed unsafe class Arena : IDisposable
 {
     // The size of the first segment table: slot 0, which is never used, and three segments. The
@@ -61,9 +64,6 @@ internal sealed unsafe class Arena : IDisposable
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
     private ArenaSegment?[] _segments = new ArenaSegment?[FirstSegmentTableLength];
 
-    // The lowest slot of the table that was never given to a segment.
-    private int _nextUnusedSegmentSlot = 1;
-
     // Slots of the table whose segment was freed, to be given to the next new segment. Its capacity
     // is kept at the length of the table, so that Free never allocates to push a slot.
     private readonly Stack<int> _freedSegmentSlots = new(FirstSegmentTableLength);
@@ -76,20 +76,11 @@ internal sealed unsafe class Arena : IDisposable
     // are linked through ArenaRegion.Previous and Next, so they take no memory of their own.
     private readonly long[] _regionsWithFreeSlot = new long[SizeClasses.Count];
 
-    // The first of the free regions, the regions of the segments in use that serve no class, linked
-    // in the same way.
-    private long _freeRegions;
-
-    private int _freeRegionCount;
-
-    // The segments held, the reserved ones included.
-    private int _segmentCount;
-
-    private long _liveBytes;
-
-    private long _classSlackBytes;
-
-    private long _preparedBytes;
+    // The counters, the first of the free regions (the regions of the segments in use that serve no
+    // class, linked in the same way), how many free regions and segments there are, the reserved ones
+    // included, and the lowest slot of the table never given to a segment: what allocations and frees
+    // change, on lines of their own (ArenaTally).
+    private ArenaTally _tally = new() { NextUnusedSegmentSlot = 1 };
 
     private bool _disposed;
 
@@ -125,6 +116,9 @@ internal sealed unsafe class Arena : IDisposable
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
     }
+
+    // The size of one segment in bytes, as the options gave it.
+    public int SegmentSize => _segmentSize;
 
     // The largest size class, header included. The largest payload is therefore MaxBlockSize
     // minus the 32-byte header, 65,504 bytes: the chunk payload of the milestone contract.
@@ -190,9 +184,43 @@ internal sealed unsafe class Arena : IDisposable
 
         segment.SetPrepared(regionIndex, slot, prepared: false);
 
-        _preparedBytes -= blockSize;
-        _liveBytes += BlockHeader.Size + payloadLength;
-        _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+        _tally.PreparedBytes -= blockSize;
+        _tally.LiveBytes += BlockHeader.Size + payloadLength;
+        _tally.ClassSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+    }
+
+    // Retires a live block, when the write that replaced or deleted its owner is published: the block
+    // stays allocated and valid, and its bytes stay as they are, so a read that reached it before
+    // goes on reading it, but it belongs to no owner any more. Its header and payload length leave
+    // LiveBytes and the rest of its slot ClassSlackBytes, and its whole slot joins RetiredBytes, until
+    // Free. It changes no byte of the block and allocates nothing, so it cannot fail for a live block.
+    // An invalid address, or that of a block already freed, is refused with ArgumentException; a block
+    // that is prepared or already retired with InvalidOperationException, as is a header whose length
+    // exceeds the slot; then nothing changes.
+    public void Retire(ArenaAddress address)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var segment = Locate(address, out var regionIndex, out var slot) ?? throw NotABlock(address);
+
+        if (segment.IsPrepared(regionIndex, slot) || segment.IsRetired(regionIndex, slot))
+        {
+            throw new InvalidOperationException($"The block at {address} is not live; only a live block is retired.");
+        }
+
+        var blockSize = SizeClasses.SizeOf(segment.Regions[regionIndex].SizeClass);
+        var payloadLength = ((BlockHeader*)(segment.Memory + address.Offset))->PayloadLength;
+
+        if (payloadLength > blockSize - BlockHeader.Size)
+        {
+            throw LengthBeyondSlot(payloadLength, blockSize);
+        }
+
+        segment.SetRetired(regionIndex, slot, retired: true);
+
+        _tally.LiveBytes -= BlockHeader.Size + payloadLength;
+        _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+        _tally.RetiredBytes += blockSize;
     }
 
     // Whether the address is that of a prepared block: valid, and not published since its
@@ -246,12 +274,12 @@ internal sealed unsafe class Arena : IDisposable
         if (prepared)
         {
             segment.SetPrepared(regionIndex, slot, prepared: true);
-            _preparedBytes += blockSize;
+            _tally.PreparedBytes += blockSize;
         }
         else
         {
-            _liveBytes += BlockHeader.Size + payloadLength;
-            _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+            _tally.LiveBytes += BlockHeader.Size + payloadLength;
+            _tally.ClassSlackBytes += blockSize - BlockHeader.Size - payloadLength;
         }
 
         address = new ArenaAddress((uint)segmentSlot, (uint)offset);
@@ -271,7 +299,7 @@ internal sealed unsafe class Arena : IDisposable
     // within the slot that differs from the one given at allocation shifts bytes between the two
     // counters, and their sum stays right; a caller does not write the length through the header,
     // and S20 brings the member that changes it. A prepared block, one of a write that was
-    // abandoned, makes PreparedBytes lose its whole slot.
+    // abandoned, makes PreparedBytes lose its whole slot, and a retired block RetiredBytes.
     public void Free(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -282,8 +310,9 @@ internal sealed unsafe class Arena : IDisposable
         var blockSize = SizeClasses.SizeOf(sizeClass);
         var payloadLength = ((BlockHeader*)(segment.Memory + address.Offset))->PayloadLength;
         var prepared = segment.IsPrepared(regionIndex, slot);
+        var retired = segment.IsRetired(regionIndex, slot);
 
-        if (!prepared && payloadLength > blockSize - BlockHeader.Size)
+        if (!prepared && !retired && payloadLength > blockSize - BlockHeader.Size)
         {
             throw LengthBeyondSlot(payloadLength, blockSize);
         }
@@ -297,12 +326,17 @@ internal sealed unsafe class Arena : IDisposable
         if (prepared)
         {
             segment.SetPrepared(regionIndex, slot, prepared: false);
-            _preparedBytes -= blockSize;
+            _tally.PreparedBytes -= blockSize;
+        }
+        else if (retired)
+        {
+            segment.SetRetired(regionIndex, slot, retired: false);
+            _tally.RetiredBytes -= blockSize;
         }
         else
         {
-            _liveBytes -= BlockHeader.Size + payloadLength;
-            _classSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+            _tally.LiveBytes -= BlockHeader.Size + payloadLength;
+            _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         }
 
         if (region.Allocated > 0)
@@ -380,13 +414,13 @@ internal sealed unsafe class Arena : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             return new ArenaCounters(
-                LiveBytes: _liveBytes,
-                ClassSlackBytes: _classSlackBytes,
-                PreparedBytes: _preparedBytes,
-                RetiredBytes: 0,
-                FreeRegions: _freeRegionCount,
+                LiveBytes: _tally.LiveBytes,
+                ClassSlackBytes: _tally.ClassSlackBytes,
+                PreparedBytes: _tally.PreparedBytes,
+                RetiredBytes: _tally.RetiredBytes,
+                FreeRegions: _tally.FreeRegionCount,
                 ReservedSegments: _reservedSegments.Count,
-                Segments: _segmentCount);
+                Segments: _tally.SegmentCount);
         }
     }
 
@@ -476,16 +510,16 @@ internal sealed unsafe class Arena : IDisposable
     {
         long regionNumber;
 
-        if (_freeRegions != NoRegion)
+        if (_tally.FreeRegions != NoRegion)
         {
-            regionNumber = _freeRegions;
+            regionNumber = _tally.FreeRegions;
             RemoveFreeRegion(regionNumber);
         }
         else if (_reservedSegments.Count > 0)
         {
             regionNumber = PutInUse(_reservedSegments.Pop());
         }
-        else if ((_segmentCount + 1L) * _segmentSize <= _memoryLimit)
+        else if ((_tally.SegmentCount + 1L) * _segmentSize <= _memoryLimit)
         {
             regionNumber = PutInUse(ObtainSegment());
         }
@@ -511,7 +545,7 @@ internal sealed unsafe class Arena : IDisposable
     private int ObtainSegment()
     {
         var reuseSlot = _freedSegmentSlots.Count > 0;
-        var slot = reuseSlot ? _freedSegmentSlots.Peek() : _nextUnusedSegmentSlot;
+        var slot = reuseSlot ? _freedSegmentSlots.Peek() : _tally.NextUnusedSegmentSlot;
 
         if (slot == _segments.Length)
         {
@@ -526,11 +560,11 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
-            _nextUnusedSegmentSlot++;
+            _tally.NextUnusedSegmentSlot++;
         }
 
         _segments[slot] = segment;
-        _segmentCount++;
+        _tally.SegmentCount++;
 
         return slot;
     }
@@ -594,20 +628,20 @@ internal sealed unsafe class Arena : IDisposable
         // table. Its native memory goes back to the allocator, and its slot to the next new segment.
         _segments[segmentSlot] = null;
         _freedSegmentSlots.Push(segmentSlot);
-        _segmentCount--;
+        _tally.SegmentCount--;
         segment.Release(_allocator);
     }
 
     private void AddFreeRegion(long regionNumber)
     {
-        PushFront(ref _freeRegions, regionNumber);
-        _freeRegionCount++;
+        PushFront(ref _tally.FreeRegions, regionNumber);
+        _tally.FreeRegionCount++;
     }
 
     private void RemoveFreeRegion(long regionNumber)
     {
-        Unlink(ref _freeRegions, regionNumber);
-        _freeRegionCount--;
+        Unlink(ref _tally.FreeRegions, regionNumber);
+        _tally.FreeRegionCount--;
     }
 
     private ref ArenaRegion RegionAt(long regionNumber) =>

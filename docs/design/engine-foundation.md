@@ -72,8 +72,10 @@ indexes, comparison rules, coherent publication or durability.
 - MemoryOnly remains an available mode and an isolation tool for measurements;
   it does not replace persistence in the first production milestone.
 - Primary lookup uses a hash table reaching stable root entries. The standard .NET
-  Dictionary is excluded from its production implementation. Arc.Collections 2.2.0
-  UnorderedMapSlim is selected for the first implementation, with engine-owned key
+  Dictionary is excluded from its production implementation. Since 16 November 2026 it
+  is a hash table of the engine's own, read without locks while a write is published
+  (the owner's decision; see index structures). Before that, Arc.Collections 2.2.0
+  UnorderedMapSlim was selected for the first implementation, with engine-owned key
   views, capacity reservation and publication protection. Full lifetime integration
   and target-environment performance remain engineering work. See [index structures](../decisions/index-structures.md).
 - Ordered secondary indexes use Arc.Collections 2.2.0 OrderedMultiMap in v1. Its

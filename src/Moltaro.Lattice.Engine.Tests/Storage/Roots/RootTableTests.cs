@@ -82,7 +82,7 @@ public sealed class RootTableTests
     }
 
     [Fact]
-    public void Release_looks_at_neither_the_claim_count_nor_the_state()
+    public void Release_looks_at_neither_the_reserved_word_nor_the_state()
     {
         var table = new RootTable();
         RootStateEnum[] states = [RootStateEnum.Prepared, RootStateEnum.Live, RootStateEnum.Deleted];
@@ -92,7 +92,7 @@ public sealed class RootTableTests
             var handle = table.Add(TypeId);
             ref var entry = ref table.Entry(handle);
             entry.State = state;
-            entry.ClaimCount = 5;
+            entry.Reserved = 5;
 
             table.Release(handle);
 
@@ -271,8 +271,8 @@ public sealed class RootTableTests
         Assert.True(Unsafe.AreSame(ref first, ref table.Entry(handles[0])));
         Assert.True(Unsafe.AreSame(ref last, ref table.Entry(handles[pages * RootTable.EntriesPerPage - 1])));
 
-        first.ClaimCount = 3;
-        Assert.Equal(3, table.Entry(handles[0]).ClaimCount);
+        first.Reserved = 3;
+        Assert.Equal(3, table.Entry(handles[0]).Reserved);
 
         table.Entry(handles[0]).LastMutationSequence = 99;
         Assert.Equal(99ul, first.LastMutationSequence);
@@ -317,7 +317,7 @@ public sealed class RootTableTests
         Assert.Equal(0ul, entry.LastMutationSequence);
         Assert.True(entry.KeyDescriptor.IsNull);
         Assert.Equal(0L, entry.StoredRootId);
-        Assert.Equal(0, entry.ClaimCount);
+        Assert.Equal(0, entry.Reserved);
     }
 
     // Writes something other than zero into every field of the entry but its generation, which
@@ -330,6 +330,6 @@ public sealed class RootTableTests
         entry.StoredRootId = 9;
         entry.TypeId = 77;
         entry.State = RootStateEnum.Live;
-        entry.ClaimCount = 2;
+        entry.Reserved = 2;
     }
 }

@@ -67,14 +67,14 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
-### Q47. Does the notice of the Unicode data travel inside the package?
+### Q50. Keys chosen to share one hash make reads of them slow
 
 | | |
 | --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
-| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0. `THIRD-PARTY-NOTICES.md` at the repository root names it, and the Unicode licence asks that its notice appear with copies of the data or in the associated documentation. A package is built with `README.md` only, so the notice is in the repository and not in the package. Is the notices file packed with the core library? |
-| **Until answered** | The notice is in the repository. Nothing has been released, so no package without it exists |
-| **Decides** | The owner, before the first package is published |
+| **Found** | 16 November 2026, review of Epic 1, sprint S08, part 1, round 2 |
+| **Question** | The primary index hashes Int64 and Guid keys through a mixing function that has no seed and can be inverted, so whoever chooses the keys can put many on one 32-bit hash. Memory stays bounded (26 bytes per entry for 2,000 such keys), and every key is found, but a read of one of them walks the chain: 287 µs against 0.2 µs. String keys compared with Ordinal use the hash of .NET, which is seeded per process; String keys compared without case use the case table and an unseeded hash. Does the index get a seed of its own per instance — the index is local and rebuilt on every node, so a seed changes nothing a node shares — or is a key an application generates, not one an outsider chooses? |
+| **Until answered** | No seed. Correctness and the memory bound hold for any keys; only the time of reads by keys of one chain grows with the chain |
+| **Decides** | The planner, and the owner if it is a choice, before the first release |
 
 ## Answered
 
@@ -355,6 +355,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S04 |
 | **Question** | The brief of S06 said, by the answer to Q30, "`Release` follows when the claims of S07 are gone". The brief of S07 does not mention claims; the first that does is S08. So the agents of S06 could not tell what S06 does with the entry of a root whose delete was published: release it at once, or keep it `Deleted` until S08 |
 | **Answer** | The planner, 15 November 2026, from the milestone contract, "Reader protection, publication and compaction": the lookup claim of a read by key belongs to S06, because a read of S06 runs while a writer replaces or deletes. The entry of a deleted root is released when no claim is held on it: at once when there is none, otherwise by the reader that drops the last one. S08 adds the claims of an enumeration |
+| **Amended** | 16 November 2026, with the owner's decision on deferred reclamation: there are no claims; the entry of a deleted root is retired and released once the reads that could see it have left. After the deletes have returned and a drain with no read in progress, the table holds no entry of a deleted entity |
 | **Where the rule lives** | The brief of S06 in the [document of Epic 1](epic-1-core.md), "Types and members" and Acceptance |
 
 ### Q36. Exception X3 does not name the tests of the reference fixture
@@ -436,6 +437,7 @@ in the meantime.
 | **Found** | 15 November 2026, review of Epic 1, sprint S06 |
 | **Question** | With 100,000 entities and no writer the engine of S06 reads about 2.3 million entities by key per second on one thread and 1.5 to 2.0 million in all on 8 to 16 threads. What bounds it is the shared acquisitions of the reader/writer gates: the counter of the close barrier, the catalog gate taken twice for a read, and the stripe of the root. It is the synchronization the engine contract prescribes as the initial one, and gate G2 asks for 10,000 reads per second, so no rule was broken. Does the scaling matter, and when is it dealt with? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: reads by key have to scale with threads, and the work is done in S08, where the gate of the index changes anyway, not judged at S25. That more threads read less in total is a very bad signal. The implementer of S08 studies in their source how open-source databases that read fast on many threads protect a read, and repeats a solution that is proven there; how many protections there are and how fine they are is decided by those systems and by measurement, not by a stated preference. The guarantees do not move |
+| **Amended** | 16 November 2026, the owner: deferred reclamation by epochs, for reads and for the index, after a first implementation whose writer waited for the reads was stopped. The rule is in the arena protocol, "Deferred reclamation, 16 November 2026" |
 | **Where the rule lives** | The brief of S08 in the [document of Epic 1](epic-1-core.md); S25 checks the read mix against what S08 reached |
 
 ### Q45. A write batch tells two spellings of one key apart
@@ -455,3 +457,30 @@ in the meantime.
 | **Question** | A String key compared without case followed `StringComparison.OrdinalIgnoreCase` of .NET, and what .NET holds equal under it differs between ICU, NLS and invariant globalization and with the version of the Unicode data. Nothing recorded the mode, so two nodes, or a saved database and the process that opens it, could hold different entities equal. Is the mode fixed and checked, or does the engine bring a case mapping of its own? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a case mapping of Lattice's own, a fixed versioned table in the core. *Not chosen:* recording the globalization mode and refusing another; leaving it until S10 |
 | **Where the rule lives** | The decision on strings, Q04, the addition of 15 November 2026; the brief of S07 in the [document of Epic 1](epic-1-core.md) carries the work |
+
+### Q47. Does the notice of the Unicode data travel inside the package?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
+| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0, and the Unicode licence asks that its notice appear with copies of the data. A package was built with `README.md` only. Is the notices file packed with the core library? |
+| **Answer** | The owner, 16 November 2026, through the planner's session: yes. `THIRD-PARTY-NOTICES.md` is packed into the package of the core library beside `README.md`; the repository file stays |
+| **Where the rule lives** | The build settings in `src`; carried by S08, part 1 |
+
+### Q48. Can the selected map of the primary index be read while the writer changes it?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, the planner, with the owner's decision on deferred reclamation; for Epic 1, sprint S08, part 1 |
+| **Question** | The decision on index structures selected `UnorderedMapSlim` of `Arc.Collections` and foresaw readers on the old map only during growth. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it? |
+| **Answer** | No: its own remarks require external synchronization whenever a writer is present, and the planner read the code at the pinned commit to the same end. The owner, 16 November 2026, through the planner's session: the primary index becomes a hash table of the engine's own, modelled on the hash index of Garnet/Tsavorite; and where the engine can replace a package by its own structure written after an established open-source one, it does. Whether `Arc.Collections` leaves the engine altogether is settled with the ordered indexes of S14; until then the reference, the pin test of Q3 and the sentence of `AGENTS.md` stay |
+| **Where the rule lives** | The decision on index structures, the addition of 16 November 2026; the brief of S08 in the [document of Epic 1](epic-1-core.md) |
+
+### Q49. Does a partial update change a published root in place?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, with the design of Epic 1, sprint S08, part 1 |
+| **Question** | "Fixed-width fields may change in place under exclusive access" was an accepted decision. Reads now take no exclusion, so a reader would see a root half changed. Does a partial update copy the root block and publish it like a replace, or does a root carry a sequence that every read checks? |
+| **Answer** | The owner, 16 November 2026, through the planner's session: a published root is never changed. A partial update builds a new root block with the changed fields, shares the value blocks it does not change, publishes it as a replace does and retires the old root block; a read checks nothing more. The owner's rule with it: when a design choice trades the cost of a read against the cost of a write, the read wins, as long as writes stay above their targets |
+| **Where the rule lives** | The decision on memory and access, the addition of 16 November 2026; the arena protocol, "Deferred reclamation". The contract of S20 says who owns a shared value block and reports the cost |
