@@ -204,10 +204,11 @@ Existing background reclamation continues under its own bounded schedule.
 path" is superseded. Since reads are protected by epochs and memory is freed later (the
 owner's decision of 16 November 2026), a write the arena refuses first frees what is
 retired, then waits for the reads that still hold retired memory and frees it; and by the
-rule that the database waits where it can instead of refusing (the owner's decision O20),
-it also waits for every write admitted before it to complete. It is refused only when all
-of that is done and the arena still has no room. The wait is finite and the token of the
-write cancels it. The wait for earlier writes is the planner's reading of O20, reported
+rule that the database waits where it can instead of refusing (the owner's decision O20)
+a write is refused only when it does not fit beside the stored data: it waits for the
+writes admitted before it, holds back the preparation of later ones until those in flight
+have completed, frees what is retired and retries once alone. The wait is bounded and the
+token of the write cancels it. This resolution is the planner's reading of O20, reported
 to the owner.
 
 Reserve/prepare the state needed for publication before durable commit. No root gate

@@ -3466,6 +3466,47 @@ otherwise, these replace it.
     them until its task completes and keeps no reference afterwards."
   - *Preparing workers.* There are 2 places of preparation; the number is internal and no
     rule of the contract bounds it. With 64 places nothing was gained.
+- **When a write is refused for memory: the rule after review round 1** (the planner, 16
+  November 2026; the first reviewer found that the rule above refused a write that fits
+  when a later write held prepared memory). This replaces every earlier wording of it in
+  this brief: "The refusal" of the block after S08, and "The retry of a refused write is
+  bounded" of the block after the implementation.
+  A write is refused for memory only when it does not fit beside the stored data: never
+  because of memory that other writes, earlier or later, hold only for a time, and never
+  because of memory that is retired and not freed yet. A write the arena refuses gives
+  back everything it prepared, frees what is retired and retries. If it is refused again,
+  it is resolved alone: (1) it waits for every write admitted before it to complete; (2)
+  it holds back the preparation of later writes: writes admitted after it are admitted
+  and wait, and none begins to prepare; those already prepared or in the commit stage
+  complete, and it waits for them; (3) it waits for the reads then in progress to leave
+  the protection, frees what is retired, and retries once, with no other write holding
+  prepared memory; (4) if the arena has room, it goes on as any write; if not, it is
+  refused with `WriteRejected` and `Limit` = `Memory`. In both cases the later writes go
+  on at once. While it waits it holds no prepared memory. Two writes refused at the same
+  time are resolved one after the other, in the order they were admitted. The wait is
+  bounded by the writes in flight when step 2 begins and by one step of the reads then in
+  progress; no write admitted later prolongs it. The token of the write cancels the wait
+  at any of its steps, and the later writes then go on. A refusal is rare, so holding
+  preparation back for it costs the ordinary path nothing: the ordinary path pays one
+  check.
+  Acceptance, tests first: on an arena of 8 MiB, an insert of 3 MiB that is the oldest
+  write while a later replace of 3 MiB is prepared and held completes; without hooks, a
+  5 MiB insert into an empty 8 MiB arena beside a 9 MiB insert that can never fit: the
+  5 MiB insert always completes and the 9 MiB one is always refused, over the rounds the
+  test author sizes; two replaces that both fit in either order both complete; a write
+  that cannot fit is refused within the time of the test while another caller keeps
+  replacing a small entity; after a refusal the writes held back complete and
+  `QueuedWrites` returns to 0.
+- **Cancellation before dispatch** (the planner, the same day, after the same review).
+  Before dispatch, the token of a write is honored at every wait — for its identity, for
+  a place to be prepared, for earlier writes, for the writes in flight in a resolution,
+  for reads that hold retired memory — and when its preparation ends. A cancellation that
+  arrives while its values are being encoded takes effect when the encoding ends, before
+  the write can be dispatched: it is withdrawn, what it prepared is freed, and it ends in
+  `OperationCanceledException`. Tests first: a write cancelled while it is being prepared
+  is withdrawn and leaves nothing in the counters; a write cancelled during the wait of a
+  resolution ends, and the writes held back go on. Every wait of a write before dispatch
+  has the token; the waits without a timeout are only those for steps of reads (X6).
 - **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
