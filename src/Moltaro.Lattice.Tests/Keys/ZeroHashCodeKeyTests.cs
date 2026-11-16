@@ -1,19 +1,22 @@
 namespace Moltaro.Lattice.Tests.Keys;
 
-// Keys that all have one hash are keys like any other (review round 1 of Epic 1, sprint S08, part 1:
-// the primary index of the engine wrote past its table when many keys shared a hash). Int64.GetHashCode
-// is the exclusive or of the two halves of the value, so every key (i << 32) | i has the hash 0, and
-// the engine, which hashes an integer key by its .NET value, puts all of them into one chain. On the
-// placeholder and on the engine: every one of 300 such keys is inserted and found, through the class
-// and by name; 50 other keys of the same hash that were never inserted are absent; an enumeration
-// returns each key once; each is deleted, half through the class and half by name, after which none is
-// found and an enumeration is empty; and all of them can be inserted again. The deletes reach the
-// entries that lie in the overflow of the chain as well as those in its first bucket.
+// Keys whose hash codes are all the same are keys like any other (review round 1 of Epic 1, sprint
+// S08, part 1: the primary index of the engine wrote past its table when many keys shared a hash).
+// Int64.GetHashCode is the exclusive or of the two halves of the value, so every key (i << 32) | i has
+// the hash code 0. What that means differs by implementation, and the test states what each has to
+// do: the placeholder keeps its entities in a dictionary that hashes a key by its hash code, so there
+// all 300 keys meet in one hash; the engine mixes every bit of an Int64 key into its hash, so there
+// keys of this structure spread as any others do, and the chains of entries of one hash are tested on
+// its index directly (OneHashChainTests of Moltaro.Lattice.Engine.Tests). On both: every one of 300
+// such keys is inserted and found, through the class and by name; 50 other keys of hash code 0 that
+// were never inserted are absent; an enumeration returns each key once; each is deleted, half through
+// the class and half by name, after which none is found and an enumeration is empty; and all of them
+// can be inserted again.
 //
 // String keys of one hash cannot be made cheaply: the hash of a String key compared with Ordinal is
 // string.GetHashCode, which is seeded at random in every process, so 300 texts of one hash would take
 // about 2^32 tries each.
-public sealed class OneHashKeyTests
+public sealed class ZeroHashCodeKeyTests
 {
     private const int Count = 300;
 
@@ -33,14 +36,14 @@ public sealed class OneHashKeyTests
 
     [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Entities_whose_keys_all_have_one_hash_are_inserted_found_enumerated_once_and_deleted(DatabaseImplementationEnum implementation)
+    public async Task Entities_whose_keys_all_have_the_hash_code_zero_are_inserted_found_enumerated_once_and_deleted(DatabaseImplementationEnum implementation)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
         var clashes = database.Set<Clash>();
         var records = database.Set("Clash");
         long[] keys = [.. Enumerable.Range(1, Count).Select(KeyOf)];
 
-        // The premise: one hash for every key, also for the absent ones.
+        // The premise: the hash code 0 for every key, also for the absent ones.
         Assert.All(keys, key => Assert.Equal(0, key.GetHashCode()));
         Assert.Equal(0, KeyOf(Count + Absent).GetHashCode());
 

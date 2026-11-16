@@ -10,8 +10,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // through the public API; the hash is given here as the index takes it. The main table grows by the
 // number of entries and the chain of one hash by overflow alone (IndexTable, "The capacity policy"):
 // every entry of the hash is found, an entry that is removed is not, wherever it lies in the chain, an
-// enumeration of the table returns each entry once, and the index of entries of one hash takes at
-// most twice that of as many entries of different hashes.
+// enumeration of the table returns each entry once and no removed one, the emptied words of the chain
+// are taken again by the entries added after, without more memory, and the index of entries of one
+// hash takes at most twice that of as many entries of different hashes. That a key of the hash which
+// was never added is absent is the comparison of the key the caller makes for every slot the chain
+// gives (Entities.EntityTable); the chain gives exactly the slots added.
 public sealed class OneHashChainTests
 {
     private const uint OneHash = 0x5A5A_5A5A;
@@ -35,6 +38,8 @@ public sealed class OneHashChainTests
         Assert.Equal(Enumerable.Range(0, count).Select(slot => (uint)slot), Enumerated(index).Order());
         Assert.Empty(Found(index, OneHash + 1));
 
+        var bytes = index.Bytes;
+
         // Every other entry first, then the rest: removed entries lie in the main bucket and in every
         // overflow bucket of the chain.
         for (var slot = 0u; slot < count; slot += 2)
@@ -43,6 +48,7 @@ public sealed class OneHashChainTests
         }
 
         Assert.Equal(Enumerable.Range(0, count).Where(slot => slot % 2 == 1).Select(slot => (uint)slot), Found(index, OneHash).Order());
+        Assert.Equal(Enumerable.Range(0, count).Where(slot => slot % 2 == 1).Select(slot => (uint)slot), Enumerated(index).Order());
 
         for (var slot = 1u; slot < count; slot += 2)
         {
@@ -52,7 +58,7 @@ public sealed class OneHashChainTests
         Assert.Empty(Found(index, OneHash));
         Assert.Empty(Enumerated(index));
 
-        // The emptied words are taken again.
+        // The emptied words are taken again, and the index takes no more memory than before.
         for (var slot = 0u; slot < count; slot++)
         {
             index.Reserve(OneHash);
@@ -60,6 +66,7 @@ public sealed class OneHashChainTests
         }
 
         Assert.Equal(Enumerable.Range(0, count).Select(slot => (uint)slot), Found(index, OneHash).Order());
+        Assert.Equal(bytes, index.Bytes);
     }
 
     [Fact]

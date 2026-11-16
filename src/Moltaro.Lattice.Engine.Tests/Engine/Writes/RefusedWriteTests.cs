@@ -14,14 +14,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // state it replaced, which stays retired: a look of the writer comes only after a segment of retired
 // bytes or a table's worth of retired things. So:
 // - A replace whose new state fits only once the retired one is freed, which no read holds, succeeds.
-// - When a read held inside the protection (HoldNextRead) holds the retired state, the replace waits:
-//   it does not end while the read is held, its token cancels the wait and the write changes nothing,
-//   and a replace that waits again succeeds once the read has left.
+// - When a read held inside the protection (HoldNextRead) holds the retired state, the replace waits
+//   for it, which the switch of the engine that runs when a refused write begins to wait tells
+//   (EngineDatabase.HoldNextWaitForReads): it has not ended when it begins to wait, its token cancels
+//   the wait and the write changes nothing, and a replace that waits again succeeds once the read has
+//   left.
 // - An entity that does not fit even after everything retired is freed is WriteRejected, and nothing
 //   of it is left.
-// A test cannot see that a write began to wait, since no switch on the side of the writer tells it;
-// so it gives a write that would wrongly be refused a window of time to end, and states that it did
-// not. A correct engine passes however long that window is. Every other wait is bounded.
+// Every wait is bounded.
 public sealed class RefusedWriteTests
 {
     private const int Large = 3 * 1024 * 1024;
@@ -29,8 +29,6 @@ public sealed class RefusedWriteTests
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * Segment };
-
-    private static readonly TimeSpan Window = TimeSpan.FromMilliseconds(250);
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -64,13 +62,13 @@ public sealed class RefusedWriteTests
 
         await Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 11, data: Large)).AsTask()).WaitAsync(Bound);
 
-        // The third state fits only once the first is freed: the replace waits, and its token ends the
-        // wait. A cancelled write changes nothing.
+        // The third state fits only once the first is freed: the replace begins to wait, and its token
+        // ends the wait. A cancelled write changes nothing.
         using var cancellation = new CancellationTokenSource();
+        var cancelledWaits = WaitForReadsBegins(database);
         var cancelled = Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 12, data: Large), cancellation.Token).AsTask());
 
-        Assert.False(await EndsWithinWindowAsync(cancelled), "The replace ended while the read that holds the memory it needs was in progress.");
-
+        await ExpectWaitingAsync(cancelledWaits, cancelled);
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
@@ -78,9 +76,10 @@ public sealed class RefusedWriteTests
 
         // A replace that waits again succeeds once the held read has left, which returns the state it
         // found or the one that replaced it.
+        var waits = WaitForReadsBegins(database);
         var waiting = Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 13, data: Large)).AsTask());
 
-        Assert.False(await EndsWithinWindowAsync(waiting), "The replace ended while the read that holds the memory it needs was in progress.");
+        await ExpectWaitingAsync(waits, waiting);
         Assert.Contains(await held.ReleaseAsync(), new long?[] { 10, 11 });
         Assert.True((await waiting.WaitAsync(Bound)).Changed);
 
@@ -106,9 +105,27 @@ public sealed class RefusedWriteTests
         ExpectHeld(database, PieceSchema.Of(1, name: 11, data: Large));
     }
 
-    // Whether the write ends within the window: a write that waits for a read the test holds does not.
-    private static async Task<bool> EndsWithinWindowAsync(Task write) =>
-        await Task.WhenAny(write, Task.Delay(Window)) == write;
+    // Completes when the next write the arena refused begins to wait for the reads that hold retired
+    // memory. The switch runs on the thread of the write, inside the lock of the writes, and only
+    // completes the task, whose continuations run elsewhere.
+    private static Task WaitForReadsBegins(EngineDatabase database)
+    {
+        var begins = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        database.HoldNextWaitForReads(() => begins.TrySetResult());
+
+        return begins.Task;
+    }
+
+    // The write began to wait before it ended: a write that the arena refused instead of waiting, or
+    // that succeeded without the memory the held read keeps, ends without beginning to wait.
+    private static async Task ExpectWaitingAsync(Task waits, Task write)
+    {
+        await Task.WhenAny(waits, write).WaitAsync(Bound);
+
+        Assert.True(waits.IsCompleted, "The replace ended without waiting for the read that holds the memory it needs.");
+        Assert.False(write.IsCompleted, "The replace ended while the read that holds the memory it needs was in progress.");
+    }
 
     // After a drain with no read in progress, the database holds this piece alone.
     private static void ExpectHeld(EngineDatabase database, PieceSchema.Piece piece)

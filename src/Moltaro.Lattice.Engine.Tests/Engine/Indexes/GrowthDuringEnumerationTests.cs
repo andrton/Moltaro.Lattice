@@ -22,6 +22,10 @@ public sealed class GrowthDuringEnumerationTests
     // in several buckets of the table.
     private const int Growth = 3;
 
+    // The most keys the probe inserts before it gives up: the main table grows by the count, so the
+    // third growth comes after a few dozen.
+    private const int MostKeys = 10_000;
+
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
@@ -101,27 +105,42 @@ public sealed class GrowthDuringEnumerationTests
         }
     }
 
-    // How many of the keys 0, 1, 2, ... a database holds when the insert of the next one makes its
-    // index grow for the given time.
+    // How many of the keys 0, 1, 2, ... a database holds when the insert of the next one makes the
+    // main table of its index grow for the given time. The switch of the growth counts the growths:
+    // only the growth of the main table runs it, while the bytes of the index change as well when its
+    // overflow takes a page. The switch runs inside the insert that grows the index, so it has run
+    // when the insert has returned, and it is armed again for the next growth.
     private static async Task<int> KeysBeforeGrowthAsync(int growth)
     {
         await using var database = await ClashSchema.OpenAsync();
         var clashes = database.Set<ClashSchema.Clash>();
-        var bytes = database.Counters.PrimaryIndexBytes;
         var growths = 0;
 
-        for (var key = 0; ; key++)
+        database.HoldNextGrowth(clashes.EntityType, Grew);
+
+        for (var key = 0; key < MostKeys; key++)
         {
+            var before = growths;
+
             await clashes.InsertAsync(ClashSchema.Of(key));
 
-            var grown = database.Counters.PrimaryIndexBytes;
+            if (growths == before)
+            {
+                continue;
+            }
 
-            if (grown != bytes && ++growths == growth)
+            if (growths == growth)
             {
                 return key;
             }
 
-            bytes = grown;
+            database.HoldNextGrowth(clashes.EntityType, Grew);
         }
+
+        Assert.Fail($"The main table of the index did not grow {growth} times in {MostKeys} inserts.");
+
+        return 0;
+
+        void Grew() => growths++;
     }
 }

@@ -32,6 +32,10 @@ public sealed class HeldReadTests
 {
     private const int Readers = 4;
 
+    // The most keys the growth test inserts before it gives up: the main table grows by the count, so
+    // the first growth comes after a few inserts.
+    private const int MostKeys = 10_000;
+
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
@@ -182,13 +186,19 @@ public sealed class HeldReadTests
             var stamps = database.Set<StampSchema.Stamp>();
             await stamps.InsertAsync(StampSchema.StampOf(0, 0));
             database.DrainRetired();
-            var table = database.Counters.PrimaryIndexBytes;
 
             using var held = await HeldRead.StartAsync(database, () => StampSchema.NumberOf(0, stamps.Get(0L)));
 
-            // The writer inserts until the index has grown once, while readers on threads of their own
-            // look up every key inserted so far.
+            // The writer inserts until the main table of the index has grown once, while readers on
+            // threads of their own look up every key inserted so far. The switch of the growth tells
+            // the growth: only the growth of the main table runs it, and the bytes of the index change
+            // as well when its overflow takes a page. The table that grew is the one the counters
+            // showed before the insert that grew it.
             var inserted = 1;
+            var grown = false;
+            var table = 0L;
+
+            database.HoldNextGrowth(stamps.EntityType, () => Volatile.Write(ref grown, true));
 
             await ReadersAndWriter.RunAsync(
                 Readers,
@@ -205,8 +215,9 @@ public sealed class HeldReadTests
                 },
                 () => Task.Run(async () =>
                 {
-                    for (var key = 1; database.Counters.PrimaryIndexBytes == table; key++)
+                    for (var key = 1; !Volatile.Read(ref grown) && key < MostKeys; key++)
                     {
+                        table = database.Counters.PrimaryIndexBytes;
                         await stamps.InsertAsync(StampSchema.StampOf(key, 0));
                         Volatile.Write(ref inserted, key + 1);
                     }
@@ -219,7 +230,7 @@ public sealed class HeldReadTests
             // may still use it, and nothing is being built.
             var during = database.Counters;
 
-            Assert.True(during.PrimaryIndexBytes > table, "The index did not grow.");
+            Assert.True(Volatile.Read(ref grown), "The main table of the index did not grow.");
             Assert.Equal(table, during.RetiredIndexBytes);
             Assert.Equal(0, during.ReplacementIndexBytes);
 

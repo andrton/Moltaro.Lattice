@@ -7,10 +7,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // the index can insert thousands of them. One entity type, so that PrimaryIndexBytes is the bytes of
 // its index alone.
 //
-// The keys a test chooses decide the hashes: the engine hashes an Int64 key by Int64.GetHashCode, the
-// exclusive or of the two halves of the value. OneHash(i) = (i << 32) | i has the hash 0 for every i;
-// Composite(shard, id) = (shard << 32) | id has the hash shard ^ id, which as many keys share as there
-// are shards; a small key i has the hash i.
+// Keys of a structure that Int64.GetHashCode, the exclusive or of the two halves of the value, folds
+// together: ZeroHashCode(i) = (i << 32) | i has the hash code 0 for every i, and Composite(shard, id) =
+// (shard << 32) | id the hash code shard ^ id, which as many keys share as there are shards. The engine
+// does not hash a key by its hash code: it mixes every bit of an Int64 key into its hash (review round
+// 1 of S08, part 1; Entities.EntityTable), so such keys spread over the index as any others do. The
+// chains of entries of one hash are tested with hashes given to the index directly
+// (OneHashChainTests).
 internal static class ClashSchema
 {
     public static LatticeSchema Schema { get; } = LatticeSchema.Compile($$"""
@@ -27,7 +30,7 @@ internal static class ClashSchema
 
     public static Task<EngineDatabase> OpenAsync() => EngineMaster.OpenAsync(Schema);
 
-    public static long OneHash(int number) => ((long)number << 32) | (uint)number;
+    public static long ZeroHashCode(int number) => ((long)number << 32) | (uint)number;
 
     public static long Composite(int shard, int id) => ((long)shard << 32) | (uint)id;
 
