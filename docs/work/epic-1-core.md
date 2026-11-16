@@ -152,7 +152,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R13 | Arc UnorderedMapSlim for the primary index and Arc OrderedMultiMap for secondary indexes, behind engine-owned protection, rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
-| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | Works without a budget | S06–S08, S14–S15 |
+| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | On the engine an enumeration goes on while entities change, with the budget of the options; index traversal follows | S06–S08, S14–S15 |
 | R17 | Unique indexes on one field or several, validated against the final state on the master; keys with a null are exempt; swaps and delete-and-reclaim inside a batch | [Q07.4](../decisions/unique-indexes.md) | Must | Contract; `UniqueIndexTests` skipped | S16, S17 |
 | R18 | Complete writes: Insert, Replace, Upsert, Delete; expected revisions; immutable keys; a complete write is never turned into a diff; inputs stay stable until completion | [Q13](../decisions/mutation-commands.md) | Must | Works | S06–S08 |
 | R19 | Explicit partial updates: scalar assignments, replacement of a whole collection field and the accepted List, Map and Set element commands, in order, atomic for one entity | [Q13](../decisions/mutation-commands.md) | Must | Absent | S20 |
@@ -2930,8 +2930,9 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
   so a deadline is computed without overflow. The sentence of the Acceptance "its temporary
   memory is counted in the instance budget" waits for the budget: the option arrives in
   S09 and S24 extends it to the scratch of reads; in this sprint the temporary memory of a
-  read is counted for its own limit and reported by a counter of the engine, and nothing
-  is refused for the budget. An enumeration steps through the primary index of part 1: a
+  read is counted for its own limit only and nothing is refused for the budget; no
+  counter of the instance sums it, because the memory is the enumerator's own and an
+  enumerator that is abandoned must leave nothing counted. An enumeration steps through the primary index of part 1: a
   step enters and leaves the epoch and holds nothing between two steps; a growth or a
   change of the index during the pass no longer fails it. The listing speaks of "one
   enumeration or one search": searches take their limits in S15.
