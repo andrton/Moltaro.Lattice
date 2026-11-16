@@ -27,11 +27,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    an insert a new root entry and room in the index, which may grow it. A failure frees all of it,
 //    so nothing of a refused write is left in any counter (the planner's answer to Q30). An entity has
 //    no size limit of its own; only the memory of the arena refuses one (decision O19). When the arena
-//    refuses, the write frees what no read in progress can reach and tries again; when reads still
-//    hold retired memory, it waits for them, frees it and tries once more, and only then is the write
-//    refused (brief of S08, "Tests the sprint breaks, part 1"). The wait is finite by construction,
-//    because a read inside the protection waits for nothing, has no option and no timeout, and the
-//    token of the write cancels it, which nothing has been published at.
+//    refuses while retired memory is left, the write frees what no read in progress can reach and
+//    tries again, and while reads still hold retired memory, it waits for them, frees it and tries
+//    again; it is refused only when nothing retired is left to free (brief of S08, "Tests the sprint
+//    breaks, part 1"; review round 1). Prepare says why the rounds end. The wait is finite by
+//    construction, because a read inside the protection waits for nothing, has no option and no
+//    timeout (exception X6), and the token of the write cancels it, which nothing has been published
+//    at.
 // 5. It publishes by stores in a fixed order, which the reads of EntityTable rely on: each store has
 //    release semantics (Volatile.Write), so a read that sees one, by a load with acquire semantics,
 //    sees every store before it. Publication only installs what was prepared, makes its blocks live,
@@ -312,9 +314,18 @@ internal sealed class WriteExecutor
     }
 
     // Writes the values into a new root of prepared blocks for the lifetime the handle names. When the
-    // arena refuses the blocks, it frees what no read can reach and tries again, and then waits for
-    // the reads that hold retired memory and tries once more (step 4 of the class). A failure frees
-    // everything the writer allocated.
+    // arena refuses the blocks while retired memory is left, it frees what no read in progress can
+    // reach and tries again, and while retired memory is still left, waits for the reads that hold it
+    // and does so again (step 4 of the class); it is refused only when nothing retired is left to free.
+    // A failure frees everything the writer allocated.
+    //
+    // Why the rounds end. This write retires nothing while it prepares, and no other write runs, so
+    // the retired memory only shrinks. A round that frees nothing has met a read that holds it: one that
+    // entered before the newest retirement, or one that read the epoch before the writer moved it on
+    // and announced it after the writer looked at its slot. The wait of the next round lasts until that
+    // read has left, which takes one step of a read, and a read that enters later announces a later
+    // epoch than anything retired. So every round but a few frees what is retired, and once nothing is
+    // left the next refusal is the refusal of the write.
     private ArenaAddress Prepare(EntityTable table, RootHandle handle, object?[] values, CancellationToken cancellationToken)
     {
         try
@@ -326,17 +337,18 @@ internal sealed class WriteExecutor
             _retired.Drain();
         }
 
-        try
+        while (true)
         {
-            return PrepareOnce(table, handle, values);
+            try
+            {
+                return PrepareOnce(table, handle, values);
+            }
+            catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected && _arena.Counters.RetiredBytes > 0)
+            {
+                _retired.WaitForReads(cancellationToken);
+                _retired.Drain();
+            }
         }
-        catch (LatticeException refused) when (refused.Error == LatticeErrorEnum.WriteRejected && _arena.Counters.RetiredBytes > 0)
-        {
-            _retired.WaitForReads(cancellationToken);
-            _retired.Drain();
-        }
-
-        return PrepareOnce(table, handle, values);
     }
 
     private ArenaAddress PrepareOnce(EntityTable table, RootHandle handle, object?[] values)

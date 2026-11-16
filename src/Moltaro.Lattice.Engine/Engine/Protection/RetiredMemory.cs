@@ -31,8 +31,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   They are derived from the table and the arena, not options.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
-// - a write that the arena refused, which drains, waits for the reads that hold the rest and drains
-//   again before it is refused (WaitForReads).
+// - a write that the arena refused, which drains, and while retired memory is left waits for the reads
+//   that hold it and drains again, before it is refused (WaitForReads; Writes.WriteExecutor).
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
@@ -60,6 +60,14 @@ internal sealed class RetiredMemory
     // The epoch of the last thing retired.
     private long _newest;
 
+    // The capacity of the list, as EnsureCapacity reports it.
+    private int _capacity;
+
+    // What the next write that waits for the reads that hold retired memory runs, for the tests of the
+    // engine (EngineDatabase.HoldNextWaitForReads); null when no test armed it. Only a write the arena
+    // refused loads it.
+    private Action? _waitHold;
+
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
         _epochs = epochs;
@@ -74,7 +82,7 @@ internal sealed class RetiredMemory
 
     // Makes room for one more retired thing, so that retiring it after a publication allocates
     // nothing and cannot fail. Called before the publication.
-    public void Reserve() => _items.EnsureCapacity(_items.Count + 1);
+    public void Reserve() => _capacity = _items.EnsureCapacity(_items.Count + 1);
 
     // Retires the root a replace replaced: its blocks become retired in the arena (RootStorage.Retire).
     public void RetireRoot(RootLayout layout, ArenaAddress root) =>
@@ -119,6 +127,16 @@ internal sealed class RetiredMemory
             _items.Dequeue();
             Free(item);
         }
+
+        // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
+        // large. Once it is empty and its capacity is more than four looks' worth, it lets the places
+        // go; emptied, the list allocates nothing for that, and it grows again by doubling, before a
+        // publication (Reserve), when retiring needs it.
+        if (_items.Count == 0 && _capacity > 4 * _itemsPerLook)
+        {
+            _items.TrimExcess();
+            _capacity = 0;
+        }
     }
 
     // For a write the arena refused: returns once no read that could reach anything retired so far is
@@ -135,9 +153,19 @@ internal sealed class RetiredMemory
         // A read that enters from now on announces an epoch after the newest tag.
         if (_epochs.Advance() < _newest)
         {
+            // The switch of the tests, once the write knows it has to wait and before it waits.
+            if (_waitHold is not null)
+            {
+                Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+            }
+
             _epochs.WaitForReadsBefore(_newest + 1, cancellationToken);
         }
     }
+
+    // Arms the switch of the tests: the next write that waits for the reads that hold retired memory
+    // runs hold once (EngineDatabase.HoldNextWaitForReads).
+    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
 
     // After the close, once no read and no write is in progress: forgets everything retired. The arena
     // is disposed with every block, retired ones included, and the retired tables are let go of.

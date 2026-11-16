@@ -270,6 +270,21 @@ internal sealed class EngineDatabase : ILatticeDatabase
         _operations![entityType].Table.HoldNextGrowth(hold);
     }
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
+    // refused and that waits for the reads that hold retired memory runs hold, once, on its own thread
+    // and inside the lock of the writes, when it knows it has to wait and before it waits, so that a
+    // test can tell that the write waits instead of giving it a window of time. When hold returns the
+    // write waits as it would have. Only a write the arena refused loads the switch: no other write and
+    // no read pays anything for it. Unavailable before the open, ObjectDisposedException after the
+    // close.
+    public void HoldNextWaitForReads(Action hold)
+    {
+        ArgumentNullException.ThrowIfNull(hold);
+        ThrowIfNotReady();
+
+        _retired!.HoldNextWait(hold);
+    }
+
     public LatticeDatabaseStateEnum State => _state;
 
     public LatticeSchema Schema
