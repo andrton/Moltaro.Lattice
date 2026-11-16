@@ -5,6 +5,12 @@
     <PackageTags>database;in-memory;object-database;replication</PackageTags>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The core library holds data derived from the Unicode Character Database, whose licence asks
+         that its notice travel with copies: the notices of the repository go into the package beside
+         its README (Q47 of docs/work/open-questions.md). -->
+    <None Include="$(MSBuildThisFileDirectory)..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- The engine implements the contract and uses its internal members. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine" />
     <!-- The tests hold back replication on a child to check the consistency guarantees. -->
