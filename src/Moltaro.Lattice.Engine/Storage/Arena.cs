@@ -120,6 +120,10 @@ internal sealed unsafe class Arena : IDisposable
     // The size of one segment in bytes, as the options gave it.
     public int SegmentSize => _segmentSize;
 
+    // The most native capacity the arena may obtain, in bytes, as the options gave it
+    // (ArenaOptions.MemoryLimit).
+    public long MemoryLimit => _memoryLimit;
+
     // The largest size class, header included. The largest payload is therefore MaxBlockSize
     // minus the 32-byte header, 65,504 bytes: the chunk payload of the milestone contract.
     public const int MaxBlockSize = 64 * 1024;

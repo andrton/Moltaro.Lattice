@@ -217,7 +217,19 @@ internal sealed class EngineDatabase : ILatticeDatabase
                         replacementBytes += operations.Table.ReplacementIndexBytes;
                     }
 
-                    return new EngineCounters(_arena!.Counters, indexBytes, _retired!.IndexBytes, replacementBytes, _roots!.Count, (long)_clock!.Sequence);
+                    // QueuedWrites, LargestCommitGroup and LargestCommitGroupBytes are 0 until the write
+                    // coordinator of S09 exists; its implementer replaces them (EngineCounters).
+                    return new EngineCounters(
+                        _arena!.Counters,
+                        indexBytes,
+                        _retired!.IndexBytes,
+                        replacementBytes,
+                        _roots!.Count,
+                        (long)_clock!.Sequence,
+                        QueuedWrites: 0,
+                        LargestCommitGroup: 0,
+                        LargestCommitGroupBytes: 0,
+                        MemoryLimit: _arena.MemoryLimit);
                 }
             }
             finally
@@ -304,6 +316,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         _retired!.HoldNextWait(hold);
     }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write
+    // through the point throws; tests only. A failure at DuringPublication puts the instance into
+    // Faulted, in which every operation, reads included, is Unavailable and a close works (brief of
+    // Epic 1, sprint S09, "Faulted"). A point does nothing unless a test arms it.
+    //
+    // Not implemented yet: the points come with the write coordinator, and the implementer of S09
+    // replaces the body.
+    public void ArmFault(EngineFaultPointEnum point) =>
+        throw new NotSupportedException($"The fault point {point} comes with the write coordinator of Epic 1, sprint S09.");
 
     public LatticeDatabaseStateEnum State => _state;
 

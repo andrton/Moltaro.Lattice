@@ -34,10 +34,34 @@ namespace Moltaro.Lattice.Engine;
 // PublishedSequence: the sequence of the last published position, 0 for a database without a
 // write and 1 after the first. The public API shows positions only; a test of the engine reads
 // the number here (the planner's answer to Q38).
+//
+// The members of the write coordinator (brief of Epic 1, sprint S09, "Types and members of S09" and
+// "What is counted"). What waits is counted in the memory budget as the prepared capacity of the
+// arena, Arena.PreparedBytes; there is no second figure of queued bytes. Until the implementer of S09
+// builds the coordinator, writes are executed one after another under the lock of the writes, there
+// is no queue and no commit group, and the first three read 0; the implementer replaces those values.
+//
+// QueuedWrites: the writes that wait for their turn in the write coordinator.
+//
+// LargestCommitGroup: the most writes one commit group held, at most CommitGroup.MaxOperations.
+//
+// LargestCommitGroupBytes: the most bytes of PreparedWrite.EncodedSize one commit group held, at most
+// CommitGroup.MaxEncodedSize unless a larger write formed a group alone.
+//
+// MemoryLimit: the memory budget in force, in bytes, fixed when the instance opened: the
+// LatticeDatabaseOptions.MemoryLimit that was given, or half of
+// GC.GetGCMemoryInfo().TotalAvailableMemoryBytes when none was, so that a test can state the default.
+// It is the limit of the arena (brief of S09, "The refusal"), and it reads that limit already; until
+// the implementer of S09 makes the option the limit of the arena, that is the default, or the
+// ArenaOptions a test of the engine gave.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,
     long RetiredIndexBytes,
     long ReplacementIndexBytes,
     int RootEntries,
-    long PublishedSequence);
+    long PublishedSequence,
+    int QueuedWrites,
+    int LargestCommitGroup,
+    long LargestCommitGroupBytes,
+    long MemoryLimit);

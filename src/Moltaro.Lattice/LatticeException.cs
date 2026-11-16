@@ -41,8 +41,9 @@ public class LatticeException : Exception
     public int? OperationIndex { get; init; }
 
     /// <summary>
-    /// Set for <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the limit the read would
-    /// have exceeded.
+    /// Set for <see cref="LatticeErrorEnum.ReadLimitExceeded"/>, the limit the read would have
+    /// exceeded, and for <see cref="LatticeErrorEnum.WriteRejected"/>, the limit that refused
+    /// the write.
     /// </summary>
     public LatticeLimitEnum? Limit { get; init; }
 }

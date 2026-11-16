@@ -28,9 +28,19 @@ public enum LatticeDatabaseStateEnum
     Ready = 4,
 
     /// <summary>
-    /// The instance has stopped because it can no longer guarantee coherent local state.
-    /// It serves nothing; close it and create a new instance to recover.
+    /// The instance has stopped because it can no longer guarantee coherent local state, for
+    /// example because the publication of a write failed. It serves nothing: every operation, a
+    /// read included, reports <see cref="LatticeErrorEnum.Unavailable"/>, and
+    /// <see cref="ILatticeDatabase.CloseAsync"/> works. Close it and create a new instance to
+    /// recover.
     /// </summary>
+    /// <remarks>
+    /// No read returns a part of the write whose publication failed: a read sees that write
+    /// whole or not at all. A read that was in progress when the instance faulted ends as well,
+    /// with the state before that write or with <see cref="LatticeErrorEnum.Unavailable"/>; it
+    /// does not wait for a publication that will not finish. A MemoryOnly instance that faulted
+    /// has lost its data.
+    /// </remarks>
     Faulted = 5,
 
     /// <summary>The instance has been closed and its memory released.</summary>

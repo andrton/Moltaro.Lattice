@@ -37,9 +37,11 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>A record is not the boundary of the database.</b> The boundary is a write, through a
 /// set or by adding to a write batch, and a read. A write validates the record again and
-/// copies it at every depth, owned values and byte arrays included: nothing changed in the
-/// record afterwards reaches what was submitted. What a read returns shares nothing with the
-/// database or with another read.
+/// copies it at every depth, owned values and byte arrays included. A write through a set
+/// reads the record while the call runs, so the record must not change until the write
+/// completes, as <see cref="ILatticeSet"/> says; adding to a write batch copies it when it is
+/// added. Nothing changed in the record afterwards reaches what was submitted. What a read
+/// returns shares nothing with the database or with another read.
 /// </para>
 /// </remarks>
 public sealed class LatticeRecord

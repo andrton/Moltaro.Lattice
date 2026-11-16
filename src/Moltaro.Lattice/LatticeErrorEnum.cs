@@ -46,7 +46,14 @@ public enum LatticeErrorEnum
     /// The write was refused before execution because the instance cannot hold it: within its
     /// memory budget, or within a limit of its storage that is set, such as the limit of its
     /// journal. It was not executed and will not execute later.
+    /// <see cref="LatticeException.Limit"/> names the limit: <see cref="LatticeLimitEnum.Memory"/>
+    /// for the memory budget, <see cref="LatticeDatabaseOptions.MemoryLimit"/>.
     /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> The memory budget is not enforced yet, as
+    /// <see cref="LatticeDatabaseOptions.MemoryLimit"/> states, so no write is refused with this
+    /// error yet.
+    /// </remarks>
     WriteRejected = 7,
 
     /// <summary>

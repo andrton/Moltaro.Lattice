@@ -13,8 +13,9 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
 /// synchronous reads return what this node has now, the asynchronous ones first wait for
 /// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
-/// through a child, complete when that child has applied them; a record passed to a write
-/// must stay unchanged until the returned task completes; the same failures are reported.
+/// through a child, complete when that child has applied them; do not change a record passed
+/// to a write, its collections or its byte arrays until the write completes, because the
+/// database reads them while the call runs; the same failures are reported.
 /// A record of another entity type is an <see cref="ArgumentException"/>.
 /// </remarks>
 public interface ILatticeSet
