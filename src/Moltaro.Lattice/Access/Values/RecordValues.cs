@@ -48,7 +48,15 @@ internal static class RecordValues
     // value above it is refused before it is copied. A String or Binary value inside a collection or
     // an owned value is not: whether the bound holds for it is the planner's, with the contracts of
     // S18 and S19 (Q35, point 7, of Epic 1), and no entity type with such a field is stored yet.
-    public static object?[] Submit(LatticeEntityType entityType, object?[] values)
+    //
+    // A Binary value of a field of the entity is copied when copyBinary is true, for a database that
+    // keeps what it takes, the placeholder, and for a write batch, which copies an operation when it is
+    // added. When it is false the array the record holds is taken as it is, after the same check that
+    // it is a byte[] and nothing else: the engine copies it once, into its own memory, while the write
+    // runs, and the caller keeps it unchanged until the write completes (the planner's answer to Q43,
+    // from the accepted decision "Stable write inputs until completion"). A Binary value inside a
+    // collection or an owned value is copied with it either way; the engine stores no such field yet.
+    public static object?[] Submit(LatticeEntityType entityType, object?[] values, bool copyBinary)
     {
         var fields = entityType.Fields;
 
@@ -64,7 +72,7 @@ internal static class RecordValues
         }
 
         var submitted = new object?[values.Length];
-        CopyFields(entityType.Fields, values, submitted, entityType.Name, entityType.Name);
+        CopyFields(entityType.Fields, values, submitted, entityType.Name, entityType.Name, copyBinary);
 
         return submitted;
     }
@@ -74,12 +82,23 @@ internal static class RecordValues
         LatticeFieldTypeEnum.Owned => CopyOwned(declaration.OwnedType!, value, place),
         LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Set => CopySequence(declaration, value, place),
         LatticeFieldTypeEnum.Map => CopyMap(declaration, value, place),
-        // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others.
-        LatticeFieldTypeEnum.Binary => value.GetType() == typeof(byte[]) ? ((byte[])value).Clone() : throw place.Fail(NotAccepted(declaration, value)),
+        LatticeFieldTypeEnum.Binary => TakeBinary(declaration, value, place, copy: true),
         LatticeFieldTypeEnum.String => CopyText(declaration, value, place),
         LatticeFieldTypeEnum.Enum => CopyEnum(declaration, value, place),
         _ => value.GetType() == declaration.ValueType ? value : throw place.Fail(NotAccepted(declaration, value)),
     };
+
+    // Exactly a byte[]: the runtime also takes an sbyte[] for one, whose values are others. A copy of
+    // it, or the array itself when copy is false (Submit).
+    private static object TakeBinary(LatticeValueDeclaration declaration, object value, Place place, bool copy)
+    {
+        if (value.GetType() != typeof(byte[]))
+        {
+            throw place.Fail(NotAccepted(declaration, value));
+        }
+
+        return copy ? ((byte[])value).Clone() : value;
+    }
 
     // An owned value is copied field by field, as if each field were set again, so what it
     // holds is checked as a field of its owned type, and a message names that field.
@@ -92,14 +111,15 @@ internal static class RecordValues
         }
 
         var copy = new LatticeOwnedValue(ownedType);
-        CopyFields(ownedType.Fields, source.Values, copy.Values, place.EntityType, ownedType.Name);
+        CopyFields(ownedType.Fields, source.Values, copy.Values, place.EntityType, ownedType.Name, copyBinary: true);
 
         return copy;
     }
 
     // The fields of an entity type or of an owned type, the owner. A field without a value is
-    // refused only by a write, which names the entity type it writes.
-    private static void CopyFields(IReadOnlyList<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner)
+    // refused only by a write, which names the entity type it writes. A Binary value of one of these
+    // fields is copied when copyBinary is true (Submit).
+    private static void CopyFields(IReadOnlyList<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner, bool copyBinary)
     {
         foreach (var field in fields)
         {
@@ -107,7 +127,9 @@ internal static class RecordValues
             var value = values[field.Ordinal];
             if (value is not null)
             {
-                into[field.Ordinal] = Copy(field.Declaration, value, place);
+                into[field.Ordinal] = field.Declaration.Type == LatticeFieldTypeEnum.Binary
+                    ? TakeBinary(field.Declaration, value, place, copyBinary)
+                    : Copy(field.Declaration, value, place);
             }
             else if (entityType is not null && !field.Declaration.IsNullable)
             {

@@ -9,7 +9,9 @@ namespace Moltaro.Lattice.Engine.Sets;
 // The entities of one entity type by name, as records, on the engine. It behaves as the contract of
 // ILatticeSet says, member for member as ClassSet does; a read allocates the returned record, with
 // what it holds, and nothing else. A key boxed by the caller, as the signatures that take object
-// have it, is the caller's allocation (brief of S06, "The allocation of a read").
+// have it, is the caller's allocation (brief of S06, "The allocation of a read"). A write takes the
+// byte arrays of the fields of a record as the record holds them, and the engine copies each once,
+// into its own memory, while the write runs (LatticeRecord.Capture; the planner's answer to Q43).
 internal sealed class RecordSet : ILatticeSet
 {
     private readonly SetOperations _operations;
@@ -112,7 +114,7 @@ internal sealed class RecordSet : ILatticeSet
 
         try
         {
-            values = record.Capture();
+            values = record.Capture(copyBinary: false);
         }
         catch (LatticeException exception)
         {

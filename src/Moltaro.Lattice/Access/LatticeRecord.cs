@@ -119,9 +119,10 @@ public sealed class LatticeRecord
     /// <exception cref="InvalidCastException">The field value is not a <typeparamref name="T"/>.</exception>
     public T? Get<T>(string fieldName) => this[fieldName] is { } value ? (T)value : default;
 
-    // Record -> values to store, checked against the schema at every depth. The result shares
-    // nothing mutable with the record.
-    internal object?[] Capture() => RecordValues.Submit(EntityType, _values);
+    // Record -> values to store, checked against the schema at every depth. With copyBinary true the
+    // result shares nothing mutable with the record; with false it shares the byte arrays of the
+    // fields of the entity, which the engine reads while the write runs (RecordValues.Submit).
+    internal object?[] Capture(bool copyBinary) => RecordValues.Submit(EntityType, _values, copyBinary);
 
     // The values the record holds, by LatticeField.Ordinal, for a read that fills a new record in
     // place: the engine, which puts into it values it has made for this record alone, each in the
