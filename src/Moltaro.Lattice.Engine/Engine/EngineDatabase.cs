@@ -313,6 +313,18 @@ internal sealed class EngineDatabase : ILatticeDatabase
     public void ArmFault(EngineFaultPointEnum point) =>
         throw new NotSupportedException($"The fault point {point} comes with the write coordinator of Epic 1, sprint S09.");
 
+    // For the tests of the engine, as ArmFault(point): the given number of passes of writes go through
+    // the point, and the pass after them throws, so that a test can fault the second write of a group
+    // and state what the first, published before the fault, returns (the answers of the planner to the
+    // contract author, "After a fault"). ArmFault(point) is ArmFault(point, 0). An armed point costs a
+    // pass what ArmFault(point) costs it, and a point nobody armed nothing more. A negative number is
+    // ArgumentOutOfRangeException.
+    //
+    // A stub added by the test author of S09, because no member of the contract lets a write of a
+    // group pass the point before another faults there; the implementer of S09 replaces the body.
+    public void ArmFault(EngineFaultPointEnum point, int skippedPasses) =>
+        throw new NotSupportedException($"The fault point {point}, after {skippedPasses} passes, comes with the write coordinator of Epic 1, sprint S09.");
+
     public LatticeDatabaseStateEnum State => _state;
 
     public LatticeSchema Schema

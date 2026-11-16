@@ -1,0 +1,41 @@
+using System.Diagnostics;
+
+namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
+
+// Waits until the counters of a database show what a test waits for, within the bound. Preparation
+// runs on threads of the engine and tells nobody when it has finished: the prepared capacity of the
+// arena, ArenaCounters.PreparedBytes, is the one sign of it (brief of Epic 1, sprint S09, "What is
+// counted"). A test that holds the commit stage (HeldCommitStorage) waits here until the writes it
+// submitted are prepared, and the counters it waits for are exact, so the wait ends as soon as they
+// hold, and fails after the bound when they never do. It looks at the counters about once a
+// millisecond; between two looks the thread waits outside every lock of the engine.
+internal static class CountersWait
+{
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
+    public static async Task<EngineCounters> UntilAsync(EngineDatabase database, Func<EngineCounters, bool> condition, string awaited)
+    {
+        var waited = Stopwatch.StartNew();
+
+        while (true)
+        {
+            var counters = database.Counters;
+
+            if (condition(counters))
+            {
+                return counters;
+            }
+
+            if (waited.Elapsed > Bound)
+            {
+                Assert.Fail($"The counters did not show within the bound that {awaited}: {counters}.");
+            }
+
+            await Task.Delay(1);
+        }
+    }
+
+    // The writes the test submitted are prepared: the arena holds this many prepared bytes.
+    public static Task<EngineCounters> PreparedAsync(EngineDatabase database, long preparedBytes) =>
+        UntilAsync(database, counters => counters.Arena.PreparedBytes == preparedBytes, $"{preparedBytes} bytes are prepared");
+}

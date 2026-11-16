@@ -20,18 +20,17 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 //   progress, nothing is left: no live byte, no prepared or retired block, no retired table of the
 //   index and no root entry (EngineCounters; brief of S08, "Counters and the drain, part 1").
 // It holds for an Int64 key and for a String key, which the index compares with the text in the
-// root. Readers read through the class and by name, on threads of their own, until the writes are
-// done; two writers write two keys each, a fixed number of times. Nothing sleeps, and every read is
-// checked on its own, so what the test asserts does not depend on how the threads interleave.
+// root, and with 1, 2, 4 and 16 writing callers, which the write coordinator serves at once (brief of
+// Epic 1, sprint S09, "Measured": reads beside 1, 4 and 16 callers). Readers read through the class and
+// by name, on threads of their own, until the writes are done; each writer writes keys of its own, at
+// least four keys in all, a fixed number of times. Nothing sleeps, and every read is checked on its
+// own, so what the test asserts does not depend on how the threads interleave.
 public sealed class ChurnTests
 {
-    private const int Keys = 4;
-
-    private const int Writers = 2;
-
-    // The writes of each key after its first insert, in cycles of four: replace, replace, delete,
-    // insert. 300 deletes and 300 inserts again of every key, 4,800 writes in all.
-    private const int WritesPerKey = 1_200;
+    // The writes of all keys after their first inserts, in cycles of four for each key: replace,
+    // replace, delete, insert. With four keys 300 deletes and 300 inserts again of every key; with
+    // sixteen, 75 of each.
+    private const int Writes = 4_800;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -39,10 +38,18 @@ public sealed class ChurnTests
     private static int Readers => Math.Clamp(Environment.ProcessorCount, 4, 8);
 
     [Theory]
-    [InlineData("Int64")]
-    [InlineData("String")]
-    public async Task Reads_while_few_entities_are_replaced_deleted_and_created_again_return_a_state_their_key_had_and_leave_nothing_behind(string keyType)
+    [InlineData("Int64", 1)]
+    [InlineData("Int64", 2)]
+    [InlineData("Int64", 4)]
+    [InlineData("Int64", 16)]
+    [InlineData("String", 1)]
+    [InlineData("String", 2)]
+    [InlineData("String", 4)]
+    [InlineData("String", 16)]
+    public async Task Reads_while_few_entities_are_replaced_deleted_and_created_again_return_a_state_their_key_had_and_leave_nothing_behind(string keyType, int writers)
     {
+        var keys = Math.Max(4, writers);
+        var writesPerKey = Writes / keys;
         var database = await StampSchema.OpenAsync();
 
         try
@@ -59,10 +66,10 @@ public sealed class ChurnTests
 
             // For every key, the index of the last write that has started and of the last that has
             // returned. Write 0 is the first insert.
-            var started = new int[Keys];
-            var returned = new int[Keys];
+            var started = new int[keys];
+            var returned = new int[keys];
 
-            for (var key = 0; key < Keys; key++)
+            for (var key = 0; key < keys; key++)
             {
                 await records.InsertAsync(StampSchema.RecordOf(entityType, key, 0));
             }
@@ -74,16 +81,16 @@ public sealed class ChurnTests
                     var next = reader;
                     var read = reader % 2 == 0 ? readByClass : readByName;
 
-                    return () => ExpectStateDuringRead(next++ % Keys, read, started, returned);
+                    return () => ExpectStateDuringRead(next++ % keys, read, started, returned);
                 },
-                () => Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => Task.Run(() => WriteAsync(records, writer, started, returned)))))
+                () => Task.WhenAll(Enumerable.Range(0, writers).Select(writer => Task.Run(() => WriteAsync(records, writer, writers, writesPerKey, started, returned)))))
                 .WaitAsync(Bound);
 
             // Afterwards each key has the state of its last write, through the class and by name; then
             // everything is deleted, and nothing is left.
-            for (var key = 0; key < Keys; key++)
+            for (var key = 0; key < keys; key++)
             {
-                long? last = IsDelete(WritesPerKey) ? null : WritesPerKey;
+                long? last = IsDelete(writesPerKey) ? null : writesPerKey;
 
                 Assert.Equal(last, readByClass(key));
                 Assert.Equal(last, readByName(key));
@@ -115,13 +122,14 @@ public sealed class ChurnTests
     private static bool IsDelete(int write) => write % 4 == 3;
 
     // Write i of a key replaces it, deletes it or inserts it again by i alone, with the state number i.
-    private static async Task WriteAsync(ILatticeSet records, int writer, int[] started, int[] returned)
+    // The writer writes the keys whose number leaves its own when divided by the number of writers.
+    private static async Task WriteAsync(ILatticeSet records, int writer, int writers, int writesPerKey, int[] started, int[] returned)
     {
         var entityType = records.EntityType;
 
-        for (var write = 1; write <= WritesPerKey; write++)
+        for (var write = 1; write <= writesPerKey; write++)
         {
-            for (var key = writer; key < Keys; key += Writers)
+            for (var key = writer; key < started.Length; key += writers)
             {
                 // A full fence, so that a reader that sees anything of this write sees that it started.
                 Interlocked.Exchange(ref started[key], write);

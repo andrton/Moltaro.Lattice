@@ -1,3 +1,5 @@
+using Moltaro.Lattice.TestSupport.Positions;
+
 namespace Moltaro.Lattice.Tests;
 
 internal static class TestData
@@ -78,14 +80,13 @@ internal static class TestData
     // The position of the same history with the next sequence: ahead of a database that is at the
     // given position, which only a caller can make up. It is made up from the text of the position,
     // whose form the documentation does not describe: its history, a hyphen and its sequence in
-    // hexadecimal, as LatticePosition.ToString writes it.
+    // hexadecimal, as LatticePosition.ToString writes it (PositionSequence).
     public static LatticePosition Ahead(LatticePosition position)
     {
         var text = position.ToString();
         var separator = text.IndexOf('-', StringComparison.Ordinal);
-        var sequence = ulong.Parse(text.AsSpan(separator + 1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
 
-        return LatticePosition.Parse($"{text[..separator]}-{sequence + 1:x}");
+        return LatticePosition.Parse($"{text[..separator]}-{PositionSequence.Of(position) + 1:x}");
     }
 
     public static async Task<LatticeException> ExpectErrorAsync(LatticeErrorEnum expected, Func<ValueTask<LatticeWriteResult>> write)

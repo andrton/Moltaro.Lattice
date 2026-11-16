@@ -1,18 +1,21 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.TestSupport.Writes;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// A write the arena refuses frees what no read in progress can reach and tries again, then waits for
-// the reads that still hold retired memory, frees and tries once more, and only then is refused
-// (brief of Epic 1, sprint S08, "Tests the sprint breaks, part 1": on a refusal of the arena a write
-// drains and retries, and waits for the reads that still hold retired memory before it is refused;
-// the wait honors the cancellation of the write's token). The database is opened with an arena of two
-// segments of the default size, 8 MiB (EngineDatabase.Create with arena options, exception X3), and
-// a piece holds a Binary value of 3 MiB: two states of it fit, three do not. A replace retires the
-// state it replaced, which stays retired: a look of the writer comes only after a segment of retired
-// bytes or a table's worth of retired things. So:
+// A write the arena refuses frees what no read in progress can reach and tries again; while it is
+// still refused it waits, outside every lock, for the reads that hold retired memory and for every
+// write admitted before it to complete, and tries again; it is refused only when every write admitted
+// before it has completed, nothing retired is left and the arena still has no room. A write refused so
+// is WriteRejected with Limit Memory, has had no effect and never runs later, and the token of the
+// write cancels its wait (brief of Epic 1, sprint S09, "The refusal", which restates the rule of S08,
+// "Tests the sprint breaks, part 1"; decision Q14 of the decision on write admission, as amended on 16
+// November 2026). The database is opened with an arena of two segments of the default size, 8 MiB
+// (EngineTestInputs, exception X3), and a piece holds a Binary value of 3 MiB: two states of it fit,
+// three do not. A replace retires the state it replaced, which stays retired: a look of the writer
+// comes only after a segment of retired bytes or a table's worth of retired things. So:
 // - A replace whose new state fits only once the retired one is freed, which no read holds, succeeds.
 // - When a read held inside the protection (HoldNextRead) holds the retired state, the replace waits
 //   for it, which the switch of the engine that runs when a refused write begins to wait tells
@@ -21,6 +24,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   left.
 // - An entity that does not fit even after everything retired is freed is WriteRejected, and nothing
 //   of it is left.
+// - A write that fits only once an earlier replace, still unpublished because the storage step of the
+//   test holds it (HeldCommitStorage), has retired its old root and it was freed, waits for that
+//   replace and completes; the switch tells that it began to wait. Its token cancels that wait too,
+//   and then it has no effect and does not run after the replace.
+// - A write that does not fit an otherwise idle database is WriteRejected with Limit Memory, has no
+//   effect, leaves the instance Ready and nothing of it among the writes admitted (QueuedWrites), and
+//   does not run once memory is freed: no group of the storage step ever holds it.
 // Every wait is bounded.
 public sealed class RefusedWriteTests
 {
@@ -65,7 +75,7 @@ public sealed class RefusedWriteTests
         // The third state fits only once the first is freed: the replace begins to wait, and its token
         // ends the wait. A cancelled write changes nothing.
         using var cancellation = new CancellationTokenSource();
-        var cancelledWaits = WaitForReadsBegins(database);
+        var cancelledWaits = RefusedWriteWait.Begins(database);
         var cancelled = Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 12, data: Large), cancellation.Token).AsTask());
 
         await ExpectWaitingAsync(cancelledWaits, cancelled);
@@ -76,7 +86,7 @@ public sealed class RefusedWriteTests
 
         // A replace that waits again succeeds once the held read has left, which returns the state it
         // found or the one that replaced it.
-        var waits = WaitForReadsBegins(database);
+        var waits = RefusedWriteWait.Begins(database);
         var waiting = Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 13, data: Large)).AsTask());
 
         await ExpectWaitingAsync(waits, waiting);
@@ -98,41 +108,134 @@ public sealed class RefusedWriteTests
 
         // Two states of the size of the first and the live one: more than the arena holds, also once
         // the retired state is freed.
-        var refused = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: 2 * Large)));
+        var refused = await Assert.ThrowsAsync<LatticeException>(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: 2 * Large)).AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.WriteRejected, refused.Error);
         Assert.Null(pieces.Get(2L));
         ExpectHeld(database, PieceSchema.Of(1, name: 11, data: Large));
     }
 
-    // Completes when the next write the arena refused begins to wait for the reads that hold retired
-    // memory. The switch runs on the thread of the write, inside the lock of the writes, and only
-    // completes the task, whose continuations run elsewhere.
-    private static Task WaitForReadsBegins(EngineDatabase database)
+    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    public async Task Write_that_fits_only_once_an_earlier_unpublished_replace_has_retired_its_old_root_waits_for_it_and_completes()
     {
-        var begins = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var storage = new HeldCommitStorage(holding: false);
+        await using var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
 
-        database.HoldNextWaitForReads(() => begins.TrySetResult());
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            storage.Hold();
 
-        return begins.Task;
+            // The replace is prepared and held by the storage step: the arena holds its new state and
+            // the live one, and the insert fits only once the live one is retired and freed.
+            var replace = pieces.ReplaceAsync(PieceSchema.Of(1, name: 11, data: Large)).AsTask();
+            await storage.NextAsync();
+            var waits = RefusedWriteWait.Begins(database);
+            var insert = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: Large)).AsTask());
+
+            await ExpectWaitingAsync(waits, insert);
+            storage.ReleaseAll();
+
+            Assert.True((await replace.WaitAsync(Bound)).Changed);
+            Assert.True((await insert.WaitAsync(Bound)).Changed);
+            Assert.Equal(11, pieces.Get(1L)?.Name.Length);
+            Assert.Equal(10, pieces.Get(2L)?.Name.Length);
+            ExpectHeld(database, PieceSchema.Of(1, name: 11, data: Large), PieceSchema.Of(2, name: 10, data: Large));
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
     }
 
+    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    public async Task Write_that_waits_for_an_earlier_write_after_the_arena_refused_it_is_cancelled_by_its_token_and_never_runs()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        await using var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            storage.Hold();
+
+            var replace = pieces.ReplaceAsync(PieceSchema.Of(1, name: 11, data: Large)).AsTask();
+            var held = await storage.NextAsync();
+
+            using var cancellation = new CancellationTokenSource();
+            var waits = RefusedWriteWait.Begins(database);
+            var insert = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: Large), cancellation.Token).AsTask());
+
+            await ExpectWaitingAsync(waits, insert);
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => insert.WaitAsync(Bound));
+            Assert.Equal(1, database.Counters.QueuedWrites);
+
+            held.Release();
+
+            Assert.True((await replace.WaitAsync(Bound)).Changed);
+            Assert.Null(pieces.Get(2L));
+            Assert.Equal(2, database.Counters.PublishedSequence);
+            ExpectHeld(database, PieceSchema.Of(1, name: 11, data: Large));
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
+    }
+
+    [Fact(Skip = NotImplemented.WriteCoordinator)]
+    public async Task Write_that_does_not_fit_an_otherwise_idle_database_is_WriteRejected_with_Limit_Memory_and_never_runs_later()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        await using var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+        var large = PieceSchema.Of(2, name: 10, data: 2 * Large);
+
+        await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+
+        var refused = await Assert.ThrowsAsync<LatticeException>(() => pieces.InsertAsync(large).AsTask().WaitAsync(Bound));
+
+        // Nothing of it is left among the writes admitted, so nothing of it waits to run.
+        Assert.Equal(0, database.Counters.QueuedWrites);
+        Assert.Equal(LatticeErrorEnum.WriteRejected, refused.Error);
+        Assert.Equal(LatticeLimitEnum.Memory, refused.Limit);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
+        Assert.Null(pieces.Get(2L));
+        Assert.Equal(1, database.Counters.PublishedSequence);
+        ExpectHeld(database, PieceSchema.Of(1, name: 10, data: Large));
+
+        // Once memory is freed the arena would hold it, and writes after it complete without it; no
+        // group ever held it.
+        Assert.True((await pieces.DeleteAsync(1L)).Changed);
+        database.DrainRetired();
+        await pieces.InsertAsync(PieceSchema.Of(3, name: 10));
+
+        Assert.Null(pieces.Get(2L));
+        Assert.Equal(3, database.Counters.PublishedSequence);
+        Assert.Equal(0, database.Counters.QueuedWrites);
+        Assert.DoesNotContain(storage.Commits.SelectMany(commit => commit.Sizes), size => size == PieceTally.SlotBytesOf(large));
+        ExpectHeld(database, PieceSchema.Of(3, name: 10));
+    }
+
+    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = new NativeAllocator(), CommitStorage = storage });
+
     // The write began to wait before it ended: a write that the arena refused instead of waiting, or
-    // that succeeded without the memory the held read keeps, ends without beginning to wait.
+    // that succeeded without the memory the held read or the earlier write keeps, ends without
+    // beginning to wait.
     private static async Task ExpectWaitingAsync(Task waits, Task write)
     {
         await Task.WhenAny(waits, write).WaitAsync(Bound);
 
-        Assert.True(waits.IsCompleted, "The replace ended without waiting for the read that holds the memory it needs.");
-        Assert.False(write.IsCompleted, "The replace ended while the read that holds the memory it needs was in progress.");
+        Assert.True(waits.IsCompleted, "The write ended without waiting for what holds the memory it needs.");
+        Assert.False(write.IsCompleted, "The write ended while what holds the memory it needs was in progress.");
     }
 
-    // After a drain with no read in progress, the database holds this piece alone.
-    private static void ExpectHeld(EngineDatabase database, PieceSchema.Piece piece)
-    {
-        var tally = new PieceTally();
-
-        tally.Written(piece);
-        tally.ExpectHeldBy(database);
-    }
+    // After a drain with no read in progress, the database holds these pieces alone.
+    private static void ExpectHeld(EngineDatabase database, params PieceSchema.Piece[] pieces) =>
+        PieceTally.Of(pieces).ExpectHeldBy(database);
 }

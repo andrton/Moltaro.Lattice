@@ -4,6 +4,7 @@ public sealed class LatticeDatabaseOptionsTests
 {
     private static readonly LatticeSchema Schema = TestData.Schema;
     private const string Storage = "Host=localhost";
+    private const long FourMebibytes = 4 * 1024 * 1024;
     private static readonly Uri Master = new("https://master.example");
 
     [Fact]
@@ -106,6 +107,36 @@ public sealed class LatticeDatabaseOptionsTests
         AssertInvalid(MemoryOnlyMaster(readMemoryLimit: null, readTimeLimit: TimeSpan.Zero));
         AssertInvalid(MemoryOnlyMaster(readMemoryLimit: null, readTimeLimit: TimeSpan.FromTicks(-1)));
     }
+
+    // The memory budget of an instance (brief of Epic 1, sprint S09): unset by default, and refused by
+    // Validate when it is set below one segment of the memory of the engine, 4 MiB.
+    [Fact]
+    public void Memory_limit_is_unset_by_default_and_any_value_of_at_least_4_MiB_is_valid()
+    {
+        Assert.Null(new LatticeDatabaseOptions().MemoryLimit);
+
+        MemoryOnlyMaster(memoryLimit: null).Validate();
+        MemoryOnlyMaster(memoryLimit: FourMebibytes).Validate();
+        MemoryOnlyMaster(memoryLimit: FourMebibytes + 1).Validate();
+        MemoryOnlyMaster(memoryLimit: long.MaxValue).Validate();
+    }
+
+    [Fact]
+    public void Memory_limit_that_is_set_and_smaller_than_4_MiB_is_refused()
+    {
+        AssertInvalid(MemoryOnlyMaster(memoryLimit: FourMebibytes - 1));
+        AssertInvalid(MemoryOnlyMaster(memoryLimit: 0));
+        AssertInvalid(MemoryOnlyMaster(memoryLimit: -1));
+        AssertInvalid(MemoryOnlyMaster(memoryLimit: long.MinValue));
+    }
+
+    private static LatticeDatabaseOptions MemoryOnlyMaster(long? memoryLimit) =>
+        new()
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = Schema,
+            MemoryLimit = memoryLimit,
+        };
 
     private static LatticeDatabaseOptions MemoryOnlyMaster(long? readMemoryLimit, TimeSpan? readTimeLimit) =>
         new()
