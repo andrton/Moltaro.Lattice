@@ -2921,6 +2921,18 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
   commit: "The engine remembers the keys it has returned for the length of the pass, so
   that none is returned twice; that memory grows with the pass and is what a memory limit
   of a read bounds."
+- **Notes of the coordinator for part 2, 16 November 2026.** The time limit is the sum of
+  the time inside the steps of one pass, waits inside the engine included (a read takes
+  no gate since part 1; it can wait for a slot of the epoch table and for a write of its
+  entity between its stores). An option without an upper bound may be `TimeSpan.MaxValue`,
+  so a deadline is computed without overflow. The sentence of the Acceptance "its temporary
+  memory is counted in the instance budget" waits for the budget: the option arrives in
+  S09 and S24 extends it to the scratch of reads; in this sprint the temporary memory of a
+  read is counted for its own limit and reported by a counter of the engine, and nothing
+  is refused for the budget. An enumeration steps through the primary index of part 1: a
+  step enters and leaves the epoch and holds nothing between two steps; a growth or a
+  change of the index during the pass no longer fails it. The listing speaks of "one
+  enumeration or one search": searches take their limits in S15.
 
 **The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
 through the planner's session: reads by key have to scale with threads, and the work is
