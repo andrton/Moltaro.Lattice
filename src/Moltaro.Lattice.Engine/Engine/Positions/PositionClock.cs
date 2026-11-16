@@ -15,7 +15,8 @@ namespace Moltaro.Lattice.Engine.Positions;
 // One thread at a time publishes, the one that executes a write; any thread reads the sequence.
 internal sealed class PositionClock
 {
-    private ulong _sequence;
+    // On lines of its own (SequenceLine).
+    private SequenceLine _sequence;
 
     // Completed at the next publication. A waiter makes it, so that a write that nobody waits for
     // allocates nothing.
@@ -35,7 +36,7 @@ internal sealed class PositionClock
     public ulong History { get; }
 
     // The sequence of the last published position.
-    public ulong Sequence => Volatile.Read(ref _sequence);
+    public ulong Sequence => Volatile.Read(ref _sequence.Value);
 
     // The last published position.
     public LatticePosition Position => At(Sequence);
@@ -46,7 +47,7 @@ internal sealed class PositionClock
     // Publishes a sequence. The write calls it while it holds the gates under which its change is
     // seen, so that a read that sees the change reads this sequence or a later one; it wakes the
     // waiters with Wake after it has released them.
-    public void Publish(ulong sequence) => Volatile.Write(ref _sequence, sequence);
+    public void Publish(ulong sequence) => Volatile.Write(ref _sequence.Value, sequence);
 
     // Lets every wait look at the sequence again.
     public void Wake() => Interlocked.Exchange(ref _published, null)?.TrySetResult();

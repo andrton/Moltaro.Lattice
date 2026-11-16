@@ -43,7 +43,9 @@ internal sealed class RootTable
     // next slot of the list in the same form; Add overwrites it with the type of the new lifetime
     // and zeroes every other field. The list takes no memory beyond the entries, and Release
     // allocates nothing. A retired slot is never in the list.
-    private uint _freeSlots;
+    //
+    // With the count, on lines of their own (RootTableCounts).
+    private RootTableCounts _counts;
 
     // Takes a free slot for a new lifetime of a root of the entity type typeId and returns its
     // handle, which carries the slot's next generation. When no slot is free, the table adds a
@@ -54,10 +56,10 @@ internal sealed class RootTable
     {
         uint slot;
 
-        if (_freeSlots != 0)
+        if (_counts.FreeSlots != 0)
         {
-            slot = _freeSlots - 1;
-            _freeSlots = EntryAt(slot).TypeId;
+            slot = _counts.FreeSlots - 1;
+            _counts.FreeSlots = EntryAt(slot).TypeId;
         }
         else
         {
@@ -78,7 +80,7 @@ internal sealed class RootTable
             State = RootStateEnum.Prepared,
         };
 
-        Count++;
+        _counts.Count++;
 
         return new RootHandle(generation, slot);
     }
@@ -140,16 +142,16 @@ internal sealed class RootTable
         else
         {
             entry.State = RootStateEnum.Free;
-            entry.TypeId = _freeSlots;
-            _freeSlots = handle.Slot + 1;
+            entry.TypeId = _counts.FreeSlots;
+            _counts.FreeSlots = handle.Slot + 1;
         }
 
-        Count--;
+        _counts.Count--;
     }
 
     // How many slots hold a lifetime: given out by Add and not released since. A retired slot is
     // not counted.
-    public int Count { get; private set; }
+    public int Count => _counts.Count;
 
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.
     public int Pages { get; private set; }

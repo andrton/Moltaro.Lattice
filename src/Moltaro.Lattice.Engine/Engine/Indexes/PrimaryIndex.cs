@@ -40,14 +40,15 @@ internal sealed class PrimaryIndex
 
     private IndexTable _table = new(FirstBucketBits);
 
-    private int _version;
+    // The version and the bytes of a table being built, on lines of their own (IndexChanges).
+    private IndexChanges _changes;
 
     public PrimaryIndex(RetiredMemory retired)
     {
         _retired = retired;
     }
 
-    public int Version => Volatile.Read(ref _version);
+    public int Version => Volatile.Read(ref _changes.Version);
 
     // The bytes of the current table. For the writer and the counters.
     public long Bytes => _table.Bytes;
@@ -55,7 +56,7 @@ internal sealed class PrimaryIndex
     // The bytes of the table being built while the index grows, 0 otherwise. The counters are taken
     // between two writes, so they read 0 here; it is the figure the budget of S09 charges while a
     // growth runs.
-    public long ReplacementBytes { get; private set; }
+    public long ReplacementBytes => _changes.ReplacementBytes;
 
     // The entries of the hash in the current table. The table is read with acquire semantics, which
     // pairs with the release of the store that published it (Grow).
@@ -98,17 +99,17 @@ internal sealed class PrimaryIndex
 
         var grown = new IndexTable(current.BucketBits + 1);
 
-        ReplacementBytes = grown.Bytes;
+        _changes.ReplacementBytes = grown.Bytes;
         current.CopyInto(grown);
 
         // The release of this store publishes the new table with every entry written into it: a reader
         // that reads the new table (Find) sees them all. A reader that still has the old one finds
         // the same entries in it, unchanged.
         Volatile.Write(ref _table, grown);
-        ReplacementBytes = 0;
+        _changes.ReplacementBytes = 0;
         _retired.RetireTable(current, current.Bytes);
         Changed();
     }
 
-    private void Changed() => Volatile.Write(ref _version, _version + 1);
+    private void Changed() => Volatile.Write(ref _changes.Version, _changes.Version + 1);
 }

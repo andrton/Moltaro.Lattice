@@ -19,9 +19,10 @@ namespace Moltaro.Lattice.Engine.Protection;
 // waits for the writer.
 //
 // What is taken from LightEpoch: the table of padded slots of one instance, sized as LightEpoch sizes
-// it; entering by a compare-and-swap of the current epoch into a free slot (TryClaimEntry); one
-// epoch for the instance that only the writer moves on (BumpCurrentEpoch); and the safe epoch, one
-// below the oldest epoch a slot holds (ComputeNewSafeToReclaimEpoch). What differs, and why:
+// it and rounded up to a power of two (below); entering by a compare-and-swap of the current epoch
+// into a free slot (TryClaimEntry); one epoch for the instance that only the writer moves on
+// (BumpCurrentEpoch); and the safe epoch, one below the oldest epoch a slot holds
+// (ComputeNewSafeToReclaimEpoch). What differs, and why:
 // - No static or thread-static state, and no limit on the number of instances (AGENTS.md,
 //   principles 9 and 10). LightEpoch keeps the slot of a thread in thread-static memory, indexed by
 //   an instance id from a static table of 1,024. Here a read starts its search at the slot of the
@@ -52,8 +53,11 @@ namespace Moltaro.Lattice.Engine.Protection;
 // a release: everything it read is read before a writer that reads the slot free, by Volatile.Read,
 // frees anything.
 //
-// Memory: 128 bytes a slot, at least 128 slots and twice the logical processors rounded up to a
-// power of two, 16 KiB at up to 64 logical processors. Nothing per thread.
+// The number of slots: the larger of 128 and twice the logical processors, as LightEpoch takes it,
+// rounded up to a power of two, so that the number of a processor masked with the slots less one is
+// a slot of the table (Enter) without a division on the path of every read.
+//
+// Memory: 128 bytes a slot, 16 KiB at up to 64 logical processors. Nothing per thread.
 internal sealed class ReadEpochs
 {
     // A slot that no read holds.

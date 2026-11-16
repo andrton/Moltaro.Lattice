@@ -84,8 +84,9 @@ internal sealed class IndexTable
 
     private readonly int _buckets;
 
-    // The next overflow bucket that no bucket links to yet.
-    private int _nextOverflow;
+    // The entries the table holds and the next overflow bucket that no bucket links to yet, on lines
+    // of their own (IndexTableCounts).
+    private IndexTableCounts _counts;
 
     // A table of 2^bucketBits main buckets, empty. bucketBits is at least 1. The array is allocated
     // before anything else, so an OutOfMemoryException leaves nothing behind.
@@ -98,13 +99,13 @@ internal sealed class IndexTable
         _words = GC.AllocateArray<long>(_buckets * WordsPerBucket + (LineBytes / sizeof(long)) - 1, pinned: true);
         _first = FirstOnLine(_words);
         _shift = 64 - bucketBits;
-        _nextOverflow = _mainBuckets;
+        _counts.NextOverflow = _mainBuckets;
     }
 
     public int BucketBits => 64 - _shift;
 
     // The entries the table holds. For the writer.
-    public int Count { get; private set; }
+    public int Count => _counts.Entries;
 
     // The bytes of the table: its array, with the words that align it.
     public long Bytes => (long)_words.Length * sizeof(long);
@@ -129,7 +130,7 @@ internal sealed class IndexTable
             return false;
         }
 
-        return _nextOverflow < _buckets || EmptyWordOf(hash, out _, out _);
+        return _counts.NextOverflow < _buckets || EmptyWordOf(hash, out _, out _);
     }
 
     // Adds the entry of a key that the index does not hold, after HasRoomFor. The entry is written by
@@ -147,15 +148,15 @@ internal sealed class IndexTable
         }
         else
         {
-            Debug.Assert(_nextOverflow < _buckets, "HasRoomFor left an overflow bucket.");
+            Debug.Assert(_counts.NextOverflow < _buckets, "HasRoomFor left an overflow bucket.");
 
-            var overflow = _nextOverflow++;
+            var overflow = _counts.NextOverflow++;
 
             WordAt(overflow, 0) = entry;
             Volatile.Write(ref WordAt(bucket, LinkWord), overflow);
         }
 
-        Count++;
+        _counts.Entries++;
     }
 
     // Removes the entry of the slot, which the table holds under the hash, by one store of 0. A reader
@@ -173,7 +174,7 @@ internal sealed class IndexTable
                 if (WordAt(bucket, word) == entry)
                 {
                     Volatile.Write(ref WordAt(bucket, word), 0);
-                    Count--;
+                    _counts.Entries--;
 
                     return;
                 }
@@ -191,7 +192,7 @@ internal sealed class IndexTable
     // Copies every entry into a larger table that no reader reaches yet. For the writer.
     public void CopyInto(IndexTable grown)
     {
-        for (var bucket = 0; bucket < _nextOverflow; bucket++)
+        for (var bucket = 0; bucket < _counts.NextOverflow; bucket++)
         {
             for (var word = 0; word < EntriesPerBucket; word++)
             {

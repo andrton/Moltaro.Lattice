@@ -218,22 +218,19 @@ internal sealed class EntityTable
             }
 
             var hash = HashOf(key);
+            var found = TryFindSlot(key, hash, out var slot);
 
-            while (true)
+            // A key it finds needs the sequence of the database once, in TryCopy. An absent key needs
+            // the sequence before a lookup that ends with the sequence unchanged (see the class), so the
+            // read looks up again between two loads of the sequence; the writer writes the sequence at
+            // every write, and a read that loads it only when it needs it misses its line less often.
+            while (!found)
             {
                 var before = _clock.Sequence;
 
-                if (TryFindSlot(key, hash, out var slot))
-                {
-                    ref var entry = ref _roots.EntryOfSlot(slot);
+                found = TryFindSlot(key, hash, out slot);
 
-                    // The switch of the tests, after the read found its root and before it copies it.
-                    _epochs.OfferHold(new RootHandle(entry.Generation, slot));
-
-                    return TryCopy<TCopy, TResult>(ref entry, ref copy, out revision, out sequence);
-                }
-
-                if (_clock.Sequence == before)
+                if (!found && _clock.Sequence == before)
                 {
                     revision = default;
                     sequence = before;
@@ -241,6 +238,13 @@ internal sealed class EntityTable
                     return false;
                 }
             }
+
+            ref var entry = ref _roots.EntryOfSlot(slot);
+
+            // The switch of the tests, after the read found its root and before it copies it.
+            _epochs.OfferHold(new RootHandle(entry.Generation, slot));
+
+            return TryCopy<TCopy, TResult>(ref entry, ref copy, out revision, out sequence);
         }
         finally
         {

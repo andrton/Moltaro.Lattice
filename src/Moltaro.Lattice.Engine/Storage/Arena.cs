@@ -64,9 +64,6 @@ internal sealed unsafe class Arena : IDisposable
     // is held. Slot 0 is never used, so that no block has the address zero, which is null.
     private ArenaSegment?[] _segments = new ArenaSegment?[FirstSegmentTableLength];
 
-    // The lowest slot of the table that was never given to a segment.
-    private int _nextUnusedSegmentSlot = 1;
-
     // Slots of the table whose segment was freed, to be given to the next new segment. Its capacity
     // is kept at the length of the table, so that Free never allocates to push a slot.
     private readonly Stack<int> _freedSegmentSlots = new(FirstSegmentTableLength);
@@ -79,22 +76,11 @@ internal sealed unsafe class Arena : IDisposable
     // are linked through ArenaRegion.Previous and Next, so they take no memory of their own.
     private readonly long[] _regionsWithFreeSlot = new long[SizeClasses.Count];
 
-    // The first of the free regions, the regions of the segments in use that serve no class, linked
-    // in the same way.
-    private long _freeRegions;
-
-    private int _freeRegionCount;
-
-    // The segments held, the reserved ones included.
-    private int _segmentCount;
-
-    private long _liveBytes;
-
-    private long _classSlackBytes;
-
-    private long _preparedBytes;
-
-    private long _retiredBytes;
+    // The counters, the first of the free regions (the regions of the segments in use that serve no
+    // class, linked in the same way), how many free regions and segments there are, the reserved ones
+    // included, and the lowest slot of the table never given to a segment: what allocations and frees
+    // change, on lines of their own (ArenaTally).
+    private ArenaTally _tally = new() { NextUnusedSegmentSlot = 1 };
 
     private bool _disposed;
 
@@ -198,9 +184,9 @@ internal sealed unsafe class Arena : IDisposable
 
         segment.SetPrepared(regionIndex, slot, prepared: false);
 
-        _preparedBytes -= blockSize;
-        _liveBytes += BlockHeader.Size + payloadLength;
-        _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+        _tally.PreparedBytes -= blockSize;
+        _tally.LiveBytes += BlockHeader.Size + payloadLength;
+        _tally.ClassSlackBytes += blockSize - BlockHeader.Size - payloadLength;
     }
 
     // Retires a live block, when the write that replaced or deleted its owner is published: the block
@@ -232,9 +218,9 @@ internal sealed unsafe class Arena : IDisposable
 
         segment.SetRetired(regionIndex, slot, retired: true);
 
-        _liveBytes -= BlockHeader.Size + payloadLength;
-        _classSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
-        _retiredBytes += blockSize;
+        _tally.LiveBytes -= BlockHeader.Size + payloadLength;
+        _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+        _tally.RetiredBytes += blockSize;
     }
 
     // Whether the address is that of a prepared block: valid, and not published since its
@@ -288,12 +274,12 @@ internal sealed unsafe class Arena : IDisposable
         if (prepared)
         {
             segment.SetPrepared(regionIndex, slot, prepared: true);
-            _preparedBytes += blockSize;
+            _tally.PreparedBytes += blockSize;
         }
         else
         {
-            _liveBytes += BlockHeader.Size + payloadLength;
-            _classSlackBytes += blockSize - BlockHeader.Size - payloadLength;
+            _tally.LiveBytes += BlockHeader.Size + payloadLength;
+            _tally.ClassSlackBytes += blockSize - BlockHeader.Size - payloadLength;
         }
 
         address = new ArenaAddress((uint)segmentSlot, (uint)offset);
@@ -340,17 +326,17 @@ internal sealed unsafe class Arena : IDisposable
         if (prepared)
         {
             segment.SetPrepared(regionIndex, slot, prepared: false);
-            _preparedBytes -= blockSize;
+            _tally.PreparedBytes -= blockSize;
         }
         else if (retired)
         {
             segment.SetRetired(regionIndex, slot, retired: false);
-            _retiredBytes -= blockSize;
+            _tally.RetiredBytes -= blockSize;
         }
         else
         {
-            _liveBytes -= BlockHeader.Size + payloadLength;
-            _classSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
+            _tally.LiveBytes -= BlockHeader.Size + payloadLength;
+            _tally.ClassSlackBytes -= blockSize - BlockHeader.Size - payloadLength;
         }
 
         if (region.Allocated > 0)
@@ -428,13 +414,13 @@ internal sealed unsafe class Arena : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             return new ArenaCounters(
-                LiveBytes: _liveBytes,
-                ClassSlackBytes: _classSlackBytes,
-                PreparedBytes: _preparedBytes,
-                RetiredBytes: _retiredBytes,
-                FreeRegions: _freeRegionCount,
+                LiveBytes: _tally.LiveBytes,
+                ClassSlackBytes: _tally.ClassSlackBytes,
+                PreparedBytes: _tally.PreparedBytes,
+                RetiredBytes: _tally.RetiredBytes,
+                FreeRegions: _tally.FreeRegionCount,
                 ReservedSegments: _reservedSegments.Count,
-                Segments: _segmentCount);
+                Segments: _tally.SegmentCount);
         }
     }
 
@@ -524,16 +510,16 @@ internal sealed unsafe class Arena : IDisposable
     {
         long regionNumber;
 
-        if (_freeRegions != NoRegion)
+        if (_tally.FreeRegions != NoRegion)
         {
-            regionNumber = _freeRegions;
+            regionNumber = _tally.FreeRegions;
             RemoveFreeRegion(regionNumber);
         }
         else if (_reservedSegments.Count > 0)
         {
             regionNumber = PutInUse(_reservedSegments.Pop());
         }
-        else if ((_segmentCount + 1L) * _segmentSize <= _memoryLimit)
+        else if ((_tally.SegmentCount + 1L) * _segmentSize <= _memoryLimit)
         {
             regionNumber = PutInUse(ObtainSegment());
         }
@@ -559,7 +545,7 @@ internal sealed unsafe class Arena : IDisposable
     private int ObtainSegment()
     {
         var reuseSlot = _freedSegmentSlots.Count > 0;
-        var slot = reuseSlot ? _freedSegmentSlots.Peek() : _nextUnusedSegmentSlot;
+        var slot = reuseSlot ? _freedSegmentSlots.Peek() : _tally.NextUnusedSegmentSlot;
 
         if (slot == _segments.Length)
         {
@@ -574,11 +560,11 @@ internal sealed unsafe class Arena : IDisposable
         }
         else
         {
-            _nextUnusedSegmentSlot++;
+            _tally.NextUnusedSegmentSlot++;
         }
 
         _segments[slot] = segment;
-        _segmentCount++;
+        _tally.SegmentCount++;
 
         return slot;
     }
@@ -642,20 +628,20 @@ internal sealed unsafe class Arena : IDisposable
         // table. Its native memory goes back to the allocator, and its slot to the next new segment.
         _segments[segmentSlot] = null;
         _freedSegmentSlots.Push(segmentSlot);
-        _segmentCount--;
+        _tally.SegmentCount--;
         segment.Release(_allocator);
     }
 
     private void AddFreeRegion(long regionNumber)
     {
-        PushFront(ref _freeRegions, regionNumber);
-        _freeRegionCount++;
+        PushFront(ref _tally.FreeRegions, regionNumber);
+        _tally.FreeRegionCount++;
     }
 
     private void RemoveFreeRegion(long regionNumber)
     {
-        Unlink(ref _freeRegions, regionNumber);
-        _freeRegionCount--;
+        Unlink(ref _tally.FreeRegions, regionNumber);
+        _tally.FreeRegionCount--;
     }
 
     private ref ArenaRegion RegionAt(long regionNumber) =>
