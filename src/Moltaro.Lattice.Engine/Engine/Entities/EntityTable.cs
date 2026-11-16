@@ -9,6 +9,42 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
+// The stamp of a root entry, read here (TryCopy) and written by Writes.WriteExecutor, is adapted from
+// crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
+// crossbeam-utils/src/atomic/seq_lock.rs and its optimistic read in AtomicCell (atomic_load of
+// crossbeam-utils/src/atomic/atomic_cell.rs), at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
+// project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
+// The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md). The rest of the type is the
+// engine's own.
+//
+// What is taken from SeqLock is its protocol. A word holds the stamp of the data it guards; one value
+// of it is no stamp but the mark of a write in progress. A write stores the mark, then the data, then
+// a stamp no reader can hold yet, the last by a store with release semantics. A read loads the stamp
+// with acquire semantics and gives up on the mark (optimistic_read), loads the data, and loads the
+// stamp again after the data (validate_read); the data is one state when both loads give the same
+// stamp. What differs, and why:
+// - The word is the sequence of the last mutation of the entry, so the stamp is the sequence that
+//   names the state copied, and the read loads no word besides the one it takes for its revision;
+//   the entry has no room for a word of its own, since it stays at 48 bytes. The mark is 0,
+//   MutationInProgress, where the source's is 1: no published write has the sequence 0. The new stamp
+//   is the sequence of the write, where the source's is the old stamp plus 2: sequences only grow, so
+//   neither repeats a stamp a read holds.
+// - The source loads the data with volatile loads, which order nothing, and puts an acquire fence
+//   before a relaxed second load of the stamp. Here each load of the data is itself an acquire
+//   (Volatile.Read, through the members Acquire… of RootEntry), which keeps the second load of the
+//   stamp after it, as the fence does; and each store of the writer is a release (Volatile.Write), so
+//   the store of the data keeps the store of the mark before it, as the release fence after the
+//   source's swap does.
+// - The source's writers take the lock by a swap with acquire semantics, because several contend for
+//   it; here one thread executes writes, under the lock of the writes, and stores the mark.
+// - The source's read, after one failed attempt, takes the lock of the writers so that writers do not
+//   starve it. A read here takes no lock and writes nothing but its slot of the protection, so it
+//   tries again: at once after a failed validation, and while it finds the mark after a back-off by
+//   SpinWait, which spins, then gives up the processor, as the source's Backoff.snooze does for a
+//   writer that finds the lock held.
+// - The source has a write that releases the lock without a new stamp (abort). A write here never
+//   stops between its stores: the publication allocates nothing and cannot fail halfway.
+//
 // The entities of one entity type in an open database: the root layout they are stored with, the
 // primary index that finds them, and the reads by key and by enumeration, inside the protection of
 // reads by epochs (Protection.ReadEpochs; arena protocol, "Deferred reclamation, 16 November 2026").
@@ -29,11 +65,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 //    their roots stores. The root of a slot the index names is live or retired, never freed, while
 //    the read is inside, and every root of one lifetime holds the same key: the primary key is
 //    immutable, and a replace keeps the stored spelling of a String key compared without case.
-// 2. It takes the state, the root and the sequence of the last mutation of the entry as one state:
-//    a write sets the sequence to MutationInProgress before it changes the root or the state and
-//    writes its own sequence after, and a read that finds a change in progress, or another sequence
-//    after it took the rest, takes them again (TryCopy), a sequence lock of the kind described in the
-//    literature on optimistic reads. It writes nothing for this.
+// 2. It takes the state, the root and the sequence of the last mutation of the entry as one state,
+//    by the stamp of the entry (above): a write stores MutationInProgress before it changes the root
+//    or the state and its own sequence after, and a read that finds MutationInProgress, or another
+//    sequence after it took the rest, takes them again (TryCopy). It writes nothing for this.
 // 3. A live root is copied whole, with every block it owns, into memory of the engine
 //    (IRootCopy.Copy): the blocks of a published root never change, and a root that a write
 //    replaced or deleted is retired, not freed, until the read has left, so the copy is one state
@@ -54,8 +89,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // entry (Writes.WriteExecutor), so an absence seen at an unchanged sequence holds at that sequence.
 internal sealed class EntityTable
 {
-    // The sequence of the last mutation of a root entry while a write changes its root or its state:
-    // no published write has it, the first has 1.
+    // The sequence of the last mutation of a root entry while a write changes its root or its state,
+    // the mark of the stamp (see the head of the file): no published write has it, the first has 1.
     public const ulong MutationInProgress = 0;
 
     private readonly Arena _arena;
@@ -423,47 +458,64 @@ internal sealed class EntityTable
     }
 
     // Steps 2 and 3 of a read, inside the protection: takes the state, the root and the sequence of
-    // the last mutation of the entry as one state (see the class), and copies a live root. False, with
-    // the sequence of its delete, for a deleted root. Every load is a Volatile.Read, an acquire, so
-    // that no load of the state or the root moves after the second load of the sequence; they pair
-    // with the stores with release semantics of the writer (Writes.WriteExecutor).
+    // the last mutation of the entry as one state, by the stamp of the entry (see the head of the
+    // file), and copies a live root. False, with the sequence of its delete, for a deleted root.
+    //
+    // Why the triple is never torn. Every load here has acquire semantics and every store of the
+    // writer release semantics (Writes.WriteExecutor), so a load that reads what a store wrote sees
+    // everything stored before that store, by the writes before it as well, which the lock of the
+    // writes orders. Suppose both loads of the stamp give S.
+    // - A state or a root older than those S was stored with: they were stored before S, and the
+    //   first load read S, so the loads after it read S's or later ones.
+    // - A state or a root of a write after S's: that write stored MutationInProgress before it, and the
+    //   load that read it is an acquire, so the second load of the stamp reads MutationInProgress or
+    //   the stamp of a later write, never S again: every write stores a sequence greater than the
+    //   entry's.
+    // The sequence of the database is read between the two loads of the stamp for the position of the
+    // answer (see the class); it takes no part in the stamp.
     private bool TryCopy<TCopy, TResult>(ref RootEntry entry, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var spinner = default(SpinWait);
+        var backoff = default(SpinWait);
 
         while (true)
         {
-            var mutation = entry.AcquireLastMutation();
+            var stamp = entry.AcquireLastMutation();
 
-            if (mutation != MutationInProgress)
+            if (stamp == MutationInProgress)
             {
-                var state = entry.AcquireState();
-                var root = entry.AcquireRoot();
-                var at = _clock.Sequence;
+                // A write of this root is between its stores, which take a few nanoseconds and wait
+                // for nothing: the read backs off until the write has stored its sequence.
+                backoff.SpinOnce();
 
-                if (entry.AcquireLastMutation() == mutation)
-                {
-                    if (state != RootStateEnum.Live)
-                    {
-                        revision = default;
-                        sequence = mutation;
-
-                        return false;
-                    }
-
-                    copy.Copy(new RootReader(_arena, Layout!, root));
-                    revision = new LatticeRevision(_clock.History, mutation);
-                    sequence = Math.Max(at, mutation);
-
-                    return true;
-                }
+                continue;
             }
 
-            // A write of this root is between its stores, which take a few nanoseconds: it waits for
-            // nothing while it makes them.
-            spinner.SpinOnce();
+            var state = entry.AcquireState();
+            var root = entry.AcquireRoot();
+            var at = _clock.Sequence;
+
+            // Another stamp: a write stored between the two loads, so what they framed may be torn.
+            // The next round finds the mark, while the write goes on, or its stamp.
+            if (entry.AcquireLastMutation() != stamp)
+            {
+                continue;
+            }
+
+            if (state != RootStateEnum.Live)
+            {
+                revision = default;
+                sequence = stamp;
+
+                return false;
+            }
+
+            copy.Copy(new RootReader(_arena, Layout!, root));
+            revision = new LatticeRevision(_clock.History, stamp);
+            sequence = Math.Max(at, stamp);
+
+            return true;
         }
     }
 }

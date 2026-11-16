@@ -8,6 +8,12 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // 3d104a76ec410499545bc7fb39d0e3168f8ee709; MIT licence, Copyright (c) Microsoft Corporation (see
 // THIRD-PARTY-NOTICES.md).
 //
+// The version of the index, its stamp (TableAndVersion, TableAt, Grow, below), is adapted from
+// crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
+// crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
+// project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
+// The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md).
+//
 // The primary index of one entity type: from the hash of a key to the slot of the root entry of its
 // live root (decision on index structures, the addition of 16 November 2026: a hash table of the
 // engine's own after the hash index of Garnet/Tsavorite). It holds its current table (IndexTable),
@@ -27,14 +33,20 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // structures selected ("serialize index mutations during the copy; readers may continue using the
 // old map").
 //
-// Version changes with every change of the entries, an insert, a delete or a growth, so that an
-// enumeration sees that the index changed under it (brief of S06, "Enumeration until S08"). It is even
-// while the current table is the table of that version: an insert or a delete adds 2, and a growth
-// makes it odd before it publishes the grown table and even again after, so that a step of an
-// enumeration that reads the version, then the table, then the version again, and finds it even and
-// unchanged, holds the table of that version and applies its position to that table alone (review
-// round 1 of S08, part 1: a step had applied a position of the old table to the new one). The idea is
-// that of a sequence lock.
+// The version changes with every change of the entries, an insert, a delete or a growth, so that an
+// enumeration sees that the index changed under it (brief of S06, "Enumeration until S08"). It is the
+// stamp of the current table in the protocol of crossbeam's SeqLock, which Entities.EntityTable
+// describes for the stamp of a root entry. As in the source, the mark is 1, Growing, and every stamp
+// is even: the first is 0, and each change stores the stamp before it plus 2, which stays even when
+// it wraps. A growth stores the mark, then the grown table, then the new stamp, so that a step of an
+// enumeration that loads the stamp, then the table, then the stamp again, and finds no mark and the
+// same stamp, holds the table of that stamp and applies its position to that table alone (review
+// round 1 of S08, part 1: a step had applied a position of the old table to the new one). What
+// differs from the source: an insert or a delete stores the new stamp with no mark before it, since
+// it changes entries of the current table, which a step reads as the table changes them, and not
+// which table is current, which is what the two loads of the stamp frame; one writer stores the mark,
+// with no swap; each load is an acquire and each store a release, with no fence; and a step that finds
+// the mark backs off and loads again, as a read by key does (EntityTable), instead of taking a lock.
 //
 // Who calls what. Find, TableAndVersion and TableAt from reads inside the protection of reads and from
 // the writer; everything else only from the thread that holds the lock of the writes.
@@ -42,6 +54,10 @@ internal sealed class PrimaryIndex
 {
     // The first table: two main buckets and a page of one overflow bucket.
     private const int FirstBucketBits = 1;
+
+    // The version while a growth publishes its table, the mark of the stamp (see the class): no
+    // stamp is odd.
+    private const int Growing = 1;
 
     private readonly RetiredMemory _retired;
 
@@ -71,33 +87,41 @@ internal sealed class PrimaryIndex
     // pairs with the release of the store that published it (Grow).
     public IndexProbe Find(uint hash) => new(Volatile.Read(ref _table), hash);
 
-    // For the first step of an enumeration: the current table and the version it is the table of. A
-    // growth that publishes its table between the two reads of the version makes the step read them
+    // For the first step of an enumeration: the current table and the stamp it is the table of. Every
+    // load is an acquire, so the table is loaded after the first load of the stamp and before the
+    // second, and a table that a growth published after the first load comes with the mark or a later
+    // stamp at the second (Grow). A growth that publishes its table meanwhile makes the step load them
     // again; that waits for the few stores of the publication, or for a test that holds a growth there
     // (EngineDatabase.HoldNextGrowth).
     public IndexTable TableAndVersion(out int version)
     {
-        var spinner = default(SpinWait);
+        var backoff = default(SpinWait);
 
         while (true)
         {
-            var before = Volatile.Read(ref _changes.Version);
+            var stamp = Volatile.Read(ref _changes.Version);
+
+            if (stamp == Growing)
+            {
+                backoff.SpinOnce();
+
+                continue;
+            }
+
             var table = Volatile.Read(ref _table);
 
-            if ((before & 1) == 0 && Volatile.Read(ref _changes.Version) == before)
+            if (Volatile.Read(ref _changes.Version) == stamp)
             {
-                version = before;
+                version = stamp;
 
                 return table;
             }
-
-            spinner.SpinOnce();
         }
     }
 
-    // For a later step of an enumeration: the current table when the index is still at the version
-    // the enumeration started on, null when it changed since. Every load is an acquire, so the table
-    // is read after the first load of the version and before the second.
+    // For a later step of an enumeration: the current table when the index is still at the stamp the
+    // enumeration started on, null when it changed since. The loads are those of TableAndVersion; the
+    // stamp of the enumeration is never the mark, so a growth in progress is a change as any other.
     public IndexTable? TableAt(int version)
     {
         if (Volatile.Read(ref _changes.Version) != version)
@@ -128,14 +152,14 @@ internal sealed class PrimaryIndex
     public void Add(uint hash, uint slot)
     {
         _table.Add(hash, slot);
-        ChangeVersion(2);
+        AdvanceVersion();
     }
 
     // Removes the entry of the slot, which the index holds under the hash.
     public void Remove(uint hash, uint slot)
     {
         _table.Remove(hash, slot);
-        ChangeVersion(2);
+        AdvanceVersion();
     }
 
     // Arms the switch of the tests: the next growth runs hold once (EngineDatabase.HoldNextGrowth).
@@ -154,27 +178,31 @@ internal sealed class PrimaryIndex
         current.CopyInto(grown);
         _changes.ReplacementBytes = grown.Bytes;
 
-        // The version becomes odd before the grown table is visible, each a store with release
-        // semantics in this order: a step of an enumeration that reads the grown table reads an odd
-        // or a later version after it (TableAt).
-        ChangeVersion(1);
+        // The stores of the stamp (see the class), each with release semantics. The mark first; the
+        // release of the table's store keeps the mark before the grown table, so a step that loads
+        // the grown table loads the mark or a later stamp after it (TableAndVersion, TableAt).
+        var stamp = _changes.Version;
+
+        Volatile.Write(ref _changes.Version, Growing);
 
         // The release of this store publishes the new table with every entry written into it: a reader
         // that reads the new table (Find) sees them all. A reader that still has the old one finds
         // the same entries in it, unchanged.
         Volatile.Write(ref _table, grown);
 
-        // The switch of the tests, between the store that publishes the grown table and the change of
-        // the version that ends the growth; it changes nothing when no test armed it.
+        // The switch of the tests, between the store that publishes the grown table and the store of
+        // the stamp that ends the growth; it changes nothing when no test armed it.
         if (_growthHold is not null)
         {
             Interlocked.Exchange(ref _growthHold, null)?.Invoke();
         }
 
-        ChangeVersion(1);
+        // The new stamp last; its release keeps the grown table before it.
+        Volatile.Write(ref _changes.Version, stamp + 2);
         _changes.ReplacementBytes = 0;
         _retired.RetireTable(current, current.Bytes);
     }
 
-    private void ChangeVersion(int by) => Volatile.Write(ref _changes.Version, _changes.Version + by);
+    // The new stamp of an insert or a delete, with no mark before it (see the class).
+    private void AdvanceVersion() => Volatile.Write(ref _changes.Version, _changes.Version + 2);
 }

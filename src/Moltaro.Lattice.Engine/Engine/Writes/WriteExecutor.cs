@@ -6,6 +6,13 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
+// The stores of the stamp of a root entry in Replace and Delete are adapted from crossbeam
+// (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
+// crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
+// project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
+// The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md). Entities.EntityTable, whose reads
+// they pair with, says what is taken and what differs. The rest of the type is the engine's own.
+//
 // Executes the writes of one entity of a master: insert, replace, upsert and delete, with or
 // without an expected revision (decision on mutation commands, Q13). In S06 writes are executed one
 // after another, under the lock of the writes; the write coordinator, which prepares writes at the
@@ -42,10 +49,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    - Insert: the root entry and the root are written while no read can reach them; the entry of the
 //      index is the store that publishes them (Indexes.IndexTable.Add); then the sequence of the
 //      database (PositionClock.Publish).
-//    - Replace: the entry's sequence becomes MutationInProgress, then the root, then the sequence of
-//      the database, then the entry's sequence becomes the write's; the old root is retired.
-//    - Delete: the entry's sequence becomes MutationInProgress, then its state Deleted, then the
-//      sequence of the database, then the entry's sequence; then the entry of the index is removed;
+//    - Replace: the entry's stamp becomes MutationInProgress, then the root, then the sequence of
+//      the database, then the entry's stamp becomes the write's sequence; the old root is retired.
+//    - Delete: the entry's stamp becomes MutationInProgress, then its state Deleted, then the
+//      sequence of the database, then the entry's stamp; then the entry of the index is removed;
 //      the root and its entry are retired. The entry keeps the address of the retired root.
 // 6. After the publication it lets RetiredMemory free what no read can reach any more, once enough
 //    was retired since its last look (RetiredMemory.AfterWrite).
@@ -205,7 +212,8 @@ internal sealed class WriteExecutor
             table.Reserve(key);
             RootStorage.Publish(_arena, layout, root);
 
-            // No read reaches the entry before the index maps the key to it, so plain stores serve.
+            // No read reaches the entry before the index maps the key to it, so plain stores serve, and
+            // the first stamp of the entry is the write's sequence, with no mark before it.
             ref var entry = ref _roots.Entry(handle);
 
             entry.Root = root;
@@ -249,7 +257,12 @@ internal sealed class WriteExecutor
             ref var entry = ref _roots.Entry(handle);
             var replaced = entry.Root;
 
-            // Each a store with release semantics, in this order (see the class and EntityTable).
+            // The stores of the stamp (see the head of the file), each with release semantics. The mark
+            // first; the release of the root's store keeps the mark before the root, as the release
+            // fence after the source's swap keeps it before the data. The sequence of the database
+            // next, so that a read that loads the new stamp reads that sequence or a later one (the
+            // position of an answer, EntityTable). The new stamp last; its release keeps the root
+            // before it, so a read that loads it sees the new root.
             entry.ReleaseLastMutation(EntityTable.MutationInProgress);
             entry.ReleaseRoot(root);
             installed = true;
@@ -290,7 +303,7 @@ internal sealed class WriteExecutor
 
         ref var entry = ref _roots.Entry(handle);
 
-        // Each a store with release semantics, in this order (see the class and EntityTable). The entry
+        // The stores of the stamp as in Replace, with the state where Replace has the root. The entry
         // keeps the address of its root, which is retired, not freed.
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseState(RootStateEnum.Deleted);
