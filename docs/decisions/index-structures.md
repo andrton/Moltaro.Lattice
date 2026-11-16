@@ -74,6 +74,9 @@ Measured in Epic 1, sprint S08, part 1 (scenario `primary-index`, manifest
 `development-3`, 16 November 2026): the engine's table takes 22.3 bytes per entry at
 100,000 entities and 17.8 at 1,000,000, for an Int64 key and for a String key alike; the
 package map took 36.7 and 29.4 bytes for an Int64 key and 47.2 and 37.7 for a String key.
+Composite Int64 keys of the form (shard, id) take the same 22.3 and 17.8 bytes, since
+integer and Guid keys are hashed through a 64-bit mixing function; before that fix of
+the same sprint they took 178.3 and 142.6.
 
 **Engineering selection on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `UnorderedMapSlim<TKey, RootLocator>` for the first primary-index

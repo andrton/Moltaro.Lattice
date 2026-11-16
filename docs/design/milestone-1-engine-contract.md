@@ -174,9 +174,13 @@ cannot itself be a ref struct; expose borrowed bytes only as read-only scoped sp
 not escapable Memory owners. Compiler/lifetime misuse tests and callback-exception
 cleanup are mandatory. Unsafe caller code is outside the managed borrowing contract.
 
-Publication is one at a time under the lock of the writes and excludes no read; an
-explicit WriteBatch is published the same way, and how its roots become visible
-together is stated by the sprint that builds the batch (S17).
+Publication is one at a time under the lock of the writes and excludes no read. An
+explicit WriteBatch is published so that no operation observes it half published: a read
+by key reads one entity, the position of the batch is published after the last of its
+roots, and an operation that reads several entities in one step validates against the
+publication of batches. The mechanism is stated by the sprint that builds the batch
+(S17); a child never exposes a prefix of a batch nor advances its applied position past
+a part of one.
 All read, index, scan and compaction entry points participate. Publication
 only installs reserved values/nodes/descriptors and advances the applied position;
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
