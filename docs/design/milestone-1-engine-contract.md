@@ -521,7 +521,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Root encoded size, including owned data | No limit of its own, by the owner's decision of 15 November 2026. A root is refused only when the instance memory budget cannot hold it; one String or Binary value is bounded by the storage format |
 | Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
 | Active prepare workers | 2; configurable and bounded |
-| Internal group | Up to 32 operations / 8 MiB / 1 ms collection delay; never split a WriteBatch |
+| Internal group | Up to 32 operations / 8 MiB; 1 ms collection delay for a durable commit only, not built before S27; never split a WriteBatch |
 | Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
 | Session synchronization / reload readiness wait | 10 s / 30 s, configurable; cancellation allowed for read waits |

@@ -938,7 +938,7 @@ Why this order:
 | S07 | Every key type and declared value | Full | Done |
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
-| S09 | Write coordinator and write limits | Full | Not started |
+| S09 | Write coordinator and write limits | Full | In progress |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
@@ -3133,9 +3133,6 @@ be studied: how they do it is to be learned from their source and, in essence, r
   [Q09.1](../decisions/write-acknowledgment.md); [Q14 master memory pressure, root size](../decisions/write-admission.md);
   [stable inputs, cancellation at the commit boundary](../decisions/mutation-commands.md);
   [initial settings](../design/milestone-1-engine-contract.md#initial-bounded-settings).
-- **Acceptance, added by the planner on 16 November 2026.** The temporary memory of reads
-  in progress counts against the instance budget (carried from S08, whose part 2 counts
-  it for the limit of a read only).
 - **Acceptance.** Writes to different entities prepare concurrently and are published in
   one order of positions. Writes to one entity execute in the order they were admitted.
   A group holds at most 32 operations or 8 MiB and waits at most 1 ms to fill.
@@ -3285,6 +3282,96 @@ Where a sentence above says otherwise, these replace it.
   says "not enforced yet" for the public entry, as the other options of this stage do.
 
 ### Stage 3. Master and children
+
+**Added by the planner on 16 November 2026, after S08.** Where a sentence above says
+otherwise, these replace it.
+
+- **Gates.** "The values are encoded outside the lock that orders writes, and an insert
+  takes the catalog gate exclusively once, at publication" becomes: the values of a write
+  are encoded outside the lock of the writes, and publication under that lock only
+  installs what was prepared: the stores of S08 in their order, the position, the
+  retirement of what was replaced.
+- **Who may touch what.** S08 left the arena, the table of root entries, the indexes, the
+  position clock and the retired list with one changing thread, the holder of the lock of
+  the writes. S09 keeps that rule and does not make any of them safe for several threads.
+  A write passes three steps. *Admission*, short, under the lock of the coordinator: the
+  write reserves its identity (entity type and key, as the schema compares keys) in a
+  first-in-first-out queue of that identity; a write whose identity is reserved by an
+  earlier one waits its turn there and holds nothing in the engine. *Preparation*, of
+  several writes at once, each holding its reservation so that no other write of that
+  entity can overtake it: it looks the key up and reads what it needs of the current
+  entity as a read does, inside the protection of reads; it checks its condition; it
+  encodes its values into prepared blocks. Whatever changes a structure of the engine it
+  does under the lock of the writes, held for that change alone and never while bytes are
+  copied or a value is encoded: each allocation of a prepared block, the free of blocks
+  it abandons, for an insert the new root entry and the room in the index (which may grow
+  it), the room in the retired list. *Commit*, in one order: groups, the storage step,
+  then publication under the lock of the writes. The lock of the coordinator and the lock
+  of the writes are never held together; a type that takes both says so. No lock of its
+  own for the arena is built: if the figures for 4 and 16 callers show the lock of the
+  writes bounding preparation, that is reported with the number, and an arena lock
+  ordered after the lock of the writes is the next step, not a part of this sprint. The
+  reservation makes "captures needed current values" of the milestone contract safe
+  without a gate: nothing else changes that entity until the write is published or
+  abandoned, and its root cannot be freed under a read inside the protection.
+- **The memory of reads is not in the budget.** The memory budget of the instance counts
+  the native memory the engine holds. What an enumeration remembers is managed memory of
+  its enumerator: it is bounded by `ReadMemoryLimit` when that is set and is no part of
+  the instance budget. The documentation of `MemoryLimit` says the budget counts what the
+  engine holds, not the managed heap of the application, "nor what an enumeration
+  remembers". The sentence of the Acceptance of S08 on counting it in the instance budget,
+  and an addition to this brief that carried it, are withdrawn; S24 counts native scratch
+  of reads, if any exists by then.
+- **The refusal.** `MemoryLimit` becomes the limit of the arena the engine opens (the
+  internal option the tests of S08 already set), so the refused-write path of S08 is the
+  path: no second check beside it. `WriteRejected` from it carries `Limit` = `Memory`.
+  With several writes prepared at once the rule of when a write is refused is restated,
+  since other writes now hold prepared memory and retire while it waits: a write the
+  arena refuses frees what is retired and retries; while it is still refused it waits,
+  outside every lock, for the reads that hold retired memory and for every write admitted
+  before it to complete, and retries; it is refused only when every write admitted before
+  it has completed, nothing retired is left and the arena still has no room. That is
+  finite — the writes ahead of it are finite — and the token of the write cancels the
+  wait. A write refused so has had no effect and never runs later. Acceptance: on a small
+  arena, a write that fits only after an earlier, still unpublished replace has retired
+  its old root and it was freed, completes; one that does not fit an otherwise idle
+  database is refused with `Limit` = `Memory`. Exception X6 is re-read by the contract
+  author against this path: the wait for reads now happens outside the lock of the
+  writes.
+- **`Enumerate`.** The contract says what the engine does. In `ILatticeSet<TEntity>` and
+  `ILatticeSet` the sentence with "may or may not be reflected" becomes: "The enumeration
+  is not a snapshot. An entity that exists from the start of the pass to its end is
+  returned exactly once, in one state that was written: the one before or the one after a
+  replace made during the pass. An entity inserted or deleted during the pass may or may
+  not be returned. No key is returned twice." The contract author checks that the
+  placeholder holds it and reports before changing anything if it does not. The sentence
+  of `ILatticeIndex` about a search stays until S14 and S15.
+- **No wait to fill a group in MemoryOnly.** "A group holds at most 32 operations or 8 MiB
+  and waits at most 1 ms to fill" becomes: a group is formed from the writes that are
+  prepared when the commit stage becomes free, at most 32 operations or 8 MiB, a larger
+  write alone; the commit stage never waits for a group to fill. A delay to fill a group
+  is a matter of the durable storage step and is decided with its sprint (S27), with
+  figures. `CommitGroup.MaxDelay` is not built in S09, and "that a group waits at most
+  1 ms" leaves the list of what the reviews check.
+- **A fault during publication and the reads that retry.** Publication is several stores,
+  and between the mark of a write in progress and the new stamp a read of that entity
+  retries. Added to "Faulted": a fault during publication never leaves a read retrying: a
+  read that retries checks the state of the instance and reports `Unavailable` once it is
+  `Faulted`. "No reader sees a partial state" means: no read returns a root, a position or
+  a key of the write that faulted unless all of its stores were made. Acceptance: with
+  `DuringPublication` armed for a replace, a read of that entity started before and one
+  started after both end, with the old state or `Unavailable`, within the time of the
+  test.
+- **Measured, added.** Completed writes a second for 1 caller next to the figures of S08,
+  part 1 on the same scenario (replace, insert and delete), and reads by key on 16
+  threads while 1, 4 and 16 callers write, next to S08. A fall of the single caller from
+  the hand-over between threads is reported with its size and cause; reads by key do not
+  fall against S08 beyond noise, and a fall stops the sprint for the owner (reads first,
+  the rule of the owner of 16 November 2026).
+- **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
+  larger than a group forms one alone; what is counted (`PreparedBytes`, no
+  `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
+  ignores `MemoryLimit` until S12.
 
 #### S10 · A child loads the database
 
