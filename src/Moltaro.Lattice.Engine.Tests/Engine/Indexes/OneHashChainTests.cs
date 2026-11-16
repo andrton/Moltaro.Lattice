@@ -6,15 +6,17 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // Entries that all have one hash, given to the primary index directly (review round 1 of Epic 1,
 // sprint S08, part 1: the index wrote past its table when many entries shared a hash). The engine
-// mixes every bit of an integer or Guid key into its hash, so keys of one hash cannot be made cheaply
-// through the public API; the hash is given here as the index takes it. The main table grows by the
-// number of entries and the chain of one hash by overflow alone (IndexTable, "The capacity policy"):
-// every entry of the hash is found, an entry that is removed is not, wherever it lies in the chain, an
-// enumeration of the table returns each entry once and no removed one, the emptied words of the chain
-// are taken again by the entries added after, without more memory, and the index of entries of one
-// hash takes at most twice that of as many entries of different hashes. That a key of the hash which
-// was never added is absent is the comparison of the key the caller makes for every slot the chain
-// gives (Entities.EntityTable); the chain gives exactly the slots added.
+// mixes every bit of an integer or Guid key into its hash, so keys of one hash are no longer keys of
+// an everyday structure: they have to be chosen for the mixing, by inverting it, which ties a test to
+// the function the engine uses today. The chain is a matter of the index alone, so the test gives the
+// index the hash it takes and states the chain whatever function makes the hashes. The main table
+// grows by the number of entries and the chain of one hash by overflow alone (IndexTable, "The
+// capacity policy"): every entry of the hash is found, an entry that is removed is not, wherever it
+// lies in the chain, an enumeration of the table returns each entry once and no removed one, the
+// emptied words of the chain are taken again by the entries added after, without more memory, and the
+// index of entries of one hash takes at most twice that of as many entries of different hashes. That
+// a key of the hash which was never added is absent is the comparison of the key the caller makes for
+// every slot the chain gives (Entities.EntityTable); the chain gives exactly the slots added.
 public sealed class OneHashChainTests
 {
     private const uint OneHash = 0x5A5A_5A5A;

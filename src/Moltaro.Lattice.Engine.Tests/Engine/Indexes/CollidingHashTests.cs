@@ -23,6 +23,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   entry, while a table of 300 keys of different hashes holds at most four entries a main bucket, at
 //   least 16 bytes an entry: at most 1.6 times as much. A table that doubled until its overflow held
 //   the chain took about eight times as much.
+// - 2,000 composite keys, and 2,000 keys whose hash codes are 0, take at most a quarter more of the
+//   index than 2,000 sequential keys. That is what the mixing buys, and the two bounds above do not
+//   show it, since they hold through overflow alone: keys that spread over the main buckets as
+//   sequential keys do share no chains, and their index differs from that of sequential keys only in
+//   where the overflow of a few full buckets falls; it takes as much. Keys hashed by their hash codes
+//   share chains, 128 hash codes for the composite keys and one for the others, and every seven
+//   entries of a chain beyond the first seven take an overflow bucket: 1.42 and 1.49 times as much.
 //
 // The bytes are read after a drain with no read in progress, so that no replaced table is counted.
 // After the keys whose hash codes are 0 are deleted and a drain, nothing of them is left.
@@ -37,6 +44,8 @@ public sealed class CollidingHashTests
     private const int ZeroHashCodeCount = 300;
 
     private const int MostTimesTheCount = 2;
+
+    private const double MostOverSequential = 1.25;
 
     [Fact]
     public async Task Composite_keys_whose_hash_codes_collide_take_at_most_64_bytes_of_the_primary_index_an_entity()
@@ -60,6 +69,24 @@ public sealed class CollidingHashTests
         Assert.True(
             counters.PrimaryIndexBytes <= (long)MostBytesPerEntity * Entities,
             $"The primary index takes {counters.PrimaryIndexBytes / (double)Entities:F1} bytes an entity for {Entities} composite keys, more than {MostBytesPerEntity}.");
+    }
+
+    [Theory]
+    [InlineData("composite")]
+    [InlineData("zero hash code")]
+    public async Task Structured_keys_share_no_chains_and_take_at_most_a_quarter_more_of_the_primary_index_than_sequential_keys(string structure)
+    {
+        const int Count = Shards * IdsPerShard;
+        long[] keys = structure == "composite"
+            ? [.. Enumerable.Range(0, Count).Select(index => ClashSchema.Composite(index / IdsPerShard, index % IdsPerShard))]
+            : [.. Enumerable.Range(1, Count).Select(ClashSchema.ZeroHashCode)];
+
+        var sequential = await IndexBytesOfAsync(Enumerable.Range(0, Count).Select(key => (long)key));
+        var structured = await IndexBytesOfAsync(keys);
+
+        Assert.True(
+            structured <= MostOverSequential * sequential,
+            $"The primary index takes {structured} bytes for {Count} {structure} keys, {structured / (double)sequential:F2} times the {sequential} of as many sequential keys, more than {MostOverSequential}.");
     }
 
     [Fact]
