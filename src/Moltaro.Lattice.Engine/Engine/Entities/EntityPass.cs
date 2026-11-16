@@ -18,11 +18,13 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // The read limits of the options of the database (LatticeDatabaseOptions.ReadMemoryLimit and
 // ReadTimeLimit), each null for no limit:
-// - the memory: the bytes ReturnedKeys holds, by its rule, checked before it grows for a key;
+// - the memory: the bytes ReturnedKeys holds, by its rule, checked before it grows for a key the pass
+//   is going to remember;
 // - the time: the time of the steps from their start to their end, added up over the pass, a wait
 //   inside a step included, for a slot of the epoch table or for a write of an entity between its
-//   stores; checked where a step can stop, once it has entered the protection of reads and as it
-//   walks the index. The time between two steps is not counted, nor the wait for the position of a
+//   stores; checked where a step can stop, each time a round of it has entered the protection of
+//   reads, so once for every EntityTable.WordsPerRound words of the index it walks at the most, empty
+//   ones included. The time between two steps is not counted, nor the wait for the position of a
 //   session, which comes before the first step, nor the build of an entity, which runs the code of the
 //   application outside the engine. It is counted in ticks of Stopwatch, and a limit longer than they
 //   can count, such as TimeSpan.MaxValue, is the most they count, so nothing overflows.
@@ -132,13 +134,6 @@ internal sealed class EntityPass
         Position = _stagedPosition;
         Version = _stagedVersion;
         Returned.Commit();
-    }
-
-    // A step found no more: the pass stands at the end of the table of the version.
-    public void End(long position, int version)
-    {
-        Position = position;
-        Version = version;
     }
 
     private LatticeException Fail(LatticeLimitEnum limit)

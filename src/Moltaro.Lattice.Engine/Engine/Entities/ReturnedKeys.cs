@@ -35,23 +35,48 @@ namespace Moltaro.Lattice.Engine.Entities;
 // as a key that does not fit that. A key that does not fit what is left of the last chunk begins a
 // new one, and the rest of the last one stays unused.
 //
+// How many keys. The table of root entries admits fewer than 2^31 entities, so a pass remembers fewer
+// than 2^31 keys, and three quarters of 2^32 places hold them all. Every count of keys and places is
+// a long, and the places lie in pages of PagePlaces places, each its own array: at most 2^32 / 2^20 =
+// 4,096 pages of at most 2^21 words, far below Array.MaxLength, so no array is cut short by its
+// largest length and no arithmetic overflows (PlacesFor, PagesFor). A table of PagePlaces places or
+// fewer is one page of just its places. The text needs no such care: a chunk is one key's text at
+// most, which a value bounds to fewer than 2^28 code units, and its list grows by doubling far below
+// the largest length.
+//
+// Room is made outside the protection of reads. A step only asks whether a key has room (HasRoomFor);
+// when it has none, the step leaves the protection, the pass makes the room (MakeRoom), which doubles
+// the places or adds a chunk, and the step enters again and reads the entry anew (EntityTable). So
+// nothing large is allocated while a read holds back what writes retire.
+//
 // What the memory limit of a read counts (LatticeDatabaseOptions.ReadMemoryLimit), by one plain rule:
 // the bytes of the elements of the arrays this holds, as they are allocated: 8 bytes a place for an
 // integer key and 16 for a Guid or a String key, 2 bytes a code unit of the chunks, and 8 bytes a
-// reference of the list of chunks. The headers of the arrays and of the objects are not counted. So
-// with n keys the places take 10.7 to 21.3 bytes a key for an integer key and 21.3 to 42.7 for a Guid
-// or a String key, as the table fills between two doublings, and a String key takes besides 2 bytes
-// a code unit of its text, with at most one chunk unused at the end of each.
+// reference of the list of pages and of the list of chunks. The headers of the arrays and of the
+// objects are not counted. So with n keys the places take 10.7 to 21.3 bytes a key for an integer key
+// and 21.3 to 42.7 for a Guid or a String key, as the table fills between two doublings, and a String
+// key takes besides 2 bytes a code unit of its text, with at most one chunk unused at the end of
+// each. That is all the temporary memory an enumeration holds today: it takes one entry of the index
+// at a time and holds no candidates and no other workspace, which come with the search of an index.
 //
-// Staged, then committed. A step stages the key of the entity it is about to return (Stage), after
-// it has made room for it, and the enumeration commits it (Commit) once the entity is built: a build
-// that fails in the code of the application, a constructor or a setter, leaves the key unremembered
-// and the entity to a later step. Staging again replaces what was staged and not committed, and the
-// next key's text is written over the text of a key staged and not committed.
+// Staged, then committed. A step stages the key of the entity it is about to return (Stage), which
+// copies a String key's text into the room made for it, and the enumeration commits it (Commit) once
+// the entity is built: a build that fails in the code of the application, a constructor or a setter,
+// leaves the key unremembered and the entity to a later step. Staging again replaces what was staged
+// and not committed, and the next key's text is written over the text of a key staged and not
+// committed.
 internal sealed class ReturnedKeys
 {
     // The places of the first table.
-    private const int FirstPlaces = 16;
+    private const long FirstPlaces = 16;
+
+    // The places of a page, as a power of two: 2^20, 8 MiB of one-word places or 16 MiB of two-word
+    // ones.
+    private const int PageBits = 20;
+
+    private const long PagePlaces = 1L << PageBits;
+
+    private const long PageMask = PagePlaces - 1;
 
     // The code units of the first chunk of text, and of a chunk at most but for a key longer than that.
     private const int FirstChunk = 256;
@@ -68,11 +93,14 @@ internal sealed class ReturnedKeys
     // The words of a place: 1 for an integer key, 2 for a Guid or a String key.
     private readonly int _wordsPerPlace;
 
-    // The places, empty until the first key is staged.
-    private long[] _places = [];
+    // The pages of the places, empty until the first key has room, and how many places they hold: 0
+    // or a power of two.
+    private long[][] _pages = [];
+
+    private long _places;
 
     // The keys in the places.
-    private int _count;
+    private long _count;
 
     // Whether the key whose words are all 0 has been returned; it has no place.
     private bool _holdsZero;
@@ -104,8 +132,28 @@ internal sealed class ReturnedKeys
         _wordsPerPlace = _kind == KeyKindEnum.Integer ? 1 : 2;
     }
 
-    // The bytes this holds, by the rule of the class.
-    public long Bytes => ((long)_places.Length * sizeof(long)) + _textBytes;
+    // The places a table needs for count keys when it has places now: those while count takes at most
+    // three quarters of them, otherwise twice as many, and FirstPlaces for the first key. In longs:
+    // fewer than 2^31 keys need at most 2^32 places (see the class).
+    public static long PlacesFor(long count, long places)
+    {
+        if (places == 0)
+        {
+            return FirstPlaces;
+        }
+
+        return count <= places / 4 * 3 ? places : 2 * places;
+    }
+
+    // The pages that hold the places, a power of two of them, and the words of each page.
+    public static (int Pages, int WordsPerPage) PagesFor(long places, int wordsPerPlace) =>
+        places <= PagePlaces
+            ? (1, (int)places * wordsPerPlace)
+            : ((int)(places >> PageBits), (int)PagePlaces * wordsPerPlace);
+
+    // The bytes of the pages of the places and of their list, by the rule of the class.
+    public static long PlaceBytes(long places, int wordsPerPlace) =>
+        (places * wordsPerPlace * sizeof(long)) + ((long)PagesFor(places, wordsPerPlace).Pages * sizeof(long));
 
     // Whether the key the root stores has been returned. The hash is the one of the entry of the index
     // that led to the root. Inside the protection of reads, as the root reader is.
@@ -121,41 +169,62 @@ internal sealed class ReturnedKeys
         return first == 0 && second == 0 ? _holdsZero : Find(hash, first, second);
     }
 
-    // The bytes this would hold with room for the key the root stores, which it does not hold: the
-    // doubled places when the key would take more than three quarters of them, and for a String key a
-    // new chunk when its text does not fit the last one. Allocates nothing.
-    public long BytesWithRoomFor(in RootReader stored)
+    // Whether the key the root stores, which this does not hold, can be staged without allocating: a
+    // place within three quarters of the places, and for a String key room in the last chunk for its
+    // text, whose bound it gives (EntityTable.TextBound); the bound is 0 for any other key. Inside the
+    // protection of reads.
+    public bool HasRoomFor(in RootReader stored, out int bound)
     {
-        var bytes = (long)PlacesFor(_count + 1) * _wordsPerPlace * sizeof(long);
+        bound = _kind == KeyKindEnum.Text ? _table.TextBound(stored) : 0;
 
-        if (_kind != KeyKindEnum.Text)
+        return PlacesFor(_count + 1, _places) == _places && FitsLastChunk(bound);
+    }
+
+    // The bytes this would hold once MakeRoom has made room for one more key whose text takes at most
+    // bound code units. Allocates nothing.
+    public long BytesWithRoomFor(int bound)
+    {
+        var bytes = PlaceBytes(PlacesFor(_count + 1, _places), _wordsPerPlace) + _textBytes;
+
+        if (FitsLastChunk(bound))
         {
             return bytes;
         }
 
-        var bound = _table.TextBound(stored);
-
-        if (FitsLastChunk(bound))
-        {
-            return bytes + _textBytes;
-        }
-
         var list = _chunkCount < _chunks.Length ? 0 : (long)(Math.Max(1, 2 * _chunks.Length) - _chunks.Length) * sizeof(long);
 
-        return bytes + _textBytes + (2L * NextChunkLength(bound)) + list;
+        return bytes + (2L * NextChunkLength(bound)) + list;
     }
 
-    // Stages the key the root stores, which this does not hold: makes room for it, allocating what
-    // BytesWithRoomFor counts, and copies a String key's text into the last chunk. Inside the
-    // protection of reads.
-    public void Stage(uint hash, in RootReader stored)
+    // Makes room for one more key whose text takes at most bound code units, allocating what
+    // BytesWithRoomFor counts: doubles the places, placing every key again by its hash, when one more
+    // key would take more than three quarters of them, and adds a chunk when the text does not fit the
+    // last one. Outside the protection of reads (see the class).
+    public void MakeRoom(int bound)
     {
-        Grow();
+        var places = PlacesFor(_count + 1, _places);
+
+        if (places != _places)
+        {
+            Grow(places);
+        }
+
+        if (!FitsLastChunk(bound))
+        {
+            AddChunk(NextChunkLength(bound));
+        }
+    }
+
+    // Stages the key the root stores, which this does not hold and has room for, with the bound
+    // HasRoomFor gave: copies a String key's text into the last chunk. Allocates nothing. Inside the
+    // protection of reads.
+    public void Stage(uint hash, in RootReader stored, int bound)
+    {
         _hash = hash;
 
         if (_kind == KeyKindEnum.Text)
         {
-            StageText(hash, stored);
+            StageText(hash, stored, bound);
         }
         else
         {
@@ -177,14 +246,15 @@ internal sealed class ReturnedKeys
             return;
         }
 
-        Place(_places, _hash, _first, _second);
+        Place(_pages, _places, _hash, _first, _second);
         _count++;
     }
 
     // Lets go of every key: for an enumeration that failed and returns nothing more.
     public void Clear()
     {
-        _places = [];
+        _pages = [];
+        _places = 0;
         _count = 0;
         _holdsZero = false;
         _chunks = [];
@@ -208,35 +278,29 @@ internal sealed class ReturnedKeys
         return (halves, Unsafe.Add(ref halves, 1));
     }
 
-    // The places a table needs for count keys: the current ones while count takes at most three
-    // quarters of them, otherwise twice as many, and FirstPlaces for the first key.
-    private int PlacesFor(int count)
+    // The page that holds a place, and the index of the first word of the place in it.
+    private long[] PageOf(long[][] pages, long place, out int word)
     {
-        var places = _places.Length / _wordsPerPlace;
+        word = (int)(place & PageMask) * _wordsPerPlace;
 
-        if (places == 0)
-        {
-            return FirstPlaces;
-        }
-
-        return count <= places / 4 * 3 ? places : 2 * places;
+        return pages[(int)(place >> PageBits)];
     }
 
     // Whether the integer or Guid key with the words, which are not both 0, has a place.
     private bool Find(uint hash, long first, long second)
     {
-        var mask = (_places.Length / _wordsPerPlace) - 1;
+        var mask = _places - 1;
 
         if (mask < 0)
         {
             return false;
         }
 
-        for (var place = (int)(hash & mask); ; place = (place + 1) & mask)
+        for (var place = hash & mask; ; place = (place + 1) & mask)
         {
-            var word = place * _wordsPerPlace;
-            var held = _places[word];
-            var heldSecond = _wordsPerPlace == 1 ? 0 : _places[word + 1];
+            var page = PageOf(_pages, place, out var word);
+            var held = page[word];
+            var heldSecond = _wordsPerPlace == 1 ? 0 : page[word + 1];
 
             if (held == first && heldSecond == second)
             {
@@ -254,17 +318,18 @@ internal sealed class ReturnedKeys
     // comparison of the key field holds equal to the stored one.
     private bool FindText(uint hash, in RootReader stored)
     {
-        var mask = (_places.Length / 2) - 1;
+        var mask = _places - 1;
 
         if (mask < 0)
         {
             return false;
         }
 
-        for (var place = (int)(hash & mask); ; place = (place + 1) & mask)
+        for (var place = hash & mask; ; place = (place + 1) & mask)
         {
-            var head = _places[2 * place];
-            var location = _places[(2 * place) + 1];
+            var page = PageOf(_pages, place, out var word);
+            var head = page[word];
+            var location = page[word + 1];
 
             if (location == 0)
             {
@@ -293,31 +358,31 @@ internal sealed class ReturnedKeys
         return _chunks[(int)(at >> 32)].AsSpan((int)(uint)at, length);
     }
 
-    // Doubles the places when one more key would take more than three quarters of them, and places
-    // every key again by its hash.
-    private void Grow()
+    // Moves every key into new pages of the given places, by its hash.
+    private void Grow(long places)
     {
-        var places = PlacesFor(_count + 1);
+        var (pageCount, wordsPerPage) = PagesFor(places, _wordsPerPlace);
+        var grown = new long[pageCount][];
 
-        if (places * _wordsPerPlace == _places.Length)
+        for (var page = 0; page < grown.Length; page++)
         {
-            return;
+            grown[page] = new long[wordsPerPage];
         }
 
-        var grown = new long[places * _wordsPerPlace];
-
-        for (var word = 0; word < _places.Length; word += _wordsPerPlace)
+        for (var place = 0L; place < _places; place++)
         {
-            var first = _places[word];
-            var second = _wordsPerPlace == 1 ? 0 : _places[word + 1];
+            var page = PageOf(_pages, place, out var word);
+            var first = page[word];
+            var second = _wordsPerPlace == 1 ? 0 : page[word + 1];
 
             if (first != 0 || second != 0)
             {
-                Place(grown, HashOfPlace(first, second), first, second);
+                Place(grown, places, HashOfPlace(first, second), first, second);
             }
         }
 
-        _places = grown;
+        _pages = grown;
+        _places = places;
     }
 
     // The hash a key in a place was placed by: for an integer or a Guid key the function of the
@@ -329,41 +394,39 @@ internal sealed class ReturnedKeys
         _ => (uint)((ulong)first >> 32),
     };
 
-    // Writes the words of a key into the first empty place from the one its hash gives.
-    private void Place(long[] places, uint hash, long first, long second)
+    // Writes the words of a key into the first empty place of the pages from the one its hash gives.
+    private void Place(long[][] pages, long places, uint hash, long first, long second)
     {
-        var mask = (places.Length / _wordsPerPlace) - 1;
-        var place = (int)(hash & mask);
+        var mask = places - 1;
 
-        while (places[place * _wordsPerPlace] != 0 || (_wordsPerPlace == 2 && places[(place * _wordsPerPlace) + 1] != 0))
+        for (var place = hash & mask; ; place = (place + 1) & mask)
         {
-            place = (place + 1) & mask;
-        }
+            var page = PageOf(pages, place, out var word);
 
-        places[place * _wordsPerPlace] = first;
+            if (page[word] == 0 && (_wordsPerPlace == 1 || page[word + 1] == 0))
+            {
+                page[word] = first;
 
-        if (_wordsPerPlace == 2)
-        {
-            places[(place * _wordsPerPlace) + 1] = second;
+                if (_wordsPerPlace == 2)
+                {
+                    page[word + 1] = second;
+                }
+
+                return;
+            }
         }
     }
 
-    // Copies the text of the stored key into the last chunk after the code units in use, beginning a
-    // new chunk when it does not fit there. One read takes the whole text, since the room is at least
-    // the bound of the text (EntityTable.TextBound).
-    private void StageText(uint hash, in RootReader stored)
+    // Copies the text of the stored key into the last chunk after the code units in use, where room
+    // was made for its bound. One read takes the whole text, since the room is at least its bound
+    // (EntityTable.TextBound).
+    private void StageText(uint hash, in RootReader stored, int bound)
     {
-        var bound = _table.TextBound(stored);
         var length = 0;
         var location = 0L;
 
         if (bound > 0)
         {
-            if (!FitsLastChunk(bound))
-            {
-                AddChunk(NextChunkLength(bound));
-            }
-
             length = stored.ReadText(_key).Read(_chunks[_chunkCount - 1].AsSpan(_used, bound));
             location = ((long)(_chunkCount - 1) << 32) | (uint)_used;
         }
@@ -379,7 +442,14 @@ internal sealed class ReturnedKeys
     // the bound of the key that needs it.
     private int NextChunkLength(int bound)
     {
-        var length = _chunkCount == 0 ? FirstChunk : Math.Min(2 * _chunks[_chunkCount - 1].Length, MostChunk);
+        var length = FirstChunk;
+
+        if (_chunkCount > 0)
+        {
+            var last = _chunks[_chunkCount - 1].Length;
+
+            length = last >= MostChunk / 2 ? MostChunk : 2 * last;
+        }
 
         return Math.Max(length, bound);
     }

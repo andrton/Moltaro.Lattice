@@ -257,18 +257,19 @@ internal sealed class IndexTable
         }
     }
 
-    // The slot of the next entry from position on, with the hash the entry holds, in the order of the
-    // words of the table, and the position after it; false when there is none. A position counts the
-    // entry words of the main buckets, then those of the overflow buckets given out. It reaches an
-    // overflow bucket by its address up to Taken, a load with acquire semantics that pairs with the
-    // store of Take, so the page that holds the bucket is in the directory it then reads; every word
-    // is read with acquire semantics, pairing with the store that published it (Add), and once, so the
-    // slot and the hash are those of one entry. An entry does not move within a table: one that is
-    // there throughout a walk is met once, at its word, and only a growth places entries anew.
-    public bool TryFindNext(ref long position, out uint slot, out uint hash)
+    // The slot of the next entry from position on and before stop, with the hash the entry holds, in
+    // the order of the words of the table, and the position after it; false when there is none, with
+    // the position at stop, or before it at the end of the table. A position counts the entry words of
+    // the main buckets, then those of the overflow buckets given out. It reaches an overflow bucket by
+    // its address up to Taken, a load with acquire semantics that pairs with the store of Take, so the
+    // page that holds the bucket is in the directory it then reads; every word is read with acquire
+    // semantics, pairing with the store that published it (Add), and once, so the slot and the hash
+    // are those of one entry. An entry does not move within a table: one that is there throughout a
+    // walk is met once, at its word, and only a growth places entries anew.
+    public bool TryFindNext(ref long position, long stop, out uint slot, out uint hash)
     {
         var mainWords = (long)_mainBuckets * EntriesPerBucket;
-        var end = mainWords + (_overflow.Taken * EntriesPerBucket);
+        var end = Math.Min(stop, mainWords + (_overflow.Taken * EntriesPerBucket));
 
         while (position < end)
         {
@@ -294,7 +295,7 @@ internal sealed class IndexTable
     }
 
     // The same, for a walk that needs the slots alone.
-    public bool TryFindNext(ref long position, out uint slot) => TryFindNext(ref position, out slot, out _);
+    public bool TryFindNext(ref long position, out uint slot) => TryFindNext(ref position, long.MaxValue, out slot, out _);
 
     private void CopyBucket(long place, IndexTable grown)
     {

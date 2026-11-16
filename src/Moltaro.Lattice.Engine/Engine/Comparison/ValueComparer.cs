@@ -59,15 +59,17 @@ internal static class ValueComparer
 
     // The hash of a text in the primary index under the comparison the String field declares and the
     // seed (see the class): texts that are equal under the comparison have the same hash under every
-    // seed. Without case the text is mapped a piece of PieceLength code units at a time, and the
-    // pieces are hashed one after the other as one text. Allocates nothing.
-    public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed)
-    {
-        if (!ComparisonOf(field).IgnoresCase)
-        {
-            return Marvin.Hash(text, seed);
-        }
+    // seed. Allocates nothing.
+    public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed) =>
+        ComparisonOf(field).IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
 
+    // The hash without case: the text mapped a piece of PieceLength code units at a time, and the
+    // pieces hashed one after the other as one text. A method of its own, so that the hash with
+    // Ordinal does not set up the buffer on the stack: measured in isolation on keys of 13 characters,
+    // best of 21 rounds, with the buffer in TextHash the hash with Ordinal took 10.8 to 12.7 ns, and
+    // 9.3 to 9.9 ns here, as the hash of .NET did before the seed.
+    private static uint TextHashWithoutCase(ReadOnlySpan<char> text, ulong seed)
+    {
         Span<char> mapped = stackalloc char[PieceLength];
         var marvin = new Marvin(seed);
 
