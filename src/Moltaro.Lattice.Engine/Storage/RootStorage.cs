@@ -16,7 +16,8 @@ internal static class RootStorage
     // every owned block is freed first and the root block, which holds them, last.
     //
     // The caller frees a root only when no reader can reach its blocks any more (arena protocol,
-    // "Reclamation and relocation").
+    // "Deferred reclamation, 16 November 2026"). A retired root is freed in the same way: its blocks
+    // are still allocated and its descriptors as they were.
     public static void Free(Arena arena, RootLayout layout, ArenaAddress root)
     {
         ArgumentNullException.ThrowIfNull(layout);
@@ -51,5 +52,26 @@ internal static class RootStorage
         }
 
         arena.Publish(root);
+    }
+
+    // Retires a published root that a write replaced or deleted: the root block and every block it
+    // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
+    // whole state, and its bytes leave the live counters. It changes no byte and allocates nothing.
+    // The root is recognized as Free recognizes it, and refused in the same cases before anything is
+    // retired. Free frees it later, once no read can reach it.
+    public static void Retire(Arena arena, RootLayout layout, ArenaAddress root)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        var payload = layout.RootPayload(arena, root);
+
+        for (var index = 0; index < layout.DescriptorCount; index++)
+        {
+            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
+
+            ValueBlocks.Retire(arena, ValueBlocks.Read(payload[offset..]));
+        }
+
+        arena.Retire(root);
     }
 }

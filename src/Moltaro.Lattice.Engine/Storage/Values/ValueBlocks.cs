@@ -184,6 +184,31 @@ internal static class ValueBlocks
         }
     }
 
+    // Retires every block of a value of a published root: its value block, or its chunks and their
+    // directory (Arena.Retire). A value inline or null owns no block. Nothing is read but the
+    // directory, which stays as it is, so the blocks can still be read and freed afterwards.
+    public static void Retire(Arena arena, in ValueDescriptor descriptor)
+    {
+        switch (descriptor.Kind)
+        {
+            case DescriptorKindEnum.Block:
+                arena.Retire(AddressOf(descriptor));
+                break;
+
+            case DescriptorKindEnum.Chunked:
+                var directory = AddressOf(descriptor);
+                var entries = arena.Payload(directory);
+
+                for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
+                {
+                    arena.Retire(AddressOf(Read(entries[entryOffset..])));
+                }
+
+                arena.Retire(directory);
+                break;
+        }
+    }
+
     // The bytes of a value that lies in one piece: inline in the root block, whose payload is given,
     // or in its one value block.
     public static ReadOnlySpan<byte> Contiguous(Arena arena, scoped in ValueDescriptor descriptor, ReadOnlySpan<byte> rootPayload) =>
