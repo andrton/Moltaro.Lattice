@@ -85,4 +85,16 @@ public enum LatticeErrorEnum
     /// until they are is stated at <see cref="Schema.LatticeIndex.IsUnique"/>.
     /// </remarks>
     UniqueConstraintViolation = 13,
+
+    /// <summary>
+    /// A read would have exceeded a limit set for it: of the temporary memory it may use or
+    /// of the time it may spend inside the engine, as <see cref="Access.LatticeReadLimits"/>
+    /// states. <see cref="LatticeException.Limit"/> names the limit. What the read returned
+    /// before stays valid, but the read did not complete and never ends as if it had.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not implemented yet.</b> Read limits are not enforced yet, as
+    /// <see cref="Access.LatticeReadLimits"/> states.
+    /// </remarks>
+    ReadLimitExceeded = 14,
 }

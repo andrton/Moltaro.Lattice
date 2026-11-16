@@ -73,23 +73,87 @@ public interface ILatticeSet
 
     /// <summary>
     /// Enumerates owned copies of all entities of the entity type from what this node has
-    /// now, in no particular order. The traversal follows the rules of
-    /// <see cref="ILatticeSet{TEntity}.Enumerate"/>.
+    /// now, in no particular order, within the read limits of the database options. The
+    /// traversal follows the rules of <see cref="ILatticeSet{TEntity}.Enumerate()"/>, what is
+    /// not implemented yet included.
     /// </summary>
+    /// <remarks>
+    /// The engine remembers the keys it has returned for the length of the pass, so that none
+    /// is returned twice; that memory grows with the pass and is what a memory limit of a read
+    /// bounds.
+    /// </remarks>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a read
+    /// limit of the options, which <see cref="LatticeException.Limit"/> names.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">A step came after the database was closed.</exception>
     IEnumerable<LatticeRecord> Enumerate();
 
     /// <summary>
+    /// Enumerates owned copies of all entities of the entity type from what this node has
+    /// now, in no particular order, within the given read limits. The traversal and the
+    /// limits follow the rules of <see cref="ILatticeSet{TEntity}.Enumerate(LatticeReadLimits)"/>,
+    /// what is not implemented yet included.
+    /// </summary>
+    /// <param name="limits">
+    /// The limits of this enumeration; a member that is <see langword="null"/> takes the value
+    /// of the database options. A limit that is set and not positive is refused when the
+    /// value is created, with <see cref="ArgumentOutOfRangeException"/>.
+    /// </param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a limit,
+    /// which <see cref="LatticeException.Limit"/> names.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">A step came after the database was closed.</exception>
+    IEnumerable<LatticeRecord> Enumerate(LatticeReadLimits limits);
+
+    /// <summary>
     /// Enumerates owned copies of all entities of the entity type after this node has
-    /// applied the position the session depends on. The session moves forward to cover
-    /// everything the enumeration returns, also when it returns nothing.
+    /// applied the position the session depends on, within the read limits of the database
+    /// options. The session moves forward to cover everything the enumeration returns, also
+    /// when it returns nothing. The traversal follows the rules of
+    /// <see cref="ILatticeSet{TEntity}.EnumerateAsync(LatticeSession, CancellationToken)"/>,
+    /// what is not implemented yet included.
     /// </summary>
     /// <param name="session">The consistency context of the caller.</param>
-    /// <param name="cancellationToken">Cancels the wait and the enumeration.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the wait and the enumeration, with <see cref="OperationCanceledException"/>.
+    /// </param>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
     /// required position in time; nothing was returned.
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a read
+    /// limit of the options, which <see cref="LatticeException.Limit"/> names.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">A step came after the database was closed.</exception>
     IAsyncEnumerable<LatticeRecord> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Enumerates owned copies of all entities of the entity type after this node has
+    /// applied the position the session depends on, within the given read limits. The
+    /// session moves forward to cover everything the enumeration returns, also when it
+    /// returns nothing. The traversal and the limits follow the rules of
+    /// <see cref="ILatticeSet{TEntity}.EnumerateAsync(LatticeSession, LatticeReadLimits, CancellationToken)"/>,
+    /// what is not implemented yet included.
+    /// </summary>
+    /// <param name="session">The consistency context of the caller.</param>
+    /// <param name="limits">
+    /// The limits of this enumeration; a member that is <see langword="null"/> takes the value
+    /// of the database options. A limit that is set and not positive is refused when the
+    /// value is created, with <see cref="ArgumentOutOfRangeException"/>.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancels the wait and the enumeration, with <see cref="OperationCanceledException"/>,
+    /// never with <see cref="LatticeErrorEnum.ReadLimitExceeded"/>.
+    /// </param>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
+    /// required position in time; nothing was returned.
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a limit,
+    /// which <see cref="LatticeException.Limit"/> names.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">A step came after the database was closed.</exception>
+    IAsyncEnumerable<LatticeRecord> EnumerateAsync(LatticeSession session, LatticeReadLimits limits, CancellationToken cancellationToken = default);
 
     /// <summary>Creates a new entity. The primary key is taken from the record.</summary>
     /// <param name="record">The complete entity.</param>

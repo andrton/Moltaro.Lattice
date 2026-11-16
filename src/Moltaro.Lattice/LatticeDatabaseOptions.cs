@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice;
@@ -54,17 +55,67 @@ public sealed class LatticeDatabaseOptions
     public TimeSpan SynchronizationTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// The temporary memory, in bytes, that one enumeration of this instance may use, unless
+    /// the enumeration sets its own limit. <see langword="null"/>, the default: no limit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What is counted, and how an enumeration that would exceed the limit fails, is stated at
+    /// <see cref="LatticeReadLimits.Memory"/> and <see cref="LatticeReadLimits"/>; the error
+    /// names <see cref="LatticeLimitEnum.ReadMemory"/>. An enumeration can set a larger or a
+    /// smaller limit of its own, and none can lift this one. Without a limit an enumeration of
+    /// any length runs to its end.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
+    /// enumeration is limited by it.
+    /// </para>
+    /// </remarks>
+    public long? ReadMemoryLimit { get; init; }
+
+    /// <summary>
+    /// The time that one enumeration of this instance may spend inside the engine, unless the
+    /// enumeration sets its own limit. <see langword="null"/>, the default: no limit.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What is counted, and how an enumeration that would exceed the limit fails, is stated at
+    /// <see cref="LatticeReadLimits.Time"/> and <see cref="LatticeReadLimits"/>; the error
+    /// names <see cref="LatticeLimitEnum.ReadTime"/>. The wait for the position of a session
+    /// is not counted; <see cref="SynchronizationTimeout"/> bounds it. An enumeration can set
+    /// a longer or a shorter limit of its own, and none can lift this one. Without a limit an
+    /// enumeration of any length runs to its end.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
+    /// enumeration is limited by it.
+    /// </para>
+    /// </remarks>
+    public TimeSpan? ReadTimeLimit { get; init; }
+
+    /// <summary>
     /// Checks that the options describe a supported instance.
     /// </summary>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing or the
-    /// values are incompatible.
+    /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing, a
+    /// timeout or a limit is out of its range, such as a limit that is set and not positive,
+    /// or the values are incompatible.
     /// </exception>
     public void Validate()
     {
         if (!IsFiniteTimeout(SynchronizationTimeout))
         {
             throw Invalid($"{nameof(SynchronizationTimeout)} must be finite and positive.");
+        }
+
+        if (ReadMemoryLimit is { } readMemory && readMemory <= 0)
+        {
+            throw Invalid($"{nameof(ReadMemoryLimit)} must be positive when it is set; leave it null for no limit.");
+        }
+
+        if (ReadTimeLimit is { } readTime && readTime <= TimeSpan.Zero)
+        {
+            throw Invalid($"{nameof(ReadTimeLimit)} must be positive when it is set; leave it null for no limit.");
         }
 
         switch (Role)

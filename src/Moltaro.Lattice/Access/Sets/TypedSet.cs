@@ -63,10 +63,20 @@ internal sealed class TypedSet<TEntity> : ILatticeSet<TEntity>
         }
     }
 
+    // The limits checked their values when they were created; the placeholder cannot honor them.
+    public IEnumerable<TEntity> Enumerate(LatticeReadLimits limits) =>
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet.");
+
     public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         return ReadAllAsync(session, cancellationToken);
+    }
+
+    public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, LatticeReadLimits limits, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet.");
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>

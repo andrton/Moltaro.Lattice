@@ -66,11 +66,25 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     public IEnumerable<TEntity> Enumerate() =>
         _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!));
 
+    // The contract of S08, part 2; the implementer of S08, part 2 replaces the body with the enumeration
+    // under the read limits. The limits checked their values when they were created.
+    public IEnumerable<TEntity> Enumerate(LatticeReadLimits limits) =>
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet in the engine.");
+
     public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
 
         return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!), session, cancellationToken);
+    }
+
+    // The contract of S08, part 2; the implementer of S08, part 2 replaces the body with the enumeration
+    // under the read limits.
+    public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, LatticeReadLimits limits, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet in the engine.");
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>

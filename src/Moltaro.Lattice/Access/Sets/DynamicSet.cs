@@ -54,10 +54,20 @@ internal sealed class DynamicSet : ILatticeSet
         }
     }
 
+    // The limits checked their values when they were created; the placeholder cannot honor them.
+    public IEnumerable<LatticeRecord> Enumerate(LatticeReadLimits limits) =>
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet.");
+
     public IAsyncEnumerable<LatticeRecord> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
         return ReadAllAsync(session, cancellationToken);
+    }
+
+    public IAsyncEnumerable<LatticeRecord> EnumerateAsync(LatticeSession session, LatticeReadLimits limits, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        throw new NotSupportedException("An enumeration with read limits is not implemented yet.");
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(LatticeRecord record, CancellationToken cancellationToken = default) =>

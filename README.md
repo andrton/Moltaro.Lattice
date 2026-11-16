@@ -365,7 +365,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
-write batch, Durable persistence, and storing by what a schema can declare beyond the
+write batch, the limits of a read on its memory and its time, Durable persistence, and
+storing by what a schema can declare beyond the
 defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16, and
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and a
 class hold, and no write stores yet. Not in the contract yet: replication between
