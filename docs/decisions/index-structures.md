@@ -70,6 +70,11 @@ during growth) hold for the new table. The owner's direction: where the engine c
 replace a package by its own structure written after an established open-source one, it
 does.
 
+Measured in Epic 1, sprint S08, part 1 (scenario `primary-index`, manifest
+`development-3`, 16 November 2026): the engine's table takes 22.3 bytes per entry at
+100,000 entities and 17.8 at 1,000,000, for an Int64 key and for a String key alike; the
+package map took 36.7 and 29.4 bytes for an Int64 key and 47.2 and 37.7 for a String key.
+
 **Engineering selection on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `UnorderedMapSlim<TKey, RootLocator>` for the first primary-index
 implementation. `RootLocator` here denotes the engine-owned compact locator contract,

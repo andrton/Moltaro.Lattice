@@ -2983,8 +2983,17 @@ be studied: how they do it is to be learned from their source and, in essence, r
   and the number of processors, three runs each: (1) the total of reads by key grows
   with the reading threads up to the number of processors, without a writer and beside a
   writer of each kind — replaces, inserts and deletes without growth, inserts with
-  growth; it need not be linear; (2) the writes a second of the writing thread of the scenario, of each
-  kind, do not fall as readers are added, beyond the noise of the measurement; (3) reads
+  growth; it need not be linear; (2), as restated by the planner on 16 November 2026
+  after the first figures showed that the sentence which stood here measured the machine:
+  nothing waits — the thread that publishes does not wait for readers on its ordinary
+  path, and a reader does not wait for it. Beside N readers of its own database, the
+  writes a second of a writing thread — replaces, inserts and deletes, inserts with
+  growth — are not lower by more than 30% than those of the same thread beside N
+  readers of another database in the same process, for N of 1, 4, 8, 16 and the number
+  of processors; and they are not lower than on the protection of S06 for inserts and
+  deletes and for growth. The control is part of the scenario. Each point says how many
+  threads ran against how many logical processors; a point at which the threads exceed
+  the processors is reported and is not the one the 30% is judged at. (3) reads
   beside a writer of any kind are not lower than on the protection of S06 at the same
   thread count. A step that breaks (1), (2) or (3) stops the sprint for the owner.
   Tests: the storms and the close cycles of S06 pass; after the writes have returned and
