@@ -30,6 +30,8 @@ internal static class ClashSchema
 
     public static Task<EngineDatabase> OpenAsync() => EngineMaster.OpenAsync(Schema);
 
+    public static Task<EngineDatabase> OpenAsync(ulong indexSeed) => EngineMaster.OpenAsync(Schema, indexSeed);
+
     public static long ZeroHashCode(int number) => ((long)number << 32) | (uint)number;
 
     public static long Composite(int shard, int id) => ((long)shard << 32) | (uint)id;

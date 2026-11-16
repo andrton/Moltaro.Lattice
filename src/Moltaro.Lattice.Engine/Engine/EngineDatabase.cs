@@ -152,6 +152,20 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return new EngineDatabase(options, arenaOptions, allocator);
     }
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
+    // first Create does, with the same refusals, whose primary indexes compute every hash with this
+    // seed instead of one the instance draws when it opens (the planner's answer to Q50; brief of
+    // S08, part 2), so that a test can build keys that share one hash under one seed and show them
+    // spread under another, and find every key under two seeds it chose. Nothing else differs, and
+    // an instance made by the first Create pays nothing for it. The stub of S08, part 2: until its
+    // implementer gives the indexes a seed, they take none and this one is ignored.
+    public static EngineDatabase Create(LatticeDatabaseOptions options, ulong indexSeed)
+    {
+        Check(options);
+
+        return new EngineDatabase(options, arenaOptions: null, allocator: null);
+    }
+
     // The refusals of Create, in the order of LatticeDatabase.Create.
     private static void Check(LatticeDatabaseOptions options)
     {

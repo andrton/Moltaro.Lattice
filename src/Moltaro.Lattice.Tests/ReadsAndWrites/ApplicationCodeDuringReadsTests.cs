@@ -16,10 +16,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // that code makes comes after the copy. A close waits for the reads in progress and refuses what
 // comes after them: the read returns its entity, and then the database is closed. An enumeration
 // returns the item it was building, and a replace does not end its pass; after a delete or a close
-// the tests take no further step, since the first is the rule of an enumeration until S08 and the
-// second is not stated. Afterwards nothing stays locked: the entity is written from another thread
-// and read again. A constructor or a set accessor that throws: the exception reaches the caller of
-// the read, and the next read and write work.
+// the tests take no further step: what a pass does then is stated by the tests of the enumeration
+// (ChangeBetweenStepsTests, EnumerationAfterCloseTests). Afterwards nothing stays locked: the entity
+// is written from another thread and read again. A constructor or a set accessor that throws: the
+// exception reaches the caller of the read, and the next read and write work.
 //
 // Every wait is bounded, so that code that cannot complete fails the test instead of hanging the
 // run. The placeholder holds no lock while it builds an object, so the tests run on it too.
@@ -241,9 +241,8 @@ public sealed class ApplicationCodeDuringReadsTests
             }
 
             // The delete and the dispose return, and the item being built reaches the caller. The
-            // test takes no further step of the enumeration: after a delete what it does is the rule
-            // of an enumeration until S08, which EnumerationTests states, and after a close it is
-            // not stated.
+            // test takes no further step of the enumeration: what a step after a delete or a close
+            // does is stated by the tests of the enumeration.
             var item = await Task.Run(async () =>
             {
                 Arm(hook, code);

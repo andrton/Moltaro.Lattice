@@ -87,6 +87,35 @@ public sealed class LatticeDatabaseOptionsTests
         AssertInvalid(Child(Master, schema: Schema));
     }
 
+    [Fact]
+    public void Read_limits_are_unset_by_default_and_any_positive_one_is_valid()
+    {
+        var options = new LatticeDatabaseOptions();
+
+        Assert.Null(options.ReadMemoryLimit);
+        Assert.Null(options.ReadTimeLimit);
+        MemoryOnlyMaster(readMemoryLimit: 1, readTimeLimit: TimeSpan.FromTicks(1)).Validate();
+        MemoryOnlyMaster(readMemoryLimit: long.MaxValue, readTimeLimit: TimeSpan.MaxValue).Validate();
+    }
+
+    [Fact]
+    public void Read_limit_that_is_set_and_not_positive_is_refused()
+    {
+        AssertInvalid(MemoryOnlyMaster(readMemoryLimit: 0, readTimeLimit: null));
+        AssertInvalid(MemoryOnlyMaster(readMemoryLimit: -1, readTimeLimit: null));
+        AssertInvalid(MemoryOnlyMaster(readMemoryLimit: null, readTimeLimit: TimeSpan.Zero));
+        AssertInvalid(MemoryOnlyMaster(readMemoryLimit: null, readTimeLimit: TimeSpan.FromTicks(-1)));
+    }
+
+    private static LatticeDatabaseOptions MemoryOnlyMaster(long? readMemoryLimit, TimeSpan? readTimeLimit) =>
+        new()
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = Schema,
+            ReadMemoryLimit = readMemoryLimit,
+            ReadTimeLimit = readTimeLimit,
+        };
+
     private static LatticeDatabaseOptions Child(Uri? masterUri, string? storage = null, LatticeSchema? schema = null) =>
         new()
         {

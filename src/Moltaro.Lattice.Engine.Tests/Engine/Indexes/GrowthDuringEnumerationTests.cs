@@ -1,21 +1,25 @@
+using Moltaro.Lattice.TestSupport.Enumeration;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
-// An enumeration that a growth of the primary index meets halfway never returns an entity twice and
-// never ends as complete without one (review round 1 of Epic 1, sprint S08, part 1: a step read the
-// version of the index and then its table, and the growth published the new table before it changed
-// the version, so a step could apply a position of the old table to the new one). The contract of S06
-// stands in part 1: an enumeration during which the index changed fails, from the step that sees the
-// change, with NotSupportedException, and what it returned before stays valid; it never returns a set
-// it cannot vouch for.
+// An enumeration that a growth of the primary index meets halfway returns every entity once and ends
+// (review round 1 of Epic 1, sprint S08, part 1: a step read the version of the index and then its
+// table, and the growth published the new table before it changed the version, so a step could apply
+// a position of the old table to the new one). In part 1 the contract of S06 stood, and the test
+// stated that such an enumeration returned no entity twice and failed rather than end without one;
+// from part 2 a growth or a change of the index during the pass no longer fails it (brief of S08,
+// Acceptance, and the notes of the coordinator for part 2), so the test states what the pass returns.
 //
 // The test fills the index until the next insert grows it, which a database of its own with the same
 // keys shows, since the index of the same keys grows at the same insert. It enumerates half of the
 // entities, then lets that insert grow the index and holds the growth between the store that
 // publishes the grown table and the change of the version, through the switch of the engine
-// (EngineDatabase.HoldNextGrowth). While the growth is held there it takes the rest of the steps: each
-// returns an entity or fails. Then it releases the growth. What the enumeration returned holds no key
-// twice; if it ended, rather than failed, it returned every entity there was, each once. Every wait is
-// bounded.
+// (EngineDatabase.HoldNextGrowth). While the growth is held there it takes the rest of the steps, on a
+// thread of its own: a step returns what it finds, or waits for the few stores of the publication, as
+// a read by key waits for a write of its entity between its stores. The test lets the growth go once
+// the steps have ended, or after a short while when they wait for it, and the pass ends; what the test
+// asserts does not depend on which. Every entity that was there before the growth is returned once;
+// the one whose insert grew the index, during the pass, at most once. Every wait is bounded.
 public sealed class GrowthDuringEnumerationTests
 {
     // The growth the test meets: the third, so that the half of the entities it enumerates first lies
@@ -26,10 +30,13 @@ public sealed class GrowthDuringEnumerationTests
     // third growth comes after a few dozen.
     private const int MostKeys = 10_000;
 
+    // How long the steps may take while the growth is held before the test lets it go.
+    private static readonly TimeSpan Patience = TimeSpan.FromMilliseconds(200);
+
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact]
-    public async Task Enumeration_that_a_growth_of_the_index_meets_halfway_returns_no_entity_twice_and_never_ends_without_one()
+    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    public async Task Enumeration_that_a_growth_of_the_index_meets_halfway_returns_every_entity_once_and_ends()
     {
         var full = await KeysBeforeGrowthAsync(Growth);
         var database = await ClashSchema.OpenAsync();
@@ -68,35 +75,30 @@ public sealed class GrowthDuringEnumerationTests
             await Task.WhenAny(inside.Task, growing).WaitAsync(Bound);
             Assert.True(inside.Task.IsCompleted, "The insert did not grow the index.");
 
-            var ended = false;
-
-            try
-            {
-                while (enumerator.MoveNext())
+            var rest = Task.Factory.StartNew(
+                () =>
                 {
-                    returned.Add(enumerator.Current.Id);
-                }
+                    var taken = new List<long>();
 
-                ended = true;
-            }
-            catch (NotSupportedException)
-            {
-                // The enumeration saw the change and failed, as an enumeration during which the index
-                // changed does.
-            }
-            finally
-            {
-                release.TrySetResult();
-            }
+                    while (enumerator.MoveNext())
+                    {
+                        taken.Add(enumerator.Current.Id);
+                    }
 
+                    return taken;
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+
+            await Task.WhenAny(rest, Task.Delay(Patience));
+            release.TrySetResult();
+
+            returned.AddRange(await rest.WaitAsync(Bound));
             await growing.WaitAsync(Bound);
 
             Assert.Equal(returned.Count, returned.Distinct().Count());
-
-            if (ended)
-            {
-                Assert.Equal(Enumerable.Range(0, full).Select(key => (long)key), returned.Order());
-            }
+            Assert.Equal(Enumerable.Range(0, full).Select(key => (long)key), returned.Where(key => key != full).Order());
         }
         finally
         {

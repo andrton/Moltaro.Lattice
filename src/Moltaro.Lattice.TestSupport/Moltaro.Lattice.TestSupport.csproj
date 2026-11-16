@@ -11,6 +11,11 @@
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The public contract, for the forms of an enumeration that tests of the contract and of the
+         engine take alike (Enumeration.EnumerationForms). -->
+    <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- The data the rule of equality without case is read from (Text.CaseRule), Unicode 16.0.0;
          its licence lies beside it. -->
     <EmbeddedResource Include="Text\UnicodeData.txt" LogicalName="Moltaro.Lattice.TestSupport.Text.UnicodeData.txt" />

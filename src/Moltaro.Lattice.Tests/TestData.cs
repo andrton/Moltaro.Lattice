@@ -75,6 +75,19 @@ internal static class TestData
 
     public static ILatticeSet<User> Users(this ILatticeDatabase database) => database.Set<User>();
 
+    // The position of the same history with the next sequence: ahead of a database that is at the
+    // given position, which only a caller can make up. It is made up from the text of the position,
+    // whose form the documentation does not describe: its history, a hyphen and its sequence in
+    // hexadecimal, as LatticePosition.ToString writes it.
+    public static LatticePosition Ahead(LatticePosition position)
+    {
+        var text = position.ToString();
+        var separator = text.IndexOf('-', StringComparison.Ordinal);
+        var sequence = ulong.Parse(text.AsSpan(separator + 1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture);
+
+        return LatticePosition.Parse($"{text[..separator]}-{sequence + 1:x}");
+    }
+
     public static async Task<LatticeException> ExpectErrorAsync(LatticeErrorEnum expected, Func<ValueTask<LatticeWriteResult>> write)
     {
         var exception = await Assert.ThrowsAsync<LatticeException>(async () => await write());
