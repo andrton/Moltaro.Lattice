@@ -96,8 +96,13 @@ through one rule. From S08, part 1, a read of the engine is protected by an epoc
 takes no lock; what a write replaces or removes is retired and freed once the reads that
 could reach it have left; the primary index is a hash table of the engine's own that is
 read while a write is published, and `Arc.Collections` is referenced by the engine and
-used by none of its code until the ordered indexes of S14 settle it. The public entry
-keeps the refusals of the placeholder until S12.
+used by none of its code until the ordered indexes of S14 settle it. From S08, part 2,
+an enumeration of the engine goes on while entities change and the index grows: it
+remembers the keys it has returned, returns no identity twice and every entity nobody
+changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
+`ReadTimeLimit`, none set by default, bound the memory and the time of a pass, and no
+call carries limits of its own; every hash of the primary index uses a seed the instance
+draws when it opens. The public entry keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -276,6 +281,20 @@ documentation before this document is removed.
 | S08, part 1 | The same writes beside N readers of its own database, divided by those beside N readers of another database of the process; N of 1, 2, 4, 8, 16, 19; three runs | 0.72 to 1.42 in two runs; in the third, a disturbed one, one point at 0.68; the median of every point at least 0.74 | development-3 | 16 November 2026 |
 | S08, part 1 | Bytes of the primary index per entry at 100,000 and at 1,000,000 entities | 22.3 and 17.8, for an Int64 key, a composite Int64 key and a String key alike; the map of the package took 36.7 and 29.4 for Int64, 47.2 and 37.7 for String | development-3 | 16 November 2026 |
 | S08, part 1 | The insert that grows the primary index from 131,072 entries; an ordinary insert takes 0.2 to 0.5 µs | 1.3 to 1.9 ms, median 1.56 ms, in the implementer's runs; 2.3 to 8.0 ms on a loaded machine in the review | development-3 | 16 November 2026 |
+| S08, part 2 | One pass of an enumeration over 100,000 users, by class, without a writer and without limits; median of a series, three runs | 41 to 53 ms on a machine under other load; 43 to 49 ms in part 1, where a pass remembered nothing and failed when the index changed | development-3 | 16 November 2026 |
+| S08, part 2 | The same pass beside a writing thread, and with the index growing once during it (about 132,000 entities) | beside replaces 59 to 60 ms; beside inserts and deletes 59 to 61 ms; with a growth 88 to 90 ms in the implementer's first runs, 195 to 240 ms on a loaded machine later; in part 1 the two last failed | development-3 | 16 November 2026 |
+| S08, part 2 | Memory a pass holds per key it has returned, at 100,000 keys | 21.0 bytes for an Int64 key, 41.9 for a Guid, 68.2 for a String of 13 characters; between half and all of that over one doubling of the table | development-3 | 16 November 2026 |
+| S08, part 2 | Reads by key in total, by class, without a writer, the branch against main in alternating runs | 16 threads 14.7 to 15.6 M/s against 14.9; 20 threads 14.9 to 16.2 against 15.6 to 17.1: no difference | development-3 | 16 November 2026 |
+
+The figures of S08, part 2 come from the scenario `enumerate`. Remembering the keys costs
+about a quarter of a pass, about 110 ns an entity; with a limit set a pass also takes
+timestamps, about 13 ms per 100,000 entities. A step after a growth walks the new table
+from its start in rounds of 256 words of the index, so that no round stays inside the
+protection of reads for more than a bounded piece of work: 0.14 to 2.6 ms at the longest
+with 1,000,000 keys returned, against 117 to 269 ms before the rounds. A seeded hash of
+text after Marvin32 of .NET is not slower than the hash it replaced: 24 to 26 ns against
+27 to 28 ns for a key of 13 characters compared without case, and 9 to 10 ns for Ordinal
+before and after, in the implementer's benchmark and not under a manifest.
 
 The figures of S08, part 1 come from the scenarios `read-by-key-threads` and
 `primary-index`. The machine has cores of two kinds and carried 15 to 25% of other load
@@ -918,7 +937,7 @@ Why this order:
 | S06 | Reads and writes of one entity | Full | Done |
 | S07 | Every key type and declared value | Full | Done |
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
-| S08, part 2 | Enumeration under change and the read limits | Full | In progress |
+| S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |

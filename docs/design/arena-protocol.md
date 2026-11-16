@@ -93,8 +93,9 @@ while a read is inside the protection, so a read holds retired memory back only 
 length of one step. The publishing thread looks at the readers when the items retired since its
 last look reach the number of slots or their bytes reach one segment, and whenever
 memory is short, a drain is asked for or the database closes; what waits between two
-looks is bounded by those two thresholds. An enumeration enters and leaves at each step
-and holds nothing between two steps. A reader that finds no free slot of the epoch
+looks is bounded by those two thresholds. An enumeration enters and leaves at each step,
+and within a long step after each bounded piece of walking, and holds nothing between
+two steps. A reader that finds no free slot of the epoch
 table waits for one and never fails. A published root is never changed: a partial update
 publishes a new root block that shares the unchanged value blocks (the owner's decision
 of 16 November 2026).
