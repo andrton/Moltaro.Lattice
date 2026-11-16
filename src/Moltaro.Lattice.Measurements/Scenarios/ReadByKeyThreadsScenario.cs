@@ -40,8 +40,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // 16 November 2026); each line says how many threads ran against how many logical processors, and a
 // point at which they are more than the processors is reported but not judged.
 //
-// A run takes about four minutes on the development machine: the series take 2.5 s each, and every
-// series with the writer that inserts while the index grows loads a database of its own.
+// A run takes about two and a half minutes on the development machine: the series take 2.5 s
+// each, and every series with the writer that inserts while the index grows loads a database of its
+// own.
 internal static class ReadByKeyThreadsScenario
 {
     public const string Name = "read-by-key-threads";
