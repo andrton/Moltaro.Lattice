@@ -2927,6 +2927,14 @@ be studied: how they do it is to be learned from their source and, in essence, r
   `EngineCounters.RetiredIndexBytes`, `EngineCounters.ReplacementIndexBytes`,
   `EngineDatabase.DrainRetired()`. No public member changes. The rule is in the
   [arena protocol](../design/arena-protocol.md#deferred-reclamation-16-november-2026).
+  The primary index is the engine's own hash table after the hash index of
+  Garnet/Tsavorite (the owner's decision on Q48); `Arc.Collections` is not used for it,
+  and the package reference, the pin test of Q3 and the sentence of `AGENTS.md` stay
+  until the ordered indexes of S14 settle whether the package leaves the engine.
+  Reported: bytes per entry of the index before and after, for an Int64 key and a String
+  key, at 100,000 and 1,000,000 entities. `PrimaryIndexBytes` keeps its meaning. Carried
+  under O16: `THIRD-PARTY-NOTICES.md` is packed into the package of the core library
+  beside `README.md` (the owner's answer to Q47).
 - **Counters and the drain, part 1.** No new counter for arena memory:
   `ArenaCounters.RetiredBytes` is the one, and it stops being 0. `RetiredIndexBytes` is
   the replaced tables of the primary index not freed yet. `RootEntries` goes on counting

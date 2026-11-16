@@ -59,6 +59,17 @@ unmeasured permanent duplicate of all key text.
 
 ### Selected implementation: Arc.Collections UnorderedMapSlim
 
+**Superseded for the primary index on 16 November 2026 (owner, Q48).** Reads are
+protected by epochs and a lookup has to run while the one writer changes the index.
+`UnorderedMapSlim` requires external synchronization whenever a writer is present, so it
+cannot serve. The primary index is a hash table of the engine's own, modelled on the
+hash index of Garnet/Tsavorite: one writer, readers without locks, entries of one
+machine word, replaced tables retired by the epoch. The reservation and accounting rules
+of this section (capacity reserved before a durable commit, old and new table counted
+during growth) hold for the new table. The owner's direction: where the engine can
+replace a package by its own structure written after an established open-source one, it
+does.
+
 **Engineering selection on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `UnorderedMapSlim<TKey, RootLocator>` for the first primary-index
 implementation. `RootLocator` here denotes the engine-owned compact locator contract,

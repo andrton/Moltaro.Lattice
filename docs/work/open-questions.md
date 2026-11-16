@@ -67,24 +67,6 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
-### Q47. Does the notice of the Unicode data travel inside the package?
-
-| | |
-| --- | --- |
-| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
-| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0. `THIRD-PARTY-NOTICES.md` at the repository root names it, and the Unicode licence asks that its notice appear with copies of the data or in the associated documentation. A package is built with `README.md` only, so the notice is in the repository and not in the package. Is the notices file packed with the core library? |
-| **Until answered** | The notice is in the repository. Nothing has been released, so no package without it exists |
-| **Decides** | The owner, before the first package is published |
-
-### Q48. Can the selected map of the primary index be read while the writer changes it?
-
-| | |
-| --- | --- |
-| **Found** | 16 November 2026, the planner, with the owner's decision on deferred reclamation; for Epic 1, sprint S08, part 1 |
-| **Question** | The decision on index structures selects `UnorderedMapSlim` of `Arc.Collections` as an engineering selection and foresees readers on the old map only during growth, with mutations otherwise excluding lookups. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it, without touching its internals? If it cannot, the selection has to change, and that reaches `AGENTS.md` (the engine owns `Arc.Collections`), the pin test of Q3 and principle 11 |
-| **Until answered** | The implementer of S08, part 1 establishes it first and reports before building. The package is not removed before the owner has spoken |
-| **Decides** | The planner, and the owner where the selection changes |
-
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -466,3 +448,21 @@ in the meantime.
 | **Question** | A String key compared without case followed `StringComparison.OrdinalIgnoreCase` of .NET, and what .NET holds equal under it differs between ICU, NLS and invariant globalization and with the version of the Unicode data. Nothing recorded the mode, so two nodes, or a saved database and the process that opens it, could hold different entities equal. Is the mode fixed and checked, or does the engine bring a case mapping of its own? |
 | **Answer** | The owner, 15 November 2026, through the planner's session: a case mapping of Lattice's own, a fixed versioned table in the core. *Not chosen:* recording the globalization mode and refusing another; leaving it until S10 |
 | **Where the rule lives** | The decision on strings, Q04, the addition of 15 November 2026; the brief of S07 in the [document of Epic 1](epic-1-core.md) carries the work |
+
+### Q47. Does the notice of the Unicode data travel inside the package?
+
+| | |
+| --- | --- |
+| **Found** | 15 November 2026, review of Epic 1, sprint S07, round 2 |
+| **Question** | The core library carries the case table, data derived from `UnicodeData.txt` of Unicode 16.0.0, and the Unicode licence asks that its notice appear with copies of the data. A package was built with `README.md` only. Is the notices file packed with the core library? |
+| **Answer** | The owner, 16 November 2026, through the planner's session: yes. `THIRD-PARTY-NOTICES.md` is packed into the package of the core library beside `README.md`; the repository file stays |
+| **Where the rule lives** | The build settings in `src`; carried by S08, part 1 |
+
+### Q48. Can the selected map of the primary index be read while the writer changes it?
+
+| | |
+| --- | --- |
+| **Found** | 16 November 2026, the planner, with the owner's decision on deferred reclamation; for Epic 1, sprint S08, part 1 |
+| **Question** | The decision on index structures selected `UnorderedMapSlim` of `Arc.Collections` and foresaw readers on the old map only during growth. The owner's decision of 16 November 2026 asks for lookups during every change. Can that map be read safely while the one writer changes it? |
+| **Answer** | No: its own remarks require external synchronization whenever a writer is present, and the planner read the code at the pinned commit to the same end. The owner, 16 November 2026, through the planner's session: the primary index becomes a hash table of the engine's own, modelled on the hash index of Garnet/Tsavorite; and where the engine can replace a package by its own structure written after an established open-source one, it does. Whether `Arc.Collections` leaves the engine altogether is settled with the ordered indexes of S14; until then the reference, the pin test of Q3 and the sentence of `AGENTS.md` stay |
+| **Where the rule lives** | The decision on index structures, the addition of 16 November 2026; the brief of S08 in the [document of Epic 1](epic-1-core.md) |
