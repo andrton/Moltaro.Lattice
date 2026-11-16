@@ -30,14 +30,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // fails the test instead of hanging it.
 public sealed class HeldReadTests
 {
-    private const string NotProtectedByEpochsYet =
-        "Reads are not protected by epochs yet, so a read cannot be held inside the protection while the writer goes on (Epic 1, sprint S08, part 1).";
-
     private const int Readers = 4;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotProtectedByEpochsYet)]
+    [Fact]
     public async Task Replace_while_a_read_of_the_entity_is_held_returns_and_the_old_root_stays_retired_until_the_read_left_and_a_drain()
     {
         var database = await StampSchema.OpenAsync();
@@ -73,7 +70,7 @@ public sealed class HeldReadTests
         }
     }
 
-    [Fact(Skip = NotProtectedByEpochsYet)]
+    [Fact]
     public async Task Entry_of_an_entity_deleted_while_a_read_of_it_is_held_is_given_out_again_only_after_the_read_left_and_a_drain()
     {
         var database = await StampSchema.OpenAsync();
@@ -125,7 +122,7 @@ public sealed class HeldReadTests
         }
     }
 
-    [Fact(Skip = NotProtectedByEpochsYet)]
+    [Fact]
     public async Task Inserts_replaces_and_deletes_of_the_entity_being_read_and_of_others_return_while_a_read_is_held()
     {
         var database = await StampSchema.OpenAsync();
@@ -165,7 +162,7 @@ public sealed class HeldReadTests
         }
     }
 
-    [Fact(Skip = NotProtectedByEpochsYet)]
+    [Fact]
     public async Task Primary_index_grows_while_a_read_is_held_and_its_old_table_stays_retired_until_the_read_left_and_a_drain()
     {
         // One entity type, so that PrimaryIndexBytes is the bytes of its table.
@@ -234,7 +231,7 @@ public sealed class HeldReadTests
         }
     }
 
-    [Fact(Skip = NotProtectedByEpochsYet)]
+    [Fact]
     public async Task Close_while_a_read_is_held_waits_for_it_and_completes_once_it_has_left()
     {
         var database = await StampSchema.OpenAsync();

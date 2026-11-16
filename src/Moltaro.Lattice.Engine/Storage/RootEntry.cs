@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Storage;
@@ -10,11 +11,19 @@ namespace Moltaro.Lattice.Storage;
 //
 // Sequential layout keeps the declared order. In it every field sits on its natural boundary, so
 // natural alignment adds no padding and the entry keeps its 48 bytes.
+//
+// Reads inside the protection of reads read Root, LastMutationSequence and State while the writer
+// changes them, through the members Acquire… and Release…, which read with acquire and write with
+// release semantics, each field as one aligned word; Engine.Writes.WriteExecutor says in which order
+// the writer writes them and Engine.Entities.EntityTable how a read takes them as one state. The other
+// fields do not change while a read can reach the entry.
 [StructLayout(LayoutKind.Sequential)]
 internal struct RootEntry
 {
     // The address of the root's block. It changes when the root is replaced or moved; the entry,
-    // and with it every handle of the lifetime, stays where it is.
+    // and with it every handle of the lifetime, stays where it is. The entry of a deleted root keeps
+    // the address of the retired root until the entry is released, so that a read that reached the
+    // entry before still compares and copies a whole root.
     public ArenaAddress Root;
 
     // The sequence of the position of the last published mutation of the root. It is the
@@ -43,8 +52,32 @@ internal struct RootEntry
     // Where the slot and its lifetime stand.
     public RootStateEnum State;
 
-    // How many lookups hold a temporary claim on this lifetime. While one does, the slot must not
-    // be released (arena protocol, "Lock and lifetime order"). RootTable.Release does not look at
-    // it; its caller does.
-    public int ClaimCount;
+    // The four bytes the milestone contract gave to the claims of lookups. Reads protected by epochs
+    // take no claim (brief of S08), so nothing uses them; they keep the entry at its 48 bytes and its
+    // fields where the contract places them, until a later sprint gives them a use.
+    public int Reserved;
+
+    // The root, read with acquire semantics: a read that sees a root sees what was written before
+    // the store that published it.
+    public ArenaAddress AcquireRoot()
+    {
+        var value = Volatile.Read(ref Unsafe.As<ArenaAddress, ulong>(ref Root));
+
+        return Unsafe.As<ulong, ArenaAddress>(ref value);
+    }
+
+    // Publishes a root, by a store with release semantics.
+    public void ReleaseRoot(ArenaAddress root) => Volatile.Write(ref Unsafe.As<ArenaAddress, ulong>(ref Root), root.Value);
+
+    // The sequence of the last mutation, read with acquire semantics.
+    public ulong AcquireLastMutation() => Volatile.Read(ref LastMutationSequence);
+
+    // Writes the sequence of the last mutation, by a store with release semantics.
+    public void ReleaseLastMutation(ulong sequence) => Volatile.Write(ref LastMutationSequence, sequence);
+
+    // The state, read with acquire semantics.
+    public RootStateEnum AcquireState() => (RootStateEnum)Volatile.Read(ref Unsafe.As<RootStateEnum, uint>(ref State));
+
+    // Writes the state, by a store with release semantics.
+    public void ReleaseState(RootStateEnum state) => Volatile.Write(ref Unsafe.As<RootStateEnum, uint>(ref State), (uint)state);
 }

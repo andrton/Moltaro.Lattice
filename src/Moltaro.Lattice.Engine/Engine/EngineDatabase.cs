@@ -34,16 +34,28 @@ namespace Moltaro.Lattice.Engine;
 // block fails the open with InvalidSchema, and an entity type with a field the engine cannot
 // store yet gets no layout (the planner's answer to point 1 of Q35). A failed open closes the
 // instance. Before the open an operation is Unavailable; after a close it is
-// ObjectDisposedException. A close waits for the reads in progress before it frees the arena
-// (CloseBarrier): every read and write enters the barrier before it touches the database, and the
-// arena is freed by the last one to leave after the close, or by the close when none is in
-// progress. A wait for a position ends with the close.
+// ObjectDisposedException. A close frees the arena once nothing can reach it any more: it marks the
+// reads closed, so that a read that enters afterwards leaves at once (ReadEpochs), lets no write, drain
+// or count of the counters start (CloseBarrier), waits for those in progress and then for the reads
+// that entered before the mark, and only then frees the arena with everything retired. It does not
+// wait for that inside the call: CloseAsync returns a task that completes then, and a cancellation of
+// its token ends only the wait of the caller. A wait for a position ends with the close.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
-// for each entity type, with its root layout and its primary index), the writes in Writes
-// (WriteExecutor), the gates, the lookup claims and the barrier of the close in Protection (with
-// the order of the locks, RootGates), the history and the sequence in Positions (PositionClock), and
+// for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
+// writes in Writes (WriteExecutor), the protection of reads by epochs, what is retired and the
+// barrier of the close in Protection, the history and the sequence in Positions (PositionClock), and
 // the sets of the public interfaces in Sets.
+//
+// The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
+// for an open and a close that race, and the lock of the writes (WriteExecutor), under which one
+// write, one drain or one count of the counters runs at a time and which is held for synchronous
+// work in memory only. A read takes neither: it enters the protection of reads, which is no lock and
+// never waits for the writer, and nothing is taken inside it. A thread that holds the lock of the
+// writes takes no other lock. What a read can reach lives at least as long as the read: a write
+// unlinks it and retires it, and the writer frees it only once the reads that entered before have
+// left (RetiredMemory); the close frees the arena only after the reads and the writes in progress
+// have ended. No code of the application runs, and nothing waits, while a read is inside.
 //
 // Position and revision. Each open has a new random non-zero history; the sequence is 0 and grows
 // by 1 with each published write, also one that changed nothing (the owner's answer to Q39). A
@@ -74,6 +86,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private readonly CloseBarrier _barrier;
 
+    private readonly ReadEpochs _epochs;
+
     // The sets of classes, made once for each class and shared.
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
@@ -85,13 +99,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Arena? _arena;
 
-    private RootGates? _gates;
+    private RootTable? _roots;
 
-    private LookupClaims? _claims;
+    private RetiredMemory? _retired;
 
     private PositionClock? _clock;
 
-    // The lock of the writes, which the counters take as well (WriteExecutor).
+    // The lock of the writes, which the counters and the drain take as well (WriteExecutor).
     private Lock? _writes;
 
     private Dictionary<LatticeEntityType, SetOperations>? _operations;
@@ -102,6 +116,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         _options = options;
         _barrier = new CloseBarrier(this);
+        _epochs = new ReadEpochs(this);
     }
 
     // Makes an instance for the options without opening it. In S06 a MemoryOnly master.
@@ -129,8 +144,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // What the engine holds at this moment, for the tests and later for diagnostics: taken between
-    // two writes, under the lock of the writes, and under the catalog gate, so that no write and no
-    // release of an entry by a lookup is half done.
+    // two writes, under the lock of the writes, so that no write and no freeing of what was retired
+    // is half done.
     public EngineCounters Counters
     {
         get
@@ -142,25 +157,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
             {
                 lock (_writes!)
                 {
-                    _gates!.Catalog.EnterReadLock();
+                    var indexBytes = 0L;
+                    var replacementBytes = 0L;
 
-                    try
+                    foreach (var operations in _operations!.Values)
                     {
-                        var indexBytes = 0L;
-
-                        foreach (var operations in _operations!.Values)
-                        {
-                            indexBytes += operations.Table.IndexBytes;
-                        }
-
-                        // Nothing is retired and the index grows in place until S08 part 1, so the
-                        // retired and the replacement tables of the index hold nothing.
-                        return new EngineCounters(_arena!.Counters, indexBytes, 0, 0, _claims!.Table.Count, (long)_clock!.Sequence);
+                        indexBytes += operations.Table.IndexBytes;
+                        replacementBytes += operations.Table.ReplacementIndexBytes;
                     }
-                    finally
-                    {
-                        _gates.Catalog.ExitReadLock();
-                    }
+
+                    return new EngineCounters(_arena!.Counters, indexBytes, _retired!.IndexBytes, replacementBytes, _roots!.Count, (long)_clock!.Sequence);
                 }
             }
             finally
@@ -176,15 +182,24 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // in progress can still reach stays retired until a later drain (brief of S08, "Counters and the
     // drain, part 1"). It is what a write under memory pressure calls, what a close calls after it
     // has waited for the reads, and what a test calls before it counts. Unavailable before the open,
-    // ObjectDisposedException after the close.
-    //
-    // Until the protection of reads of S08 part 1 is built nothing is ever retired: a write frees what
-    // it replaces or removes under the root's exclusive protection, and the entry of a deleted root
-    // is released by the delete or by the last lookup that drops its claim. So the drain has nothing
-    // to free, and its body is the check of the state; the implementer of S08 part 1 replaces it.
+    // ObjectDisposedException after the close. It runs under the lock of the writes, between two
+    // writes, because only that thread frees (RetiredMemory).
     public void DrainRetired()
     {
         ThrowIfNotReady();
+        _barrier.Enter();
+
+        try
+        {
+            lock (_writes!)
+            {
+                _retired!.Drain();
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next read by key that
@@ -195,16 +210,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // on as it would have. Every other read passes the point without running anything. The switch
     // can be armed again while a read it held earlier is still held, so that two reads are held at
     // once. A read when no test has armed the switch pays nothing for it beyond reading one field
-    // that is null; how it is kept that cheap is the implementer's.
-    //
-    // NotSupportedException until the protection of reads of S08 part 1 is built: under the gates of
-    // S06 a read held inside the protection of its root holds the root's stripe, and every write of
-    // that root waits for it, which is what part 1 ends.
+    // that is null (ReadEpochs.OfferHold). Unavailable before the open, ObjectDisposedException after
+    // the close.
     public void HoldNextRead(Action<RootHandle> hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
+        ThrowIfNotReady();
 
-        throw new NotSupportedException("A read cannot be held inside the protection until reads are protected by epochs (Epic 1, sprint S08, part 1).");
+        _epochs.HoldNext(hold);
     }
 
     public LatticeDatabaseStateEnum State => _state;
@@ -316,8 +329,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // Lets no operation start any more, ends the waits for a position, and frees the arena once the
-    // reads and writes in progress have ended. The cancellation token ends only the wait for that:
-    // the database still closes, and the last operation to end frees the arena.
+    // reads and writes in progress have ended (see the class). The cancellation token ends only the
+    // wait for that: the database still closes, and the arena is freed when they have ended.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
         lock (_stateLock)
@@ -332,15 +345,42 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         _clock?.Close();
 
-        // The arena is the only native memory of the database; everything else is managed.
-        var drained = _barrier.Close(() => _arena?.Dispose());
+        // The mark first: a read that enters from now on leaves at once, and the reads that entered
+        // before announce an epoch below the one returned here.
+        var mark = _epochs.Close();
+        var closed = FreeAfterOperationsAsync(_barrier.Close(), mark);
 
-        return drained.IsCompleted ? ValueTask.CompletedTask : new ValueTask(drained.WaitAsync(cancellationToken));
+        return closed.IsCompleted ? new ValueTask(closed) : new ValueTask(closed.WaitAsync(cancellationToken));
     }
 
     public ValueTask DisposeAsync() => CloseAsync();
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
+
+    // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
+    // counts of the counters in progress have ended and then the reads that entered before the mark of
+    // the close. When nothing is in progress it does so before it returns. The wait for the reads
+    // runs on a thread of the pool, because a read may be held by a test while its caller goes on; it
+    // ends as ReadEpochs.WaitForReadsBefore says.
+    private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark)
+    {
+        await operationsEnded.ConfigureAwait(false);
+
+        if (_epochs.HasReadsBefore(mark))
+        {
+            await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
+        }
+
+        // The parts are set only when the open published them; an open that the close overtook frees
+        // its own arena (Load). The arena is the only native memory of the database; everything else
+        // is managed.
+        if (_arena is { } arena)
+        {
+            _retired!.Drain();
+            _retired.Clear();
+            arena.Dispose();
+        }
+    }
 
     // Builds the parts of the open database and makes it Ready. A close that came while it loaded
     // wins: what was built is freed, and the open fails with ObjectDisposedException.
@@ -354,20 +394,20 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         try
         {
-            var gates = new RootGates();
-            var claims = new LookupClaims(new RootTable(), gates);
+            var roots = new RootTable();
+            var retired = new RetiredMemory(_epochs, arena, roots);
 
             // A new history at every open: nothing of a MemoryOnly database survives it, so no
             // position of an earlier run may be taken for one of this run.
             var clock = new PositionClock((ulong)Random.Shared.NextInt64(1, long.MaxValue), this);
             var writes = new Lock();
-            var executor = new WriteExecutor(writes, arena, gates, claims, clock, _barrier, _options.SynchronizationTimeout);
+            var executor = new WriteExecutor(writes, arena, roots, retired, clock, _barrier, _options.SynchronizationTimeout);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
             foreach (var entityType in schema.EntityTypes)
             {
-                var table = EntityTable.Open(entityType, schema, arena, gates, claims, clock, _barrier);
+                var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock);
                 var forType = new SetOperations(table, executor, clock, _options.SynchronizationTimeout);
 
                 operations.Add(entityType, forType);
@@ -383,8 +423,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
                 _schema = schema;
                 _arena = arena;
-                _gates = gates;
-                _claims = claims;
+                _roots = roots;
+                _retired = retired;
                 _clock = clock;
                 _writes = writes;
                 _operations = operations;

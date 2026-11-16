@@ -13,13 +13,15 @@ namespace Moltaro.Lattice.Storage;
 // are counted in an int. Add that would need one more page throws InvalidOperationException, and
 // the table stays as it was.
 //
-// The table takes no lock; its owner says who may call what at the same time. In the database
-// (Engine.Protection.RootGates) Add and Release, which change the list of free slots, are called
-// only under the catalog gate held exclusively, while Entry, IsCurrent and EntryOfSlot are called
-// at the same time for lifetimes that the caller holds a claim on or knows to be live. Those read
-// only that entry and the directory of pages, which grows by replacing one array with another that
-// holds the same pages, so a reader that still has the old directory finds the same entry. The
-// claims of the arena protocol keep a slot from being released while a lookup holds it.
+// The table takes no lock; its owner says who may call what at the same time. In the database Add
+// and Release, which change the list of free slots, are called only by the thread that holds the
+// lock of the writes (Engine.Writes.WriteExecutor), while reads inside the protection of reads call
+// EntryOfSlot at the same time for slots a primary index named to them. Those read only that entry
+// and the directory of pages, which grows by replacing one array with another that holds the same
+// pages, so a reader that still has the old directory finds the same entry. The protection of reads
+// keeps a slot from being released while a read that could have found it is inside: the entry of a
+// deleted root is retired and released only after those reads have left
+// (Engine.Protection.RetiredMemory).
 internal sealed class RootTable
 {
     // The number of entries in one page.
@@ -112,8 +114,8 @@ internal sealed class RootTable
     }
 
     // A reference to the entry in a slot, whatever lifetime it holds at the moment, for a caller that
-    // knows by other means which lifetime that is: the primary index of String keys, whose keys name
-    // the slot of the live root they belong to (Engine.Entities.TextKey). The reference has the
+    // knows by other means which lifetime that is: a primary index, whose entries name the slot of
+    // the root entry of each key (Engine.Indexes.IndexTable). The reference has the
     // lifetime Entry describes. ArgumentOutOfRangeException for a slot that was never given out.
     public ref RootEntry EntryOfSlot(uint slot)
     {
@@ -124,8 +126,8 @@ internal sealed class RootTable
 
     // Ends the lifetime the handle names, and the handle is no longer current. The entry becomes
     // Free, and Add can give the slot out again with its next generation; a slot released at
-    // generation uint.MaxValue becomes Retired instead and is never given out again. Release looks
-    // at neither ClaimCount nor State: who may release a lifetime, and when, is the caller's.
+    // generation uint.MaxValue becomes Retired instead and is never given out again. Release does not
+    // look at the State: who may release a lifetime, and when, is the caller's.
     // ArgumentException when the handle is not current.
     public void Release(RootHandle handle)
     {

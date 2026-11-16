@@ -65,7 +65,7 @@ public sealed class LayoutTests
         Assert.Equal(32, OffsetOf(ref entry, ref entry.Generation));
         Assert.Equal(36, OffsetOf(ref entry, ref entry.TypeId));
         Assert.Equal(40, OffsetOf(ref entry, ref entry.State));
-        Assert.Equal(44, OffsetOf(ref entry, ref entry.ClaimCount));
+        Assert.Equal(44, OffsetOf(ref entry, ref entry.Reserved));
     }
 
     [Fact]

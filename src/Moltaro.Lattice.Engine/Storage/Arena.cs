@@ -131,6 +131,9 @@ internal sealed unsafe class Arena : IDisposable
         _allocator = allocator;
     }
 
+    // The size of one segment in bytes, as the options gave it.
+    public int SegmentSize => _segmentSize;
+
     // The largest size class, header included. The largest payload is therefore MaxBlockSize
     // minus the 32-byte header, 65,504 bytes: the chunk payload of the milestone contract.
     public const int MaxBlockSize = 64 * 1024;

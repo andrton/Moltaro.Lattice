@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 // arrays of its String and Binary values, into scratch the read owns, and runs no code of the
 // application. After the read released the protection, Build makes a new object by the public
 // parameterless constructor and sets every field from the scratch through a compiled setter
-// (ClassField): the constructor and the set accessors are the application's code and run under no
-// gate and outside the close barrier (the planner's word on the first review of S06). Made once for a
+// (ClassField): the constructor and the set accessors are the application's code and run outside the
+// protection of reads (the planner's word on the first review of S06). Made once for a
 // set of an entity type the engine stores, from the binding of the core, which found the property of
 // every field by the rules of ILatticeDatabase.Set<TEntity>().
 internal sealed class ClassCopier<TEntity>

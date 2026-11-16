@@ -1,8 +1,8 @@
 # Third-party notices
 
 Moltaro.Lattice is licensed under the [Apache License 2.0](LICENSE). The repository also
-contains material from other projects, listed here with its own license. None of it is
-part of a published package.
+contains material from other projects, listed here with its own license. Each entry says
+where the material lies, in test code or in a shipped library.
 
 ## ASP.NET Core — Identity specification tests
 
@@ -82,4 +82,34 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+```
+
+## Garnet — the epochs and the hash index of Tsavorite
+
+- **Where:** `src/Moltaro.Lattice.Engine`, in the shipped engine library: the protection of reads by epochs and what it retires (`Engine/Protection/EpochSlot.cs`, `ReadEpochs.cs`, `RetiredMemory.cs`) and the primary index (`Engine/Indexes/IndexTable.cs`, `IndexProbe.cs`, `PrimaryIndex.cs`), adapted from the code of these files; each names its source at its head
+- **Source:** <https://github.com/microsoft/garnet>, commit `3d104a76ec410499545bc7fb39d0e3168f8ee709`: `libs/storage/Tsavorite/cs/src/core/Epochs/LightEpoch.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/HashBucket.cs`, `HashBucketEntry.cs` and `TsavoriteBase.cs`; `libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/Implementation/SplitIndex.cs`
+- **License:** MIT
+
+```text
+MIT License
+
+Copyright (c) Microsoft Corporation.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE
 ```
