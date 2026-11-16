@@ -767,8 +767,10 @@ settles. They are approved with the plan, each by name.
 - **In a bound class a collection is `List<T>`, `T[]`, `Dictionary<K, V>` or
   `HashSet<T>`.** Interface types are refused for now and can be added without breaking
   anything.
-- **A read budget is one value, `LatticeReadLimits`**, passed to an enumeration and later
-  to a search, with one error code and the exceeded limit named in `Limit`.
+- **A read budget is two options of the database**, `ReadMemoryLimit` and `ReadTimeLimit`,
+  none set by default; they hold for every enumeration and, from S15, every search, with
+  one error code and the exceeded limit named in `Limit`. No call carries limits of its
+  own (the owner, 16 November 2026).
 - **The number of preparing workers is between 1 and 64.**
 - **An address is `lattice://host:port`**, and `ILatticeDatabase.ListenUri` reports the
   address a master actually listens at, so that port 0 can be used.
@@ -2946,6 +2948,26 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
   different limits for different calls today; "larger or smaller than the options, but
   never none" was a weak rule; and S15 would have added a second form for searches. Whether
   a search takes limits of its own in S15 is to be re-read against this by the planner.
+- **Carried by part 2 under O16, tests first: the planner's answer to Q50** of the
+  [open questions](open-questions.md). Each database instance draws a seed from the
+  random source of the system when it opens. Every hash of the primary index is computed
+  with it, for every key type and both comparisons: integer and Guid keys mix it in
+  before the finalizer, text hashes start from it. A String key compared with Ordinal no
+  longer uses the hash of .NET for the index: one seeded hash of the engine's own over the
+  text, so that the index depends on nothing a process sets. The seed is never stored,
+  never sent to another node and never shown; a child and a reopened database draw their
+  own. The order in which an enumeration returns entities is unspecified and may differ
+  between two instances with the same data; if the documentation of `Enumerate` does not
+  say so, it gains "The order is unspecified.", and a test that asserts an order is
+  reported and restated. The hash function for text is taken from an established source
+  under a permissive licence and named, by the licence rule; no hash is invented. An
+  engine test fixes the seed through the internal options the tests already open the
+  engine with. Acceptance: 2,000 Int64 keys built to collide under seed A are spread
+  under seed B, shown by the chain length the index reports or by `PrimaryIndexBytes`,
+  not by time; a UTF-8 and a UTF-16 database, a key with and without case, find every key
+  under two different seeds; no test asserts an order of enumeration. Reported: reads by
+  key a second before and after, Int64 and String keys, on the scenario of part 1; a
+  seeded text hash slower than the hash of .NET beyond noise is reported before merging.
 
 **The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
 through the planner's session: reads by key have to scale with threads, and the work is
@@ -3091,6 +3113,9 @@ be studied: how they do it is to be learned from their source and, in essence, r
   [Q09.1](../decisions/write-acknowledgment.md); [Q14 master memory pressure, root size](../decisions/write-admission.md);
   [stable inputs, cancellation at the commit boundary](../decisions/mutation-commands.md);
   [initial settings](../design/milestone-1-engine-contract.md#initial-bounded-settings).
+- **Acceptance, added by the planner on 16 November 2026.** The temporary memory of reads
+  in progress counts against the instance budget (carried from S08, whose part 2 counts
+  it for the limit of a read only).
 - **Acceptance.** Writes to different entities prepare concurrently and are published in
   one order of positions. Writes to one entity execute in the order they were admitted.
   A group holds at most 32 operations or 8 MiB and waits at most 1 ms to fill.
@@ -3692,7 +3717,8 @@ otherwise, these replace it.
 - **Goal.** An application searches by the leading fields of an index and a range, in
   either direction and in pages, within a budget, and gets the same answer whichever way
   it supplies a value.
-- **Contract.** Exists. Added: overrides of the read budget in `LatticeFindOptions`.
+- **Contract.** Exists. Nothing is added for the read budget: a search is subject to
+  `ReadMemoryLimit` and `ReadTimeLimit` of the options, as an enumeration is.
 - **To read.** [Index access](../decisions/index-access.md);
   [index preparation and traversal](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [Q07.1.1, Q07.3.1–Q07.3.6](../decisions/queries.md).
