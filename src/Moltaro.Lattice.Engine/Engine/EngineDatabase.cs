@@ -153,7 +153,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
                             indexBytes += operations.Table.IndexBytes;
                         }
 
-                        return new EngineCounters(_arena!.Counters, indexBytes, _claims!.Table.Count, (long)_clock!.Sequence);
+                        // Nothing is retired and the index grows in place until S08 part 1, so the
+                        // retired and the replacement tables of the index hold nothing.
+                        return new EngineCounters(_arena!.Counters, indexBytes, 0, 0, _claims!.Table.Count, (long)_clock!.Sequence);
                     }
                     finally
                     {
@@ -166,6 +168,43 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _barrier.Exit();
             }
         }
+    }
+
+    // Frees every retired thing no read in progress can reach — an old root with its blocks, a
+    // replaced table of the primary index, the entry of a deleted root — and returns. It does not
+    // wait and takes no timeout: with no read in progress it leaves nothing retired, and what a read
+    // in progress can still reach stays retired until a later drain (brief of S08, "Counters and the
+    // drain, part 1"). It is what a write under memory pressure calls, what a close calls after it
+    // has waited for the reads, and what a test calls before it counts. Unavailable before the open,
+    // ObjectDisposedException after the close.
+    //
+    // Until the protection of reads of S08 part 1 is built nothing is ever retired: a write frees what
+    // it replaces or removes under the root's exclusive protection, and the entry of a deleted root
+    // is released by the delete or by the last lookup that drops its claim. So the drain has nothing
+    // to free, and its body is the check of the state; the implementer of S08 part 1 replaces it.
+    public void DrainRetired()
+    {
+        ThrowIfNotReady();
+    }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next read by key that
+    // finds its root in the index runs hold, once, on its own thread and inside the protection of
+    // reads, after it has found the root and before it copies it, with the handle of the root entry
+    // it found. A test waits inside hold, with a bounded wait, to keep that read inside the
+    // protection while the test writes, drains, counts and closes; when hold returns, the read goes
+    // on as it would have. Every other read passes the point without running anything. The switch
+    // can be armed again while a read it held earlier is still held, so that two reads are held at
+    // once. A read when no test has armed the switch pays nothing for it beyond reading one field
+    // that is null; how it is kept that cheap is the implementer's.
+    //
+    // NotSupportedException until the protection of reads of S08 part 1 is built: under the gates of
+    // S06 a read held inside the protection of its root holds the root's stripe, and every write of
+    // that root waits for it, which is what part 1 ends.
+    public void HoldNextRead(Action<RootHandle> hold)
+    {
+        ArgumentNullException.ThrowIfNull(hold);
+
+        throw new NotSupportedException("A read cannot be held inside the protection until reads are protected by epochs (Epic 1, sprint S08, part 1).");
     }
 
     public LatticeDatabaseStateEnum State => _state;

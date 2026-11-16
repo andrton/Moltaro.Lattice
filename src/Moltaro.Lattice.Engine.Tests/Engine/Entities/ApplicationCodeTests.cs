@@ -4,22 +4,24 @@ using Moltaro.Lattice.TestSupport.ApplicationCode;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
-// The engine runs no code of the application inside a gate or the close barrier (the planner's word
-// on the first review of Epic 1, sprint S06): the constructor and the set accessors of a class run
-// after the protection of the root is released. What a read returns while such code uses the
-// database is stated by ApplicationCodeDuringReadsTests of Moltaro.Lattice.Tests; here, what only the
-// counters show: once the read has returned, nothing is prepared, nothing is retired, and no claim
-// is left. A claim left on an entry would keep the entry of a deleted entity in the table of root
-// entries (the planner's answer to Q32), so every test deletes the entity it read and then counts the
-// entries. The same holds after a constructor or a set accessor that throws.
+// The engine runs no code of the application inside the protection of a read or the close barrier
+// (the planner's word on the first review of Epic 1, sprint S06; arena protocol, "Deferred
+// reclamation, 16 November 2026"): a read is inside the protection only while it looks up and
+// copies, and the constructor and the set accessors of a class run after it has left. What a read
+// returns while such code uses the database is stated by ApplicationCodeDuringReadsTests of
+// Moltaro.Lattice.Tests; here, what only the counters show: once the read has returned and a drain
+// has found no read in progress, nothing is prepared, nothing is retired, and the read holds nothing
+// that keeps the entry of a deleted entity in the table of root entries (the planner's answer to
+// Q32, as amended on 16 November 2026), so every test deletes the entity it read and then drains and
+// counts. The same holds after a constructor or a set accessor that throws.
 //
-// While that code runs, the read already holds nothing: the engine counts it as no read in progress,
-// so a delete the code makes of the entity being read releases its entry and frees its blocks at
-// once, as it does when no read is in progress, and the counters taken inside the code are those
-// taken after the read has returned. A claim held across that code, or a protection that delays the
-// freeing of memory without blocking the writer, shows only there: the other tests here count after
-// the read has returned, when it has let go. Every wait is bounded, so that code that cannot complete
-// fails the test instead of hanging the run.
+// While that code runs, the read has already left the protection: a delete the code makes of the
+// entity being read, and a drain after it, free the old root and release its entry as they do when
+// no read is in progress, and the counters taken inside the code are those taken after the read has
+// returned. A read that held its protection, or anything else that keeps the entity, across that
+// code shows only there: the other tests here count after the read has returned, when it has let
+// go. Every wait is bounded, so that code that cannot complete fails the test instead of hanging the
+// run.
 public sealed class ApplicationCodeTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
@@ -51,7 +53,7 @@ public sealed class ApplicationCodeTests
 
     [Theory]
     [MemberData(nameof(HooksAndActions))]
-    public async Task After_code_of_the_application_used_the_database_during_a_read_nothing_is_prepared_retired_or_claimed(string hook, string action)
+    public async Task After_code_of_the_application_used_the_database_during_a_read_and_a_drain_nothing_is_prepared_retired_or_held(string hook, string action)
     {
         var database = await EngineMaster.OpenAsync(Schema);
 
@@ -89,7 +91,7 @@ public sealed class ApplicationCodeTests
     [Theory]
     [InlineData("a set accessor")]
     [InlineData("the constructor")]
-    public async Task After_code_of_the_application_threw_during_a_read_nothing_is_prepared_retired_or_claimed(string hook)
+    public async Task After_code_of_the_application_threw_during_a_read_and_a_drain_nothing_is_prepared_retired_or_held(string hook)
     {
         var database = await EngineMaster.OpenAsync(Schema);
 
@@ -127,22 +129,29 @@ public sealed class ApplicationCodeTests
             await entities.InsertAsync(new HookedEntity { Id = 2, Text = "other" });
             EngineCounters? during = null;
 
+            // Inside the code, on the thread of the read: the entity being read is deleted, what no read
+            // in progress can reach is freed, and the counters are taken.
             var read = await Task.Run(() =>
             {
                 Arm(hook, () =>
                 {
                     Completes(entities.DeleteAsync(1L).AsTask());
+                    database.DrainRetired();
                     during = database.Counters;
                 });
                 return entities.Get(1L);
             }).WaitAsync(Bound);
 
-            // The read returns the state it copied; inside the code, entity 2 alone was held.
+            // The read returns the state it copied; inside the code, entity 2 alone was held, and nothing
+            // of entity 1 was left retired for the read.
             Assert.Equal("first", read?.Text);
             Assert.NotNull(during);
             Assert.Equal(1, during.Value.RootEntries);
             Assert.Equal(0, during.Value.Arena.PreparedBytes);
             Assert.Equal(0, during.Value.Arena.RetiredBytes);
+            Assert.Equal(0, during.Value.RetiredIndexBytes);
+
+            database.DrainRetired();
             Assert.Equal(database.Counters, during.Value);
         }
         finally
@@ -166,15 +175,17 @@ public sealed class ApplicationCodeTests
     // The code of the application waits for what it started, within the bound.
     private static void Completes(Task task) => Assert.True(task.Wait(Bound), "The write did not complete.");
 
-    // Deletes the entity that was read, from another thread within the bound, and counts: entity 2
-    // alone is left.
+    // Deletes the entity that was read, from another thread within the bound, drains with no read in
+    // progress and counts: entity 2 alone is left.
     private static async Task ExpectNothingLeftAsync(EngineDatabase database, ILatticeSet<HookedEntity> entities)
     {
         await Task.Run(() => entities.DeleteAsync(1L).AsTask()).WaitAsync(Bound);
+        database.DrainRetired();
         var counters = database.Counters;
 
         Assert.Equal(0, counters.Arena.PreparedBytes);
         Assert.Equal(0, counters.Arena.RetiredBytes);
+        Assert.Equal(0, counters.RetiredIndexBytes);
         Assert.Equal(1, counters.RootEntries);
     }
 }

@@ -26,34 +26,40 @@ internal static class StampSchema
     // a block of its own, so the value lies in a chunk.
     public const int DataLength = 313 * 16;
 
-    public static LatticeSchema Schema { get; } = LatticeSchema.Compile($$"""
+    // The two entity types.
+    public static LatticeSchema Schema { get; } = Compile(StampType, NamedStampType);
+
+    // Stamp alone, for a test that counts the primary index of one entity type: PrimaryIndexBytes adds
+    // up the indexes of every entity type of the schema.
+    public static LatticeSchema StampsOnly { get; } = Compile(StampType);
+
+    private static string StampType => $$"""
         {
-          "EntityTypes": [
-            {
-              "Id": 1, "Name": "Stamp", "ClrType": "{{typeof(Stamp).FullName}}",
-              "Fields": [
-                { "Id": 1, "Name": "Id", "Type": "Int64" },
-                { "Id": 2, "Name": "Number", "Type": "Int64" },
-                { "Id": 3, "Name": "Label", "Type": "String" },
-                { "Id": 4, "Name": "Text", "Type": "String" },
-                { "Id": 5, "Name": "Data", "Type": "Binary" }
-              ],
-              "PrimaryKey": [1]
-            },
-            {
-              "Id": 2, "Name": "NamedStamp", "ClrType": "{{typeof(NamedStamp).FullName}}",
-              "Fields": [
-                { "Id": 1, "Name": "Name", "Type": "String" },
-                { "Id": 2, "Name": "Number", "Type": "Int64" },
-                { "Id": 3, "Name": "Label", "Type": "String" },
-                { "Id": 4, "Name": "Text", "Type": "String" },
-                { "Id": 5, "Name": "Data", "Type": "Binary" }
-              ],
-              "PrimaryKey": [1]
-            }
-          ]
+          "Id": 1, "Name": "Stamp", "ClrType": "{{typeof(Stamp).FullName}}",
+          "Fields": [
+            { "Id": 1, "Name": "Id", "Type": "Int64" },
+            { "Id": 2, "Name": "Number", "Type": "Int64" },
+            { "Id": 3, "Name": "Label", "Type": "String" },
+            { "Id": 4, "Name": "Text", "Type": "String" },
+            { "Id": 5, "Name": "Data", "Type": "Binary" }
+          ],
+          "PrimaryKey": [1]
         }
-        """);
+        """;
+
+    private static string NamedStampType => $$"""
+        {
+          "Id": 2, "Name": "NamedStamp", "ClrType": "{{typeof(NamedStamp).FullName}}",
+          "Fields": [
+            { "Id": 1, "Name": "Name", "Type": "String" },
+            { "Id": 2, "Name": "Number", "Type": "Int64" },
+            { "Id": 3, "Name": "Label", "Type": "String" },
+            { "Id": 4, "Name": "Text", "Type": "String" },
+            { "Id": 5, "Name": "Data", "Type": "Binary" }
+          ],
+          "PrimaryKey": [1]
+        }
+        """;
 
     public static Task<EngineDatabase> OpenAsync() => EngineMaster.OpenAsync(Schema);
 
@@ -111,6 +117,9 @@ internal static class StampSchema
                 record.Get<string>("Label"),
                 record.Get<string>("Text"),
                 record.Get<byte[]>("Data"));
+
+    private static LatticeSchema Compile(params string[] entityTypes) =>
+        LatticeSchema.Compile($$"""{ "EntityTypes": [ {{string.Join(", ", entityTypes)}} ] }""");
 
     private static long Checked(int key, object expectedKey, object? storedKey, long number, string? label, string? text, byte[]? data)
     {

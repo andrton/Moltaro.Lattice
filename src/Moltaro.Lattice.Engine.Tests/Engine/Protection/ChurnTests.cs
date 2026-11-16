@@ -16,8 +16,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 //   moment of the read. Every write of a key has an index, and the state after it is the entity
 //   with that number or, after a delete, absence. A read that started after write b had returned and
 //   ended before write a + 1 started returns the state after one of the writes b to a.
-// - Once every write has returned and the entities are deleted, nothing is left: no live byte, no
-//   prepared or retired block and no root entry (EngineCounters).
+// - Once every write has returned, the entities are deleted and a drain has found no read in
+//   progress, nothing is left: no live byte, no prepared or retired block, no retired table of the
+//   index and no root entry (EngineCounters; brief of S08, "Counters and the drain, part 1").
 // It holds for an Int64 key and for a String key, which the index compares with the text in the
 // root. Readers read through the class and by name, on threads of their own, until the writes are
 // done; two writers write two keys each, a fixed number of times. Nothing sleeps, and every read is
@@ -93,12 +94,14 @@ public sealed class ChurnTests
                 }
             }
 
+            database.DrainRetired();
             var counters = database.Counters;
 
             Assert.Equal(0, counters.Arena.LiveBytes);
             Assert.Equal(0, counters.Arena.ClassSlackBytes);
             Assert.Equal(0, counters.Arena.PreparedBytes);
             Assert.Equal(0, counters.Arena.RetiredBytes);
+            Assert.Equal(0, counters.RetiredIndexBytes);
             Assert.Equal(0, counters.RootEntries);
         }
         finally

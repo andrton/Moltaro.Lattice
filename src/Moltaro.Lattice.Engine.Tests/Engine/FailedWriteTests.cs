@@ -5,8 +5,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 
 // After a write that failed validation or was refused, nothing of it is left in any counter (brief
 // of Epic 1, sprint S06, the planner's answer to Q30): the live bytes, the class slack, the prepared
-// and the retired bytes of the arena, the bytes of the primary index, the count of the table of root
-// entries and the published sequence are as they were, and the arena holds what the entities hold.
+// and the retired bytes of the arena, the bytes of the primary index, retired and being built
+// included, the count of the table of root entries and the published sequence are as they were, and
+// the arena holds what the entities hold. The counters are compared after a drain (brief of S08,
+// "Counters and the drain, part 1"), so that what the replace before them retired is not taken for
+// something a failed write left.
 // The segments are not among them: a segment the arena obtained for a write that failed may stay in
 // its reserve, so Segments, ReservedSegments and FreeRegions may differ (brief of S05, "The size of
 // an entity").
@@ -82,9 +85,11 @@ public sealed class FailedWriteTests
         }
     }
 
-    // Every counter of the engine but the segments of the arena.
-    private static (long Live, long Slack, long Prepared, long Retired, long PrimaryIndex, int RootEntries, long Sequence) CountersOf(EngineDatabase database)
+    // Every counter of the engine but the segments of the arena, after a drain.
+    private static (long Live, long Slack, long Prepared, long Retired, long PrimaryIndex, long RetiredIndex, long ReplacementIndex, int RootEntries, long Sequence) CountersOf(EngineDatabase database)
     {
+        database.DrainRetired();
+
         var counters = database.Counters;
 
         return (
@@ -93,6 +98,8 @@ public sealed class FailedWriteTests
             counters.Arena.PreparedBytes,
             counters.Arena.RetiredBytes,
             counters.PrimaryIndexBytes,
+            counters.RetiredIndexBytes,
+            counters.ReplacementIndexBytes,
             counters.RootEntries,
             counters.PublishedSequence);
     }

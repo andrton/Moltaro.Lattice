@@ -5,8 +5,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // "Reader protection, publication and compaction"). Every reader on a thread of its own makes a fixed
 // number of reads of a few keys, so that the readers meet on the same roots and the same entries,
 // through the class and by name, and each read returns its entity whole. Afterwards the entities are
-// deleted and nothing of them is left, which a protection or a claim that a read did not give back
-// would prevent, and the database closes, which a read still counted as in progress would prevent.
+// deleted and, after a drain, nothing of them is left, which a read that did not leave its
+// protection would prevent, and the database closes, which a read still counted as in progress
+// would prevent.
 // Every wait is bounded. How fast the reads are, and how that grows with the threads, is a figure of
 // the measurement, not of this test.
 public sealed class ManyReadersTests
@@ -72,11 +73,13 @@ public sealed class ManyReadersTests
                 Assert.True((await stamps.DeleteAsync((long)key).AsTask().WaitAsync(Bound)).Changed);
             }
 
+            database.DrainRetired();
             var counters = database.Counters;
 
             Assert.Equal(0, counters.Arena.LiveBytes);
             Assert.Equal(0, counters.Arena.PreparedBytes);
             Assert.Equal(0, counters.Arena.RetiredBytes);
+            Assert.Equal(0, counters.RetiredIndexBytes);
             Assert.Equal(0, counters.RootEntries);
         }
         finally

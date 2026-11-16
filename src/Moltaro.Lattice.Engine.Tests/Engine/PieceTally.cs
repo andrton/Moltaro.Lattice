@@ -35,11 +35,14 @@ internal sealed class PieceTally
 
     public void Deleted(long key) => _pieces.Remove(key);
 
-    // When every write has returned and no read is in progress: nothing is prepared or retired, the
-    // live bytes and the class slack are those of the pieces, and the table of root entries has one
-    // entry for every piece.
+    // When every write has returned and no read is in progress, after a drain (EngineCounters):
+    // nothing is prepared or retired, neither in the arena nor of the primary index, the live bytes
+    // and the class slack are those of the pieces, and the table of root entries has one entry for
+    // every piece. The drain is made here, so a caller only has to have ended its reads.
     public void ExpectHeldBy(EngineDatabase database)
     {
+        database.DrainRetired();
+
         var counters = database.Counters;
         var total = StoredBytes.Zero;
 
@@ -50,6 +53,7 @@ internal sealed class PieceTally
 
         Assert.Equal(0, counters.Arena.PreparedBytes);
         Assert.Equal(0, counters.Arena.RetiredBytes);
+        Assert.Equal(0, counters.RetiredIndexBytes);
         Assert.Equal(total, new StoredBytes(counters.Arena.LiveBytes, counters.Arena.ClassSlackBytes));
         Assert.Equal(_pieces.Count, counters.RootEntries);
     }
