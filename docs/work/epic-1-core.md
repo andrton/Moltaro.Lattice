@@ -790,7 +790,8 @@ settles. They are approved with the plan, each by name.
   none set by default; they hold for every enumeration and, from S15, every search, with
   one error code and the exceeded limit named in `Limit`. No call carries limits of its
   own (the owner, 16 November 2026).
-- **The number of preparing workers is between 1 and 64.**
+- **The number of preparing workers is internal:** 2 places of preparation since S09, no
+  option and no rule of the contract that bounds it.
 - **An address is `lattice://host:port`**, and `ILatticeDatabase.ListenUri` reports the
   address a master actually listens at, so that port 0 can be used.
 - **A field is its identity, its name and its declaration.** `LatticeField` loses `Type`,
@@ -3434,6 +3435,37 @@ otherwise, these replace it.
     there says that the write waits for reads and for the writes admitted before it; the
     wait for earlier writes is the planner's reading of O20, reported to the owner.
   - *Coordinator:* the commit types live in `Engine/Writes`, by the folder rule.
+- **Added by the planner on 16 November 2026, after the implementation.**
+  - *One write path.* The three steps hold for both modes, and the figures of the path are
+    judged again with S27, where the question is writes a second per storage commit. No
+    short path is built for MemoryOnly: it would be a second implementation of order,
+    cancellation and faults for the mode that is not the default of a master.
+  - *One bounded pass at the bookkeeping*, after the review, each change kept only if a
+    figure moves beyond noise and nothing restructured: a write that completes without
+    waiting allocates nothing for its completion, and the record of a write in the
+    coordinator is reused from a pool; adjacent acquisitions of the lock of the
+    coordinator with nothing between them become one; the identity dictionary is skipped
+    for a write that finds no other in flight only if that keeps the first-in-first-out
+    rule without a second code path. Reported: bytes allocated per write before and
+    after, for a lone caller and for 16. If the pass moves nothing, that is the result.
+  - *The retry of a refused write is bounded by the writes admitted before it.* A write
+    the arena refuses frees what is retired and retries. While it is refused it waits for
+    every write admitted before it to complete and for what was retired up to that moment
+    to be freed — the reads then in progress leave within one step each — and retries
+    once more. If the arena still has no room it is refused, whatever later writes have
+    retired since. One mark taken when the last earlier write completes, the newest
+    retired item at that moment, is enough; the wait ends when the retired list has been
+    freed up to the mark. Acceptance: on a small arena a write that cannot fit is refused
+    while another caller keeps replacing a small entity, within the time of the test.
+  - *A storage step that throws* leaves the outcome of its group unknown: the whole group
+    gets `IndeterminateOutcome` and the instance is `Faulted`. That is the rule for an
+    exception the storage does not classify.
+  - *A close waits for a storage step in progress;* a close is complete.
+  - *One reused `CommitGroup`.* The documentation of `ICommitStorage.CommitAsync` says:
+    "The group and its list belong to the commit stage and are reused: a storage reads
+    them until its task completes and keeps no reference afterwards."
+  - *Preparing workers.* There are 2 places of preparation; the number is internal and no
+    rule of the contract bounds it. With 64 places nothing was gained.
 - **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
@@ -4240,6 +4272,14 @@ otherwise, these replace it.
   the library, which is excluded by decision.
 
 #### S27 · PostgreSQL provider and Durable open
+
+**Carried from S09:** what a failed storage step means is stated by this sprint: a
+rejection the storage knows to be definite releases the group and leaves the instance
+Ready; only an outcome it cannot know is the case of S09, `IndeterminateOutcome` for the
+group and a faulted instance. The storage step has a timeout, so that a close, which
+waits for a step in progress, is finite. The figures of the write path of S09 — writes
+a second of several callers below those of one — are judged again here, as writes a
+second per storage commit.
 
 **Track:** full · **Needs:** S26 · **Decisions:** O1, O4, O9 · **Owner:** E06
 
