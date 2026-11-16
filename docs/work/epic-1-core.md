@@ -2933,6 +2933,19 @@ engine as S06 left it. Where a sentence above says otherwise, these replace it.
   step enters and leaves the epoch and holds nothing between two steps; a growth or a
   change of the index during the pass no longer fails it. The listing speaks of "one
   enumeration or one search": searches take their limits in S15.
+- **The limits of a read are options of the database only** (the owner, 16 November 2026,
+  in the coordinator's session: "Убрать вариант «на вызов»"). `LatticeReadLimits`,
+  `Enumerate(LatticeReadLimits)` and `EnumerateAsync(session, limits, cancellationToken)`
+  of the listing above are not part of the contract; they were written by the contract
+  author and removed again in this sprint, since nothing is released. What stays:
+  `ReadMemoryLimit` and `ReadTimeLimit` of the options, `ReadLimitExceeded`,
+  `LatticeLimitEnum` and `LatticeException.Limit`; `Enumerate()` and
+  `EnumerateAsync(session, cancellationToken)` are subject to the limits of the options.
+  Where this brief speaks of a limit "for one enumeration", of a null member or of a call
+  that cannot lift a limit, read it as removed. The owner's reasons: no consumer needs
+  different limits for different calls today; "larger or smaller than the options, but
+  never none" was a weak rule; and S15 would have added a second form for searches. Whether
+  a search takes limits of its own in S15 is to be re-read against this by the planner.
 
 **The scaling of reads, by the owner's decision on Q42 of 15 November 2026**, given
 through the planner's session: reads by key have to scale with threads, and the work is
