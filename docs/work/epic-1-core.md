@@ -3451,6 +3451,10 @@ otherwise, these replace it.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
+**Carried from the review of S08, part 1:** when the engine library becomes packable in
+this sprint, `THIRD-PARTY-NOTICES.md` is packed into its package as it is into the
+package of the core: the engine holds the files adapted from Garnet/Tsavorite.
+
 **Track:** full · **Needs:** S11 · **Decisions:** O1, O2, P10 · **Owners:** E07, E08
 
 - **Goal.** Everything the public contract does today is done by the engine, on a master
