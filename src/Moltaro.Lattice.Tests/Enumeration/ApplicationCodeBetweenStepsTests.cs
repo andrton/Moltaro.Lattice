@@ -10,8 +10,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // - A write from another thread completes while an enumeration stands between two steps: an insert of
 //   enough entities to grow the primary index, a replace, a delete and an upsert of the entity just
 //   returned. Every wait is bounded, so a write that waited for the enumeration fails the test.
-// Every form of an enumeration, on both implementations; the rows of the engine of the first test are
-// skipped until it enumerates under change, since the consumer inserts and deletes during the pass.
+// Every form of an enumeration, on both implementations.
 public sealed class ApplicationCodeBetweenStepsTests
 {
     private const int Count = 5;
@@ -19,7 +18,7 @@ public sealed class ApplicationCodeBetweenStepsTests
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBothUntilTheEngineEnumeratesUnderChange), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
     public async Task Code_of_the_application_between_two_steps_may_read_and_write_the_database_and_the_pass_goes_on(DatabaseImplementationEnum implementation, string form)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation);

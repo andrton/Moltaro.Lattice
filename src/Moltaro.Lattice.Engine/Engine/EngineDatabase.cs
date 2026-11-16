@@ -267,11 +267,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the
     // primary index of the entity type runs hold, once, on the thread of the write that grows it and
-    // inside the lock of the writes, after it has published the grown table and before it changes
-    // the version of the index, the two stores between which an enumeration step can meet the new
-    // table with the version of the old one. A test waits inside hold, with a bounded wait, to keep
-    // the growth there while it takes steps of an enumeration; it neither writes nor counts meanwhile,
-    // since the lock of the writes is held. When hold returns the growth goes on as it would have. A
+    // inside the lock of the writes, after it has published the grown table and before it retires the
+    // old one, while a step that entered before may still walk the old table and a step that enters
+    // now walks the new one. A test waits inside hold, with a bounded wait, to keep the growth there
+    // while it takes steps of an enumeration, or counts the growths; it neither writes nor counts the
+    // counters meanwhile, since the lock of the writes is held. When hold returns the growth goes on as it would have. A
     // growth when no test has armed the switch pays one load of a field that is null, and a read
     // pays nothing. The entity type has to be one the engine stores. Unavailable before the open,
     // ObjectDisposedException after the close.

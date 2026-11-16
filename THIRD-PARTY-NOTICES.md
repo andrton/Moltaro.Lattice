@@ -117,7 +117,7 @@ SOFTWARE
 
 ## crossbeam — the sequence lock of crossbeam-utils
 
-- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the stamp of a root entry, read in `Engine/Entities/EntityTable.cs` and written in `Engine/Writes/WriteExecutor.cs`, and the version of the primary index in `Engine/Indexes/PrimaryIndex.cs`, adapted from the protocol of this code; each names its source at its head
+- **Where:** `src/Moltaro.Lattice.Engine`, the engine library, which is not packaged yet (its package comes with sprint S12 of Epic 1 and will carry this file): the stamp of a root entry, read in `Engine/Entities/EntityTable.cs` and written in `Engine/Writes/WriteExecutor.cs`, adapted from the protocol of this code; each names its source at its head
 - **Source:** <https://github.com/crossbeam-rs/crossbeam>, commit `a28f40fdddb70bea8e5faf0efad9af0be4b9dbea`: `crossbeam-utils/src/atomic/seq_lock.rs`, with its optimistic read in `atomic_load` of `crossbeam-utils/src/atomic/atomic_cell.rs`
 - **License:** MIT or Apache-2.0, at the licensee's option; taken here under MIT
 

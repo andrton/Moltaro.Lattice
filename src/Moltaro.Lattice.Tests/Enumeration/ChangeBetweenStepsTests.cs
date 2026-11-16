@@ -21,8 +21,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // besides to grow the primary index of the engine several times, which it does by their count: a pass
 // then meets a table it has not walked, and must still return each key at most once and every entity
 // of the start. Every form of an enumeration, on both implementations: the placeholder takes what a
-// pass returns at its first step, which keeps every rule above; the engine fails a pass after an
-// insert or a delete until S08, part 2 implements it.
+// pass returns at its first step, which keeps every rule above.
 public sealed class ChangeBetweenStepsTests
 {
     // The entities of every test, before the change: the users 1 to 6, "user {id}".
@@ -32,7 +31,7 @@ public sealed class ChangeBetweenStepsTests
     private static readonly long[] Inserted = [.. Enumerable.Range(101, 96).Select(id => (long)id)];
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBothUntilTheEngineEnumeratesUnderChange), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
     public async Task Insert_between_two_steps_does_not_end_the_pass_and_a_new_entity_is_returned_at_most_once(DatabaseImplementationEnum implementation, string form)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation);
@@ -72,7 +71,7 @@ public sealed class ChangeBetweenStepsTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBothUntilTheEngineEnumeratesUnderChange), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
     public async Task Delete_between_two_steps_does_not_end_the_pass_and_the_deleted_entity_is_returned_at_most_once(DatabaseImplementationEnum implementation, string form)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation);
@@ -94,7 +93,7 @@ public sealed class ChangeBetweenStepsTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBothUntilTheEngineEnumeratesUnderChange), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
     public async Task Entity_deleted_and_inserted_again_between_two_steps_is_not_returned_twice(DatabaseImplementationEnum implementation, string form)
     {
         await using var database = await TestDatabases.OpenMasterAsync(implementation);

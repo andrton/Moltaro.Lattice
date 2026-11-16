@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Enumeration;
-
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // An enumeration that a growth of the primary index meets halfway returns every entity once and ends
@@ -35,7 +33,7 @@ public sealed class GrowthDuringEnumerationTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = NotImplemented.EnumerationUnderChange)]
+    [Fact]
     public async Task Enumeration_that_a_growth_of_the_index_meets_halfway_returns_every_entity_once_and_ends()
     {
         var full = await KeysBeforeGrowthAsync(Growth);

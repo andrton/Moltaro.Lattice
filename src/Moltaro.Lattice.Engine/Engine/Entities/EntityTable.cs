@@ -87,6 +87,32 @@ namespace Moltaro.Lattice.Engine.Entities;
 // ended with the sequence unchanged; otherwise the read looks up again. An insert publishes its entry
 // in the index before the sequence of the database and a delete the sequence before it removes the
 // entry (Writes.WriteExecutor), so an absence seen at an unchanged sequence holds at that sequence.
+//
+// An enumeration, a step at a time (TryReadNext), each inside the protection of reads, which it
+// enters and leaves; between two steps nothing is held but what its pass holds (EntityPass), managed
+// memory of the enumeration.
+// 1. The step takes the current table of the index with its version. A version other than the one its
+//    position belongs to means that the index grew since the last step, and the step walks the new
+//    table from its start: a growth places every entry anew, so a position in the old table means
+//    nothing in the new one. Mapping it, bucket b to buckets 2b and 2b + 1, would miss the entries the
+//    growth moved from the overflow buckets of the old table into main buckets that the position has
+//    passed.
+// 2. It walks the words of the table from the position (IndexTable.TryFindNext). For each entry it
+//    reads the key the root of the entry stores and skips it when the pass has returned that key
+//    (ReturnedKeys): that keeps a key from being returned twice, after a growth, whose walk meets
+//    again what was walked, and after a delete and an insert of a returned key, whose new entry the
+//    walk may meet at a later word.
+// 3. Otherwise it copies the root as a read by key does (TryCopy), skips a root deleted meanwhile, and
+//    stages the key and the position after the entry; the pass takes both once the entity is built
+//    outside the protection (EntityPass.Commit).
+// 4. At the end of the table, the sequence of the database read before the walk is the position of
+//    the end when it is unchanged after the walk, as for an absent key; otherwise the step walks on.
+// Why every entity that nobody changes during the pass is returned once: its entry is in the index
+// throughout the pass, an entry does not move within a table, so a walk of a table meets it at its
+// word, and a walk of a grown table from its start meets it too; the key it stores is the same in
+// every root of its lifetime, so it is skipped only once it has been returned. Every returned entity
+// is one written state, by the stamp of its entry. An insert, a replace, a delete or a growth never
+// ends the pass, and a replace changes no entry of the index at all.
 internal sealed class EntityTable
 {
     // The sequence of the last mutation of a root entry while a write changes its root or its state,
@@ -289,14 +315,16 @@ internal sealed class EntityTable
         }
     }
 
-    // Reads the next entity of an enumeration into the copy: true when there is one; false at the
+    // A new enumeration of the entity type, standing before its first step.
+    public EntityPass StartPass() => new(new ReturnedKeys(this));
+
+    // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
+    // says: true when there is one, which the caller builds and then commits to the pass; false at the
     // end, with the sequence under which the index showed no more, taken as for an absent key. Each
-    // call enters the protection of reads and leaves it, and holds nothing between two calls. Until
-    // S08, part 2, an enumeration during which the index changed fails, from the call that sees the
-    // change, with NotSupportedException instead of returning a set it cannot vouch for: an insert, a
-    // delete or a growth changes the index, a replace does not. ObjectDisposedException after the
-    // close.
-    public bool TryReadNext<TCopy, TResult>(ref EntityCursor cursor, ref TCopy copy, out ulong sequence)
+    // call enters the protection of reads and leaves it, and holds nothing between two calls; a pass
+    // whose entity was not committed, because its build failed, finds it again at its next step.
+    // ObjectDisposedException after the close, at every call.
+    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -311,42 +339,48 @@ internal sealed class EntityTable
                 return false;
             }
 
+            var position = pass.Position;
+            var version = pass.Version;
+
             while (true)
             {
                 var before = _clock.Sequence;
+                var table = _index!.TableAndVersion(out var current);
 
-                // The table the step walks is the table of the version the enumeration started on, or the
-                // step fails: a position belongs to the table it was taken in (PrimaryIndex, Version).
-                IndexTable table;
-
-                if (!cursor.Started)
+                // Step 1 of the class: a grown table is walked from its start.
+                if (current != version)
                 {
-                    table = _index!.TableAndVersion(out cursor.Version);
-                    cursor.Started = true;
-                }
-                else
-                {
-                    table = _index!.TableAt(cursor.Version) ?? throw IndexChanged();
+                    position = 0;
+                    version = current;
                 }
 
-                var position = cursor.Position;
-
-                if (table.TryFindNext(ref position, out var slot))
+                while (table.TryFindNext(ref position, out var slot, out var hash))
                 {
-                    // A root deleted between the index and its read is a change of the index as well.
-                    if (!TryCopy<TCopy, TResult>(ref _roots.EntryOfSlot(slot), ref copy, out _, out sequence))
+                    ref var entry = ref _roots.EntryOfSlot(slot);
+
+                    // Any root of the entry holds the key of its lifetime (see the class); it is live or
+                    // retired, never freed, while the step is inside.
+                    var stored = new RootReader(_arena, Layout, entry.AcquireRoot());
+
+                    if (pass.Returned.Contains(hash, stored))
                     {
-                        throw IndexChanged();
+                        continue;
                     }
 
-                    cursor.Position = position;
+                    if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
+                    {
+                        continue;
+                    }
+
+                    pass.Returned.Stage(hash, stored);
+                    pass.Stage(position, version);
 
                     return true;
                 }
 
                 if (_clock.Sequence == before)
                 {
-                    cursor.Position = position;
+                    pass.End(position, version);
                     sequence = before;
 
                     return false;
@@ -358,6 +392,33 @@ internal sealed class EntityTable
             _epochs.Exit(protection);
         }
     }
+
+    // The integer key a root stores, as EntityKey.Integer holds it: read as the unsigned type it is
+    // stored as when the key type is unsigned.
+    public long StoredInteger(in RootReader stored) =>
+        _unsignedKey ? unchecked((long)stored.GetUnsigned(EntityType.Key)) : stored.GetInteger(EntityType.Key);
+
+    // The code units the text of a String key that a root stores takes at most: its bytes in a UTF-8
+    // database, where every byte is at most one code unit, and half its bytes in a UTF-16 one; at least
+    // 2 for a text that is not empty, the room a read of stored text needs for a surrogate pair
+    // (StoredTextReader.Read).
+    public int TextBound(in RootReader stored)
+    {
+        var bytes = stored.GetLength(EntityType.Key);
+
+        if (bytes == 0)
+        {
+            return 0;
+        }
+
+        return Math.Max(2, Layout!.StringEncoding == LatticeStringEncodingEnum.Utf16 ? bytes / 2 : bytes);
+    }
+
+    // The hash of an integer key in the index, of its 64 bits as EntityKey.Integer holds them (HashOf).
+    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer);
+
+    // The hash of a Guid key in the index, of its two halves (HashOf).
+    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high));
 
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
@@ -385,9 +446,6 @@ internal sealed class EntityTable
         return null;
     }
 
-    private NotSupportedException IndexChanged() => new(
-        $"Entities of {EntityType.Name} were inserted or deleted while they were enumerated. Until an enumeration under change is implemented, such an enumeration fails instead of returning entities it cannot vouch for; what it returned before stays valid. Start a new enumeration.");
-
     // The hash of a key in the index. For a String, the hash of the comparison its field declares,
     // computed with the key. For an integer, held as a long, and for a Guid, all its bits mixed by the
     // finalizer of MurmurHash3 (Mix): Int64.GetHashCode and Guid.GetHashCode are the exclusive or of
@@ -402,13 +460,13 @@ internal sealed class EntityTable
 
         if (KeyKind == KeyKindEnum.Integer)
         {
-            return (uint)Mix((ulong)key.Integer);
+            return IntegerHash(key.Integer);
         }
 
         var guid = key.Guid;
-        ref var halves = ref Unsafe.As<Guid, ulong>(ref guid);
+        ref var halves = ref Unsafe.As<Guid, long>(ref guid);
 
-        return (uint)Mix(halves ^ Mix(Unsafe.Add(ref halves, 1)));
+        return GuidHash(halves, Unsafe.Add(ref halves, 1));
     }
 
     // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
@@ -451,7 +509,7 @@ internal sealed class EntityTable
 
         return KeyKind switch
         {
-            KeyKindEnum.Integer => (_unsignedKey ? unchecked((long)stored.GetUnsigned(field)) : stored.GetInteger(field)) == key.Integer,
+            KeyKindEnum.Integer => StoredInteger(stored) == key.Integer,
             KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
             _ => ValueComparer.TextEquals(stored, field, key.Text),
         };

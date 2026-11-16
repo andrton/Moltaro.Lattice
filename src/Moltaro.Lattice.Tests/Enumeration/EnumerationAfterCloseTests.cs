@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Enumeration;
-
 namespace Moltaro.Lattice.Tests.Enumeration;
 
 // A step of an enumeration after its database was closed is ObjectDisposedException, as every
@@ -8,8 +6,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // close"). The close comes between two steps, from another thread or from the code that walks the
 // pass, and the next step fails; what the pass returned before stays as it was. Every step after the
 // close is a step after the close, so each fails the same way, and none ends the pass as if it had
-// returned everything: the engine of S06 ends its pass after the first failure, so that test is
-// skipped until S08, part 2. Every form of an enumeration, on the engine alone: the placeholder takes
+// returned everything. Every form of an enumeration, on the engine alone: the placeholder takes
 // what a pass returns at its first step and returns the rest after a close, which is not changed,
 // until S12. Every wait is bounded, so a close that waited for an enumeration standing between two
 // steps fails the test instead of hanging it.
@@ -40,7 +37,7 @@ public sealed class EnumerationAfterCloseTests
         }
     }
 
-    [Theory(Skip = NotImplemented.EnumerationUnderChange)]
+    [Theory]
     [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
     public async Task Every_step_after_a_close_is_ObjectDisposedException_and_never_the_end_of_the_pass(string form)
     {

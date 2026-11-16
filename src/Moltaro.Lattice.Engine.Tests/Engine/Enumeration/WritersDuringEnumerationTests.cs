@@ -49,7 +49,7 @@ public sealed class WritersDuringEnumerationTests
         from form in EnumerationForms.All
         select new TheoryDataRow<string, string>(keyType, form);
 
-    [Theory(Skip = NotImplemented.EnumerationUnderChange)]
+    [Theory]
     [MemberData(nameof(Cases))]
     public async Task Enumeration_while_writers_change_other_entities_and_the_index_grows_returns_each_unchanged_entity_once_and_no_key_twice(string keyType, string form)
     {

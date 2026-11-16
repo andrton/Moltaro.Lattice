@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -61,64 +60,48 @@ internal sealed class SetOperations
         return new LatticeReadResult<TResult>(result, revision, position);
     }
 
-    // The lazy enumeration of EntityTable.TryReadNext, a new copy for every item, each built outside
-    // the protection of reads before it is returned.
+    // The lazy enumeration of EntityTable.TryReadNext (Enumeration), a new copy for every item, each
+    // built outside the protection of reads before it is returned.
     public IEnumerable<TResult> Enumerate<TCopy, TResult>(TCopy prototype)
         where TCopy : struct, IRootCopy<TResult>
-        where TResult : class
-    {
-        var cursor = new EntityCursor();
+        where TResult : class =>
+        new Enumeration<TCopy, TResult>(this, prototype);
 
-        while (true)
-        {
-            var result = TryReadNext<TCopy, TResult>(ref cursor, prototype, out _);
-
-            if (result is null)
-            {
-                yield break;
-            }
-
-            yield return result;
-        }
-    }
-
-    // The same after the position the session depends on. The session moves forward with every item
-    // to the position it was read at, and at the end to the position under which the index showed no
-    // more, so it covers everything returned, also when nothing is.
-    public async IAsyncEnumerable<TResult> EnumerateAsync<TCopy, TResult>(TCopy prototype, LatticeSession session, [EnumeratorCancellation] CancellationToken cancellationToken)
+    // The same after the position the session depends on (SessionEnumeration).
+    public IAsyncEnumerable<TResult> EnumerateAsync<TCopy, TResult>(TCopy prototype, LatticeSession session, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
-        where TResult : class
-    {
-        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+        where TResult : class =>
+        new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
-        var cursor = new EntityCursor();
+    // A new pass of an enumeration of the entity type.
+    public EntityPass StartPass() => Table.StartPass();
 
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+    // Waits for the position the session depends on, before the first step of an enumeration.
+    public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>
+        _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
 
-            var result = TryReadNext<TCopy, TResult>(ref cursor, prototype, out var sequence);
+    // The position of a sequence of the database.
+    public LatticePosition At(ulong sequence) => _clock.At(sequence);
 
-            session.Advance(_clock.At(sequence));
-
-            if (result is null)
-            {
-                yield break;
-            }
-
-            yield return result;
-        }
-    }
-
-    // The next item of an enumeration, built from its copy outside the protection of reads; null at
-    // the end.
-    private TResult? TryReadNext<TCopy, TResult>(ref EntityCursor cursor, TCopy copy, out ulong sequence)
+    // The next item of the pass, built from its copy outside the protection of reads and only then
+    // committed to the pass, so that an item whose build throws is not taken as returned; null at the
+    // end, with the sequence of the end.
+    public TResult? Next<TCopy, TResult>(EntityPass pass, TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            return Table.TryReadNext<TCopy, TResult>(ref cursor, ref copy, out sequence) ? copy.Build() : null;
+            if (!Table.TryReadNext<TCopy, TResult>(pass, ref copy, out sequence))
+            {
+                return null;
+            }
+
+            var result = copy.Build();
+
+            pass.Commit();
+
+            return result;
         }
         finally
         {
