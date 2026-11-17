@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -157,7 +156,7 @@ public sealed class DispatchTests
         }
     }
 
-    [Fact(Skip = OpenFindings.PartTwoReviewRound2)]
+    [Fact]
     public async Task Write_behind_a_prepared_write_withdrawn_when_the_next_group_is_formed_runs_also_when_that_group_is_left_empty()
     {
         var storage = new HeldCommitStorage(holding: false);

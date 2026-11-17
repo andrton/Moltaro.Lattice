@@ -95,13 +95,14 @@ namespace Moltaro.Lattice.Engine.Writes;
 // cancellation of a write that waits in a list or in a resolution hands its withdrawal to the thread
 // pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never takes the lock of the
 // writes: there it leaves its list, gives back what it prepared, starts the next write of its chain,
-// and its call ends in OperationCanceledException. Until that thread of the pool runs, the write is
-// where it was, with what it prepared; the coordinator never makes it run meanwhile: a prepared write
-// whose token is cancelled is withdrawn when a group is formed instead of being taken into it
-// (FormGroup), and a write that waited in a chain or in the held list is ended instead of being
-// prepared when its turn comes (Start), so the work item finds it ended and does nothing. A write
-// whose resolution waits for reads looks at its token in that wait itself. From the dispatch on the
-// token is not looked at, and the call returns the real outcome.
+// and its call ends in OperationCanceledException. The coordinator never makes a cancelled write run
+// before that thread of the pool runs: a prepared write whose token is cancelled is withdrawn when a
+// group is formed instead of being taken into it (FormGroup), as the work item would withdraw it, and
+// a write that waited in a chain or in the held list is ended instead of being prepared when its turn
+// comes (Start); either way the next write of its entity starts in the same hold, and the work item
+// finds the write ended and does nothing. A write whose resolution waits for reads looks at its token
+// in that wait itself. From the dispatch on the token is not looked at, and the call returns the real
+// outcome.
 //
 // The refusal (brief of S09, "When a write is refused for memory: the rule after review round 1";
 // decision Q14 as amended; brief of S09, part 2, "The path, decided after the study"). A write is
@@ -120,7 +121,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    to be prepared: a later write whose entity has an earlier write that has not completed waits in
 //    its chain as any write does, and every other later write waits in the held list, first in first
 //    out. It waits while any
-//    write is prepared and not published (Resolving): in the queue or in the storage step, all of them
+//    write is prepared and not published (Resolving): in the queue or in the group, all of them
 //    later than it, prepared before it became the oldest. Each of them ends: a write that holds the
 //    lock hands the queue over, and the storage step completes. When none is left the wait ends (end of
 //    Drive).
@@ -194,8 +195,9 @@ internal sealed class WriteCoordinator
 
     private PendingWrite? _preparedLast;
 
-    // Whether the group is in the storage step: handed to it, and not published yet.
-    private bool _storing;
+    // Whether the group holds writes, which are prepared and not published: from the first write
+    // FormGroup takes into it, through the storage step, until it is published or the database faults.
+    private bool _groupPending;
 
     // The writes admitted and not completed that waited, in the order of their admission (see the
     // class, "The refusal").
@@ -432,7 +434,10 @@ internal sealed class WriteCoordinator
         last = write;
     }
 
-    // A chained write leaves the chain of its entity; the writes behind it wait behind the one before it.
+    // A chained write leaves the chain of its entity; the writes behind it wait behind the one before
+    // it. A write in the state Chained outside a hold of the lock always has the write before it: only
+    // AdvanceChain clears it, and the write it makes ready is started in the same hold (Drive, Pass),
+    // so Withdraw, the only caller, never meets a chained write without one.
     private static void Unchain(PendingWrite write)
     {
         var earlier = write.EarlierOfEntity!;
@@ -862,8 +867,12 @@ internal sealed class WriteCoordinator
         }
     }
 
-    // Under the lock: whether a write is prepared and not published, and so holds prepared memory.
-    private bool HoldsPreparedMemory() => _preparedFirst is not null || _storing;
+    // Under the lock: whether a write is prepared and not published, and so holds prepared memory: one
+    // is in the queue, or in the group, from the first write the group being formed took (FormGroup)
+    // to its publication. Every prepared write that is not published is in one of the two, so the
+    // answer is that of the whole state at every moment of a hold, also while a group is formed and a
+    // write withdrawn there ends.
+    private bool HoldsPreparedMemory() => _preparedFirst is not null || _groupPending;
 
     // Under the lock: the write being resolved goes on to step 3, which waits outside every lock: on the
     // thread of its call when that call holds the lock now, otherwise on a thread of the pool.
@@ -993,8 +1002,9 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: as long as a write can go on, it goes on: the writes made ready start, and the
-    // queue of the prepared writes is handed to the storage step whenever no group is in it. At the end
-    // a resolved write that no longer has anything to wait for goes on to step 3.
+    // queue of the prepared writes is handed to the storage step whenever no group is in it. The loop
+    // is left only when no write is ready (see Pass). At the end a resolved write that no longer has
+    // anything to wait for goes on to step 3.
     private void Drive(ref Pass pass)
     {
         while (true)
@@ -1006,14 +1016,24 @@ internal sealed class WriteCoordinator
                 continue;
             }
 
-            if (!_storing && !_faulted && FormGroup(ref pass))
+            if (_groupPending || _faulted)
+            {
+                break;
+            }
+
+            if (FormGroup(ref pass))
             {
                 Commit(ref pass);
 
                 continue;
             }
 
-            break;
+            // No group was formed, and a write FormGroup withdrew may have made the next write of its
+            // entity ready.
+            if (!pass.HasReady)
+            {
+                break;
+            }
         }
 
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving && !HoldsPreparedMemory())
@@ -1022,11 +1042,14 @@ internal sealed class WriteCoordinator
         }
     }
 
-    // Under the lock: the next group, from the head of the queue of the prepared writes; false when the
-    // queue is empty. A prepared write whose token is cancelled is withdrawn here instead of being taken
-    // into the group, whether or not the thread of the pool its cancellation went to has run (see the
-    // class, "Cancellation"). The writes taken are dispatched from here on: the group is handed to the
-    // storage step next, and no token is looked at any more.
+    // Under the lock: the next group, from the head of the queue of the prepared writes; false when no
+    // write was taken. A prepared write whose token is cancelled is withdrawn here instead of being
+    // taken into the group, whether or not the thread of the pool its cancellation went to has run
+    // (see the class, "Cancellation"); the next write of its entity becomes ready, and Drive starts
+    // it. The writes taken are dispatched from here on: the group is handed to the storage step next,
+    // and no token is looked at any more. From the first of them on the group holds prepared memory
+    // (_groupPending), so that a write withdrawn after it, whose end may make a refused write the one
+    // being resolved, does not find nothing prepared while the group holds it (HoldsPreparedMemory).
     private bool FormGroup(ref Pass pass)
     {
         _group.Clear();
@@ -1049,6 +1072,7 @@ internal sealed class WriteCoordinator
                 break;
             }
 
+            _groupPending = true;
             write.State = PendingWriteStateEnum.Dispatched;
             _preparedFirst = write.Next;
             write.Next = null;
@@ -1084,8 +1108,6 @@ internal sealed class WriteCoordinator
     // this hold; otherwise the thread on which it completes publishes it (CompleteStorageAsync).
     private void Commit(ref Pass pass)
     {
-        _storing = true;
-
         ValueTask<CommitOutcome> storing;
 
         try
@@ -1158,14 +1180,22 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: publishes the group at consecutive sequences from the first, gives its writes
-    // their outcomes, and starts the next write of the chain of each.
+    // their outcomes, and starts the next write of the chain of each. When a publication failed the
+    // database faults first, before a write of the group completes, so that the end of one of them
+    // begins no resolution while the writes of the group after the failure still hold prepared memory.
     private void PublishGroup(ulong firstSequence, ref Pass pass)
     {
         var published = _executor.Publish(_group, firstSequence, out var failure);
         var writes = _group.Writes;
 
         pass.Published = true;
-        _storing = false;
+
+        if (failure is not null)
+        {
+            FaultGroup(firstSequence, published, failure, ref pass);
+        }
+
+        _groupPending = false;
 
         for (var index = 0; index < published; index++)
         {
@@ -1173,11 +1203,6 @@ internal sealed class WriteCoordinator
 
             Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete), ref pass);
             AdvanceChain(prepared.Write, ref pass);
-        }
-
-        if (failure is not null)
-        {
-            FaultGroup(firstSequence, published, failure, ref pass);
         }
     }
 
@@ -1188,7 +1213,7 @@ internal sealed class WriteCoordinator
     private void FaultGroup(ulong firstSequence, int published, Exception failure, ref Pass pass)
     {
         _faulted = true;
-        _storing = false;
+        _groupPending = false;
         pass.Faulted = true;
 
         var writes = _group.Writes;
@@ -1383,13 +1408,18 @@ internal sealed class WriteCoordinator
 
         public bool Faulted;
 
-        // The writes to start in this hold, first in first out, linked by Next.
+        // The writes to start in this hold, first in first out, linked by Next. A ready write keeps
+        // the state it waited in, Chained without the write before it or Held outside the held list,
+        // which only Start may see; so Drive starts every ready write before the hold ends, and
+        // Withdraw, which takes the lock, never finds one.
         private PendingWrite? _ready;
 
         private PendingWrite? _readyLast;
 
         // The writes another thread's call waits for whose outcome this hold decided, linked by NextEnded.
         public PendingWrite? Ended;
+
+        public readonly bool HasReady => _ready is not null;
 
         public void AddReady(PendingWrite write) => Append(ref _ready, ref _readyLast, write);
 

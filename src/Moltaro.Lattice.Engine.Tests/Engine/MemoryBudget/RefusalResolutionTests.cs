@@ -4,7 +4,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
-using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
@@ -550,7 +549,7 @@ public sealed class RefusalResolutionTests
         }
     }
 
-    [Fact(Skip = OpenFindings.PartTwoReviewRound2)]
+    [Fact]
     public async Task Refused_write_resolved_while_a_write_taken_into_the_next_group_is_prepared_waits_for_it_and_completes()
     {
         var storage = new HeldCommitStorage(holding: false);
