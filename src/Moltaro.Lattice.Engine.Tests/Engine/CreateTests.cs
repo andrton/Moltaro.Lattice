@@ -1,12 +1,14 @@
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
 // EngineDatabase.Create, the internal entry to the engine until S12 (exception X4), makes an
 // instance without opening it and refuses in the order of LatticeDatabase.Create (brief of Epic 1,
 // sprint S06, "Create"): ArgumentNullException for null options; then Validate, which gives
-// InvalidConfiguration; then NotSupportedException for Durable persistence (until S27), for a
-// child role (until S10) and for a ListenUri (until S10). In S06 an instance is a MemoryOnly master.
+// InvalidConfiguration; then NotSupportedException for Durable persistence (until S27). An instance is
+// a MemoryOnly master, with or without a ListenUri, or a child (S10); how the engine refuses an address
+// it cannot use is stated when the instance opens (ListenAddressTests).
 public sealed class CreateTests
 {
     private static readonly LatticeSchema Schema = LatticeSchema.Compile("""
@@ -19,8 +21,8 @@ public sealed class CreateTests
         Assert.Throws<ArgumentNullException>(() => EngineDatabase.Create(null!));
     }
 
-    // Each of these options is invalid, and each would also ask for what the engine does not serve
-    // yet: the invalid configuration is found first.
+    // Each of these options is invalid, and the invalid configuration is found first, before anything
+    // the engine does not serve yet is refused, as those that ask for Durable persistence would be.
     [Theory]
     [InlineData("a Durable master without a connection string")]
     [InlineData("a Durable master with an infinite synchronization timeout")]
@@ -36,13 +38,10 @@ public sealed class CreateTests
         Assert.Equal(LatticeErrorEnum.InvalidConfiguration, exception.Error);
     }
 
-    [Theory]
-    [InlineData("a Durable master")]
-    [InlineData("a child")]
-    [InlineData("a MemoryOnly master with a ListenUri")]
-    public void Valid_options_that_the_engine_does_not_serve_yet_are_NotSupportedException(string options)
+    [Fact]
+    public void Durable_master_is_not_served_yet_and_is_NotSupportedException()
     {
-        Assert.Throws<NotSupportedException>(() => EngineDatabase.Create(NotServed(options)));
+        Assert.Throws<NotSupportedException>(() => EngineDatabase.Create(new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost", Schema = Schema }));
     }
 
     [Fact]
@@ -57,6 +56,26 @@ public sealed class CreateTests
         Assert.Equal(LatticeDatabaseStateEnum.Created, database.State);
     }
 
+    [Fact(Skip = ChildLoading.NotImplemented)]
+    public void Master_with_a_ListenUri_and_a_child_are_created_without_being_opened()
+    {
+        using var master = EngineDatabase.Create(new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = Schema,
+            ListenUri = MasterAndChild.Loopback,
+        });
+        using var child = EngineDatabase.Create(new LatticeDatabaseOptions
+        {
+            Role = LatticeRoleEnum.Child,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            MasterUri = MasterAndChild.Loopback,
+        });
+
+        Assert.Equal(LatticeDatabaseStateEnum.Created, master.State);
+        Assert.Equal(LatticeDatabaseStateEnum.Created, child.State);
+    }
+
     private static LatticeDatabaseOptions Invalid(string options) => options switch
     {
         "a Durable master without a connection string" => new LatticeDatabaseOptions { Schema = Schema },
@@ -66,14 +85,6 @@ public sealed class CreateTests
         "a child without the address of its master" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, PersistenceMode = LatticePersistenceModeEnum.MemoryOnly },
         "a master with a relative ListenUri" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, Schema = Schema, ListenUri = new Uri("master", UriKind.Relative) },
         "a MemoryOnly master with a ListenUri and without a schema" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, ListenUri = new Uri("lattice://master") },
-        _ => throw new ArgumentOutOfRangeException(nameof(options), options, "No such options."),
-    };
-
-    private static LatticeDatabaseOptions NotServed(string options) => options switch
-    {
-        "a Durable master" => new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost", Schema = Schema },
-        "a child" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, MasterUri = new Uri("lattice://master") },
-        "a MemoryOnly master with a ListenUri" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, Schema = Schema, ListenUri = new Uri("lattice://master") },
         _ => throw new ArgumentOutOfRangeException(nameof(options), options, "No such options."),
     };
 }

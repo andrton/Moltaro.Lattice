@@ -16,6 +16,15 @@ internal static class TestDatabases
         new(DatabaseImplementationEnum.Engine),
     ];
 
+    // The data of a theory that runs a master and its child on both implementations. A master of the
+    // engine that accepts children and its child, which loads the database over TCP, come with Epic 1,
+    // sprint S10, and until then the row of the engine is skipped.
+    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> ImplementationsWithChildren =>
+    [
+        new(DatabaseImplementationEnum.Placeholder),
+        new(DatabaseImplementationEnum.Engine) { Skip = ChildLoading.NotImplemented },
+    ];
+
     // Creates a database without opening it, as LatticeDatabase.Create does.
     public static ILatticeDatabase Create(DatabaseImplementationEnum implementation, LatticeDatabaseOptions options) => implementation switch
     {
@@ -38,5 +47,27 @@ internal static class TestDatabases
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema ?? TestData.Schema,
+        });
+
+    // A MemoryOnly master that accepts children, with the schema of TestData unless another one is
+    // given: the placeholder at an address of its own (MasterAndChild.NewAddress), the engine on the
+    // loopback interface at a port the system chooses (MasterAndChild.Loopback). Its ListenUri is the
+    // address a child is given.
+    public static ValueTask<ILatticeDatabase> OpenListeningMasterAsync(DatabaseImplementationEnum implementation, LatticeSchema? schema = null) =>
+        OpenAsync(implementation, new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = schema ?? TestData.Schema,
+            ListenUri = implementation == DatabaseImplementationEnum.Engine ? MasterAndChild.Loopback : MasterAndChild.NewAddress(),
+        });
+
+    // A child of the master, at the address the master reports. Its open completes when it has loaded
+    // the database.
+    public static ValueTask<ILatticeDatabase> OpenChildAsync(DatabaseImplementationEnum implementation, ILatticeDatabase master) =>
+        OpenAsync(implementation, new LatticeDatabaseOptions
+        {
+            Role = LatticeRoleEnum.Child,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            MasterUri = master.ListenUri,
         });
 }

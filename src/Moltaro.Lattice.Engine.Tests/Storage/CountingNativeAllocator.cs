@@ -34,6 +34,14 @@ internal sealed class CountingNativeAllocator : NativeAllocator
     // Arms the action that the next request runs once.
     public void HoldNextAllocation(Action hold) => Volatile.Write(ref _hold, hold);
 
+    // Fails the test unless every piece of memory obtained has been returned, exactly once: what a
+    // test states once a database has closed or its open has failed.
+    public void ExpectEverythingReturned()
+    {
+        Assert.Equal(0, Outstanding);
+        Assert.Equal(Obtained, Returned);
+    }
+
     public override nint Allocate(int size)
     {
         Interlocked.Exchange(ref _hold, null)?.Invoke();

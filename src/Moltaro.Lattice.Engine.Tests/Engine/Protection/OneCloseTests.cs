@@ -51,7 +51,7 @@ public sealed class OneCloseTests
             Assert.Equal(0, await second.WaitAsync(Bound));
             Assert.Equal(0, await disposed.WaitAsync(Bound));
             await first.WaitAsync(Bound);
-            ExpectEverythingReturned(allocator);
+            allocator.ExpectEverythingReturned();
         }
         finally
         {
@@ -96,7 +96,7 @@ public sealed class OneCloseTests
 
             Assert.Equal(0, await disposed.WaitAsync(Bound));
             Assert.Equal(0, await again.WaitAsync(Bound));
-            ExpectEverythingReturned(allocator);
+            allocator.ExpectEverythingReturned();
         }
         finally
         {
@@ -131,7 +131,7 @@ public sealed class OneCloseTests
             Assert.Contains(await held.ReleaseAsync(), new long?[] { 0, 1 });
 
             Assert.Equal(0, await first.WaitAsync(Bound));
-            ExpectEverythingReturned(allocator);
+            allocator.ExpectEverythingReturned();
         }
         finally
         {
@@ -181,7 +181,7 @@ public sealed class OneCloseTests
             var outstanding = await Task.WhenAll(calls).WaitAsync(Bound);
 
             Assert.All(outstanding, pieces => Assert.Equal(0, pieces));
-            ExpectEverythingReturned(allocator);
+            allocator.ExpectEverythingReturned();
         }
         finally
         {
@@ -199,14 +199,14 @@ public sealed class OneCloseTests
         await stamps.ReplaceAsync(StampSchema.StampOf(1, 1));
 
         await database.CloseAsync().AsTask().WaitAsync(Bound);
-        ExpectEverythingReturned(allocator);
+        allocator.ExpectEverythingReturned();
 
         Assert.True(database.CloseAsync().IsCompletedSuccessfully, "A close after the close had completed did not complete at once.");
         Assert.True(database.DisposeAsync().IsCompletedSuccessfully, "A dispose after the close had completed did not complete at once.");
         database.Dispose();
 
         Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
-        ExpectEverythingReturned(allocator);
+        allocator.ExpectEverythingReturned();
     }
 
     // Inserts the stamp 1, holds a read of it inside the protection and replaces it, so that the read
@@ -255,11 +255,5 @@ public sealed class OneCloseTests
         }
 
         await database.CloseAsync().AsTask().WaitAsync(Bound);
-    }
-
-    private static void ExpectEverythingReturned(CountingNativeAllocator allocator)
-    {
-        Assert.Equal(0, allocator.Outstanding);
-        Assert.Equal(allocator.Obtained, allocator.Returned);
     }
 }

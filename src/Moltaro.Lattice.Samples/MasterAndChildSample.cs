@@ -10,23 +10,24 @@ internal static class MasterAndChildSample
     {
         Console.WriteLine("== Master and child ==");
 
-        var address = new Uri("lattice://localhost:7400");
-
-        // The master owns the data and accepts children at the address.
+        // The master owns the data and accepts children at the address. Port 0 lets the system
+        // choose a free port; the open master reports the address with that port in ListenUri.
         await using var master = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,
-            ListenUri = address,
+            ListenUri = new Uri("lattice://127.0.0.1:0"),
         });
 
-        // The child gets the schema and the whole database from the master.
-        // It is readable as soon as OpenAsync completes.
+        // The child gets the schema and the whole database from the master at the address it
+        // reports. It is readable as soon as OpenAsync completes; if it cannot reach its master,
+        // or nothing arrives from it, for OpenTimeout, the open fails with Unavailable.
         await using var child = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            MasterUri = address,
+            MasterUri = master.ListenUri,
+            OpenTimeout = TimeSpan.FromSeconds(10),
         });
 
         // A write through the child is executed by the master and completes when this
