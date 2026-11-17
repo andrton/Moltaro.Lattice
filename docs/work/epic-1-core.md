@@ -998,7 +998,7 @@ Why this order:
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Done |
-| S10 | A child loads the database | Full | Not started |
+| S10 | A child loads the database | Full | In progress |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
 | S13 | Text entries and Dictionary strings | Full | Not started |
