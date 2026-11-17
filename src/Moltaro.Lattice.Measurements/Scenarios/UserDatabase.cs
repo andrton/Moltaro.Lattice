@@ -45,9 +45,9 @@ internal sealed class UserDatabase : IDisposable
     // The line of a report that says what was loaded into which database, and how long it took.
     public string Loaded { get; }
 
-    // Generates the fixture, opens the database, under the read limits given or none, and inserts the
-    // users by name.
-    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null)
+    // Generates the fixture, opens the database, under the read limits given or none and accepting
+    // children at the address given or at none, and inserts the users by name.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null)
     {
         var schema = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
         var records = ReferenceFixture.Generate(schema).ToList();
@@ -59,6 +59,7 @@ internal sealed class UserDatabase : IDisposable
             Schema = schema,
             ReadMemoryLimit = readMemoryLimit,
             ReadTimeLimit = readTimeLimit,
+            ListenUri = listenUri,
         });
 
         database.OpenAsync().AsTask().GetAwaiter().GetResult();
@@ -104,6 +105,9 @@ internal sealed class UserDatabase : IDisposable
 
     // The counters of the engine, for a scenario that reports what the write coordinator formed.
     public EngineCounters Counters => _database.Counters;
+
+    // The address the database accepts children at, with its port; null when it was opened without one.
+    public Uri? ListenUri => _database.ListenUri;
 
     // A user of the writer with the key, above the fixture's: a copy of a user of the fixture with
     // that key, not inserted yet.
