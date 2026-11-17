@@ -3990,7 +3990,8 @@ says otherwise, these replace it.
 **Decided by the planner on 17 November 2026 after the study of S10.** Where a sentence
 above says otherwise, these replace it. The study read the source of Valkey (BSD-3-Clause,
 commit 40e00fc), PostgreSQL (PostgreSQL Licence, commit 11591f2) and Garnet (MIT, commit
-2572760); no file is adapted from them. Points 1, 2 and 4 are reported to the owner.
+2572760); no file is adapted from them. Points 1, 2 and 4 were reported to the owner, who
+agreed with all three on 17 November 2026, through the planner's session.
 
 1. **The check of a frame is CRC32C.** Every frame ends with a CRC32C (4 bytes,
    little-endian) over the 32 bytes of the header and the body before it.
