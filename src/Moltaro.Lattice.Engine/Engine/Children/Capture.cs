@@ -88,8 +88,8 @@ internal sealed class Capture
     // The schema in its compiled form (Replication.Load.SchemaTransfer).
     public byte[] SavedSchema { get; }
 
-    // The tail of the transactions, which the senders of the children follow without the lock and wait on
-    // (DeliveryTail.WaitForNextAsync).
+    // The tail of the transactions, which the senders of the children read without the lock and wait on
+    // (DeliveryTail.WaitForMoreAsync).
     public DeliveryTail Tail { get; }
 
     // Registers the capture of a child, in one hold of the lock of the writes, and returns what it starts
