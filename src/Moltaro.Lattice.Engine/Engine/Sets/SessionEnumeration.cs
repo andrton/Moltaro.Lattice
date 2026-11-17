@@ -17,8 +17,10 @@ namespace Moltaro.Lattice.Engine.Sets;
 // an exception thrown by MoveNextAsync itself.
 //
 // Cancellation, as an iterator of C# with an [EnumeratorCancellation] token takes it: the token given
-// to EnumerateAsync and the one given to GetAsyncEnumerator both cancel, linked when both can, and
-// every step looks at it before it reads, with OperationCanceledException.
+// to EnumerateAsync and the one given to GetAsyncEnumerator both cancel, linked when both can; every
+// step looks at it before it reads, and passes it on into the step, which honors it in its wait for a
+// slot of the protection and between its rounds, before it looks at a limit (EntityTable.TryReadNext),
+// with OperationCanceledException.
 internal sealed class SessionEnumeration<TCopy, TResult> : IAsyncEnumerable<TResult>
     where TCopy : struct, IRootCopy<TResult>
     where TResult : class
@@ -138,7 +140,7 @@ internal sealed class SessionEnumeration<TCopy, TResult> : IAsyncEnumerable<TRes
         {
             _cancellationToken.ThrowIfCancellationRequested();
 
-            var result = _operations.Next<TCopy, TResult>(_pass!, _prototype, out var sequence);
+            var result = _operations.Next<TCopy, TResult>(_pass!, _prototype, out var sequence, _cancellationToken);
 
             _session.Advance(_operations.At(sequence));
 

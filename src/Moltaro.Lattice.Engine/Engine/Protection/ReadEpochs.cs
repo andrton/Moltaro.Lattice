@@ -111,8 +111,11 @@ internal sealed class ReadEpochs
     // The wait ends: a read holds its slot only while it looks up and copies, which waits for nothing
     // and runs no code of the application (Entities.IRootCopy), so every held slot is left within one
     // step of a read; a test that holds reads through HoldNextRead holds each for a bounded time. A
-    // waiting read takes part in no refusal and never fails for the wait.
-    public int Enter()
+    // waiting read takes part in no refusal and never fails for the wait. The token of an asynchronous
+    // read ends the wait, with OperationCanceledException (brief of S09, part 2, the second finding of
+    // the outside review it carries); it is looked at only after every slot was found held, so a read
+    // that finds a slot, and a synchronous read, which has no token, pay nothing for it.
+    public int Enter(CancellationToken cancellationToken = default)
     {
         var start = Thread.GetCurrentProcessorId();
         var spinner = default(SpinWait);
@@ -142,6 +145,7 @@ internal sealed class ReadEpochs
                 ThrowForState();
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             spinner.SpinOnce();
         }
     }

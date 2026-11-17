@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.TestSupport.Findings;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -19,7 +18,7 @@ public sealed class CancelledReadTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Theory(Skip = OpenFindings.OutsideReview)]
+    [Theory]
     [InlineData("by class")]
     [InlineData("by name")]
     public async Task Read_with_a_session_cancelled_while_every_slot_of_the_epoch_table_is_held_ends_in_OperationCanceledException_while_the_slots_are_still_held(string form)

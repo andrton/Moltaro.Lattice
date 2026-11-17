@@ -2,7 +2,6 @@ using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.TestSupport.Enumeration;
-using Moltaro.Lattice.TestSupport.Findings;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -65,7 +64,7 @@ public sealed class CancelledStepTests
         { EnumerationForms.ByNameWithASession, GivenToEnumerateAsync, LimitPassed },
     };
 
-    [Theory(Skip = OpenFindings.OutsideReview)]
+    [Theory]
     [MemberData(nameof(Cases))]
     public async Task Step_cancelled_while_every_slot_of_the_epoch_table_is_held_ends_in_OperationCanceledException_while_the_slots_are_still_held(string form, string token, string limit)
     {
@@ -102,7 +101,7 @@ public sealed class CancelledStepTests
         }
     }
 
-    [Fact(Skip = OpenFindings.OutsideReview)]
+    [Fact]
     public async Task Step_whose_token_is_cancelled_between_two_of_its_rounds_ends_in_OperationCanceledException()
     {
         var trying = Stopwatch.StartNew();

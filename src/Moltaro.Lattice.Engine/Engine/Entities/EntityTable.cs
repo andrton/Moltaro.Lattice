@@ -317,12 +317,13 @@ internal sealed class EntityTable
 
     // Reads the entity with the key into the copy: true when it exists, with the revision of the
     // state copied; false when it does not. The sequence is that of the answer, as the comment of the
-    // class says. ObjectDisposedException after the close.
-    public bool TryRead<TCopy, TResult>(in EntityKey key, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
+    // class says. ObjectDisposedException after the close. The token of an asynchronous read ends its
+    // wait for a slot of the protection, with OperationCanceledException (ReadEpochs.Enter).
+    public bool TryRead<TCopy, TResult>(in EntityKey key, ref TCopy copy, out LatticeRevision revision, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var protection = _epochs.Enter();
+        var protection = _epochs.Enter(cancellationToken);
 
         try
         {
@@ -380,8 +381,12 @@ internal sealed class EntityTable
     // round enters the protection of reads and leaves it, and a call holds nothing when it returns; a
     // pass whose entity was not committed, because its build failed, finds it again at its next step.
     // ObjectDisposedException after the close, at every call; LatticeException with ReadLimitExceeded
-    // from a call that would exceed a read limit and from every call after it (EntityPass).
-    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence)
+    // from a call that would exceed a read limit and from every call after it (EntityPass). The token
+    // of an asynchronous enumeration ends the wait of a round for a slot of the protection, and each
+    // round looks at it before it looks at the limits, so a cancellation is reported before a limit is
+    // and takes effect between two rounds (brief of S09, part 2, the second finding of the outside
+    // review it carries); OperationCanceledException then, with the pass as it was before the call.
+    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -397,10 +402,11 @@ internal sealed class EntityTable
             {
                 // The bound of the text of a key that needs room in the pass, or -1 when none does.
                 var room = -1;
-                var protection = _epochs.Enter();
+                var protection = _epochs.Enter(cancellationToken);
 
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     pass.ThrowIfFailed();
                     pass.CheckTime(started);
 
