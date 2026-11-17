@@ -1007,7 +1007,7 @@ Why this order:
 | S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
-| S11 | A child loads under writes and follows the master | Full | Not started |
+| S11 | A child loads under writes and follows the master | Full | In progress |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
