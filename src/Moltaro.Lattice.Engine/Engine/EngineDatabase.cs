@@ -49,7 +49,11 @@ namespace Moltaro.Lattice.Engine;
 // the reads that entered before the mark, and only then frees the arena with everything retired. It
 // does not wait for that inside the call: CloseAsync returns a task that completes then, and a
 // cancellation of its token ends only the wait of the caller. A wait for a position ends with the
-// close.
+// close. The close is one operation (brief of S09, part 2, the first finding of the outside review it
+// carries): the first call of CloseAsync or DisposeAsync begins it and keeps its task, and every
+// later call waits for that same task, so no call completes before the arena is freed, whichever
+// call it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread
+// until then.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
 // for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
@@ -115,6 +119,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
+
+    // The close, once a call has begun it: completes when the arena has been freed. Set under the lock
+    // of the state by the call that sets Closed, and never changed afterwards.
+    private TaskCompletionSource? _closed;
 
     // The parts of the open database. Set by the open before the state becomes Ready, which a member
     // reads first, and never changed afterwards.
@@ -453,28 +461,40 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // Lets no operation start any more, ends the waits for a position, and frees the arena once the
-    // reads and writes in progress have ended (see the class). The cancellation token ends only the
-    // wait for that: the database still closes, and the arena is freed when they have ended.
+    // reads and writes in progress have ended (see the class). The first call begins the close; every
+    // later call, of this or of DisposeAsync, joins it. The cancellation token ends only the wait of
+    // its call: the database still closes, and the arena is freed when they have ended.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
+        TaskCompletionSource closed;
+        var begins = false;
+
         lock (_stateLock)
         {
-            if (_state == LatticeDatabaseStateEnum.Closed)
+            if (_closed is null)
             {
-                return ValueTask.CompletedTask;
+                _closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _state = LatticeDatabaseStateEnum.Closed;
+                begins = true;
             }
 
-            _state = LatticeDatabaseStateEnum.Closed;
+            closed = _closed;
         }
 
-        _clock?.Close();
+        if (begins)
+        {
+            _clock?.Close();
 
-        // The mark first: a read that enters from now on leaves at once, and the reads that entered
-        // before announce an epoch below the one returned here.
-        var mark = _epochs.Close();
-        var closed = FreeAfterOperationsAsync(_barrier.Close(), mark);
+            // The mark first: a read that enters from now on leaves at once, and the reads that entered
+            // before announce an epoch below the one returned here.
+            var mark = _epochs.Close();
 
-        return closed.IsCompleted ? new ValueTask(closed) : new ValueTask(closed.WaitAsync(cancellationToken));
+            _ = FreeAfterOperationsAsync(_barrier.Close(), mark, closed);
+        }
+
+        var task = closed.Task;
+
+        return task.IsCompleted ? new ValueTask(task) : new ValueTask(task.WaitAsync(cancellationToken));
     }
 
     public ValueTask DisposeAsync() => CloseAsync();
@@ -483,26 +503,35 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
     // counts of the counters in progress have ended and then the reads that entered before the mark of
-    // the close. When nothing is in progress it does so before it returns. The wait for the reads
-    // runs on a thread of the pool, because a read may be held by a test while its caller goes on; it
-    // ends as ReadEpochs.WaitForReadsBefore says.
-    private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark)
+    // the close, and then completes the close. When nothing is in progress it does so before it
+    // returns. The wait for the reads runs on a thread of the pool, because a read may be held by a
+    // test while its caller goes on; it ends as ReadEpochs.WaitForReadsBefore says.
+    private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark, TaskCompletionSource closed)
     {
-        await operationsEnded.ConfigureAwait(false);
-
-        if (_epochs.HasReadsBefore(mark))
+        try
         {
-            await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
+            await operationsEnded.ConfigureAwait(false);
+
+            if (_epochs.HasReadsBefore(mark))
+            {
+                await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
+            }
+
+            // The parts are set only when the open published them; an open that the close overtook
+            // frees its own arena (Load). The arena is the only native memory of the database;
+            // everything else is managed.
+            if (_arena is { } arena)
+            {
+                _retired!.Drain();
+                _retired.Clear();
+                arena.Dispose();
+            }
+
+            closed.SetResult();
         }
-
-        // The parts are set only when the open published them; an open that the close overtook frees
-        // its own arena (Load). The arena is the only native memory of the database; everything else
-        // is managed.
-        if (_arena is { } arena)
+        catch (Exception exception)
         {
-            _retired!.Drain();
-            _retired.Clear();
-            arena.Dispose();
+            closed.SetException(exception);
         }
     }
 
