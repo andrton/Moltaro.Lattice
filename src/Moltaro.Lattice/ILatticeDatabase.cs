@@ -35,6 +35,27 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     LatticePosition Position { get; }
 
     /// <summary>
+    /// The address at which this master accepts its children, with the port it actually listens
+    /// at: when <see cref="LatticeDatabaseOptions.ListenUri"/> names port 0, the port the system
+    /// chose. <see langword="null"/> for a master opened without
+    /// <see cref="LatticeDatabaseOptions.ListenUri"/> and for a child.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A child of this master is given this address as <see cref="LatticeDatabaseOptions.MasterUri"/>.
+    /// It does not change after the open.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> No instance listens on the network: the database that
+    /// <see cref="LatticeDatabase"/> opens today returns the configured address as it is.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
+    /// </exception>
+    Uri? ListenUri { get; }
+
+    /// <summary>
     /// Waits until this instance has applied the given position: all writes up to it, with
     /// their index changes, are then readable here.
     /// </summary>
@@ -87,20 +108,33 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <remarks>
     /// <para>
     /// A master starts with the configured schema. With
-    /// <see cref="LatticeDatabaseOptions.ListenUri"/> it also accepts children at that address.
+    /// <see cref="LatticeDatabaseOptions.ListenUri"/> it also accepts children at that address,
+    /// and <see cref="ListenUri"/> reports the port it listens at.
     /// </para>
     /// <para>
     /// A child connects to the master at <see cref="LatticeDatabaseOptions.MasterUri"/>, loads
-    /// the whole database and only then becomes readable. While the master is unreachable the
-    /// call keeps waiting until it is cancelled or the database is closed.
+    /// the whole database and only then becomes readable. When it is not ready within
+    /// <see cref="LatticeDatabaseOptions.OpenTimeout"/>, the call fails with
+    /// <see cref="LatticeErrorEnum.Unavailable"/> and the instance is closed.
     /// </para>
     /// <para>
     /// A master and its children can be opened in one process. Cancelling or failing the
-    /// call closes the instance.
+    /// call closes the instance; a cancelled call ends in <see cref="OperationCanceledException"/>.
+    /// An open that fails, times out or is cancelled leaves nothing of the instance behind: no
+    /// connection, no work that still runs and no memory it holds.
     /// </para>
     /// </remarks>
-    /// <param name="cancellationToken">Cancels opening.</param>
+    /// <param name="cancellationToken">
+    /// Cancels opening. Every wait of the open honors it, a child's attempts to reach its master
+    /// and its waits for the data of the load included.
+    /// </param>
     /// <exception cref="InvalidOperationException">The database has already been opened.</exception>
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.Unavailable"/>: a child is not ready within
+    /// <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or a failure that another attempt cannot
+    /// mend ended its open at once, as <see cref="LatticeDatabaseOptions.OpenTimeout"/> says; the
+    /// message names the reason, and the instance is closed.
+    /// </exception>
     ValueTask OpenAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -243,7 +277,10 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <remarks>
     /// Entities returned by earlier reads stay valid. A MemoryOnly database saves nothing:
     /// its data is gone after closing. A child whose master has closed keeps serving its
-    /// local reads. Disposing the database closes it in the same way. A call made while an
+    /// local reads. A master also stops accepting children and ends every connection to them,
+    /// and its close completes only once no work of the instance runs any more and its port is
+    /// free: another instance can listen at the address as soon as the close has completed.
+    /// Disposing the database closes it in the same way. A call made while an
     /// earlier close is in progress, and a dispose, starts no other close: it completes when
     /// that close completes, once the memory is released; the token of a call cancels the wait
     /// of that call alone. The synchronous <see cref="IDisposable.Dispose"/> blocks its thread

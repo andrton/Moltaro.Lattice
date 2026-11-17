@@ -372,6 +372,19 @@ internal sealed class EngineDatabase : ILatticeDatabase
         }
     }
 
+    // Null is the truth today: Create refuses a ListenUri (Check) and a child, so every instance is a
+    // master without one. S10 replaces this with the address the master has bound, with the port the
+    // system chose for port 0, and null for a master without ListenUri and for a child.
+    public Uri? ListenUri
+    {
+        get
+        {
+            ThrowIfNotReady();
+
+            return null;
+        }
+    }
+
     public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         if (!position.IsValid)
