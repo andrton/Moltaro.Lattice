@@ -16,6 +16,13 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The test of the released blocks of the tail of Epic 1, sprint S11 names members that come with the
+         tail of blocks: DeliveryTail.BlockSize, Begin, GetSpan, Advance and Commit, DeliveryReader and
+         DeliveryBlock. Until they exist the file is not compiled. The implementer of S11 removes this
+         item with the tail of blocks. -->
+    <Compile Remove="Engine\Replication\Delivery\ReleasedTransactionsTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />
