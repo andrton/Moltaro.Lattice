@@ -43,7 +43,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // the logical processors of the development machine, and each line says how many there were. A figure
 // is the result of one window, and the program is run three times for a figure to be compared.
 //
-// A run takes about a minute and a half on the development machine.
+// A run takes about a minute on the development machine.
 internal static class WriteCallersScenario
 {
     public const string Name = "write-callers";
