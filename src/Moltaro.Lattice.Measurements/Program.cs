@@ -14,6 +14,12 @@ using Moltaro.Lattice.Measurements.Scenarios;
 // not understand.
 const string Usage = "Usage: Moltaro.Lattice.Measurements <scenario> <manifest>";
 
+// A child in a process of its own, which the scenario following-children starts (RemoteChild).
+if (args is [RemoteChild.Mode, var masterUri])
+{
+    return RemoteChild.Serve(new Uri(masterUri));
+}
+
 if (args.Length != 2)
 {
     return Refuse(Usage);
@@ -38,12 +44,15 @@ IReadOnlyList<string>? results = scenario switch
     WriteCallersScenario.Name => WriteCallersScenario.Run(),
     LargeWritesScenario.Name => LargeWritesScenario.Run(),
     ChildLoadScenario.Name => ChildLoadScenario.Run(),
+    ChildUnderWritesScenario.Name => ChildUnderWritesScenario.Run(),
+    FollowingChildrenScenario.Name => FollowingChildrenScenario.Run(),
+    LargeWriteChildScenario.Name => LargeWriteChildScenario.Run(),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}.");
 }
 
 var finished = DateTimeOffset.UtcNow;

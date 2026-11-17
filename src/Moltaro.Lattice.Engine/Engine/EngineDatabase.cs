@@ -426,6 +426,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return _follower?.Suspend() ?? throw new InvalidOperationException("A master applies nothing it receives; only a child holds back its application.");
     }
 
+    // For the measurement program (brief of Epic 1, sprint S11, the planner's decision after the study,
+    // point 12): what the catch-up of a child applied from LoadEnd to Ready; null on a master and on a
+    // child that is not Ready yet. Set before the state becomes Ready and never changed afterwards.
+    internal CatchUpReport? CatchUp { get; private set; }
+
     public LatticeDatabaseStateEnum State => _state;
 
     public LatticeSchema Schema
@@ -865,7 +870,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // The transactions of (S, R] follow LoadEnd: the child is Ready once it has applied R.
             var follower = new Follower(master, _writes!, _executor!, _barrier, changes, tables, memoryLimit, _options.OpenTimeout);
 
-            await follower.CatchUpAsync(end, token).ConfigureAwait(false);
+            var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
             lock (_stateLock)
             {
@@ -874,6 +879,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                     throw new ObjectDisposedException(GetType().FullName);
                 }
 
+                CatchUp = catchUp;
                 _follower = follower;
                 _following = Task.Run(() => follower.FollowAsync(_closing.Token));
                 _state = LatticeDatabaseStateEnum.Ready;

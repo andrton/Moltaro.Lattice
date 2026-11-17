@@ -28,14 +28,14 @@ internal static class LargeWritesScenario
 {
     public const string Name = "large-writes";
 
-    private const int LargeBytes = 32 * 1024 * 1024;
+    internal const int LargeBytes = 32 * 1024 * 1024;
 
-    private const int SmallBytes = 100;
+    internal const int SmallBytes = 100;
 
-    private const int SmallEntities = 1_000;
+    internal const int SmallEntities = 1_000;
 
     // The writes of one caller whose time a window keeps; more than any window makes.
-    private const int MostTimed = 4_000_000;
+    internal const int MostTimed = 4_000_000;
 
     private const int WarmingUp = 0;
 
@@ -47,7 +47,7 @@ internal static class LargeWritesScenario
 
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
 
-    private static readonly LatticeSchema Schema = LatticeSchema.Compile("""
+    internal static readonly LatticeSchema Schema = LatticeSchema.Compile("""
         {
           "EntityTypes": [
             {
@@ -110,7 +110,7 @@ internal static class LargeWritesScenario
     }
 
     // A record of a blob with a value of the length given, which the record holds as its own copy.
-    private static LatticeRecord RecordOf(LatticeEntityType entityType, long id, int length)
+    internal static LatticeRecord RecordOf(LatticeEntityType entityType, long id, int length)
     {
         var record = new LatticeRecord(entityType);
         var data = new byte[length];
@@ -125,7 +125,7 @@ internal static class LargeWritesScenario
     // One series: each caller on a thread of its own, writing until the window ends, keeping the time
     // of every write it makes in the window. Returns, for each caller, how many writes it made in the
     // window and how long the window was.
-    private static (long Writes, TimeSpan Elapsed)[] Series((Action Write, long[] Times)[] callers)
+    internal static (long Writes, TimeSpan Elapsed)[] Series((Action Write, long[] Times)[] callers)
     {
         var phase = WarmingUp;
         var counts = new long[callers.Length];
@@ -199,11 +199,11 @@ internal static class LargeWritesScenario
         }
     }
 
-    private static string Rate((long Writes, TimeSpan Elapsed) series) =>
+    internal static string Rate((long Writes, TimeSpan Elapsed) series) =>
         $"{Number((long)Math.Round(series.Writes / series.Elapsed.TotalSeconds))} writes/s";
 
     // The p50, the p99 and the maximum of the times of the writes of a window.
-    private static string Times(long[] times, (long Writes, TimeSpan Elapsed) series)
+    internal static string Times(long[] times, (long Writes, TimeSpan Elapsed) series)
     {
         var count = (int)Math.Min(series.Writes, times.Length);
 

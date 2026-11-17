@@ -119,8 +119,8 @@ internal static class WriteCallersScenario
         return lines;
     }
 
-    // Replaces the users of the caller, one after the other.
-    private static Func<int> Replacer(UserDatabase users, int caller, int callers)
+    // Replaces the users of the caller, one after the other; for following-children as well.
+    internal static Func<int> Replacer(UserDatabase users, int caller, int callers)
     {
         var next = caller;
 
@@ -153,8 +153,8 @@ internal static class WriteCallersScenario
     private static string CallersOf(int callers) => $"{callers} {(callers == 1 ? "caller" : "callers")}";
 
     // One series: the callers given, writing users, and the readers given, reading the database given,
-    // through a warm-up and a window.
-    private static string Series(UserDatabase users, UserDatabase reading, long[] keys, int readers, int callers, Func<int, int, Func<int>>? writer)
+    // through a warm-up and a window; for following-children as well, whose children follow the writes.
+    internal static string Series(UserDatabase users, UserDatabase reading, long[] keys, int readers, int callers, Func<int, int, Func<int>>? writer)
     {
         var phase = WarmingUp;
         var reads = new long[readers];

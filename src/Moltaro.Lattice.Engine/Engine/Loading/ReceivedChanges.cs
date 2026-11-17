@@ -51,6 +51,17 @@ internal sealed class ReceivedChanges
     // The changes prepared and not published yet, in the order they were received.
     private readonly List<Change> _prepared = [];
 
+    // The states the rule skipped since the last Publish.
+    private int _skipped;
+
+    // The states of keys published, and those the rule skipped, since the instance opened, counted when
+    // their transaction or root is published: a Delete of a key the child does not hold counts as
+    // skipped. For the report of a catch-up (Following.Follower); written and read by the one thread that
+    // applies.
+    public long AppliedStates { get; private set; }
+
+    public long SkippedStates { get; private set; }
+
     public ReceivedChanges(Arena arena, RootTable roots, WriteExecutor executor, LatticeSchema schema)
     {
         _arena = arena;
@@ -87,6 +98,8 @@ internal sealed class ReceivedChanges
 
         if (held && _roots.Entry(handle).LastMutationSequence >= lastMutation)
         {
+            _skipped++;
+
             return true;
         }
 
@@ -95,7 +108,15 @@ internal sealed class ReceivedChanges
 
         if (inserts)
         {
-            handle = _roots.Add((uint)table.EntityType.Id);
+            try
+            {
+                handle = _roots.Add((uint)table.EntityType.Id);
+            }
+            catch
+            {
+                Abandon();
+                throw;
+            }
         }
 
         var root = default(ArenaAddress);
@@ -149,6 +170,8 @@ internal sealed class ReceivedChanges
 
         if (!table.TryFind(key, out var handle) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
+            _skipped++;
+
             return;
         }
 
@@ -200,6 +223,9 @@ internal sealed class ReceivedChanges
             }
         }
 
+        AppliedStates += _prepared.Count;
+        SkippedStates += _skipped;
+        _skipped = 0;
         _prepared.Clear();
         _executor.AfterReceived();
     }
@@ -231,6 +257,7 @@ internal sealed class ReceivedChanges
             }
         }
 
+        _skipped = 0;
         _prepared.Clear();
     }
 

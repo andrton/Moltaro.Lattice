@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Loading;
 using Moltaro.Lattice.Engine.Protection;
@@ -103,16 +104,22 @@ internal sealed class Follower
         _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
     }
 
-    // Applies the transactions after S up to R, which LoadEnd announced (see the class). A failure passes
-    // through, and the open of the child fails.
-    public async Task CatchUpAsync(LoadEndBody end, CancellationToken cancellationToken)
+    // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
+    // it applied. A failure passes through, and the open of the child fails.
+    public async Task<CatchUpReport> CatchUpAsync(LoadEndBody end, CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
+        var applied = _changes.AppliedStates;
+        var skipped = _changes.SkippedStates;
+
         _applied = end.Start;
 
         while (_applied < end.End)
         {
             await ApplyNextAsync(_openTimeout, cancellationToken).ConfigureAwait(false);
         }
+
+        return new CatchUpReport(end.Start, end.End, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
     }
 
     // Follows the master once the child is Ready, until the child stops following or closes (see the
