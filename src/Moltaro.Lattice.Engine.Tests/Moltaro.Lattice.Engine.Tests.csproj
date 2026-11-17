@@ -16,14 +16,6 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The tests of the replication protocol of Epic 1, sprint S10, in the folder Replication, address
-         internal types of the engine that its implementer creates under the names of the brief:
-         Moltaro.Lattice.Replication.Protocol, FrameKindEnum, RefuseReasonEnum, HelloBody, FrameHeader and
-         FrameCodec. Until they exist the folder is not compiled; its tests are skipped with the reason of
-         the sprint as well. The implementer of S10 removes this item when the types are there. -->
-    <Compile Remove="Replication\**" />
-  </ItemGroup>
-  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />

@@ -1,0 +1,216 @@
+using System.Buffers;
+using System.Net.Sockets;
+
+namespace Moltaro.Lattice.Replication;
+
+// One connection of the replication transport over a connected TCP socket: the frames a node sends and
+// the frames it receives, whole (FrameCodec), numbered in their order on each side (brief of Epic 1,
+// sprint S10; milestone contract, "Replication transport and initial loading"). The connection owns its
+// socket and closes it when it is disposed.
+//
+// Sending. Add writes a frame, with the next stream sequence of this side, into the buffer of the frames
+// waiting to be sent, and SendAsync sends them all. The buffer keeps its capacity between sends; it holds
+// what was added since the last send, a few frames.
+//
+// Receiving. The connection reads from the socket into one buffer of two of the largest frames and
+// takes whole frames from it. A frame is used before the next is received, so one frame and the start of
+// the next always fit; the payload a receive returns lies in that buffer and is valid only until the next
+// receive. The stream sequence of every frame received has to be the one after the last: the transport
+// is ordered, so another one is a defect of the sender, and the frame is refused as one whose check
+// fails is.
+//
+// Who calls what. One task of the node uses the connection at a time: it adds, sends and receives in
+// turn. Dispose and Reset may come from another thread to end it, and the call in progress then fails.
+// No lock is held across any of these calls: the connection takes none.
+//
+// The waits. A send waits until the peer has taken the bytes, which it may never do; the token of the
+// call ends the wait, and the close of the node cancels it (exception X6 until S33). A receive waits for
+// the next whole frame at most for the time given, and fails with TimeoutException when it passes; null
+// waits until the peer sends, ends the connection, or the token ends the wait.
+internal sealed class FrameConnection : IDisposable
+{
+    private readonly Socket _socket;
+
+    // Received bytes: the unread ones lie from _start to _end.
+    private readonly byte[] _received = new byte[2 * Protocol.MaxFrame];
+
+    private int _start;
+
+    private int _end;
+
+    // The frames added and not sent yet.
+    private readonly ArrayBufferWriter<byte> _outgoing = new(Protocol.MaxFrame);
+
+    // The stream sequence of the last frame added, and of the next frame expected.
+    private ulong _added;
+
+    private ulong _expected = 1;
+
+    // Takes the socket, which is connected. The frames of the transport are written whole and the
+    // handshake waits for the reply to a small frame, so the socket sends at once, without the delay
+    // that holds back a small segment.
+    public FrameConnection(Socket socket)
+    {
+        _socket = socket;
+        _socket.NoDelay = true;
+    }
+
+    // Writes a frame of the kind, with the flags and the payload, into the frames waiting to be sent.
+    public void Add(FrameKindEnum kind, uint flags, ReadOnlySpan<byte> payload) =>
+        FrameCodec.Write(_outgoing, kind, flags, correlationId: 0, ++_added, payload);
+
+    // Writes a Hello or a HelloReply.
+    public void AddHello(FrameKindEnum kind, in HelloBody hello)
+    {
+        var body = new ArrayBufferWriter<byte>(Protocol.HelloPayloadSize);
+
+        FrameCodec.WriteHelloBody(body, hello);
+        Add(kind, 0, body.WrittenSpan);
+    }
+
+    // Writes a Refuse with the reason.
+    public void AddRefuse(RefuseReasonEnum reason)
+    {
+        var body = new ArrayBufferWriter<byte>(Protocol.RefusePayloadSize);
+
+        FrameCodec.WriteRefuseBody(body, reason);
+        Add(FrameKindEnum.Refuse, 0, body.WrittenSpan);
+    }
+
+    // Sends every frame added since the last send. A failure of the socket passes through as the
+    // socket reports it; the token ends the wait with OperationCanceledException.
+    public async ValueTask SendAsync(CancellationToken cancellationToken)
+    {
+        var unsent = _outgoing.WrittenMemory;
+
+        while (!unsent.IsEmpty)
+        {
+            var sent = await _socket.SendAsync(unsent, SocketFlags.None, cancellationToken).ConfigureAwait(false);
+
+            unsent = unsent[sent..];
+        }
+
+        _outgoing.ResetWrittenCount();
+    }
+
+    // Receives the next frame (see the class). IOException when the peer ended the connection before a
+    // whole frame came; LatticeException with ValidationFailed for a frame that is not valid
+    // (FrameCodec.TryRead) or out of its order; TimeoutException when no whole frame came within the
+    // timeout; OperationCanceledException for the token; a failure of the socket as the socket reports it.
+    public async ValueTask<ReceivedFrame> ReceiveAsync(TimeSpan? timeout, CancellationToken cancellationToken)
+    {
+        if (TryTake(out var frame))
+        {
+            return frame;
+        }
+
+        // The deadline is made only when the frame has to be waited for, and covers every read of it.
+        using var deadline = timeout is null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        deadline?.CancelAfter(timeout!.Value);
+
+        try
+        {
+            while (true)
+            {
+                MakeRoom();
+
+                var read = await _socket.ReceiveAsync(_received.AsMemory(_end), SocketFlags.None, deadline?.Token ?? cancellationToken).ConfigureAwait(false);
+
+                if (read == 0)
+                {
+                    throw new IOException("The peer ended the connection.");
+                }
+
+                _end += read;
+
+                if (TryTake(out frame))
+                {
+                    return frame;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (deadline is not null && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"No frame arrived from the peer within {timeout}.");
+        }
+    }
+
+    // Ends the connection by a reset, without the closing handshake of TCP, so that no end of the
+    // connection waits on this side of it: what the close of a node does to its connections, so that its
+    // port is free as soon as they are gone. Bytes not sent yet are dropped.
+    public void Reset()
+    {
+        try
+        {
+            _socket.LingerState = new LingerOption(true, 0);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+            // The socket has ended already.
+        }
+
+        _socket.Dispose();
+    }
+
+    // Ends the connection in order: what was sent arrives, then the end.
+    public void Dispose()
+    {
+        try
+        {
+            _socket.Shutdown(SocketShutdown.Both);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+            // The socket is not connected any more, or has ended already.
+        }
+
+        _socket.Dispose();
+    }
+
+    // Takes the next whole frame from the received bytes, when they hold one.
+    private bool TryTake(out ReceivedFrame frame)
+    {
+        var reader = new SequenceReader<byte>(new ReadOnlySequence<byte>(_received, _start, _end - _start));
+
+        if (!FrameCodec.TryRead(ref reader, out var header, out var payload))
+        {
+            frame = default;
+
+            return false;
+        }
+
+        if (header.StreamSequence != _expected)
+        {
+            throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"A {header.Kind} frame has the stream sequence {header.StreamSequence}, where {_expected} comes next.");
+        }
+
+        _expected++;
+        frame = new ReceivedFrame(header, _received.AsMemory(_start + Protocol.HeaderSize, (int)payload.Length));
+        _start += (int)reader.Consumed;
+
+        return true;
+    }
+
+    // Gives the next read room for a whole frame: what is unread, less than a frame since TryTake took
+    // none, moves to the start of the buffer when the room after it is smaller than a frame.
+    private void MakeRoom()
+    {
+        if (_start == _end)
+        {
+            _start = 0;
+            _end = 0;
+
+            return;
+        }
+
+        if (_received.Length - _end >= Protocol.MaxFrame)
+        {
+            return;
+        }
+
+        Buffer.BlockCopy(_received, _start, _received, 0, _end - _start);
+        _end -= _start;
+        _start = 0;
+    }
+}
