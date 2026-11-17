@@ -3651,6 +3651,18 @@ it is — the owner chose the first. S09 closes as it is.
      a Guid, a string; nothing parsed. Tests: the allocation test of reads by key gains
      the cases by name for Int64, Guid and String keys, present and absent, 0 bytes. The
      measurement scenario of reads by key measures by name as well from now on.
+     *Chosen in the contract step, 17 November 2026: (a), the generic key.* Both shapes read
+     by name with 0 bytes, and neither is slower than the read through a class (ratios to
+     the class read of the same round between 0.87 and 0.99 for both, on a loaded machine);
+     the form that took `object` allocated 24 bytes for an Int64 key and 32 for a Guid on
+     every call. Against (b) stood, beside 40 members instead of 8: the language would
+     convert `char` and `nint` to the `long` overload, so by name would accept what a class
+     refuses, and a literal `null` would bind to `string`. What a caller sees: every call
+     compiles as before; a literal `null` key no longer compiles. The delete of the batch by
+     name changed alike; the delete of the batch through a class keeps `object` until S17
+     decides how a batch stores its keys. `IndexKey` and `IndexBound` keep their values as
+     `object` and allocate on every search: not this defect, since a search is not
+     implemented, and a matter of the contracts of S14 and S15.
 - **Out of scope.** The durable step (S27), the batch (S17), a second path for
   MemoryOnly.
 
