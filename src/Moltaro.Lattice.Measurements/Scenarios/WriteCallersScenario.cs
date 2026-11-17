@@ -210,6 +210,8 @@ internal static class WriteCallersScenario
         var gen0 = GC.CollectionCount(0);
         var gen2 = GC.CollectionCount(2);
         var allocated = GC.GetTotalAllocatedBytes(precise: true);
+        var paused = GC.GetTotalPauseDuration();
+        var processor = Process.GetCurrentProcess().TotalProcessorTime;
         var started = Stopwatch.GetTimestamp();
 
         Volatile.Write(ref phase, Counting);
@@ -218,6 +220,8 @@ internal static class WriteCallersScenario
 
         var elapsed = Stopwatch.GetElapsedTime(started);
 
+        processor = Process.GetCurrentProcess().TotalProcessorTime - processor;
+        paused = GC.GetTotalPauseDuration() - paused;
         allocated = GC.GetTotalAllocatedBytes(precise: true) - allocated;
         gen0 = GC.CollectionCount(0) - gen0;
         gen2 = GC.CollectionCount(2) - gen2;
@@ -248,7 +252,7 @@ internal static class WriteCallersScenario
             parts.Add($"{PerSecond(reads.Sum(), elapsed)} reads/s, read p50 {Microseconds(Percentile(times, 0.50))}, p99 {Microseconds(Percentile(times, 0.99))}");
         }
 
-        parts.Add($"collections gen0 {gen0}, gen2 {gen2}");
+        parts.Add($"collections gen0 {gen0}, gen2 {gen2}, paused {Milliseconds(paused)} ms; processor time of the process {(processor.TotalSeconds / elapsed.TotalSeconds).ToString("F1", CultureInfo.InvariantCulture)} processors");
 
         return string.Join("; ", parts);
     }
@@ -371,6 +375,8 @@ internal static class WriteCallersScenario
         ReadSeries.Number((long)Math.Round(count / elapsed.TotalSeconds));
 
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+
+    private static string Milliseconds(TimeSpan elapsed) => elapsed.TotalMilliseconds.ToString("F1", CultureInfo.InvariantCulture);
 
     private static string Microseconds(long ticks) =>
         $"{(ticks * 1_000_000.0 / Stopwatch.Frequency).ToString("F2", CultureInfo.InvariantCulture)} µs";

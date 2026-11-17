@@ -47,12 +47,13 @@ IReadOnlyList<string>? results = scenario switch
     ChildUnderWritesScenario.Name => ChildUnderWritesScenario.Run(),
     FollowingChildrenScenario.Name => FollowingChildrenScenario.Run(),
     LargeWriteChildScenario.Name => LargeWriteChildScenario.Run(),
+    ReadersBesideChildScenario.Name => ReadersBesideChildScenario.Run(),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}.");
 }
 
 var finished = DateTimeOffset.UtcNow;
