@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.TestSupport.Positions;
@@ -44,6 +45,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 //   retired memory, for hundreds to tens of thousands of them.
 // - A later write of the entity of a refused write that waits for the writes admitted before it waits
 //   behind it, and runs after it (added by the implementer of S09, part 2).
+// Review round 1 of S09, part 2, on writes that waited forever when the write at the head of the chain
+// of their entity ended in a wait of a resolution, or when the database faulted during one:
+// - A write cancelled while it is held back by a resolution, or while it waits for the writes admitted
+//   before it, lets the later write of its entity, which waits behind it, run: that write completes.
+// - A fault of the storage step while a write waits in step 2 of its resolution, a later write of
+//   another entity is held back and a write of its own entity waits behind it ends each of them, with
+//   IndeterminateOutcome for the group in the storage step and Unavailable for the others.
+// - A close in the same situation, without a fault, completes once all of them have their outcomes,
+//   and the arena has returned every piece of native memory it obtained (CountingNativeAllocator).
 // Every wait is bounded; the storage of the test releases every commit when a test ends.
 public sealed class RefusalResolutionTests
 {
@@ -354,6 +364,176 @@ public sealed class RefusalResolutionTests
     }
 
     [Fact]
+    public async Task Cancelled_write_held_back_by_a_resolution_lets_the_later_write_of_its_entity_run()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, inserted, replaced, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back by the resolution, the head of the chain of entity 3, and a write of entity 3
+            // behind it.
+            using var cancellation = new CancellationTokenSource();
+            var head = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300), cancellation.Token).AsTask();
+            var later = PieceSchema.Of(3, name: 26);
+            var laterWrite = pieces.UpsertAsync(later).AsTask();
+
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => head.WaitAsync(Bound));
+            Assert.False(laterWrite.IsCompleted, "The later write of entity 3 ran while the resolution held writes back.");
+
+            storage.ReleaseAll();
+            heldReplace.Release();
+
+            Assert.True((await replace.WaitAsync(Bound)).Changed);
+            Assert.True((await insert.WaitAsync(Bound)).Changed);
+            Assert.True((await laterWrite.WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of(replaced, inserted, later).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelled_write_that_waits_for_the_writes_admitted_before_it_lets_the_later_write_of_its_entity_run()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: 4 * Mebibyte));
+            storage.Hold();
+
+            var delete = pieces.DeleteAsync(1L).AsTask();
+            var heldDelete = await storage.NextAsync();
+
+            // Refused beside entity 1, it waits for the delete admitted before it, at the head of the
+            // chain of entity 2; a write of entity 2 waits behind it.
+            using var cancellation = new CancellationTokenSource();
+            var waits = RefusedWriteWait.Begins(database);
+            var head = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: (9 * Mebibyte) / 2), cancellation.Token).AsTask());
+
+            await Task.WhenAny(waits, head).WaitAsync(Bound);
+            Assert.True(waits.IsCompleted, $"The insert did not wait for the delete admitted before it: {Outcome(head)}.");
+
+            var later = PieceSchema.Of(2, name: 26);
+            var laterWrite = pieces.UpsertAsync(later).AsTask();
+
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => head.WaitAsync(Bound));
+
+            storage.ReleaseAll();
+            heldDelete.Release();
+
+            Assert.True((await delete.WaitAsync(Bound)).Changed);
+            Assert.True((await laterWrite.WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of(later).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Fault_while_a_write_is_resolved_and_later_writes_are_held_back_ends_every_one_of_them()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, _, _, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back, and a write of the entity of the refused write behind it.
+            var heldBack = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300)).AsTask();
+            var own = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+
+            Assert.Equal(4, database.Counters.QueuedWrites);
+
+            heldReplace.Fail(new IOException("The test failed the storage step: whether it committed is unknown."));
+
+            var indeterminate = await Assert.ThrowsAsync<LatticeException>(() => replace.WaitAsync(Bound));
+
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, indeterminate.Error);
+
+            foreach (var write in new[] { insert, heldBack, own })
+            {
+                var unavailable = await Assert.ThrowsAsync<LatticeException>(() => write.WaitAsync(Bound));
+
+                Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
+            }
+
+            Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Close_while_a_write_is_resolved_and_later_writes_are_held_back_completes_once_each_has_its_outcome()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage, allocator);
+        var pieces = database.Set<PieceSchema.Piece>();
+        Task? closing = null;
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, _, _, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back, and a write of the entity of the refused write behind it.
+            var heldBack = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300)).AsTask();
+            var own = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+            Task<LatticeWriteResult>[] waiting = [replace, insert, heldBack, own];
+
+            closing = database.CloseAsync().AsTask();
+
+            Assert.False(closing.IsCompleted, "The close completed while a write was resolved and writes were held back.");
+            Assert.DoesNotContain(waiting, write => write.IsCompleted);
+            Assert.True(allocator.Outstanding > 0, "The native memory was returned while writes were in progress.");
+
+            storage.ReleaseAll();
+            heldReplace.Release();
+
+            var results = await Task.WhenAll(waiting).WaitAsync(Bound);
+
+            Assert.All(results, result => Assert.True(result.Changed));
+
+            await closing.WaitAsync(Bound);
+
+            Assert.Equal(0, allocator.Outstanding);
+            Assert.Equal(allocator.Obtained, allocator.Returned);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await (closing ?? database.CloseAsync().AsTask()).WaitAsync(Bound);
+        }
+    }
+
+    [Fact]
     public async Task Write_that_cannot_fit_is_refused_after_the_writes_in_flight_while_another_caller_keeps_replacing_a_small_entity()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -473,8 +653,8 @@ public sealed class RefusalResolutionTests
     private static async Task CloseAsync(EngineDatabase database) =>
         await database.CloseAsync().AsTask().WaitAsync(Bound);
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = new NativeAllocator(), CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage, NativeAllocator? allocator = null) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator ?? new NativeAllocator(), CommitStorage = storage });
 
     // Two writes made at once, each on a thread of its own. Both threads spin until the test lets them
     // go together: a wait of the system that wakes one thread after the other would give the first a

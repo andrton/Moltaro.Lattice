@@ -37,10 +37,18 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   its own: the first write is published, and the eight are dispatched as the next group, which the
 //   storage holds in turn; completing that step publishes the eight. The storage of the test only takes
 //   a group in its call and never blocks there, as a storage step has to (ICommitStorage.CommitAsync).
+//   Its completion runs what waits for it on a thread of the pool, and, as the durable storage step of
+//   S27 will, on the thread that completes its task (review round 1 of S09, part 2: a storage of the
+//   tests that completes only on the pool hid that form).
 // Every wait is bounded; the storage releases every commit when a test ends.
 public sealed class CommitGroupTests
 {
     private const int Mebibyte = 1024 * 1024;
+
+    // Where the completion of a held storage step runs what waits for it.
+    private const string OnThePool = "on a thread of the pool";
+
+    private const string OnTheReleasingThread = "on the thread that completes its task";
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -245,10 +253,12 @@ public sealed class CommitGroupTests
         }
     }
 
-    [Fact]
-    public async Task Writes_prepared_while_the_storage_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_storage_step()
+    [Theory]
+    [InlineData(OnThePool)]
+    [InlineData(OnTheReleasingThread)]
+    public async Task Writes_prepared_while_the_storage_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_storage_step(string completion)
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldCommitStorage(inline: completion == OnTheReleasingThread);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 

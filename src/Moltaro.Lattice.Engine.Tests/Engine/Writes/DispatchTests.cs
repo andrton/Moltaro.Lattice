@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -13,7 +14,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // - A write cancelled before its dispatch is withdrawn: its call ends in OperationCanceledException
 //   while the commit stage is still busy, no group ever holds it, and nothing of it is left: neither
 //   its prepared capacity (PreparedBytes) nor its place among the writes admitted (QueuedWrites), and
-//   after a drain the counters equal the tally of the writes that ran.
+//   after a drain the counters equal the tally of the writes that ran. That holds also when the
+//   cancellation comes while the thread that completes the storage step holds the lock of the writes
+//   and goes on to form the next group before the withdrawal can run (review round 1 of S09, part 2):
+//   the cancellation returned before the dispatch, so the write is never dispatched. The test keeps
+//   that thread inside its hold, between the publication and the next group, by the preparation of a
+//   write of the published entity that waited behind it, held by the allocator of the test
+//   (HeldPreparation), and cancels there.
 // - From the dispatch on the call returns the real outcome, and its token is not looked at: a write
 //   whose token is cancelled while the storage holds its group is published.
 // - A write admitted behind an earlier write of the same entity waits for its turn and holds nothing
@@ -76,6 +83,63 @@ public sealed class DispatchTests
             Assert.Equal(0, database.Counters.QueuedWrites);
             Assert.Equal(1, database.Counters.PublishedSequence);
             ExpectHeld(database, first);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    [Fact(Skip = OpenFindings.PartTwoReviewRound1)]
+    public async Task Write_cancelled_while_the_completion_of_the_storage_step_holds_the_lock_is_never_dispatched()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage, allocator);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            // The first segment, which a value of 5 MiB outgrows.
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10));
+            storage.Hold();
+
+            // A replace of entity 1 in the storage step, a replace of 5 MiB of it waiting behind it, and
+            // the write with the token, prepared and in the queue, whose call has returned its task.
+            var first = PieceSchema.Of(1, name: 26);
+            var firstWrite = pieces.ReplaceAsync(first).AsTask();
+            var held = await storage.NextAsync();
+            var behind = PieceSchema.Of(1, name: 42, data: 5 * 1024 * 1024);
+            var behindWrite = pieces.ReplaceAsync(behind).AsTask();
+            using var cancellation = new CancellationTokenSource();
+            var withdrawn = PieceSchema.Of(2, name: 10, note: 300);
+            var cancelled = pieces.InsertAsync(withdrawn, cancellation.Token).AsTask();
+
+            await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(first) + PieceTally.SlotBytesOf(withdrawn));
+
+            // The thread that completes the storage step publishes the first replace and prepares the
+            // one behind it, in one hold of the lock of the writes; the cancellation comes there.
+            using var preparation = HeldPreparation.Arm(allocator);
+
+            held.Release();
+            await preparation.HeldAsync();
+            cancellation.Cancel();
+            preparation.Release();
+
+            var next = await storage.NextAsync();
+
+            Assert.DoesNotContain(next.Sizes, size => size == PieceTally.SlotBytesOf(withdrawn));
+
+            storage.ReleaseAll();
+
+            Assert.True((await firstWrite.WaitAsync(Bound)).Changed);
+            Assert.True((await behindWrite.WaitAsync(Bound)).Changed);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
+            Assert.Null(pieces.Get(2L));
+            Assert.DoesNotContain(storage.Commits.SelectMany(commit => commit.Sizes), size => size == PieceTally.SlotBytesOf(withdrawn));
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            ExpectHeld(database, behind);
         }
         finally
         {
