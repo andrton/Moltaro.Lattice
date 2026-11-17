@@ -3827,7 +3827,7 @@ internal enum RefuseReasonEnum : ushort { Database = 1, History = 2, Schema = 3,
 // history zero and an empty schema fingerprint: it has no schema before it loads one.
 internal readonly record struct HelloBody(
     Guid DatabaseId, ulong History, LatticeFingerprint SchemaFingerprint,
-    int WireFormat, int LayoutFormat, LatticeRoleEnum Role);
+    int WireFormat, int LayoutFormat, int CaseTableVersion, LatticeRoleEnum Role);
 
 // Writes and reads whole frames. The digest is SHA-256 over the 32 bytes of the header
 // followed by the body without its last 32 bytes, which hold the digest.
@@ -3917,6 +3917,62 @@ otherwise, these replace it.
   the timeout. A child whose memory limit cannot hold the database fails its open at once
   with `Unavailable`.
 
+**Added by the planner on 17 November 2026, against the engine as S09, part 2 left it.**
+The owner asked for this check of the briefs of S10, S11 and S12. Where a sentence above
+says otherwise, these replace it.
+
+1. **Hello.** `HelloBody` gains `int CaseTableVersion` (the text of 15 November says so;
+   the record did not follow). Refusal: `RefuseReasonEnum.Format`.
+2. **One changing thread on the child.** The arena has one changing thread at a time (S04)
+   and that is whoever holds the lock of the writes (S09, part 2). The loader of a child
+   places and publishes roots under the child's lock of the writes, as a write does; it
+   uses no storage step. No second way of changing an arena is built.
+3. **The capture is not a read of the application.** The master walks the slots of the
+   root table, not the primary index, and not through the public enumeration:
+   `ReadMemoryLimit` and `ReadTimeLimit` do not apply to it and it remembers no keys. It
+   enters the protection of reads for one root, takes the entry as one state the way
+   `EntityTable` does, copies the root with the blocks it owns into its buffer, leaves the
+   protection, then sends. It never holds a slot of the epoch table across a send or
+   between two roots. "Under its protection" and "release gates" in the milestone contract
+   mean this.
+4. **Revisions.** The transfer of a root carries its last mutation sequence
+   (`RootEntry.LastMutationSequence`), and the child stores it. Acceptance, added: the
+   revision of every loaded entity read on the child equals the revision read on the
+   master. (S12 needs it: an expected revision taken on a child is checked on the master.)
+5. **Nothing hashed travels (Q50).** The child builds its primary index with its own seed
+   from the keys it receives; no hash, tag or bucket of the master is sent. Acceptance,
+   added: a master and a child opened with different `IndexSeed` hold the same entities.
+6. **Where "a write is refused while a child is connected or loading" is decided:** under
+   the master's lock of the writes, and the registration of a child takes that lock too,
+   so a write is either published before the child's capture starts or refused; none is
+   in between.
+7. **Close is one operation** (the rule of S09, part 2, finding 1) — it now covers the
+   network. A master's close stops accepting, ends every connection and completes only
+   when no task of it runs and its port is free; calls of `CloseAsync`/`DisposeAsync` join
+   it. An open of a child that fails, times out or is cancelled by its token leaves no
+   connection, no task and nothing allocated; a cancelled open ends in
+   `OperationCanceledException`. A child that vanishes in the middle of a load leaves
+   nothing registered on the master. Acceptance, added: each of the three as a test (the
+   port can be bound again at once after the close completes; the allocator of the tests
+   reports everything returned).
+8. **Tokens** (finding 2). The token of `OpenAsync` is honored inside every wait of the
+   open: the connect, the back-off between attempts, each receive.
+9. **Memory.** The buffer that holds one root outside the arena, on either side, is
+   managed memory of the transfer and is not counted in the instance budget (as the keys
+   of an enumeration are not). The child places a root by the rule of a write refused for
+   memory (free what is retired, retry) before it gives up; before Ready there are no
+   reads to wait for. "A database the child's memory limit cannot hold" is that refusal.
+10. **A waiting sender.** Until S33 a send to a child that does not read has no deadline;
+    a close ends it. Entered in X6 with S33 as its end.
+11. **Milestone contract**, "Initial bounded settings", row "Scan/query temporary memory
+    and execution" is stale twice: "for the database or for one call" (the owner removed
+    the per-call form) and "The temporary memory of reads is counted in the instance
+    budget" (withdrawn). Its last two sentences become: "An application may set a limit on
+    the memory an enumeration remembers and on the engine time of a read, for the database
+    (`ReadMemoryLimit`, `ReadTimeLimit`); only time inside the engine counts, not the time
+    a caller spends between two items. That memory is not counted in the instance budget."
+    Rides in the branch of S10 under O16.
+
 #### S11 · A child loads under writes and follows the master
 
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
@@ -4004,6 +4060,52 @@ otherwise, these replace it.
   position on it times out, and it does not resume by itself.
 - **Acceptance, added.** A write of an entity of 32 MiB on the master reaches a child
   whole. A delete of an absent key on the master moves the position of the child.
+
+**Added by the planner on 17 November 2026, against the engine as S09, part 2 left it.**
+The owner asked for this check of the briefs of S10, S11 and S12. Where a sentence above
+says otherwise, these replace it.
+
+1. **The stream is ordered by the lock.** A committed transaction is appended to the
+   delivery stream in the hold of the lock of the writes that publishes it, so the stream
+   has the order of positions with no other mechanism. A capture is registered (its S, its
+   fence of root slots) in a hold of that lock as well. R is the published position read
+   after the last root was copied.
+2. **Where an effect is encoded.** In the hold that prepares the write, from the values
+   being written, once, and only when a child is connected or a capture is registered;
+   with none the master encodes and retains nothing (already in the brief). The send is
+   outside every lock. This is what established stores with replication do (the executing
+   thread appends to the replication buffer); it costs the write path, so it is measured —
+   point 6.
+3. **The effect carries what the child needs for equal revisions:** a transaction has its
+   sequence, and each write effect is stored on the child with that sequence as its last
+   mutation; `Unchanged` moves the position and leaves the revision. Acceptance, added:
+   after following, the revision of every entity on the child equals the master's, for an
+   insert, a replace, a recreate and a write that changed nothing.
+4. **The child applies under its own lock of the writes,** through the publication of the
+   write path, with no storage step, one transaction at a time; reads on the child are
+   protected by epochs as on a master and are never stopped by an application. Retired
+   memory on the child is freed by the applying thread.
+5. **Memory.** `PendingDeliveryBytes` is counted and reported; in this sprint it is not
+   charged to the rule of a refused write: a write of the master is never refused because
+   a child is slow. Bounding it is S33 (the slow child loses its claim; the write is not
+   refused), and S24 states the budget as a whole. The sentence of the milestone contract
+   "the copy for delivery to children included" gets the note "from S24/S33; until then
+   counted and reported only". The child, when its arena cannot hold a change, first
+   applies the rule of a write refused for memory (free retired, wait for the reads that
+   hold it, retry) and only then stops following, as the brief says.
+6. **Measured, added:** writes a second of 1 and of 16 callers on a master with one child
+   following and with two, next to the same scenario with no child (the figures of S09,
+   part 2); the cost of one write of 32 MiB under the lock with a child following.
+   Reported; a fall is handled by the rule of the process. Reads by key on 16 threads on
+   the master beside it: not lower than S09, part 2.
+7. **Close and tokens as in S10:** the close of a master or child with a stream in flight
+   completes only when its tasks have ended; `SuspendApplying` held at a close does not
+   keep the close from completing.
+8. **The capture pass** of S10, point 3 holds under writes because a published root is
+   never changed in place (Q49) and retired memory is not freed while a reader is inside
+   the protection: the copy of one root is coherent without any gate. The watermarks
+   decide what of S..R is replayed; the test author states the outcomes (nothing deleted
+   comes back, nothing inserted is missing, revisions equal), not the watermark mechanism.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
@@ -4141,6 +4243,58 @@ otherwise, these replace it.
   remarks on Dictionary storage, unique indexes, index search, the write batch and the
   field types of S03 stay. `README.md` follows. A use the build or a test finds outside
   the lists is reported to the coordinator, as the brief already says.
+
+**Added by the planner on 17 November 2026, against the engine as S09, part 2 left it.**
+The owner asked for this check of the briefs of S10, S11 and S12. Where a sentence above
+says otherwise, these replace it.
+
+1. **The internal entry does not go whole.** The brief says `EngineDatabase.Create` is
+   removed with its uses; since S08/S09 the tests of the engine give an instance test
+   inputs through `Create(options, EngineTestInputs)` (arena options, allocator, index
+   seed, commit storage). That form stays, for `Moltaro.Lattice.Engine.Tests` and the
+   measurement program only — it is the access AGENTS.md gives them — and the exception
+   that covers it stays (X3 by its comment). What ends is X4: no scenario test of
+   `Moltaro.Lattice.Tests` and no helper opens through an internal entry;
+   `Create(options)` without inputs is removed and its uses move to
+   `LatticeDatabase.Create`. If `LatticeDatabase` needs to open a child or a master with
+   inputs for a test of the engine, `OpenAsync` gets the same internal overload; nothing
+   public.
+2. **Order through a child** ("Carried from S09"), how it holds. The child sends requests
+   on its one connection in the order of the calls, without waiting for replies. The
+   master's receiver of a connection submits each forwarded write to the write path in
+   arrival order and does not await one before it submits the next: the call returns its
+   task, the next is submitted. Acceptance, added: two writes of one entity made through
+   one child without awaiting the first are executed in the order of the calls, with the
+   master's storage step held (the held storage of the tests).
+3. **A request larger than a frame.** A forwarded write is cut into frames of at most
+   `MaxDataBody` as a root is in S10 (bit 0 of `Flags` marks the last frame); the frames
+   of one request are not interleaved with those of another request, acknowledgments may
+   pass between them. The master holds one request per connection outside its arena while
+   it puts it together; managed, not counted in the budget. The key is encoded on the
+   child from the generic key without a box. Acceptance, added: a write of an entity of
+   32 MiB through a child succeeds and is read back on that child.
+4. **Close of a child with writes in flight** (close is one operation): a write not yet
+   sent ends as a write not yet dispatched ends at the close of a master; a write sent and
+   not answered ends in `IndeterminateOutcome`; the close does not wait for the master. A
+   close of the master: forwarded writes dispatched there complete with their real
+   outcome and the reply is sent before the connection ends if the child still reads; the
+   child otherwise reports `IndeterminateOutcome`.
+5. **Tokens.** The wait of a forwarded write for its local application, after the reply,
+   ends by `SynchronizationTimeout` (the option) with `SynchronizationTimeout` and the
+   committed position; the token of the call is not looked at after the request was sent,
+   as on a master after the dispatch.
+6. **Faults of the master travel as they are:** `IndeterminateOutcome` and `Unavailable`
+   of S09 reach the caller of the child with the same code.
+7. **Notices.** When the engine becomes packable, check that `THIRD-PARTY-NOTICES.md`
+   names every source a file of the engine says it is adapted from, the write path of
+   S09, part 2 included (a file modelled on a design without adapted code needs no notice;
+   a file that names project, file and commit does).
+8. **`Arc.Collections`** is still referenced by the engine project and no source file
+   uses it. Leave the reference (S14 decides the package's fate) but do not let the new
+   AGENTS.md wording of this sprint say the engine uses it; say what is true then.
+9. **Measured, added:** beside p50/p99 of a write through a child, writes a second of 16
+   callers through one child, and the master's own writes beside them — the first figure
+   of forwarding under load.
 
 ### Stage 4. Indexes and batches
 
