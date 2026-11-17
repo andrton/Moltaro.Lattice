@@ -3,13 +3,16 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
-// Asserted (brief of Epic 1, sprint S06, Measured): a read by key allocates the returned copy and
-// nothing else, through a class and by name. The returned copy is the object or the record with
-// everything reachable from it ("The allocation of a read"): for the class Item, the object and its
-// string; for a record, the record with the array of its values, the boxed Int64 of its key and
-// the string. A key boxed by a public signature that takes object is the caller's allocation, outside
-// the measured read, and a read that finds nothing returns no copy and allocates nothing. The string
-// lies inline, in a block of its own or in chunks (brief of S05, "Where a value goes").
+// Asserted (brief of Epic 1, sprint S06, Measured; brief of S09, part 2, the third of the findings of
+// the outside review it carries, and Q51): a read by key allocates the returned copy and nothing else,
+// through a class and by name. The returned copy is the object or the record with everything reachable
+// from it ("The allocation of a read"): for the class Item, the object and its string; for a record,
+// the record with the array of its values, the boxed Int64 of its key and the string. A key is given
+// without a box by name as through a class: as its own type, as an integer of another width that fits,
+// and as an object that the caller holds, which the read does not box again; only the caller's own box
+// of such a key costs anything, and it is made before the reads are measured. A read that finds
+// nothing returns no copy and allocates nothing. The string lies inline, in a block of its own or in
+// chunks (brief of S05, "Where a value goes").
 //
 // What each part of the copy takes is measured, not computed, so that the test does not depend on
 // the object layout of the runtime. Each read is measured alone, after the same read warmed it up,
@@ -81,33 +84,33 @@ public sealed class ReadAllocationTests
         var id = 1L;
         var expected = Measure(() => new LatticeRecord(items.EntityType)) + Measure(() => id) + Measure(() => new string(' ', characters));
 
-        // The keys are boxed by the caller, before the reads are measured.
+        // The keys an object holds are boxed by the caller, before the reads are measured.
         object key = 1L;
         object absent = 2L;
+        (string Form, Func<LatticeRecord?> Get, Func<LatticeRecord?> TryGet, Func<LatticeRecord?> Absent)[] forms =
+        [
+            ("an Int64", () => items.Get(1L), () => items.TryGet(1L, out var found, out _) ? found : null, () => items.Get(2L)),
+            ("an Int32", () => items.Get(1), () => items.TryGet(1, out var found, out _) ? found : null, () => items.Get(2)),
+            ("an object", () => items.Get(key), () => items.TryGet(key, out var found, out _) ? found : null, () => items.Get(absent)),
+        ];
 
-        _ = items.Get(key);
-        var start = GC.GetAllocatedBytesForCurrentThread();
-        var read = items.Get(key);
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+        foreach (var (form, get, tryGet, getAbsent) in forms)
+        {
+            var (read, allocated) = Measured(get);
 
-        Assert.Equal(text, read!["Text"]);
-        Assert.Equal(expected, allocated);
+            Assert.Equal(text, read!["Text"]);
+            Assert.True(expected == allocated, $"Get by a key given as {form} allocated {allocated} bytes, not the {expected} of the returned record.");
 
-        _ = items.TryGet(key, out _, out _);
-        start = GC.GetAllocatedBytesForCurrentThread();
-        Assert.True(items.TryGet(key, out var withRevision, out _));
-        allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+            (read, allocated) = Measured(tryGet);
 
-        Assert.Equal(text, withRevision["Text"]);
-        Assert.Equal(expected, allocated);
+            Assert.Equal(text, read!["Text"]);
+            Assert.True(expected == allocated, $"TryGet by a key given as {form} allocated {allocated} bytes, not the {expected} of the returned record.");
 
-        _ = items.Get(absent);
-        start = GC.GetAllocatedBytesForCurrentThread();
-        var missing = items.Get(absent);
-        allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+            (read, allocated) = Measured(getAbsent);
 
-        Assert.Null(missing);
-        Assert.Equal(0, allocated);
+            Assert.Null(read);
+            Assert.True(allocated == 0, $"Get by an absent key given as {form} allocated {allocated} bytes.");
+        }
     }
 
     // What the call allocates, measured after it ran once. A call that returns a value type boxes it,
@@ -120,6 +123,17 @@ public sealed class ReadAllocationTests
         _ = call();
 
         return GC.GetAllocatedBytesForCurrentThread() - start;
+    }
+
+    // What a read returns and allocates, measured after the same read ran once.
+    private static (LatticeRecord? Read, long Allocated) Measured(Func<LatticeRecord?> read)
+    {
+        _ = read();
+
+        var start = GC.GetAllocatedBytesForCurrentThread();
+        var result = read();
+
+        return (result, GC.GetAllocatedBytesForCurrentThread() - start);
     }
 
     private sealed class Item

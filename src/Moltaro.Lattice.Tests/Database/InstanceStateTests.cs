@@ -4,9 +4,15 @@ namespace Moltaro.Lattice.Tests.Database;
 // Epic 1, sprint S06, "States"): Created until the open, Ready after it, Closed after a close.
 // Before the open an operation is Unavailable; after a close it is ObjectDisposedException, also
 // through a set that was obtained before. Closing a closed database does nothing, and disposing
-// closes it in the same way.
+// closes it in the same way. The close is one operation (brief of S09, part 2, the first finding of
+// the outside review it carries): a close or a dispose called while an earlier close has not
+// completed completes with it, without an error, and a token that cancels the wait of a close does
+// not stop the close. That a later call waits for the memory to be released is not visible here; the
+// tests of the engine state it (OneCloseTests).
 public sealed class InstanceStateTests
 {
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
     [Theory]
     [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
     public async Task Before_the_open_every_operation_is_Unavailable(DatabaseImplementationEnum implementation)
@@ -96,6 +102,48 @@ public sealed class InstanceStateTests
 
         Assert.Equal(LatticeDatabaseStateEnum.Closed, disposed.State);
         Assert.Throws<ObjectDisposedException>(() => disposed.Set<User>());
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Close_and_dispose_called_before_an_earlier_close_has_completed_complete_with_it_without_an_error(DatabaseImplementationEnum implementation)
+    {
+        var database = await TestDatabases.OpenMasterAsync(implementation);
+        await database.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
+
+        // None of the calls is awaited before the next one is made.
+        var first = database.CloseAsync().AsTask();
+        var second = database.CloseAsync().AsTask();
+        var disposed = database.DisposeAsync().AsTask();
+
+        await Task.WhenAll(first, second, disposed).WaitAsync(Bound);
+
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
+        Assert.Throws<ObjectDisposedException>(() => database.Set<User>());
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Close_whose_wait_is_cancelled_still_closes_the_database_and_a_later_close_and_dispose_complete_without_an_error(DatabaseImplementationEnum implementation)
+    {
+        var database = await TestDatabases.OpenMasterAsync(implementation);
+        var users = database.Users();
+        await users.InsertAsync(new User { Id = 1, Name = "Ada" });
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        // With nothing to wait for, the call may complete or report the cancellation of its wait; the
+        // database closes either way.
+        var failure = await Record.ExceptionAsync(() => database.CloseAsync(cancelled.Token).AsTask().WaitAsync(Bound));
+
+        Assert.True(failure is null or OperationCanceledException, $"A close with a cancelled token failed with {failure?.GetType().Name}.");
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
+        Assert.Throws<ObjectDisposedException>(() => users.Get(1));
+
+        await database.CloseAsync().AsTask().WaitAsync(Bound);
+        await database.DisposeAsync().AsTask().WaitAsync(Bound);
+
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
     }
 
     [Theory]

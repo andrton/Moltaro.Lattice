@@ -8,7 +8,11 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // a limit that is set and not positive is stated by LatticeDatabaseOptionsTests:
 // - A cancellation stays OperationCanceledException, never ReadLimitExceeded: before the first step,
 //   between two steps, and during the wait for the position of the session, also once that wait has
-//   lasted longer than the time limit.
+//   lasted longer than the time limit; and at a step after a limit failed the pass, where the limit
+//   and the token have both been passed when the step looks (brief of S09, part 2, the second finding
+//   of the outside review it carries: a cancellation is reported before a limit is). Inside the wait of
+//   a step for a slot of the protection of reads and between the rounds of a step the tests of the
+//   engine state it (CancelledStepTests).
 // - Without a limit an enumeration of any length runs to its end, also under limits as large as their
 //   types allow, from which a deadline has to be computed without overflow.
 // - The placeholder validates the limits of its options and otherwise does not use them until S12.
@@ -62,6 +66,46 @@ public sealed class ReadLimitsTests
         await waiting.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(Bound));
+    }
+
+    [Fact]
+    public async Task Step_of_a_cancelled_enumeration_that_a_read_limit_has_failed_is_OperationCanceledException_and_not_ReadLimitExceeded()
+    {
+        // 2,000 Int64 keys take more than 4 KiB however they are remembered (ReadMemoryLimitTests).
+        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = TestData.Schema,
+            ReadMemoryLimit = 4 * 1024,
+        });
+        var users = database.Set<User>();
+
+        for (var id = 1L; id <= 2_000; id++)
+        {
+            await users.InsertAsync(new User { Id = id, Name = $"user {id}" });
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        await using var steps = users.EnumerateAsync(new LatticeSession(), cancellation.Token).GetAsyncEnumerator();
+        LatticeException? failed = null;
+
+        while (failed is null)
+        {
+            try
+            {
+                Assert.True(await steps.MoveNextAsync(), "The pass ended before the memory limit failed it.");
+            }
+            catch (LatticeException exception)
+            {
+                failed = exception;
+            }
+        }
+
+        Assert.Equal(LatticeErrorEnum.ReadLimitExceeded, failed.Error);
+
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await steps.MoveNextAsync());
     }
 
     [Fact]

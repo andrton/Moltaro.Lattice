@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // with a key of that length, which may reserve the workspace of the comparison. So comparing a key
 // allocates nothing that outlives the read: neither a string of the stored key nor one of the key
 // given, nor anything per comparison. The returned copy is as ReadAllocationTests has it: the object
-// with its two strings, or the record with the array of its values and the two strings.
+// with its two strings, or the record with the array of its values and the two strings. By name the
+// key is read as a string and as an object the caller holds, alike.
 //
 // The key repeats A, é, € and 𐐨, characters of one to four bytes in UTF-8, of which the first, the
 // second and the last have a case; it lies inline, in a block of its own and in chunks. Under
@@ -85,33 +86,48 @@ public sealed class StringKeyReadAllocationTests
         await notes.InsertAsync(new LatticeRecord(notes.EntityType) { ["Name"] = key, ["Body"] = Body });
         var expected = Measure(() => new LatticeRecord(notes.EntityType)) + Measure(() => new string(' ', length)) + Measure(() => new string(' ', Body.Length));
 
-        // The first reads with a key of this length.
+        // The first reads with a key of this length, given as a string and as an object the caller
+        // holds (brief of S09, part 2, the third of the findings of the outside review it carries).
+        object held = key;
         _ = notes.Get(key);
         _ = notes.TryGet(key, out _, out _);
+        _ = notes.Get(held);
+        _ = notes.TryGet(held, out _, out _);
 
         foreach (var spelling in spellings)
         {
-            var start = GC.GetAllocatedBytesForCurrentThread();
-            var read = notes.Get(spelling);
-            var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+            object heldSpelling = spelling;
+            Func<LatticeRecord?>[] reads =
+            [
+                () => notes.Get(spelling),
+                () => notes.TryGet(spelling, out var found, out _) ? found : null,
+                () => notes.Get(heldSpelling),
+                () => notes.TryGet(heldSpelling, out var found, out _) ? found : null,
+            ];
 
-            Assert.Equal(key, read!["Name"]);
-            Assert.Equal(expected, allocated);
+            foreach (var read in reads)
+            {
+                var start = GC.GetAllocatedBytesForCurrentThread();
+                var found = read();
+                var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
 
-            start = GC.GetAllocatedBytesForCurrentThread();
-            Assert.True(notes.TryGet(spelling, out var withRevision, out _));
-            allocated = GC.GetAllocatedBytesForCurrentThread() - start;
-
-            Assert.Equal(Body, withRevision["Body"]);
-            Assert.Equal(expected, allocated);
+                Assert.Equal(key, found!["Name"]);
+                Assert.Equal(Body, found["Body"]);
+                Assert.Equal(expected, allocated);
+            }
         }
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var missing = notes.Get(absent);
-        var allocatedForMissing = GC.GetAllocatedBytesForCurrentThread() - before;
+        object heldAbsent = absent;
 
-        Assert.Null(missing);
-        Assert.Equal(0, allocatedForMissing);
+        foreach (var read in new Func<LatticeRecord?>[] { () => notes.Get(absent), () => notes.Get(heldAbsent) })
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var missing = read();
+            var allocatedForMissing = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.Null(missing);
+            Assert.Equal(0, allocatedForMissing);
+        }
     }
 
     // The key of the length, the spellings it is read by, and an absent key of the same length.
