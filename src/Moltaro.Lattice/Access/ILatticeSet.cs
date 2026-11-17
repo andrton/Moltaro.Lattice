@@ -20,6 +20,15 @@ namespace Moltaro.Lattice.Access;
 /// A record of another entity type is an <see cref="ArgumentException"/>.
 /// </para>
 /// <para>
+/// A primary key argument has the key type declared in the schema, or for an integer key an
+/// integer of another width whose value fits it: 5 given as an <see cref="int"/> and as a
+/// <see cref="long"/> address one entity. The key is passed in the type it is given in, as through
+/// a class, so that the call does not box it; a key held as an <see cref="object"/>, such as a
+/// value read from a record, is given as one, and the value it holds is the key. Nothing is
+/// parsed: a key of any other type, an integer that does not fit and a String key that is not
+/// well-formed text, with a surrogate without its pair, are an <see cref="ArgumentException"/>.
+/// </para>
+/// <para>
 /// Writes to one entity are executed in the order their calls were made: a call that is made
 /// after an earlier call has returned its task is executed after it, whether or not the earlier
 /// task was awaited. A write that first waits for the position of its session takes its place in
@@ -44,32 +53,39 @@ public interface ILatticeSet
     ILatticeIndex<LatticeRecord> Index(string indexName);
 
     /// <summary>Reads the entity with the given primary key from what this node has now.</summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <returns>
     /// An owned copy of the entity; <see langword="null"/> when no entity has this key.
     /// </returns>
-    LatticeRecord? Get(object key);
+    LatticeRecord? Get<TKey>(TKey key)
+        where TKey : notnull;
 
     /// <summary>Reads the entity with the given primary key from what this node has now.</summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="record">An owned copy of the entity, when found.</param>
     /// <returns><see langword="true"/> when the entity exists.</returns>
-    bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record);
+    bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record)
+        where TKey : notnull;
 
     /// <summary>
     /// Reads the entity with the given primary key, together with its revision, from what
     /// this node has now.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="record">An owned copy of the entity, when found.</param>
     /// <param name="revision">The revision of exactly the returned state, when found.</param>
     /// <returns><see langword="true"/> when the entity exists.</returns>
-    bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision);
+    bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
+        where TKey : notnull;
 
     /// <summary>
     /// Reads the entity with the given primary key after this node has applied the position
     /// the session depends on. Moves the session forward to the position of the answer.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
@@ -80,7 +96,8 @@ public interface ILatticeSet
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
     /// required position in time; nothing was read.
     /// </exception>
-    ValueTask<LatticeReadResult<LatticeRecord>> GetAsync(object key, LatticeSession session, CancellationToken cancellationToken = default);
+    ValueTask<LatticeReadResult<LatticeRecord>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull;
 
     /// <summary>
     /// Enumerates owned copies of all entities of the entity type from what this node has
@@ -210,19 +227,22 @@ public interface ILatticeSet
     /// Deletes the entity with the given primary key. An absent key is an ordinary result,
     /// not a failure.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
     /// <returns>
     /// A result whose <see cref="LatticeWriteResult.Changed"/> is <see langword="true"/>
     /// when an entity was deleted and <see langword="false"/> when the key was already absent.
     /// </returns>
-    ValueTask<LatticeWriteResult> DeleteAsync(object key, CancellationToken cancellationToken = default);
+    ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, CancellationToken cancellationToken = default)
+        where TKey : notnull;
 
     /// <summary>
     /// Deletes the entity with the given primary key, after the position the session
     /// depends on. An absent key is an ordinary result. Moves the session forward to the
     /// position of the answer.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
@@ -230,11 +250,13 @@ public interface ILatticeSet
     /// A result whose <see cref="LatticeWriteResult.Changed"/> is <see langword="true"/>
     /// when an entity was deleted and <see langword="false"/> when the key was already absent.
     /// </returns>
-    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeSession session, CancellationToken cancellationToken = default);
+    ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull;
 
     /// <summary>
     /// Deletes the entity with the given primary key, provided it still has the expected revision.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="expectedRevision">The revision read together with the entity.</param>
     /// <param name="cancellationToken">Cancels the write while it has not started executing.</param>
@@ -242,13 +264,15 @@ public interface ILatticeSet
     /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
     /// no longer exists.
     /// </exception>
-    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default);
+    ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default)
+        where TKey : notnull;
 
     /// <summary>
     /// Deletes the entity with the given primary key, provided it still has the expected
     /// revision, after the position the session depends on. Moves the session forward to
     /// the position of the write.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="expectedRevision">The revision read together with the entity.</param>
     /// <param name="session">The consistency context of the caller.</param>
@@ -257,5 +281,6 @@ public interface ILatticeSet
     /// <see cref="LatticeErrorEnum.RevisionConflict"/>: the entity has another revision or
     /// no longer exists.
     /// </exception>
-    ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default);
+    ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull;
 }

@@ -112,12 +112,11 @@ internal static class ReadByTextKeyScenario
     }
 
     // The keys of a series, drawn from the texts, the keys of the settings in the order of their
-    // identities or another spelling of each; the same draws for every spelling. Strings, which a
-    // signature that takes object takes without a box.
-    private static object[] Keys(string[] texts)
+    // identities or another spelling of each; the same draws for every spelling.
+    private static string[] Keys(string[] texts)
     {
         var random = new FixtureRandom(KeySeed);
-        var keys = new object[ReadSeries.Reads];
+        var keys = new string[ReadSeries.Reads];
 
         for (var index = 0; index < keys.Length; index++)
         {

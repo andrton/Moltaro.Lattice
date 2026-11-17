@@ -68,9 +68,10 @@ internal static class ReadSeries
         return writing is null ? line : $"{line}; the writer replaced {Number(writes)} entities meanwhile";
     }
 
-    // The ticks of each of the first count reads by name, with keys given as the signatures that take
-    // object take them.
-    public static long[] ByName(ILatticeSet entities, object[] keys, int count)
+    // The ticks of each of the first count reads by name, with keys given as their own type, which a
+    // read by name takes without a box.
+    public static long[] ByName<TKey>(ILatticeSet entities, TKey[] keys, int count)
+        where TKey : notnull
     {
         var times = new long[count];
 

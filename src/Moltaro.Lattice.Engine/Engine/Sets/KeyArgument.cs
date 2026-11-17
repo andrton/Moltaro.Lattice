@@ -15,13 +15,14 @@ namespace Moltaro.Lattice.Engine.Sets;
 // message of the check of the core, FieldValues.NormalizeKey, which refuses exactly what is refused
 // here, so a key is refused alike on both implementations.
 //
-// A key is converted without boxing it when it is given as its own type or as an integer through a
-// class, and the hash of a String key is computed here, before the read enters the protection.
+// A key is converted without boxing it when it is given as its own type or as an integer of another
+// width, through a class or by name, and the hash of a String key is computed here, before the read
+// enters the protection.
 // An entity type the engine does not store converts its key all the same, and nothing is looked up
 // with it.
 internal static class KeyArgument
 {
-    // A key given through a class, as a value of its own type.
+    // A key given as a value of its own type, through a class or by name.
     public static EntityKey Of<TKey>(EntityTable table, TKey key)
         where TKey : notnull
     {
@@ -38,14 +39,15 @@ internal static class KeyArgument
                 return Text(table, (string)(object)key);
 
             default:
-                // A key of another type, or one outside the range of the key type, given through a
-                // class: the box is the cost of a key that is about to be refused, or of one given
-                // as object.
+                // A key of another type, or one outside the range of the key type: the box is the
+                // cost of a key that is about to be refused. A key given as an object is one
+                // already, and is not boxed again.
                 return Of(table, (object)key);
         }
     }
 
-    // A key given by name, as an object; the caller boxed it.
+    // A key given as an object, which holds its value boxed: one the caller held as an object, or one
+    // of a type that the generic form does not convert.
     public static EntityKey Of(EntityTable table, object key)
     {
         ArgumentNullException.ThrowIfNull(key);
