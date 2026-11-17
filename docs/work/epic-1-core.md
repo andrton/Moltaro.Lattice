@@ -3973,6 +3973,20 @@ says otherwise, these replace it.
     a caller spends between two items. That memory is not counted in the instance budget."
     Rides in the branch of S10 under O16.
 
+**Read by the coordinator on 17 November 2026, after the contract step.**
+
+- **The state of a child before Ready.** `Connecting` while it has no connection to its
+  master, the back-off between attempts included; `Loading` from the accepted handshake
+  until the load is complete. In both every operation is `Unavailable`. This is what the
+  states of `LatticeDatabaseStateEnum` say; the sentence "Before it is Ready a child is
+  `Loading`" above means the second of them.
+- **A port in use.** The engine reports a failure to bind as the system reports it; the
+  placeholder reports an address held by another master of the process with
+  `InvalidConfiguration` and keeps doing so until it is removed in S12. Tests of a failed
+  bind are tests of the engine only.
+- **`OpenTimeout` and the placeholder.** The placeholder validates the option and does not
+  use it; tests of the timeout are tests of the engine only.
+
 #### S11 · A child loads under writes and follows the master
 
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
