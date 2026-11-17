@@ -76,6 +76,20 @@ internal sealed class InMemoryDatabase : ILatticeDatabase, IEntityOperations, IR
         }
     }
 
+    // The configured address: the placeholder binds no port, so its children reach it by that
+    // address. Validate refuses a ListenUri for a child, so a child returns null.
+    public Uri? ListenUri
+    {
+        get
+        {
+            lock (_gate)
+            {
+                ThrowIfNotReady();
+                return _options.ListenUri;
+            }
+        }
+    }
+
     public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         if (!position.IsValid)

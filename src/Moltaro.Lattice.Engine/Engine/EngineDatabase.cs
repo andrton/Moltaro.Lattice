@@ -1,14 +1,20 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Sets;
 using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
@@ -20,20 +26,24 @@ namespace Moltaro.Lattice.Engine;
 // contract runs on once the placeholder of the core library is gone. It is a MemoryOnly master that
 // inserts, reads, replaces, upserts and deletes entities of scalar fields by primary key, by class
 // and by name (brief of Epic 1, sprint S06), for many callers at once through its write coordinator
-// (S09).
+// (S09), and that accepts children at a ListenUri; or a child that loads the whole database of its
+// master over TCP and then serves its reads (S10).
 //
 // How a test reaches it. Until S12 LatticeDatabase still opens the placeholder, and a test opens
 // the engine through Create, the internal entry of exception X4 (docs/work/exceptions.md): only
 // the opening differs, and every operation after it goes through the public interfaces. In S12
 // LatticeDatabase returns this class, and Create is removed with its uses.
 //
-// Create. An instance is a MemoryOnly master. Create makes it without opening it and refuses in the
-// order of LatticeDatabase.Create: ArgumentNullException for null options; Validate, which gives
-// InvalidConfiguration; then NotSupportedException for Durable persistence (until S27), for a child
-// role (until S10) and for a ListenUri (until S10).
+// Create. An instance is a MemoryOnly master, with or without a ListenUri, or a child. Create makes it
+// without opening it and refuses in the order of LatticeDatabase.Create: ArgumentNullException for null
+// options; Validate, which gives InvalidConfiguration; then NotSupportedException for Durable
+// persistence (until S27). The engine refuses an address it cannot use when the instance opens.
 //
-// States. Created, Loading during OpenAsync, Ready, Faulted, Closed; Connecting and CatchingUp do not
-// occur. OpenAsync compiles the root layout of every entity type before any data is admitted: a fixed
+// States. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child is Connecting
+// while it has no connection to its master, the pauses between its attempts included, and Loading from
+// the accepted handshake until its load is complete; in both every operation is Unavailable (the
+// coordinator's reading of 17 November 2026). CatchingUp does not occur. OpenAsync compiles the root
+// layout of every entity type before any data is admitted: a fixed
 // part larger than one block fails the open with InvalidSchema, and an entity type with a field the
 // engine cannot store yet gets no layout (the planner's answer to point 1 of Q35). A failed open
 // closes the instance. Before the open an operation is Unavailable; after a close it is
@@ -53,27 +63,48 @@ namespace Moltaro.Lattice.Engine;
 // carries): the first call of CloseAsync or DisposeAsync begins it and keeps its task, and every
 // later call waits for that same task, so no call completes before the arena is freed, whichever
 // call it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread
-// until then.
+// until then. The close covers the network (the planner's block of 17 November 2026, point 7): on a
+// master it stops accepting children, ends every connection to them and completes only when no task of
+// the listener runs and its port is free (Children.ChildListener); on a child it ends the open in
+// progress, waits for its task, and closes the connection to the master.
+//
+// Master and children (brief of S10). A master with a ListenUri listens at it from its open and serves
+// every node that connects (Children): it checks its Hello, registers it under the lock of the writes,
+// and sends the whole database, one root copied at a time under the protection of reads, then the
+// sequence at which the load ended. Until S11 it refuses every write while a child is registered
+// (Writes.WriteCoordinator, "Children"). A child reaches its master at MasterUri (Loading.MasterLink),
+// receives the schema, builds the parts of an empty database with the history of its master, places
+// every root it receives under its own lock of the writes (Loading.RootPlacement), and becomes Ready at
+// the sequence at which the load ended. It keeps the connection to its master after the load and does
+// not follow the master until S11; until S12 it refuses every write. What travels, and how it is
+// checked, is the protocol of Replication. The open of a child that fails, times out or is cancelled
+// closes the instance and completes only once the close has: no connection, no task and no memory of
+// it is left.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
 // for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
 // writes in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them
 // for the storage step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
-// Protection, the history and the sequence in Positions (PositionClock), and the sets of the public
-// interfaces in Sets.
+// Protection, the history and the sequence in Positions (PositionClock), the sets of the public
+// interfaces in Sets, what a master gives its children in Children, and how a child loads in Loading.
 //
 // The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
 // for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
 // what it protects), under which writes are admitted, prepared, handed to the storage step and
-// published, and under which a drain or a count of the counters runs, held for synchronous work in
+// published, under which a drain or a count of the counters runs, under which a child is registered
+// on a master and a root is placed on a child, held for synchronous work in
 // memory only. The lock of the state is taken alone; no thread that holds a lock takes the other one.
+// The listener of a master has a lock of its own for its connections, taken alone as well. No lock is
+// held while bytes are sent or received.
 // A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write
 // unlinks it and retires it, and the writer frees it only once the reads that entered before have
 // left (RetiredMemory); the close frees the arena only after the reads and the writes in progress
 // have ended. No code of the application runs, and nothing waits, while a read is inside.
 //
-// Position and revision. Each open has a new random non-zero history; the sequence is 0 and grows
+// Position and revision. Each open of a master has a new random non-zero history, and a new random
+// database identity, which it sends its children; a child has the history of its master, and the
+// revision of a loaded entity is its revision on the master. On a master the sequence is 0 and grows
 // by 1 with each published write, also one that changed nothing (the owner's answer to Q39); the
 // storage step assigns it, consecutive within a group (WriteCoordinator). A revision is the history
 // and the root entry's LastMutationSequence: every position changes at most one entity, so the
@@ -95,7 +126,9 @@ namespace Moltaro.Lattice.Engine;
 // format, which the validation of the core checks before a write reaches the engine.
 //
 // Sessions and the write batch. On a master the members that take a session, and
-// WaitForPositionAsync, are served: a master has applied every position it gave out.
+// WaitForPositionAsync, are served: a master has applied every position it gave out; a loaded child has
+// applied every position of its history up to the end of its load, and waits for a later one until its
+// timeout, since it does not follow its master yet.
 // CreateWriteBatch returns the batch of the core: building it works, and its commit is
 // NotSupportedException until S17.
 internal sealed class EngineDatabase : ILatticeDatabase
@@ -139,9 +172,26 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private WriteCoordinator? _coordinator;
 
+    // What the coordinator executes writes with, and the loader of a child places roots with.
+    private WriteExecutor? _executor;
+
     private Dictionary<LatticeEntityType, SetOperations>? _operations;
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
+
+    // The network of the instance, set under the lock of the state and never changed afterwards: the
+    // listener of a master with a ListenUri, set by the open while it is inside the barrier of the close,
+    // so that a close that begins meanwhile finds it once the open has left the barrier; and on a child,
+    // the connection to its master, set when the master accepted the child, and the end of the task of
+    // its open, made when the open begins.
+    private ChildListener? _listener;
+
+    private MasterLink? _master;
+
+    private TaskCompletionSource? _loaded;
+
+    // Cancelled when the close begins: it ends the open of a child that is in progress.
+    private readonly CancellationTokenSource _closing = new();
 
     private EngineDatabase(LatticeDatabaseOptions options, EngineTestInputs? testInputs)
     {
@@ -151,7 +201,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         _epochs = new ReadEpochs(this);
     }
 
-    // Makes an instance for the options without opening it: a MemoryOnly master.
+    // Makes an instance for the options without opening it: a MemoryOnly master or a child.
     public static EngineDatabase Create(LatticeDatabaseOptions options)
     {
         Check(options);
@@ -183,16 +233,6 @@ internal sealed class EngineDatabase : ILatticeDatabase
         if (options.PersistenceMode == LatticePersistenceModeEnum.Durable)
         {
             throw new NotSupportedException("Durable persistence is not implemented yet in the engine. Select MemoryOnly explicitly.");
-        }
-
-        if (options.Role == LatticeRoleEnum.Child)
-        {
-            throw new NotSupportedException("A child is not implemented yet in the engine.");
-        }
-
-        if (options.ListenUri is not null)
-        {
-            throw new NotSupportedException("A master that accepts children at a ListenUri is not implemented yet in the engine.");
         }
     }
 
@@ -372,6 +412,18 @@ internal sealed class EngineDatabase : ILatticeDatabase
         }
     }
 
+    // The address the master listens at, with the port the system chose for port 0; null for a master
+    // without ListenUri and for a child.
+    public Uri? ListenUri
+    {
+        get
+        {
+            ThrowIfNotReady();
+
+            return _listener?.Address;
+        }
+    }
+
     public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         if (!position.IsValid)
@@ -397,11 +449,15 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return _clock!.WaitAsync(session, _options.SynchronizationTimeout, cancellationToken);
     }
 
-    // Opens the database: compiles the root layout of every entity type and makes the parts of an
-    // empty database, then becomes Ready. Its work is synchronous and short, so it completes before
-    // it returns. A failure, and a cancellation before it starts, close the instance.
+    // Opens the database. A master compiles the root layout of every entity type, makes the parts of an
+    // empty database, listens at its ListenUri when it has one, and becomes Ready: its work is
+    // synchronous and short, so it completes before it returns. A child loads the database of its
+    // master (OpenChildAsync). A failure, and a cancellation, close the instance, and the call completes
+    // once the close has.
     public ValueTask OpenAsync(CancellationToken cancellationToken = default)
     {
+        var child = _options.Role == LatticeRoleEnum.Child;
+
         lock (_stateLock)
         {
             if (_state == LatticeDatabaseStateEnum.Closed)
@@ -414,19 +470,29 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 return ValueTask.FromException(new InvalidOperationException("The database has already been opened."));
             }
 
-            _state = LatticeDatabaseStateEnum.Loading;
+            _state = child ? LatticeDatabaseStateEnum.Connecting : LatticeDatabaseStateEnum.Loading;
+
+            if (child)
+            {
+                _loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        if (child)
+        {
+            return new ValueTask(OpenChildAsync(cancellationToken));
         }
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Load();
+            OpenMaster();
         }
         catch (Exception exception)
         {
-            _ = CloseAsync(CancellationToken.None);
+            var closing = CloseAsync(CancellationToken.None);
 
-            return ValueTask.FromException(exception);
+            return closing.IsCompleted ? ValueTask.FromException(exception) : new ValueTask(FailAfterAsync(closing, exception));
         }
 
         return ValueTask.CompletedTask;
@@ -487,6 +553,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // before announce an epoch below the one returned here.
             var mark = _epochs.Close();
 
+            // The open of a child in progress ends at its next wait, or at its next placement, which the
+            // barrier refuses from now on.
+            _closing.Cancel();
+
             _ = FreeAfterOperationsAsync(_barrier.Close(), mark, closed);
         }
 
@@ -500,23 +570,77 @@ internal sealed class EngineDatabase : ILatticeDatabase
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
     // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
-    // counts of the counters in progress have ended and then the reads that entered before the mark of
-    // the close, and then completes the close. When nothing is in progress it does so before it
-    // returns. The wait for the reads runs on a thread of the pool, because a read may be held by a
-    // test while its caller goes on; it ends as ReadEpochs.WaitForReadsBefore says.
+    // counts of the counters in progress have ended, the network of the instance has stopped, and then
+    // the reads that entered before the mark of the close, and then completes the close. When nothing is
+    // in progress it does so before it returns. The wait for the reads runs on a thread of the pool,
+    // because a read may be held by a test while its caller goes on; it ends as
+    // ReadEpochs.WaitForReadsBefore says.
+    //
+    // The network, after the operations: an open of a master is one of them while it starts its
+    // listener, so the listener is set once they have ended. The listener stops and its tasks end
+    // (ChildListener.StopAsync): each connection is reset, and its task leaves the protection of reads
+    // at once, since a copy of a root waits for nothing. The open of a child ended its waits when the
+    // close began, and its task ends at once; then its connection to the master closes.
+    //
+    // Every step runs whatever became of the one before (review round 1 of S10): a task of the network
+    // that faulted, which only a defect can make it, does not keep the arena from being freed. The first
+    // such failure is what the close then reports, once everything is freed.
     private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark, TaskCompletionSource closed)
     {
+        Exception? failure = null;
+
+        await operationsEnded.ConfigureAwait(false);
+
+        ChildListener? listener;
+        MasterLink? master;
+        Task? loaded;
+
+        lock (_stateLock)
+        {
+            listener = _listener;
+            loaded = _loaded?.Task;
+        }
+
         try
         {
-            await operationsEnded.ConfigureAwait(false);
+            if (listener is not null)
+            {
+                await listener.StopAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
 
+        try
+        {
+            if (loaded is not null)
+            {
+                await loaded.ConfigureAwait(false);
+            }
+
+            lock (_stateLock)
+            {
+                master = _master;
+            }
+
+            master?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
+
+        try
+        {
             if (_epochs.HasReadsBefore(mark))
             {
                 await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
             }
 
             // The parts are set only when the open published them; an open that the close overtook
-            // frees its own arena (Load). The arena is the only native memory of the database;
+            // frees its own arena (Build). The arena is the only native memory of the database;
             // everything else is managed.
             if (_arena is { } arena)
             {
@@ -524,39 +648,272 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _retired.Clear();
                 arena.Dispose();
             }
-
-            closed.SetResult();
         }
         catch (Exception exception)
         {
-            closed.SetException(exception);
+            failure ??= exception;
+        }
+
+        if (failure is null)
+        {
+            closed.SetResult();
+        }
+        else
+        {
+            closed.SetException(failure);
         }
     }
 
-    // Builds the parts of the open database and makes it Ready. A close that came while it loaded
-    // wins: what was built is freed, and the open fails with ObjectDisposedException.
-    private void Load()
+    // A failed open completes once the close it began has completed, so that the instance leaves nothing
+    // behind when the call fails.
+    private static async Task FailAfterAsync(ValueTask closing, Exception exception)
     {
+        await closing.ConfigureAwait(false);
+
+        ExceptionDispatchInfo.Throw(exception);
+    }
+
+    // The address of ListenUri or MasterUri as the engine takes it (brief of S10): the scheme lattice, a
+    // host and a TCP port, and nothing else; port 0 only where the system may choose the port, in
+    // ListenUri. InvalidConfiguration otherwise. Validate keeps accepting any absolute address until S12,
+    // so the open checks it.
+    private static Uri CheckAddress(Uri address, string option, bool portMayBeChosen)
+    {
+        if (!string.Equals(address.Scheme, Protocol.Scheme, StringComparison.Ordinal))
+        {
+            throw new LatticeException(LatticeErrorEnum.InvalidConfiguration, $"{option} {address} has the scheme {address.Scheme}; the engine takes {Protocol.Scheme}://host:port.");
+        }
+
+        if (address.AbsolutePath is not ("" or "/") || address.Query.Length > 0 || address.Fragment.Length > 0 || address.UserInfo.Length > 0)
+        {
+            throw new LatticeException(LatticeErrorEnum.InvalidConfiguration, $"{option} {address} names more than a host and a port; the engine takes {Protocol.Scheme}://host:port.");
+        }
+
+        if (address.Host.Length == 0 || address.Port < 0 || (address.Port == 0 && !portMayBeChosen))
+        {
+            throw new LatticeException(
+                LatticeErrorEnum.InvalidConfiguration,
+                portMayBeChosen
+                    ? $"{option} {address} names no host or no port; the engine takes {Protocol.Scheme}://host:port, with port 0 for a port the system chooses."
+                    : $"{option} {address} names no host or no port; a child is given the address its master reports, with the port it listens at.");
+        }
+
+        return address;
+    }
+
+    // The open of a master (see OpenAsync). It passes the barrier of the close, so that a close that
+    // begins meanwhile finds the listener it starts (FreeAfterOperationsAsync). A close that came while
+    // it opened wins: the open fails with ObjectDisposedException.
+    private void OpenMaster()
+    {
+        var listenUri = _options.ListenUri is { } address ? CheckAddress(address, nameof(LatticeDatabaseOptions.ListenUri), portMayBeChosen: true) : null;
         var schema = _options.Schema!;
 
-        // The memory budget is the limit of the arena (see the class): the option, or half of the
-        // memory of the process as .NET reports it, and never less than one segment (the owner's
-        // decision O17 and answer to Q37), unless a test gave the options of the arena, which are then
-        // the options of the arena and the option is not read.
-        var arenaOptions = _testInputs?.Arena ?? new ArenaOptions
+        _barrier.Enter();
+
+        try
         {
-            MemoryLimit = _options.MemoryLimit ?? Math.Max(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2, LatticeDatabaseOptions.ArenaSegmentSize),
+            // A new history at every open: nothing of a MemoryOnly database survives it, so no position
+            // of an earlier run may be taken for one of this run.
+            Build(schema, (ulong)Random.Shared.NextInt64(1, long.MaxValue), refusesEveryWrite: null);
+
+            if (listenUri is not null)
+            {
+                // A new identity of the database at every open, for the same reason; its children are
+                // told it in the handshake (the planner's block of 15 November 2026, "Identity").
+                var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
+                var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
+                var capture = new Capture(_arena!, _roots!, _epochs, _clock, _coordinator!, tables, hello, SchemaTransfer.Saved(schema));
+                var listener = ChildListener.Start(listenUri, capture, _options.OpenTimeout);
+
+                lock (_stateLock)
+                {
+                    _listener = listener;
+                }
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+
+        lock (_stateLock)
+        {
+            if (_state == LatticeDatabaseStateEnum.Closed)
+            {
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+
+            _state = LatticeDatabaseStateEnum.Ready;
+        }
+    }
+
+    // The open of a child (see the class, "Master and children"). Every failure closes the instance, and
+    // the call completes once the close has completed.
+    private async Task OpenChildAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await LoadFromMasterAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await CloseAsync(CancellationToken.None).ConfigureAwait(false);
+
+            var failure = OpenFailure(exception, cancellationToken);
+
+            if (ReferenceEquals(failure, exception))
+            {
+                throw;
+            }
+
+            throw failure;
+        }
+    }
+
+    // Connects to the master, loads its database and becomes Ready. The task ends when the open has
+    // ended, whatever ended it, and only then: the close waits for it (_loaded).
+    private async Task LoadFromMasterAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var opening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token);
+            var token = opening.Token;
+            var masterUri = CheckAddress(_options.MasterUri!, nameof(LatticeDatabaseOptions.MasterUri), portMayBeChosen: false);
+
+            // A child holds nothing before it loads: an empty identity, history zero, an empty
+            // fingerprint (brief of S10, HelloBody).
+            var hello = HelloCheck.Of(Guid.Empty, 0, default, LatticeRoleEnum.Child);
+            var master = await MasterLink.ConnectAsync(masterUri, _options.OpenTimeout, hello, token).ConfigureAwait(false);
+
+            lock (_stateLock)
+            {
+                if (_state == LatticeDatabaseStateEnum.Closed)
+                {
+                    master.Dispose();
+                    throw new ObjectDisposedException(GetType().FullName);
+                }
+
+                _master = master;
+                _state = LatticeDatabaseStateEnum.Loading;
+            }
+
+            var memoryLimit = MemoryLimitInForce();
+            var (schema, counts) = await master.ReceiveSchemaAsync(memoryLimit, token).ConfigureAwait(false);
+
+            // The schema has to be the one the handshake bound: the master announced its fingerprint in
+            // its HelloReply (review round 1 of S10).
+            if (schema.Fingerprint != master.Master.SchemaFingerprint)
+            {
+                throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} sent a schema whose fingerprint {schema.Fingerprint} is not the {master.Master.SchemaFingerprint} its HelloReply announced.");
+            }
+
+            Build(schema, master.Master.History, refusesEveryWrite: "Writes through a child of the engine come with Epic 1, sprint S12: write to its master.");
+
+            var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
+
+            PresizeIndexes(tables, counts, memoryLimit);
+            await master.ReceiveRootsAsync(new RootPlacement(_writes!, _arena!, _roots!, _executor!, _barrier, schema, tables), memoryLimit, token).ConfigureAwait(false);
+
+            lock (_stateLock)
+            {
+                if (_state == LatticeDatabaseStateEnum.Closed)
+                {
+                    throw new ObjectDisposedException(GetType().FullName);
+                }
+
+                _state = LatticeDatabaseStateEnum.Ready;
+            }
+        }
+        finally
+        {
+            _loaded!.SetResult();
+        }
+    }
+
+    // Sizes the primary index of each entity type for the roots its master announced (the planner's
+    // decision of 17 November 2026 after the study of S10, point 6). A count of roots of a type the
+    // engine does not store is not valid; counts that need more than the memory limit, each root at
+    // least one block of its fixed part, cannot be held, and the open ends with Unavailable.
+    private void PresizeIndexes(EntityTable[] tables, long[] counts, long memoryLimit)
+    {
+        var least = 0.0;
+
+        for (var index = 0; index < tables.Length; index++)
+        {
+            if (counts[index] == 0)
+            {
+                continue;
+            }
+
+            if (tables[index].Layout is not { } layout)
+            {
+                throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master announces {counts[index]} roots of {tables[index].EntityType.Name}, which the engine does not store.");
+            }
+
+            least += (double)counts[index] * Arena.BlockSizeFor(layout.FixedSize - BlockHeader.Size);
+        }
+
+        if (least > memoryLimit)
+        {
+            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master announces roots that take at least {least:F0} bytes, more than the memory limit of this child, {memoryLimit} bytes: the child cannot hold the database of its master.");
+        }
+
+        lock (_writes!)
+        {
+            for (var index = 0; index < tables.Length; index++)
+            {
+                if (counts[index] > 0)
+                {
+                    tables[index].Presize(counts[index]);
+                }
+            }
+        }
+    }
+
+    // What the open of a child reports for what ended it (the planner's block of 15 November 2026, "What
+    // the child's caller sees"): its own token, OperationCanceledException; a close, as every operation
+    // after a close, ObjectDisposedException; an address it cannot use, InvalidConfiguration; everything
+    // that ends the open because of the master, Unavailable with the reason in the message.
+    private Exception OpenFailure(Exception exception, CancellationToken cancellationToken)
+    {
+        var masterUri = _options.MasterUri;
+
+        return exception switch
+        {
+            OperationCanceledException when cancellationToken.IsCancellationRequested => exception,
+            OperationCanceledException => new ObjectDisposedException(GetType().FullName),
+            LatticeException { Error: LatticeErrorEnum.Unavailable or LatticeErrorEnum.InvalidConfiguration } => exception,
+            LatticeException { Error: LatticeErrorEnum.ValidationFailed or LatticeErrorEnum.InvalidSchema } invalid =>
+                new LatticeException(LatticeErrorEnum.Unavailable, $"What the master at {masterUri} sent is not valid: {invalid.Message}", invalid),
+            TimeoutException => new LatticeException(LatticeErrorEnum.Unavailable, $"Nothing arrived from the master at {masterUri} for the open timeout of {_options.OpenTimeout}.", exception),
+            IOException or SocketException => new LatticeException(LatticeErrorEnum.Unavailable, $"The connection to the master at {masterUri} ended before the load was complete.", exception),
+            _ => exception,
         };
+    }
+
+    // The memory budget is the limit of the arena (see the class): the option, or half of the memory of
+    // the process as .NET reports it, and never less than one segment (the owner's decision O17 and
+    // answer to Q37), unless a test gave the options of the arena, which are then the options of the
+    // arena and the option is not read.
+    private long MemoryLimitInForce() =>
+        _testInputs?.Arena?.MemoryLimit
+        ?? _options.MemoryLimit
+        ?? Math.Max(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2, LatticeDatabaseOptions.ArenaSegmentSize);
+
+    // Builds the parts of an empty database of the schema in the history given, and publishes them; the
+    // caller makes the instance Ready. A close that came meanwhile wins: what was built is freed, and the
+    // open fails with ObjectDisposedException.
+    private void Build(LatticeSchema schema, ulong history, string? refusesEveryWrite)
+    {
+        var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
         var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator());
 
         try
         {
             var roots = new RootTable();
             var retired = new RetiredMemory(_epochs, arena, roots);
-
-            // A new history at every open: nothing of a MemoryOnly database survives it, so no
-            // position of an earlier run may be taken for one of this run.
-            var clock = new PositionClock((ulong)Random.Shared.NextInt64(1, long.MaxValue), this);
+            var clock = new PositionClock(history, this);
 
             // The seed of the hashes of the primary indexes, drawn at every open from the random source
             // of the system unless a test fixed it, so that nobody who does not know it can choose keys
@@ -573,7 +930,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _barrier,
                 clock,
                 _options.SynchronizationTimeout,
-                Fault);
+                Fault,
+                refusesEveryWrite);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
@@ -600,9 +958,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _clock = clock;
                 _writes = writes;
                 _coordinator = coordinator;
+                _executor = executor;
                 _operations = operations;
                 _recordSets = recordSets;
-                _state = LatticeDatabaseStateEnum.Ready;
             }
         }
         catch

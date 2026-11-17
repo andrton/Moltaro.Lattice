@@ -130,6 +130,38 @@ public sealed class LatticeDatabaseOptionsTests
         AssertInvalid(MemoryOnlyMaster(memoryLimit: long.MinValue));
     }
 
+    // The open timeout (brief of Epic 1, sprint S10): 30 seconds by default, finite and positive, and
+    // checked by Validate for every role: a child waits for its master by it, and a master gives a
+    // connecting node the same time to introduce itself.
+    [Fact]
+    public void Open_timeout_is_30_seconds_by_default_and_any_finite_positive_value_is_valid()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(30), new LatticeDatabaseOptions().OpenTimeout);
+
+        Child(Master, openTimeout: TimeSpan.FromTicks(1)).Validate();
+        Child(Master, openTimeout: TimeSpan.FromDays(1)).Validate();
+    }
+
+    [Fact]
+    public void Open_timeout_that_is_zero_negative_infinite_or_longer_than_a_day_is_refused()
+    {
+        AssertInvalid(Child(Master, openTimeout: TimeSpan.Zero));
+        AssertInvalid(Child(Master, openTimeout: TimeSpan.FromTicks(-1)));
+        AssertInvalid(Child(Master, openTimeout: Timeout.InfiniteTimeSpan));
+        AssertInvalid(Child(Master, openTimeout: TimeSpan.FromDays(1) + TimeSpan.FromTicks(1)));
+    }
+
+    [Fact]
+    public void Open_timeout_out_of_its_range_is_refused_on_a_master_too()
+    {
+        AssertInvalid(new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = Schema,
+            OpenTimeout = TimeSpan.Zero,
+        });
+    }
+
     private static LatticeDatabaseOptions MemoryOnlyMaster(long? memoryLimit) =>
         new()
         {
@@ -155,6 +187,15 @@ public sealed class LatticeDatabaseOptionsTests
             MasterUri = masterUri,
             StorageConnectionString = storage,
             Schema = schema,
+        };
+
+    private static LatticeDatabaseOptions Child(Uri masterUri, TimeSpan openTimeout) =>
+        new()
+        {
+            Role = LatticeRoleEnum.Child,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            MasterUri = masterUri,
+            OpenTimeout = openTimeout,
         };
 
     private static void AssertInvalid(LatticeDatabaseOptions options)

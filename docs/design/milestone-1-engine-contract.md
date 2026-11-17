@@ -339,8 +339,9 @@ version, payload length and checksum. No CLR object image, package node or nativ
 segment address is a durable format. Fixed layout offsets derive deterministically
 from the compiled schema; unit/chunk placement is internal.
 
-Use SHA-256 for persisted-root and complete journal payload integrity; framing uses
-the same digest in its body envelope. Length/version checks precede decoding. Specify
+Use SHA-256 for persisted-root and complete journal payload integrity. A frame of the
+replication transport carries a CRC32C over its header and body (decided after the
+study of S10, 17 November 2026). Length/version checks precede decoding. Specify
 the digest over header identity/version/length plus payload, excluding the digest
 field itself. This avoids machine-dependent checksums or checksum-algorithm negotiation
 in format 1; its CPU cost belongs in readiness/write measurements.
@@ -386,8 +387,11 @@ termination/configuration; no message broker, service discovery or election depe
 The handshake checks compatibility, not identity: it authenticates nobody. That the
 replication port is reachable only from the nodes of this database is a deployment
 precondition, accepted by the owner on 14 November 2026; the engine adds no shared
-secret and no TLS of its own. A child's open has a finite, configurable timeout: when
-it is not Ready in time, the open fails with Unavailable and the instance closes.
+secret and no TLS of its own. A child's open has a finite, configurable timeout for
+each wait: when the master cannot be reached, or nothing arrives from it, for that
+time, the open fails with Unavailable and the instance closes; a load that keeps
+arriving is not ended by it, and the cancellation of the open call bounds the whole open
+(decided after the study of S10, 17 November 2026).
 One connection multiplexes replication, write forwarding, status and acknowledgments;
 control frames have priority between bounded data frames. Embedded master reads/writes
 invoke the same engine directly without transport or a mandatory local child.
@@ -410,8 +414,8 @@ Initial transfer uses the accepted fenced capture: register S and a root-slot ca
 fence; retain deletion/incarnation watermarks and the shared live stream after S.
 Copy each root coherently under its protection, including owned blocks and required
 shared text. Copy bytes into bounded send buffers, release gates, then perform I/O.
-Wire block IDs and relocation metadata let the child fix relative descriptors into
-its own arena; no assumption of equal process addresses. Shared text is transferred
+No address and no block number travels: the child stores received bytes through its
+own allocation, which writes every location (decided after the study of S10). Shared text is transferred
 with capture IDs and remapped to local text handles. Do not pin old payloads for the
 entire snapshot or hold read locks over the network.
 
@@ -537,8 +541,8 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |
 | Session synchronization / reload readiness wait | 10 s / 30 s, configurable; cancellation allowed for read waits |
-| Scan/query temporary memory and execution | No limit by default, by the owner's decision of 15 November 2026. An application may set a limit on the temporary memory and on the engine time of a read, for the database or for one call; only time inside the engine counts, not the time a caller spends between two items. The temporary memory of reads is counted in the instance budget |
-| Child open | 30 s from the open call to Ready, configurable; then the open fails with Unavailable |
+| Scan/query temporary memory and execution | No limit by default, by the owner's decision of 15 November 2026. An application may set a limit on the memory an enumeration remembers and on the engine time of a read, for the database (`ReadMemoryLimit`, `ReadTimeLimit`); only time inside the engine counts, not the time a caller spends between two items. That memory is not counted in the instance budget |
+| Child open | 30 s to reach the master and between two parts of the load, configurable; then the open fails with Unavailable |
 | Master leadership | Taken at open; a second master on the same store is refused at once. The leadership number is checked in every transaction that changes the store; the leadership session every 5 s, configurable |
 | Retained operation outcomes of a MemoryOnly master | No limit of its own, by the owner's decision of 15 November 2026: counted in the instance budget; an unexpired outcome is never dropped, and a write is refused only when the budget cannot hold it |
 | Empty native reserve / compaction headroom | One 4-MiB segment / one 64-KiB move plus metadata |
@@ -547,7 +551,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
 | Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
-| Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |
+| Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered. Built with S33; until then captures are not limited |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
 One root and one transaction may

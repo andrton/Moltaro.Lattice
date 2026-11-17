@@ -40,7 +40,7 @@ public sealed class NativeMemoryAtCloseTests
 
         await database.CloseAsync().AsTask().WaitAsync(Bound);
 
-        ExpectEverythingReturned(allocator);
+        allocator.ExpectEverythingReturned();
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class NativeMemoryAtCloseTests
         await Task.Run(() => database.CloseAsync().AsTask()).WaitAsync(Bound);
         await Task.WhenAll(readers).WaitAsync(Bound);
 
-        ExpectEverythingReturned(allocator);
+        allocator.ExpectEverythingReturned();
     }
 
     [Fact]
@@ -122,12 +122,6 @@ public sealed class NativeMemoryAtCloseTests
         Assert.Contains(await held.ReleaseAsync(), new long?[] { 0, 1 });
         await closing.WaitAsync(Bound);
 
-        ExpectEverythingReturned(allocator);
-    }
-
-    private static void ExpectEverythingReturned(CountingNativeAllocator allocator)
-    {
-        Assert.Equal(0, allocator.Outstanding);
-        Assert.Equal(allocator.Obtained, allocator.Returned);
+        allocator.ExpectEverythingReturned();
     }
 }

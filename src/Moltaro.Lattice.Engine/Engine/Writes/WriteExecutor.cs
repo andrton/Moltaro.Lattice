@@ -378,23 +378,46 @@ internal sealed class WriteExecutor
         }
     }
 
+    // For the loader of a child (Loading.RootPlacement), under the lock of the writes: publishes a root
+    // the child received, which Replication.Load.BlockImport placed in prepared blocks for the new
+    // lifetime the handle names, as an insert publishes its root, with the sequence of its last mutation
+    // on the master as its stamp; the caller has reserved room in the index for the key. The child serves
+    // no read before it is Ready, and the sequence of the database is published once, when the load
+    // ends (PublishLoadEnd), so no position is published here. No fault point is passed: a test arms one
+    // on a master.
+    public void PublishLoaded(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong lastMutation) =>
+        Install(table, key, handle, root, lastMutation);
+
+    // For the loader of a child, under the lock of the writes, once every root of the load is published:
+    // the sequence at which the load ended on the master becomes the sequence of the child.
+    public void PublishLoadEnd(ulong sequence) => _clock.Publish(sequence);
+
     private void PublishInsert(EntityTable table, in EntityKey key, PreparedWrite prepared, ulong sequence)
     {
-        RootStorage.Publish(_arena, table.Layout!, prepared.Root);
+        Install(table, key, prepared.Handle, prepared.Root, sequence);
+        Pass(EngineFaultPointEnum.DuringPublication);
+
+        // The sequence of the database after the entry of the index, so that a read that sees the
+        // sequence finds the key.
+        _clock.Publish(sequence);
+    }
+
+    // The stores of an insert before its position: the root becomes live, then the entry, then the
+    // entry of the index, which publishes both.
+    private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
+    {
+        RootStorage.Publish(_arena, table.Layout!, root);
 
         // No read reaches the entry before the index maps the key to it, so plain stores serve, and the
         // first stamp of the entry is the write's sequence, with no mark before it.
-        ref var entry = ref _roots.Entry(prepared.Handle);
+        ref var entry = ref _roots.Entry(handle);
 
-        entry.Root = prepared.Root;
+        entry.Root = root;
         entry.LastMutationSequence = sequence;
         entry.State = RootStateEnum.Live;
 
-        // The store that publishes the entry and the root, with release semantics; the sequence of the
-        // database after it, so that a read that sees the sequence finds the key.
-        table.Add(key, prepared.Handle);
-        Pass(EngineFaultPointEnum.DuringPublication);
-        _clock.Publish(sequence);
+        // The store that publishes the entry and the root, with release semantics.
+        table.Add(key, handle);
     }
 
     private void PublishReplace(EntityTable table, PreparedWrite prepared, ulong sequence)

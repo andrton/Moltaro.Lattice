@@ -35,16 +35,74 @@ public sealed class LatticeDatabaseOptions
     public string? StorageConnectionString { get; init; }
 
     /// <summary>
-    /// Address at which a master accepts its children. Optional: a master without it serves
-    /// only its own process. Not allowed for a child.
+    /// Address at which a master accepts its children. Optional: a master without it has no
+    /// children and serves only its own process. Not allowed for a child.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An address has the scheme <c>lattice</c>, a host and a TCP port:
+    /// <c>lattice://host:7400</c>. The master listens on the network interface that the host
+    /// names. Port 0 lets the system choose a free port; the open master reports the port it
+    /// chose in <see cref="ILatticeDatabase.ListenUri"/>, and that is the address its children
+    /// connect to. The engine refuses an address with another scheme, with a path or without a
+    /// port with <see cref="LatticeErrorEnum.InvalidConfiguration"/> when the instance opens. A
+    /// master that cannot listen at its address, because its port is in use for example, fails
+    /// its open with the error the system reports, and the instance is closed.
+    /// </para>
+    /// <para>
+    /// The engine authenticates no peer at this address: whoever reaches it can load the whole
+    /// database. Keep it reachable only from the nodes of the database.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> No instance listens on the network. The database that
+    /// <see cref="LatticeDatabase"/> opens today connects a master and its children inside one
+    /// process only, with the address as a name: <see cref="Validate"/> checks only that it is
+    /// absolute, any absolute address is accepted, and an address at which another master of the
+    /// process already listens fails the open with <see cref="LatticeErrorEnum.InvalidConfiguration"/>.
+    /// </para>
+    /// </remarks>
     public Uri? ListenUri { get; init; }
 
     /// <summary>
-    /// Address of the master, equal to the master's <see cref="ListenUri"/>. Required for a
-    /// child and not allowed for a master.
+    /// Address of the master: the address the open master reports in
+    /// <see cref="ILatticeDatabase.ListenUri"/>. Required for a child and not allowed for a master.
     /// </summary>
+    /// <remarks>
+    /// It has the form of <see cref="ListenUri"/>, with the port at which the master listens: the
+    /// master's own <see cref="ListenUri"/>, unless that names port 0. What the engine refuses, and
+    /// what is checked today, is said there.
+    /// </remarks>
     public Uri? MasterUri { get; init; }
+
+    /// <summary>
+    /// How long a child waits for its master while it opens: to reach the master and be accepted
+    /// by it, and afterwards for the next part of the database to arrive. A load that keeps
+    /// arriving is not ended by this timeout, however long it takes; the cancellation token of the
+    /// open call bounds the whole open. 30 seconds by default; finite and positive. A master gives
+    /// a connecting node the same time to introduce itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// While the master cannot be reached, the child keeps trying until the time is up, so a child
+    /// may be started before its master. When the master cannot be reached, or nothing arrives
+    /// from it, for this time, the open fails with <see cref="LatticeErrorEnum.Unavailable"/> and
+    /// the instance is closed. A failure that another attempt cannot mend ends the open at once
+    /// with <see cref="LatticeErrorEnum.Unavailable"/>, without waiting for the time: the master
+    /// refuses the child, what the master sent is not valid, or the <see cref="MemoryLimit"/> of
+    /// the child cannot hold the database. The message names the reason.
+    /// </para>
+    /// <para>
+    /// <see cref="Validate"/> refuses zero, a negative value, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// and a value of more than one day, for a master as for a child.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: a child of the
+    /// database that <see cref="LatticeDatabase"/> opens today waits for its master until the open
+    /// is cancelled or the instance is closed, and no node connects to a master of it over the
+    /// network.
+    /// </para>
+    /// </remarks>
+    public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// How long an operation may wait for this instance to reach a position: the position
@@ -178,6 +236,13 @@ public sealed class LatticeDatabaseOptions
         if (!IsFiniteTimeout(SynchronizationTimeout))
         {
             throw Invalid($"{nameof(SynchronizationTimeout)} must be finite and positive.");
+        }
+
+        // Checked for every role: a child waits for its master by it, and a master gives a
+        // connecting node the same time to introduce itself.
+        if (!IsFiniteTimeout(OpenTimeout))
+        {
+            throw Invalid($"{nameof(OpenTimeout)} must be finite and positive.");
         }
 
         if (MemoryLimit is { } memory && memory < ArenaSegmentSize)

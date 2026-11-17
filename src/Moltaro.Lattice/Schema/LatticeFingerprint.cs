@@ -29,6 +29,16 @@ public readonly struct LatticeFingerprint : IEquatable<LatticeFingerprint>
         _part3 = BinaryPrimitives.ReadUInt64BigEndian(digest[24..]);
     }
 
+    // The 32 bytes of the digest in their order, as the constructor takes them: for the engine,
+    // which sends a fingerprint in the handshake of its replication transport.
+    internal void WriteTo(Span<byte> destination)
+    {
+        BinaryPrimitives.WriteUInt64BigEndian(destination, _part0);
+        BinaryPrimitives.WriteUInt64BigEndian(destination[8..], _part1);
+        BinaryPrimitives.WriteUInt64BigEndian(destination[16..], _part2);
+        BinaryPrimitives.WriteUInt64BigEndian(destination[24..], _part3);
+    }
+
     /// <inheritdoc />
     public bool Equals(LatticeFingerprint other) =>
         _part0 == other._part0 && _part1 == other._part1 && _part2 == other._part2 && _part3 == other._part3;

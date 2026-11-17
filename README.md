@@ -17,10 +17,10 @@ ignores case, with Dictionary storage, with an enum field, or with an owned valu
 List, a Map, a Set or a reference compiles, and so does a schema that declares UTF-16,
 but none of them can be written yet. The native storage engine is being built behind
 the contract: it stores and reads entities of scalar and Enum fields on one node, under
-every key type and both text comparisons, in UTF-8 and UTF-16, and until it
-replaces the placeholder only its tests reach it.
-PostgreSQL persistence and network replication are not implemented yet, and the contract
-may still change.
+every key type and both text comparisons, in UTF-8 and UTF-16, and a child of the engine
+loads the whole database from its master over TCP; until the engine replaces the
+placeholder only its tests reach it. PostgreSQL persistence and the replication of changes
+to a child are not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -238,6 +238,25 @@ await using var child = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptio
 });
 ```
 
+*Connecting over TCP and the open timeout are in the contract and built in the engine,
+which `LatticeDatabase` does not open yet: today
+a master and its children connect inside one process only, and a child waits for its master
+until its open is cancelled or it is closed.* An address is `lattice://host:port`. With port 0
+the system chooses a free port, and the open master reports it in its `ListenUri` property,
+which is the address to give its children. A child that cannot reach its master, or
+receives nothing from it, for `OpenTimeout`, 30 seconds by default, fails its open with
+`Unavailable`; until then it keeps trying, so it may be started before its master. A load
+that keeps arriving is not ended by the timeout, however long it takes.
+
+**The replication port must be reachable only from the nodes of the database.** This is a
+precondition of every deployment with children. The engine authenticates nobody at that
+port: its handshake checks that a peer is compatible — the same database, history, schema
+and format — not who it is, and the engine adds no shared secret and no TLS of its own.
+Whoever reaches the port can load the whole database, and write to it as a child does. Keep
+it on a network, or behind rules, that only the master and its children reach.
+The decision and its reasons are in
+[Q15](docs/decisions/replication-and-hosting.md#q15-configured-master-and-child-connection).
+
 **Reading your own writes.** A child follows its master with a small delay. Two rules make
 that safe to build on:
 
@@ -346,8 +365,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | Namespace | Type | Purpose |
 | --- | --- | --- |
 | `Moltaro.Lattice` | `LatticeDatabase` | Entry point: `OpenAsync`, or `Create` and open later |
-| | `LatticeDatabaseOptions` | Role, persistence mode, schema and addresses of one instance, its memory budget and the limits of a read |
-| | `ILatticeDatabase` | An open database: `Set<TEntity>()`, `Set(name)`, `CreateWriteBatch()`, state, close |
+| | `LatticeDatabaseOptions` | Role, persistence mode, schema and addresses of one instance, its timeouts, its memory budget and the limits of a read |
+| | `ILatticeDatabase` | An open database: `Set<TEntity>()`, `Set(name)`, `CreateWriteBatch()`, state, the address a master listens at, close |
 | | `LatticeRevision` | Opaque token of one entity state, used for conditional writes |
 | | `LatticePosition` | How far a database history has been applied; returned with every result |
 | | `LatticeSession` | Consistency context of related operations: the position they depend on |
@@ -366,12 +385,13 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
 write batch, the memory budget of an instance, the limits of a read on its memory and its
-time, Durable persistence, and storing by what a schema can declare beyond the
+time, Durable persistence, a master and its children in different processes, connected over
+TCP with the open timeout of a child, and storing by what a schema can declare beyond the
 defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16, and
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and a
-class hold, and no write stores yet. Not in the contract yet: replication between
-processes, partial updates, safe retry of a write, schema migration and replication
-status. A query language is not planned for the first version.
+class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
+of a write, schema migration and replication status. A query language is not planned for
+the first version.
 
 ## Repository layout
 
@@ -380,7 +400,7 @@ status. A query language is not planned for the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the core library; its scenario tests of reads and writes run on the placeholder and on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key on one node in memory. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

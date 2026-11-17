@@ -206,6 +206,37 @@ internal sealed class EntityTable
 
     public long ReplacementIndexBytes => _index?.ReplacementBytes ?? 0;
 
+    // The live entities of the type: the entries of its primary index. For the writer, under the lock
+    // of the writes, which a master takes to register a child (Children.Capture).
+    public int Count => _index?.Count ?? 0;
+
+    // For the loader of a child, before the first root of the type is placed: sizes the primary index
+    // for the count of roots the master announced (Indexes.PrimaryIndex.Presize). Under the lock of the
+    // writes.
+    public void Presize(long count) => _index!.Presize(count);
+
+    // The key a root stores, in the form the index takes it, hashed under the seed of this instance: for
+    // the loader of a child, which builds its index from the keys it receives (the planner's block of 17
+    // November 2026, point 5). The root is one the caller placed and holds under the lock of the writes.
+    public EntityKey StoredKey(in RootReader stored)
+    {
+        var field = EntityType.Key;
+
+        switch (KeyKind)
+        {
+            case KeyKindEnum.Integer:
+                return EntityKey.OfInteger(field.Declaration.Type, StoredInteger(stored));
+
+            case KeyKindEnum.Guid:
+                return EntityKey.OfGuid(stored.GetGuid(field));
+
+            default:
+                var text = stored.GetString(field);
+
+                return EntityKey.OfText(text, TextHash(text));
+        }
+    }
+
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
     // with the seed of the instance. The root layout is compiled here, before any data is admitted;
     // an entity type whose fixed part does not fit one block fails the open with the
@@ -651,6 +682,53 @@ internal sealed class EntityTable
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
+        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
+
+        if (state != RootStateEnum.Live)
+        {
+            revision = default;
+            sequence = stamp;
+
+            return false;
+        }
+
+        copy.Copy(new RootReader(_arena, Layout!, root));
+        revision = new LatticeRevision(_clock.History, stamp);
+        sequence = Math.Max(at, stamp);
+
+        return true;
+    }
+
+    // For the capture of a load on a master (Children.Capture), inside the protection of reads the
+    // caller entered: takes the entry as one state, by its stamp, as a read does (TryCopy), and returns
+    // true with its root and the sequence of its last mutation when the root is live. The caller reaches
+    // the entry by its slot in the root table, not through an index (the planner's block of 17 November
+    // 2026, point 3), so it meets entries no read meets: a slot that was never published, or that a
+    // write took for an insert and gave back when it was refused or withdrawn, has the stamp 0, the mark
+    // of a write in progress, and no write will ever store another. Such an entry holds no live root, so
+    // its state is looked at first, and the stamp is taken only of an entry that holds one; no write is
+    // published while the caller copies (Children.Capture), so the state does not change meanwhile.
+    // A root found live stays allocated until the caller leaves the protection.
+    public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out ArenaAddress root, out ulong lastMutation)
+    {
+        if (entry.AcquireState() != RootStateEnum.Live)
+        {
+            root = default;
+            lastMutation = 0;
+
+            return false;
+        }
+
+        lastMutation = TakeEntry(ref entry, epochs, clock, out var state, out root, out _);
+
+        return state == RootStateEnum.Live;
+    }
+
+    // Step 2 of a read, inside the protection: the state, the root and the sequence of the last mutation
+    // of the entry as one state, by the stamp of the entry (see the head of the file), with the sequence
+    // of the database read between the two loads of the stamp; returns the stamp.
+    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out RootStateEnum state, out ArenaAddress root, out ulong at)
+    {
         var backoff = default(SpinWait);
 
         while (true)
@@ -664,9 +742,9 @@ internal sealed class EntityTable
                 // publication that failed between its stores never stores it, and it faulted the
                 // database: the read then reports Unavailable instead of retrying (brief of S09, "A
                 // fault during publication and the reads that retry"). Only this retry looks.
-                if (_epochs.IsFaulted)
+                if (epochs.IsFaulted)
                 {
-                    _epochs.ThrowForState();
+                    epochs.ThrowForState();
                 }
 
                 backoff.SpinOnce();
@@ -674,9 +752,9 @@ internal sealed class EntityTable
                 continue;
             }
 
-            var state = entry.AcquireState();
-            var root = entry.AcquireRoot();
-            var at = _clock.Sequence;
+            state = entry.AcquireState();
+            root = entry.AcquireRoot();
+            at = clock.Sequence;
 
             // Another stamp: a write stored between the two loads, so what they framed may be torn.
             // The next round finds the mark, while the write goes on, or its stamp.
@@ -685,19 +763,7 @@ internal sealed class EntityTable
                 continue;
             }
 
-            if (state != RootStateEnum.Live)
-            {
-                revision = default;
-                sequence = stamp;
-
-                return false;
-            }
-
-            copy.Copy(new RootReader(_arena, Layout!, root));
-            revision = new LatticeRevision(_clock.History, stamp);
-            sequence = Math.Max(at, stamp);
-
-            return true;
+            return stamp;
         }
     }
 }

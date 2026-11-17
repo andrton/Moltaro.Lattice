@@ -157,6 +157,11 @@ internal sealed class RootTable
     // not counted.
     public int Count => _counts.Count;
 
+    // The slots below this one were given out at least once; every slot that holds a lifetime is
+    // below it. For the capture of a load on a master, which walks the slots below it (the planner's
+    // block of 17 November 2026, point 3), taken under the lock of the writes.
+    public int SlotExtent => _nextUnusedSlot;
+
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.
     public int Pages { get; private set; }
 
