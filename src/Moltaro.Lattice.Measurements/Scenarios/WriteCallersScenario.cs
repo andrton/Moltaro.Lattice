@@ -21,7 +21,11 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // the p99 of the time of a write, to the resolution of the timer, the managed memory the whole process
 // allocated per write (GC.GetTotalAllocatedBytes, so that the threads of the engine count as well as
 // the callers; the readers are not running then), and at the end of the run the largest group the
-// commit stage formed since the database opened (EngineCounters).
+// commit stage formed since the database opened (EngineCounters). Every series also gives, for its
+// window, the collections of each generation, the time the collector paused the process
+// (GC.GetTotalPauseDuration), the bytes the collections promoted out of gen0 and gen1 (CollectorEvents),
+// and how many processors the process and the whole machine kept busy (MachineProcessors), so that a
+// figure shows whether the collector or a machine short of processors is in it.
 //
 // The readers. Sixteen readers, each a thread of its own, read the keys of read-by-key through the
 // class, each from a place of its own in them, as in read-by-key-threads. A series counts the reads of
@@ -208,10 +212,15 @@ internal static class WriteCallersScenario
         Thread.Sleep(WarmUp);
 
         var gen0 = GC.CollectionCount(0);
+        var gen1 = GC.CollectionCount(1);
         var gen2 = GC.CollectionCount(2);
         var allocated = GC.GetTotalAllocatedBytes(precise: true);
         var paused = GC.GetTotalPauseDuration();
         var processor = Process.GetCurrentProcess().TotalProcessorTime;
+        var machine = MachineProcessors.BusyTicks();
+
+        CollectorEvents.Instance.Start();
+
         var started = Stopwatch.GetTimestamp();
 
         Volatile.Write(ref phase, Counting);
@@ -220,11 +229,15 @@ internal static class WriteCallersScenario
 
         var elapsed = Stopwatch.GetElapsedTime(started);
 
+        machine = MachineProcessors.BusyTicks() - machine;
         processor = Process.GetCurrentProcess().TotalProcessorTime - processor;
         paused = GC.GetTotalPauseDuration() - paused;
         allocated = GC.GetTotalAllocatedBytes(precise: true) - allocated;
         gen0 = GC.CollectionCount(0) - gen0;
+        gen1 = GC.CollectionCount(1) - gen1;
         gen2 = GC.CollectionCount(2) - gen2;
+
+        var promoted = CollectorEvents.Instance.Promoted();
 
         foreach (var thread in threads)
         {
@@ -249,10 +262,11 @@ internal static class WriteCallersScenario
         {
             var times = Merged(readTimes);
 
-            parts.Add($"{PerSecond(reads.Sum(), elapsed)} reads/s, read p50 {Microseconds(Percentile(times, 0.50))}, p99 {Microseconds(Percentile(times, 0.99))}");
+            parts.Add($"{PerSecond(reads.Sum(), elapsed)} reads/s, {PerSecond(reads.Sum() / readers, elapsed)} per reader, read p50 {Microseconds(Percentile(times, 0.50))}, p99 {Microseconds(Percentile(times, 0.99))}");
         }
 
-        parts.Add($"collections gen0 {gen0}, gen2 {gen2}, paused {Milliseconds(paused)} ms; processor time of the process {(processor.TotalSeconds / elapsed.TotalSeconds).ToString("F1", CultureInfo.InvariantCulture)} processors");
+        parts.Add($"collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}, paused {Milliseconds(paused)} ms, promoted from gen0 {ReadSeries.Number(promoted.FromGen0 / 1024)} KiB, from gen1 {ReadSeries.Number(promoted.FromGen1 / 1024)} KiB");
+        parts.Add($"processors busy: the process {Processors(processor.Ticks, elapsed)}, the machine {(machine is { } ticks ? Processors(ticks, elapsed) : "not read")}");
 
         return string.Join("; ", parts);
     }
@@ -377,6 +391,9 @@ internal static class WriteCallersScenario
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
 
     private static string Milliseconds(TimeSpan elapsed) => elapsed.TotalMilliseconds.ToString("F1", CultureInfo.InvariantCulture);
+
+    // Busy time in ticks of 100 ns over the window, as a number of processors.
+    private static string Processors(long ticks, TimeSpan elapsed) => (ticks / (double)elapsed.Ticks).ToString("F1", CultureInfo.InvariantCulture);
 
     private static string Microseconds(long ticks) =>
         $"{(ticks * 1_000_000.0 / Stopwatch.Frequency).ToString("F2", CultureInfo.InvariantCulture)} µs";
