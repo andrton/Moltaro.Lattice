@@ -4283,6 +4283,16 @@ and end position".
     replication stream carries stored bytes in the layout and byte order the Hello has
     checked (decided after the studies of S10 and S11)".
 
+**Read by the coordinator on 17 November 2026, with the tests of S11.** The root of a
+Write of the stream carries the sequence of its transaction as its last mutation (point 3
+of the planner's additions), and the child checks it: a Write whose root says otherwise
+is a malformed transaction, refused whole. With that check and consecutive sequences an
+effect not later than the state held cannot arrive after R, so point 9 above has no case:
+the `Faulted` path of a divergence is not built and has no test. A malformed transaction
+after Ready applies nothing and ends the connection; the child stays Ready at its
+position and does not follow again (reconnection is S34), as a child whose arena cannot
+hold a change does.
+
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
 **Carried from S09:** a child forwards the writes of one entity in the order of their
