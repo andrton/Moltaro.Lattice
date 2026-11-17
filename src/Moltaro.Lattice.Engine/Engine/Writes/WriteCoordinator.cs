@@ -58,16 +58,24 @@ namespace Moltaro.Lattice.Engine.Writes;
 // group in the storage step, the chains, the list of the writes admitted that waited, the held list,
 // the write being resolved, the admission number, whether the database faulted, and the counters. It
 // is held for work in memory only: no I/O, no await, no code of the application, no wait for anything
-// but the lock itself. The storage step is called under it and only takes the group (ICommitStorage). It is the only lock of the writes, and a
-// thread that holds it takes no other lock of the database: what a hold decided for other threads —
-// the fault of the database, the outcomes of their writes, the end of a resolution — is carried out
-// after the lock is released (Finish). A read takes none. A write holds the lock while its values are
-// copied into the arena, so one write of a large entity holds every other write back for as long as
-// its copy takes; reads are not held back. The lock is not fair: a caller that releases it and takes
-// it again at once may pass a caller that waited. A gate that lets the callers take it first in first
-// out was measured in S09, part 2 and not kept: it bounded the wait of a small write behind large ones
-// to one large write, but small writes then went no faster than the large ones, and with more threads
-// than processors, 16 writing callers beside 16 readers, the writes all but stopped.
+// but the lock itself. The storage step is called under it and only takes the group (ICommitStorage).
+// It is the only lock of the writes, and a thread that holds it takes no other lock of the database:
+// what a hold decided for other threads — the fault of the database, the outcomes of their writes, the
+// end of a resolution — is carried out after the lock is released (Finish). A read takes none. A write
+// holds the lock while its values are copied into the arena, so one write of a large entity holds
+// every other write back for as long as its copy takes; reads are not held back. The lock is not fair:
+// a caller that releases it and takes it again at once may pass a caller that waited. A gate that lets
+// the callers take it first in first out was measured in S09, part 2 and not kept: it bounded the wait
+// of a small write behind large ones to one large write, but small writes then went no faster than the
+// large ones, and with more threads than processors, 16 writing callers beside 16 readers, the writes
+// all but stopped. What is kept against the unfair hand-over is narrow: a write larger than
+// CommitGroup.MaxEncodedSize, the bound above which a write forms a group alone, gives its processor
+// up once (Thread.Yield) after its call released the lock, so that a caller the release woke can take
+// the lock before the large caller takes it again for its next write. Measured in S09, part 2 on a
+// loaded machine: beside a caller that writes entities of 32 MiB one after another, the p99 of small
+// writes of another caller fell from 105 to 115 ms to 10 to 59 ms, in most rounds one or two holds of
+// a large write; the series of ordinary writes did not move, since a write pays one comparison of its
+// size for it.
 //
 // Why the hand-overs are ordered (the .NET memory model). Everything a write is and has passes between
 // threads only under the lock of the writes, which releases what a thread wrote before it and acquires
@@ -479,6 +487,7 @@ internal sealed class WriteCoordinator
         PendingWrite? write = null;
         LatticeWriteResult result = default;
         Exception? failure = null;
+        var large = false;
 
         lock (_writes)
         {
@@ -506,6 +515,7 @@ internal sealed class WriteCoordinator
                 {
                     result = write.Outcome;
                     failure = write.Failure;
+                    large = write.Prepared?.EncodedSize > CommitGroup.MaxEncodedSize;
 
                     // Nothing refers to the record any more: no other thread saw it, and it was never
                     // registered (see the class).
@@ -541,6 +551,14 @@ internal sealed class WriteCoordinator
 
         if (pass.OwnEnded)
         {
+            // A write larger than a group gives its processor up once after it released the lock (see
+            // the class, "The lock of the writes"), so that a caller woken by that release can take the
+            // lock before this caller takes it again.
+            if (large)
+            {
+                Thread.Yield();
+            }
+
             return Outcome(session, result, failure);
         }
 

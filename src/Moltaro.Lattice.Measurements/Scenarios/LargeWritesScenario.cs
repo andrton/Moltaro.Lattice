@@ -6,10 +6,10 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
-// What one large entity costs the other writers (brief of Epic 1, sprint S09, part 2, "Acceptance,
-// measured"): writes are prepared under the lock of the writes, so a write of an entity of 32 MiB holds
-// that lock while its value is copied into the arena, and every other write waits for it. Part of the
-// scenario write-callers.
+// The scenario large-writes: what one large entity costs the other writers (brief of Epic 1, sprint
+// S09, part 2, "Acceptance, measured"): writes are prepared under the lock of the writes, so a write of
+// an entity of 32 MiB holds that lock while its value is copied into the arena, and every other write
+// waits for it. The series of ordinary writes are those of the scenario write-callers.
 //
 // The database is MemoryOnly, with one entity type of its own, Blob: an Int64 key and a Binary value.
 // Blob 0 is the large entity, of 32 MiB; Blobs 1 to 1,000 are small, with a value of 100 bytes. Every
@@ -24,8 +24,10 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //   the large entity costs the others, and the writes a second of each.
 // The time of every write is kept, up to a bound no window reaches, so that the maximum is the real
 // maximum and not the bound of a histogram.
-internal static class LargeWriteSeries
+internal static class LargeWritesScenario
 {
+    public const string Name = "large-writes";
+
     private const int LargeBytes = 32 * 1024 * 1024;
 
     private const int SmallBytes = 100;
