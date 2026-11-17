@@ -816,8 +816,6 @@ settles. They are approved with the plan, each by name.
   none set by default; they hold for every enumeration and, from S15, every search, with
   one error code and the exceeded limit named in `Limit`. No call carries limits of its
   own (the owner, 16 November 2026).
-- **The number of preparing workers is internal:** 2 places of preparation since S09, no
-  option and no rule of the contract that bounds it.
 - **An address is `lattice://host:port`**, and `ILatticeDatabase.ListenUri` reports the
   address a master actually listens at, so that port 0 can be used.
 - **A field is its identity, its name and its declaration.** `LatticeField` loses `Type`,
@@ -3601,14 +3599,57 @@ it is — the owner chose the first. S09 closes as it is.
   order of calls without a reservation, the reservation goes; the milestone contract,
   "Write coordinator and revision semantics", is then corrected with the sprint — the
   planner sends the text after the study — and the owner has agreed to the direction.
-- **Acceptance, measured** on the scenario of S09, next to S08 and S09: writes a second of
-  one caller not lower than S08 beyond noise; the total of 4 and of 16 callers not lower
-  than that of one caller; reads by key on 16 threads not lower than S09; p99 of a write
-  and bytes allocated per write reported. A figure that misses is handled by the rule of
-  the process: cause, comparison, alternatives, and the owner only if a requirement is
-  missed. If the study finds that no proven path gives more than S09 has under these
-  guarantees, that is the result: it is reported with the evidence and the coordinator
-  of S09 stays.
+- **Acceptance, measured**, as restated by the planner on 17 November 2026 after the study
+  (the line "the total of 4 and of 16 callers not lower than that of one caller" was
+  wrong: no path whose work in memory is serial can meet it, that of S08 and of LMDB
+  included). On the scenario of S09, on a quiet machine, next to S08 and S09: writes a
+  second of one caller not lower than S08 beyond noise; the total of 4 and of 16 callers
+  not lower than that of S08 at the same count; reads by key on 16 threads not lower than
+  S09; bytes allocated per write as S08. Reported: p99 of a write for 1, 4 and 16
+  callers, alone and beside readers; and what a large entity costs the others — how long
+  the lock of the writes is held by one write of 32 MiB, and p99 of small writes of
+  another caller while a caller writes entities of 32 MiB one after another; that pair
+  decides whether a parallel form is ever needed, so it is measured carefully. A figure
+  that misses is handled by the rule of the process. The implementation report also
+  says: that the size of a write is counted by the writer and not walked afterwards; and,
+  in a paragraph on fairness, whether a fair lock was measured and what it cost — the
+  lock is not fair and p99 with 16 callers returns to the 1.8 ms of S08 — kept only if a
+  figure justifies it.
+- **The path, decided after the study** (the planner, 17 November 2026): the path the
+  study recommends, the writer of LMDB with the group commit of PostgreSQL and Pebble at
+  the storage boundary. It is written out in the milestone contract, "Write coordinator
+  and revision semantics", which this sprint corrects. A leader with followers, as in
+  LevelDB, was prototyped and dropped on its figures. Sources read at pinned commits,
+  licences checked first: RocksDB (under Apache-2.0), LevelDB, Valkey, LMDB, Pebble,
+  PostgreSQL, Garnet/Tsavorite; Redis was not opened, its licences are not permissive.
+  What changes in the brief of S09: its Acceptance line "Writes to different entities
+  prepare concurrently and are published in one order of positions" becomes "Writes are
+  prepared and published one at a time, under the lock of the writes, in one order of
+  positions"; "the values of a write are encoded outside the lock of the writes" becomes
+  "a write is prepared under the lock of the writes, in the hold that checks its
+  condition; publication only installs what was prepared"; "Who may touch what", with its
+  three steps and the lock of the coordinator, is withdrawn whole. The refusal for memory
+  keeps its rule, only when a write does not fit beside the stored data: in MemoryOnly no
+  other write holds prepared memory when a caller prepares, so it is the path of S08 —
+  free what is retired, wait for the reads that hold it, retry, refuse — and the
+  resolution alone is kept, in a smaller form, for when the storage step is busy; its
+  tests pass unchanged.
+- **`ICommitStorage.CommitAsync`**, its documentation: "Called under the lock of the
+  writes. The call itself only takes the group: it does not block, performs no I/O and
+  runs no code that waits; whatever takes time is behind the task it returns. A task that
+  is already completed means the group is committed, and the caller publishes it in the
+  same hold. The group and its list belong to the commit stage and are reused: the
+  storage reads them until its task completes and keeps no reference afterwards."
+- **Counters.** `QueuedWrites` keeps its meaning, admitted and not completed. In
+  MemoryOnly `LargestCommitGroup` is 1, and the tests that form larger groups do so
+  through the held storage. Tests of S09 that state the shape that goes are restated by
+  the test author before the implementer starts: `CommitGroupTests.Writes_prepared_while_
+  a_call_runs_the_commit_stage…` (it uses a storage that blocks inside its call, which the
+  rule above forbids: it becomes "writes prepared while the storage step holds a group,
+  whose calls returned their tasks, are dispatched and published by whoever completes the
+  storage step"), `MemoryOnlyPositionsTests` (it waits for a group of more than one write
+  under the storage of MemoryOnly, which never forms: it becomes "sequences are exactly
+  1..N, one per write"), and comments that say which thread holds the lock of the writes.
 - **Carried by this sprint under O16, tests first, as its first commits and independent
   of the study: three findings of an outside review of `main` at `6564720`** (the owner ran
   it on 17 November 2026; no P1, three P2; the planner agrees with all three, and the
@@ -4145,6 +4186,9 @@ otherwise, these replace it.
 
 #### S16 · Unique indexes
 
+**Carried from S09, part 2:** a write whose unique value is held by a prepared,
+unpublished write of another entity waits behind it, as a write to the same entity does.
+
 **Track:** full · **Needs:** S15 · **Owners:** E04, E08
 
 - **Goal.** A value of a unique index has at most one owner, whatever callers do at the
@@ -4343,6 +4387,9 @@ otherwise, these replace it.
 
 #### S23 · Compaction and shrink
 
+**Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
+under the lock of the writes or by the rule this sprint states.
+
 **Track:** full · **Needs:** S22 · **Owners:** E01, E03 · **Closes:** Q17
 
 - **Goal.** A database that changes for a long time with a constant amount of live data
@@ -4468,6 +4515,10 @@ otherwise, these replace it.
   the library, which is excluded by decision.
 
 #### S27 · PostgreSQL provider and Durable open
+
+**Carried from S09, part 2:** the durable storage step is a log writer behind
+`CommitAsync`: the call hands the group over and returns; the commit to PostgreSQL runs
+behind its task.
 
 **Carried from S09:** what a failed storage step means is stated by this sprint: a
 rejection the storage knows to be definite releases the group and leaves the instance
