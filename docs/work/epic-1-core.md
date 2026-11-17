@@ -102,7 +102,15 @@ remembers the keys it has returned, returns no identity twice and every entity n
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
 `ReadTimeLimit`, none set by default, bound the memory and the time of a pass, and no
 call carries limits of its own; every hash of the primary index uses a seed the instance
-draws when it opens. The public entry keeps the refusals of the placeholder until S12.
+draws when it opens. From S09 a write of the engine passes a coordinator: admission, in
+which it takes its place among the writes of its entity; preparation, of several writes
+at once; and commit in one order, in groups of at most 32 writes or 8 MiB handed to a
+storage step, which in MemoryOnly completes at once. Writes to one entity are executed in
+the order of their calls; a write is withdrawn by its token until it is dispatched;
+`MemoryLimit` is the limit of the arena, and a write is refused for memory only when it
+does not fit beside the stored data; a fault of a publication leaves the instance
+`Faulted`. S09, part 2 holds this write path against the proven ones. The public entry
+keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -285,6 +293,24 @@ documentation before this document is removed.
 | S08, part 2 | The same pass beside a writing thread, and with the index growing once during it (about 132,000 entities) | beside replaces 59 to 60 ms; beside inserts and deletes 59 to 61 ms; with a growth 88 to 90 ms in the implementer's first runs, 195 to 240 ms on a loaded machine later; in part 1 the two last failed | development-3 | 16 November 2026 |
 | S08, part 2 | Memory a pass holds per key it has returned, at 100,000 keys | 21.0 bytes for an Int64 key, 41.9 for a Guid, 68.2 for a String of 13 characters; between half and all of that over one doubling of the table | development-3 | 16 November 2026 |
 | S08, part 2 | Reads by key in total, by class, without a writer, the branch against main in alternating runs | 16 threads 14.7 to 15.6 M/s against 14.9; 20 threads 14.9 to 16.2 against 15.6 to 17.1: no difference | development-3 | 16 November 2026 |
+| S09 | Completed writes a second of 1, 4 and 16 calling threads, replaces; three alternating runs against S08 | 1.19 to 1.27 M/s, 0.43 to 0.63 M/s, 0.58 to 0.67 M/s; on S08 1.79 to 1.91 M/s, 1.17 to 1.25 M/s, 1.08 to 1.19 M/s | development-3 | 17 November 2026 |
+| S09 | The same for inserts and deletes | 1.45 to 1.74 M/s, 0.36 to 0.74 M/s, 0.62 to 0.71 M/s; on S08 3.10 to 3.30 M/s, 2.10 to 2.26 M/s, 2.06 to 2.18 M/s | development-3 | 17 November 2026 |
+| S09 | p99 of one write with 16 calling threads; bytes of managed memory allocated per write | 60 to 74 µs against 320 to 700 µs on S08 (1.6 to 2.7 ms beside 16 readers in the review); 160 bytes a replace and 136 an insert or delete for one caller, as on S08, and 350 to 362 with 4 callers, 538 to 543 with 16 | development-3 | 17 November 2026 |
+| S09 | Reads by key in total on 16 threads, alone and beside 1, 4 and 16 writing callers | 19.2 M/s alone against 18.1 to 18.4 on S08; 15.9 to 17.3, 14.7 to 15.5 and 13.8 to 14.7 beside the callers, against 16.9 to 17.9, 16.1 to 17.4 and 15.8 to 16.5 on S08; readers of another database of the process fall alike | development-3 | 17 November 2026 |
+
+The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
+a third to a half for one caller, and several callers write about half of what one writes
+where S08 lost about a third. The cause is the work of the coordinator on every write —
+two locks taken several times where S08 took one, the queue of an identity, and for
+callers that wait a hand-over between threads — and not the number of places of
+preparation: with 16 or 64 places instead of 2 nothing was gained. What the path gives
+for it: the order of calls, cancellation before dispatch, a p99 of a write with many
+callers that is lower, and groups for the storage step of S27. Reads by key did not fall:
+beside writing callers they are about 10% lower, and so are readers of another database,
+so it is the share of the machine. The requirements are 200 writes a second, 10,000 at
+the peak and a p99 of 50 ms; the lowest rate measured is 233,000 a second. The owner
+decided on 17 November 2026 that S09 closes with these figures and that S09, part 2 puts
+the write path on a proven source at once.
 
 The figures of S08, part 2 come from the scenario `enumerate`. Remembering the keys costs
 about a quarter of a pass, about 110 ns an entity; with a limit set a pass also takes
@@ -939,7 +965,7 @@ Why this order:
 | S07 | Every key type and declared value | Full | Done |
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
-| S09 | Write coordinator and write limits | Full | In progress |
+| S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
