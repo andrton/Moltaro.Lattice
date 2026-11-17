@@ -4238,7 +4238,10 @@ and end position".
    carries S, R and the number of roots sent.
 5. **Tail.** A committed transaction is encoded and appended to one shared tail in the
    hold of the lock of the writes that publishes it, in the order of sequences, and only
-   while a child or a capture is registered. It is framed once for all children. Every
+   while a child or a capture is registered. It is encoded once for all children and
+   framed per connection, on that child's sender task, outside every lock: the frame
+   of S10 carries the stream sequence of its connection under its check (corrected on 17
+   November 2026 with the implementation; "framed once for all children" stood here). Every
    child has its own cursor; a loading child is sent its stream after `LoadEnd`, on the
    same connection. The master releases the tail up to the lowest position among its
    children and registered captures. The tail is managed memory outside the instance

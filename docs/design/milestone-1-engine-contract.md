@@ -408,7 +408,8 @@ child sends no success ACK for a partial WriteBatch.
 
 Keep one shared RAM delivery tail. A committed transaction is encoded and appended to it
 in the hold of the lock of the writes that publishes it, in the order of sequences, and
-only while a child or a capture is registered; it is framed once for all children. Every
+only while a child or a capture is registered; it is encoded once for all children and
+framed per connection, on that child's sender task, outside every lock. Every
 child has its own cursor, and the master releases the tail up to the lowest position
 among its children and registered captures. The tail is managed memory outside the
 instance budget, unbounded until S33; a write of the master is never refused or delayed
