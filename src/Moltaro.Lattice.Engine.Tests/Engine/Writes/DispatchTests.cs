@@ -28,7 +28,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   busy. When that preparation is refused by the arena, the write does not go on to wait for the
 //   writes admitted before it: it ends at once, also while an earlier write is held in the storage step.
 //   The write is held while it is being prepared by the allocator of the test (HeldPreparation), at the
-//   moment its values need a new segment of the arena.
+//   moment its values need a new segment of the arena. The test asks for the cancellation while the
+//   preparation is held and lets the preparation go before it waits for the callbacks of the
+//   cancellation, which may need the lock of the writes that the preparation holds.
 // Each write is known by its encoded size, which differs from every other's (PieceTally.SlotBytesOf).
 // Every wait is bounded; the storage releases every commit when a test ends.
 public sealed class DispatchTests
@@ -246,8 +248,9 @@ public sealed class DispatchTests
             var cancelled = Task.Run(() => pieces.InsertAsync(withdrawn, cancellation.Token).AsTask());
 
             await held.HeldAsync();
-            await cancellation.CancelAsync();
+            var cancelling = cancellation.CancelAsync();
             held.Release();
+            await cancelling.WaitAsync(Bound);
 
             // Ended while the earlier write is still held in the storage step.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
@@ -299,8 +302,9 @@ public sealed class DispatchTests
             var cancelled = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: 7 * 1024 * 1024), cancellation.Token).AsTask());
 
             await held.HeldAsync();
-            await cancellation.CancelAsync();
+            var cancelling = cancellation.CancelAsync();
             held.Release();
+            await cancelling.WaitAsync(Bound);
 
             var ended = await Task.WhenAny(cancelled, earlierWrite).WaitAsync(Bound);
 

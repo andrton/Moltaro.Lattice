@@ -14,9 +14,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // - The write whose publication faulted, and the writes of the group after it, fail with
 //   IndeterminateOutcome: the storage step took them and the instance cannot show them. The first of
 //   them carries the injected InvalidOperationException, which names the point, as its InnerException.
-// - Writes prepared and not yet taken by the commit stage, writes waiting for their identity, a write
-//   the arena refused that waits for the writes admitted before it, and a write being prepared fail
-//   with Unavailable: they did not run.
+// - Writes prepared and not yet taken by the commit stage, writes waiting behind a prepared write of
+//   their entity, a write the arena refused that waits for the writes admitted before it, and a write
+//   being prepared fail with Unavailable: they did not run.
 // - The instance is Faulted, every later operation is Unavailable, the close works and returns every
 //   piece of native memory (CountingNativeAllocator), and with it whatever the writes held.
 // The storage step of the test (HeldCommitStorage) holds the group of three replaces while the test
@@ -34,7 +34,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // lock of the writes meanwhile, so the fault comes from the storage step, which fails the group it
 // holds, as a storage step fails that cannot tell whether it committed (brief of S09, the block after
 // the implementation: the whole group is IndeterminateOutcome and the database Faulted), rather than
-// from a publication, which needs that lock. Every wait is bounded.
+// from a publication, which needs that lock. The test fails the storage step while the preparation is
+// held and lets the preparation go before it looks at any outcome: whoever completes the storage step
+// may need the lock of the writes to end its group. Every wait is bounded.
 public sealed class FaultedGroupTests
 {
     private const int Mebibyte = 1024 * 1024;
@@ -169,17 +171,16 @@ public sealed class FaultedGroupTests
 
             await held.HeldAsync();
             heldCommit.Fail(new IOException("The test failed the storage step: whether it committed is unknown."));
+            held.Release();
 
             var indeterminate = await Assert.ThrowsAsync<LatticeException>(() => grouped.WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, indeterminate.Error);
-            Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
-
-            held.Release();
 
             var unavailable = await Assert.ThrowsAsync<LatticeException>(() => prepared.WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
+            Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
             Assert.Equal(LatticeErrorEnum.Unavailable, Assert.Throws<LatticeException>(() => pieces.Get(1L)).Error);
         }
         finally

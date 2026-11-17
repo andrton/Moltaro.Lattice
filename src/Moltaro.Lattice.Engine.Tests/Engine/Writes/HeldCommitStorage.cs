@@ -12,11 +12,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // once and is not given there. Every call is recorded (HeldCommit), so that a test can state what
 // each group held.
 //
-// A held commit completes as a storage step completes that waits: its task completes later, and the
-// commit stage goes on where it completes. HoldNextInCall holds the next commit instead inside the
-// call of the storage step, on the thread of the commit stage, and the call then returns a task that
-// has completed, as a storage step does that completes at once: the commit stage goes on on the thread
-// that runs it, which may be the thread of a call.
+// Its call only takes the group, as the storage step has to (ICommitStorage.CommitAsync; brief of S09,
+// part 2): it records the group and returns a task, and never blocks or waits inside the call. A held
+// commit completes as a storage step completes that waits: its task completes later, when the test
+// releases it from a thread of its own, and whoever completes the storage step goes on from there. A
+// commit that is not held returns a task that has completed, as the storage step of MemoryOnly does.
 //
 // It assigns positions as the storage of MemoryOnly does: the first group of a new database takes the
 // sequence 1, and every group the sequences after the last one of the group before it, one for each
@@ -40,8 +40,6 @@ internal sealed class HeldCommitStorage : ICommitStorage
 
     private bool _holding;
 
-    private bool _holdNextInCall;
-
     // A storage that holds every commit from the start, or one that completes every commit at once
     // until Hold is called.
     public HeldCommitStorage(bool holding = true)
@@ -64,17 +62,14 @@ internal sealed class HeldCommitStorage : ICommitStorage
     public async ValueTask<CommitOutcome> CommitAsync(CommitGroup group, CancellationToken cancellationToken)
     {
         HeldCommit commit;
-        bool inCall;
 
         lock (_lock)
         {
             commit = new HeldCommit([.. group.Writes.Select(write => write.EncodedSize)], _next);
             _next += (ulong)commit.Count;
             _commits.Add(commit);
-            inCall = _holdNextInCall;
-            _holdNextInCall = false;
 
-            if (_holding || inCall)
+            if (_holding)
             {
                 _arrived.Writer.TryWrite(commit);
             }
@@ -84,16 +79,9 @@ internal sealed class HeldCommitStorage : ICommitStorage
             }
         }
 
-        if (inCall)
-        {
-            // On the thread of the commit stage, until the test releases it; then the call returns a
-            // task that has completed. A failure the test gives the commit passes through.
-            commit.Released.GetAwaiter().GetResult();
-        }
-        else
-        {
-            await commit.Released.ConfigureAwait(false);
-        }
+        // Completed at once when the commit is not held; a failure the test gives the commit passes
+        // through.
+        await commit.Released.ConfigureAwait(false);
 
         return new CommitOutcome(commit.FirstSequence);
     }
@@ -107,23 +95,12 @@ internal sealed class HeldCommitStorage : ICommitStorage
         }
     }
 
-    // The next commit waits inside the call of the storage step until the test releases it (see the
-    // class), whether or not the storage holds.
-    public void HoldNextInCall()
-    {
-        lock (_lock)
-        {
-            _holdNextInCall = true;
-        }
-    }
-
     // Releases every commit held now, and from now on every commit completes at once.
     public void ReleaseAll()
     {
         lock (_lock)
         {
             _holding = false;
-            _holdNextInCall = false;
 
             foreach (var commit in _commits)
             {
