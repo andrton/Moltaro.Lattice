@@ -4476,6 +4476,63 @@ says otherwise, these replace it.
 
 #### S13 · Text entries and Dictionary strings
 
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **No gate of its own.** The text table is looked up by content only by a write, under
+   the lock of the writes; a read reaches a text through the reference its root holds,
+   inside the protection of reads, and never looks up by content. The candidate to hold
+   the study against: a plain hash table changed and searched under the lock of the
+   writes alone, entries reached by readers directly, an entry retired when its last
+   reference goes and freed by the deferred reclamation. "Use one dictionary gate
+   initially" in the milestone contract is withdrawn by the decision of 16 November.
+2. **Generations.** "Handles carry generations" guarded a rebinding that deferred
+   reclamation may already exclude: a root is never changed in place and an entry is not
+   freed while a read that could see it is inside. The study says whether a generation is
+   still needed and for what; it is not built because the brief of 14 November lists it.
+3. **Counts.** Stored, prepared and index references are changed only under the lock of
+   the writes. A write prepared and then withdrawn, cancelled or ended by a fault releases
+   what it took; a test states it with the held storage.
+4. **A child.** Text travels as bytes with its root, in the load format, for a copy and
+   for an effect of the stream; the child stores each distinct text once through its own
+   table. "A child loads shared text once" means once in its memory. Whether the wire
+   carries a repeated text once is decided by the figure of the study (bytes on the wire
+   for the measured case), by transfer ids that are not addresses if at all.
+5. **Study, before the contract step:** how an established store keeps equal values once
+   with counted references under one changing thread and concurrent readers — Valkey
+   (shared objects, reference counts), DuckDB (dictionary strings; MIT), ClickHouse
+   (LowCardinality; Apache-2.0), Arrow (dictionary encoding; Apache-2.0). Questions: where
+   the count lives, when an entry is freed, what a reader pays to reach the text, what a
+   write pays to find it.
+6. **Measured, added:** a read by key of an entity with a Dictionary field next to the
+   same entity with a Plain field, 1 and 16 threads — a Dictionary read that is slower
+   beyond noise is a finding (reads win over writes); writes a second with the field as
+   Plain and as Dictionary.
+
 **Carried from S10:** what travels to a child holds no address and no block number; the
 child stores received bytes through its own allocation.
 
@@ -4499,6 +4556,80 @@ child stores received bytes through its own allocation.
 - **Out of scope.** Moving text during compaction (S23). Index keys (S14–S15).
 
 #### S14 · Secondary indexes and exact search
+
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **The structure is not decided.** The milestone contract names `Arc.Collections`
+   `OrderedMultiMap` "until the contract of S14 reviews it"; that structure needs a lock
+   around every reader, which the rule above excludes. By the owner's word of 16 November
+   the default is a structure of the engine's own after a named open-source one. Study,
+   as the first step: ordered structures with one changing thread and readers that take
+   no lock — the skip list of LevelDB/RocksDB memtables (BSD / Apache-2.0), the
+   copy-on-write B+tree of LMDB (OpenLDAP licence), a B+tree with optimistic versions
+   (LeanStore, MIT), the adaptive radix tree (DuckDB, MIT); and, for contrast,
+   `OrderedMultiMap` behind a reader-writer protection, measured, not assumed. For each:
+   bytes per entry for the fixture's indexes, read rate on 1 and 16 threads beside a
+   writer, the cost of an insert and a delete, how a removed node is reclaimed, how a
+   range is walked while it changes. The planner takes the result to the owner with the
+   scope before the contract step ends: it changes an accepted line (index structures),
+   the row of `AGENTS.md` on the engine and `Arc.Collections`, and the package reference.
+2. **Entries are unique by (index key, identity of the entity):** the candidate that makes
+   a group of equal keys an ordered run, which S15 needs. The study confirms or replaces
+   it.
+3. **What a search guarantees,** restated for readers without a lock: an entry is a hint;
+   the search reads the root and returns it only if its current state has the searched
+   key. So "a reader never finds an entity under a key it no longer has" holds by that
+   check, and an entity that had the key for the whole search is found. "One publication"
+   means: the entries of a write are installed in the hold of the lock that publishes its
+   root.
+4. **Preparation.** Nodes and text are taken in the hold that prepares the write and
+   released if it is withdrawn; with the storage step busy a prepared, unpublished write
+   holds them and no reader can reach them. "Staging/removing package nodes" leaves the
+   milestone text with the package.
+5. **Comparison** is the one service built in S07 (`ValueComparer`), with the case table
+   of the core (Q46). The milestone paragraph "initial UTF-8 IgnoreCase comparisons decode
+   into pre-reserved UTF-16 scratch and use .NET ordinal span comparison … Do not
+   substitute … an unverified custom case-folding algorithm" is stale since Q46 and is
+   replaced now, under O16, with "Comparison without case uses the versioned case table of
+   the core ([strings](../decisions/strings.md), Q46), the same on every node; no .NET
+   culture or runtime table takes part."
+6. **The contract is not only "Exists".** `IndexKey.Equal<T…>` is generic in its signature
+   and stores its values as `object` in an array: a box per value and two objects per
+   search. The contract step measures a search by a full key and decides the form of
+   `IndexKey` and `IndexBound` so that building a key boxes nothing, as it did for the key
+   by name in S09, part 2; the Measured line "allocates its result and nothing per
+   comparison" includes the key. A change of the two types is a contract commit of this
+   sprint.
+7. **A child** builds its indexes while it loads and keeps them while it follows; an index
+   entry the stream contradicts is the divergence of S11 and faults the child.
+8. **Measured, added:** exact search on 1 and 16 threads, alone and beside a writer;
+   writes a second of the fixture's users with 0, 1 and all their indexes; bytes per index
+   entry; the read by key on 16 threads not lower than before the sprint.
 
 **Track:** full · **Needs:** S13 · **Owners:** E04, E08
 
@@ -4526,6 +4657,52 @@ child stores received bytes through its own allocation.
   (S15). Uniqueness (S16).
 
 #### S15 · Ranges, order, paging and the binding rules
+
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **Traversal after the enumeration of S08, part 2:** nothing is held between two steps —
+   no node, no cursor of a package, no slot of the protection. A step enters the
+   protection, seeks after the last returned (key, identity), returns the next, leaves.
+   With entries unique by (key, identity) a traversal under change returns no identity
+   twice and every unchanged match without remembering what it visited; the paragraph of
+   the milestone contract on a "managed package-node cursor", an "index mutation version"
+   and "inclusive reseek skipping visited identities" is rewritten by this sprint after
+   the structure of S14. If the structure cannot seek so, the study of S14 says it and
+   the remembered set stays.
+2. **Limits:** `ReadMemoryLimit` bounds what a traversal remembers (the last key; a set
+   only if point 1 fails), `ReadTimeLimit` the engine time of its steps; a cancellation is
+   reported before a limit (finding 2 of the outside review).
+3. **Binding.** A value is bound once to the type of its field without a box, in the form
+   S14 gave `IndexKey`/`IndexBound`; the allowlist is unchanged.
+4. **Text order** is the order of `ValueComparer`; "in UTF-8 and in UTF-16 databases"
+   stays as the acceptance says.
+5. **Measured, added:** a range that returns 100 entities on 1 and 16 threads, alone and
+   beside a writer; a page deep in a range (Offset 10,000) next to the first page.
 
 **Track:** full · **Needs:** S14 · **Owners:** E04, E08
 
