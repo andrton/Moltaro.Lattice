@@ -940,6 +940,7 @@ Why this order:
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | In progress |
+| S09, part 2 | The write path after a proven source | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
@@ -3527,6 +3528,59 @@ otherwise, these replace it.
   larger than a group forms one alone; what is counted (`PreparedBytes`, no
   `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
   ignores `MemoryLimit` until S12.
+
+#### S09, part 2 · The write path after a proven source
+
+**Track:** full, two reviewers · **Needs:** S09 · **Decided by:** the owner, 17 November
+2026, in the planner's session. The owner read the figures of S09 and the comparison with
+the industry and asked why the approaches of the industry are not simply repeated to keep
+writes as fast as they can be. For reads the sources were studied and repeated; the
+coordinator of S09 — a queue per identity, places of preparation, a commit stage — came
+from the design documents, written before any measurement, and was never held against a
+working system. Of three ways — this sprint now, the question left until S27, or left as
+it is — the owner chose the first. S09 closes as it is.
+
+- **Goal.** Writes keep every guarantee of S09 and follow a write path that an
+  established system with one order of writes uses; several callers write no less in
+  total than one.
+- **Step 1, a study, before any code** — as in S08, part 1. The implementer reads the
+  source, not summaries, of: the write group of RocksDB (the write thread: joining a
+  group, leader and followers, the pipelined form); the execution of commands on one
+  thread in Valkey; the single writer of LMDB; and Tsavorite for contrast. For each it
+  writes what the system guarantees about the order of writes and about conditions
+  (insert only if absent, an expected revision), what it costs per write, and what it
+  does when a log has to be written first. It then proposes the path for Lattice and says
+  for each guarantee of S09 how the path keeps it, and in a paragraph each how the batch
+  of S17 (all its entities at one position), the partial update of S20 (which needs the
+  current state) and the durable storage step of S27 fit. The coordinator and the planner
+  read the report before anything is built. Licences by the rule of the process: each is
+  checked at the commit read; where a project offers several, the permissive one is
+  taken; a source under a licence that is not permissive is not opened.
+- **What does not move.** The public contract of S09 and its Acceptance: the order of
+  writes to one entity with its sentence on the wait of a session, consecutive positions,
+  cancellation before dispatch and not after, the rule of when a write is refused for
+  memory, the faults and what each caller sees, a close that is complete, no managed copy
+  of an input, `ICommitStorage` as the boundary of the storage step and the bounds of a
+  group it is handed. The scenario tests of S09 pass with their assertions unchanged. A
+  test of the engine that states the internal shape of the coordinator and not a
+  guarantee — what `QueuedWrites` counts, how many writes are prepared at once — is
+  reported and restated by the test author.
+- **What may go.** The queue per identity, its dictionary, the places of preparation, the
+  number of acquisitions of the two locks: whatever the proven path does not need. If
+  conditions are checked when a write is published, as in S08, and the path keeps the
+  order of calls without a reservation, the reservation goes; the milestone contract,
+  "Write coordinator and revision semantics", is then corrected with the sprint — the
+  planner sends the text after the study — and the owner has agreed to the direction.
+- **Acceptance, measured** on the scenario of S09, next to S08 and S09: writes a second of
+  one caller not lower than S08 beyond noise; the total of 4 and of 16 callers not lower
+  than that of one caller; reads by key on 16 threads not lower than S09; p99 of a write
+  and bytes allocated per write reported. A figure that misses is handled by the rule of
+  the process: cause, comparison, alternatives, and the owner only if a requirement is
+  missed. If the study finds that no proven path gives more than S09 has under these
+  guarantees, that is the result: it is reported with the evidence and the coordinator
+  of S09 stays.
+- **Out of scope.** The durable step (S27), the batch (S17), a second path for
+  MemoryOnly.
 
 ### Stage 3. Master and children
 
