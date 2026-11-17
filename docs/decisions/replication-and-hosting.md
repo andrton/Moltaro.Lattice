@@ -206,7 +206,9 @@ second full arena.
 **Amended on 17 November 2026 by the owner, after the study of Epic 1, sprint S11.** The
 temporary deletion metadata is withdrawn: point 2 as a whole, "temporary deletion
 metadata" in the opening paragraph, and "catalog-retention claim and deletion watermarks"
-in point 6. A capture retains nothing: no control slot is kept from reuse, no deleted
+in point 6, and, in the paragraph that follows this amendment, "catalog/deletion
+metadata" and the sentence on temporary unreusable slots; what stays of that paragraph is
+that pending changes and the buffers of a load are finite or counted. A capture retains nothing: no control slot is kept from reuse, no deleted
 entry keeps its key or deletion revision, and no deletion watermark travels. What remains
 of the watermark of a root is the sequence of its last mutation, which every root already
 carries. The rule that replaces them:
