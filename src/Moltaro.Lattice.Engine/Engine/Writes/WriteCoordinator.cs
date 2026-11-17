@@ -135,6 +135,24 @@ namespace Moltaro.Lattice.Engine.Writes;
 // switch of the tests runs at the first wait of the resolution of a write, whichever it is
 // (HoldNextRefusedWriteWait).
 //
+// What a write allocates. The coordinator allocates a record for a write, PendingWrite, with the value
+// source of its task and the PreparedWrite it owns, and nothing else: the identities, the lists and the
+// queues are links of the records, and a write that waits is handed to the thread pool as its own work
+// item. A token that can be cancelled adds its registration. A record is reused: one is kept for the
+// next write when a write its call published ends, its token could not be cancelled, and the call
+// returns the result itself instead of the task. Nothing refers to such a record any more then: its
+// call ran the commit stage that published it and has left it (CompleteGroup), no queue, chain or list
+// holds it, no registration can run, and its group is formed anew before it is read again. Every other
+// write keeps its record, which its task, its registration or another thread may still read, and the
+// collector takes it. The same pattern as the value-task sources the runtime reuses for its sockets.
+// Measured with write-callers on the development machine, three alternating runs each: a lone caller's
+// write allocates 160 bytes in the whole process instead of 488 for a replace, and 136 instead of 464
+// for an insert and a delete, all of them the caller's own (the values the core takes, the task the
+// scenario makes), as before S09; the collections of generation 0 in a window of 2 s fell from 94 to 129
+// to 30 to 37. With 4 callers a write allocates 350 to 362 bytes instead of 507, with 16 as before, 538
+// to 543, since most of their writes wait. The writes a second and the reads beside them did not move
+// beyond noise.
+//
 // A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
 // storage step or of a publication faults the database: reads are refused from then on, a read that
 // retries on the mark of the publication that failed gives up, and the waits for a position end
@@ -215,6 +233,10 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
     private int _largestGroup;
 
     private long _largestGroupBytes;
+
+    // A record of a write that served a write its call published, kept for the next write (see the
+    // class, "What a write allocates"); null when none is kept. Taken and given back by exchange.
+    private PendingWrite? _spare;
 
     // What the next write the arena refused runs at the first wait of its resolution, for the tests of
     // the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it. Only a refused
@@ -419,8 +441,10 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
             return ValueTask.FromException<LatticeWriteResult>(exception);
         }
 
-        var write = new PendingWrite(this, table, kind, key, values, expectedRevision, session, cancellationToken);
+        var write = Interlocked.Exchange(ref _spare, null) ?? new PendingWrite(this);
         var prepareHere = false;
+
+        write.Begin(table, kind, key, values, expectedRevision, session, cancellationToken);
         bool faulted;
 
         lock (_lock)
@@ -477,6 +501,17 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         if (prepareHere)
         {
             RunPreparation(write, inline: true);
+
+            // A write its call published, whose token cannot be cancelled, is referred to by nothing
+            // any more (see the class): the call returns its result, and the record serves the next
+            // write.
+            if (!cancellationToken.CanBeCanceled && write.TryTakeResult(out var result))
+            {
+                write.Reset();
+                Volatile.Write(ref _spare, write);
+
+                return new ValueTask<LatticeWriteResult>(result);
+            }
         }
 
         return write.Task;
@@ -1099,6 +1134,12 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         for (var index = 0; index < writes.Count; index++)
         {
             var prepared = writes[index];
+
+            // The write of the call that runs the stage, which the call may take the result of itself.
+            if (ReferenceEquals(prepared.Write, own))
+            {
+                own.PublishedByItsCall = true;
+            }
 
             Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete));
         }

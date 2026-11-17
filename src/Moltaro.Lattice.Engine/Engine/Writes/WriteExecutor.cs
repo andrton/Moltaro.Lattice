@@ -122,7 +122,7 @@ internal sealed class WriteExecutor
 
         if (write.Kind == WriteKindEnum.Delete)
         {
-            prepared = exists ? PrepareDelete(write, handle) : new PreparedWrite(write, PublicationKindEnum.NothingToDelete, default, default, 0);
+            prepared = exists ? PrepareDelete(write, handle) : write.Prepare(PublicationKindEnum.NothingToDelete, default, default, 0);
 
             return true;
         }
@@ -297,7 +297,7 @@ internal sealed class WriteExecutor
             _retired.Reserve();
         }
 
-        return new PreparedWrite(write, PublicationKindEnum.Delete, handle, default, 0);
+        return write.Prepare(PublicationKindEnum.Delete, handle, default, 0);
     }
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
@@ -331,7 +331,7 @@ internal sealed class WriteExecutor
             throw;
         }
 
-        prepared = new PreparedWrite(write, PublicationKindEnum.Replace, handle, root, RootStorage.SlotBytes(_arena, table.Layout!, root));
+        prepared = write.Prepare(PublicationKindEnum.Replace, handle, root, RootStorage.SlotBytes(_arena, table.Layout!, root));
 
         return true;
     }
@@ -368,7 +368,7 @@ internal sealed class WriteExecutor
                 table.Reserve(write.Key);
             }
 
-            prepared = new PreparedWrite(write, PublicationKindEnum.Insert, handle, root, RootStorage.SlotBytes(_arena, layout, root));
+            prepared = write.Prepare(PublicationKindEnum.Insert, handle, root, RootStorage.SlotBytes(_arena, layout, root));
 
             return true;
         }
