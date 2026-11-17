@@ -71,11 +71,15 @@ namespace Moltaro.Lattice.Engine.Writes;
 // all but stopped. What is kept against the unfair hand-over is narrow: a write larger than
 // CommitGroup.MaxEncodedSize, the bound above which a write forms a group alone, gives its processor
 // up once (Thread.Yield) after its call released the lock, so that a caller the release woke can take
-// the lock before the large caller takes it again for its next write. Measured in S09, part 2 on a
-// loaded machine: beside a caller that writes entities of 32 MiB one after another, the p99 of small
-// writes of another caller fell from 105 to 115 ms to 10 to 59 ms, in most rounds one or two holds of
-// a large write; the series of ordinary writes did not move, since a write pays one comparison of its
-// size for it.
+// the lock before the large caller takes it again for its next write. It makes that pass rarer and
+// does not bound it: Thread.Yield gives the processor only to a thread ready on the same one, and the
+// lock lets arriving callers pass a waiting one until that one has waited 100 ms
+// (System.Threading.Lock). Measured in S09, part 2, with and without it alternated on a machine with
+// other load, beside a caller that writes entities of 32 MiB one after another: the p99 of the small
+// writes of another caller was 98 to 115 ms in 12 of 14 rounds without it, a few µs in the other two,
+// and with it below 18 ms in 10 of 15 rounds and 24 to 59 ms in the others; the maximum stayed at 110
+// to 125 ms either way. The series of ordinary writes did not move, since a write pays one comparison
+// of its size for it.
 //
 // Why the hand-overs are ordered (the .NET memory model). Everything a write is and has passes between
 // threads only under the lock of the writes, which releases what a thread wrote before it and acquires
