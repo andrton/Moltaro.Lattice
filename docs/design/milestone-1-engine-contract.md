@@ -451,12 +451,11 @@ is applied whole: one of its effects can be skipped while another is applied, an
 transaction is never skipped whole by the sequence of one effect. The clock of a loading
 child starts at S; no reads are enabled until the complete state and local indexes cover
 R, and the child is Ready when it has applied R. Live changes after R continue through
-the same ordered application path. After R an effect not later than the state held is a
-broken invariant, not lag: the child becomes Faulted, the connection is closed and every
-operation is Unavailable with the reason in the message (decided after the study of
-S11). The bootstrap experiment tested the earlier state-selection model with deletion
-watermarks, which the owner withdrew on 17 November 2026; binary/shared-block
-integration remains a release test.
+the same ordered application path. A Write of the stream whose root does not carry the
+sequence of its transaction is refused with its whole transaction. The bootstrap
+experiment tested the earlier state-selection model with deletion watermarks, which the
+owner withdrew on 17 November 2026; binary/shared-block integration remains a release
+test.
 
 **Decided by the owner on 14 November 2026:** children that start together are loaded
 in parallel, not one after another. A deployment of 5–10 children has to come up on

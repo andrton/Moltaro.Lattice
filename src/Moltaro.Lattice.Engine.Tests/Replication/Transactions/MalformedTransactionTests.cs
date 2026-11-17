@@ -10,11 +10,13 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // A transaction a child receives is checked by the check of its frames, its announced length and its
 // sequence, which follows the one before, and what its effects carry is checked before it is used
 // (brief of Epic 1, sprint S11, Acceptance: the encoding "refuses malformed input"; decided after the
-// study, point 6). A malformed transaction is refused whole: nothing of it is applied, also not a valid
-// effect before the one that is not, and nothing after it either, since the child cannot apply a later
+// study, point 6). The root of a Write carries the sequence of its transaction as its last mutation, and
+// one that carries an earlier or a later sequence is malformed (the coordinator's decision of 17 November
+// 2026). A malformed transaction is refused whole: nothing of it is applied, also not a valid effect
+// before the one that is not, and nothing after it either, since the child cannot apply a later
 // transaction without it. The child ends its connection, as for a frame that is not valid (S10), and
 // keeps serving its reads at the position it had, Ready: it stops following, as it does when its arena
-// cannot hold a change; it is not Faulted, which is for a stream that diverges (DivergenceTests).
+// cannot hold a change.
 //
 // The master is real and holds one root the test can find in a frame (MarkedRoot); the child loads it
 // and is Ready. A relay (FrameRelay) changes the first transaction the master sends after that — in the
@@ -33,6 +35,8 @@ public sealed class MalformedTransactionTests
         new("an unknown type id in a Delete"),
         new("a Write whose root has a descriptor that does not match its length"),
         new("a Write whose root announces fewer bytes than it holds"),
+        new("a Write whose root carries an earlier sequence than its transaction"),
+        new("a Write whose root carries a later sequence than its transaction"),
         new("a frame whose check is wrong"),
         new("a valid Write followed by an invalid one in the same transaction"),
     ];
@@ -153,6 +157,14 @@ public sealed class MalformedTransactionTests
                 BinaryPrimitives.WriteUInt64LittleEndian(effects.AsSpan(1), rootLength - 1);
                 break;
 
+            case "a Write whose root carries an earlier sequence than its transaction":
+                SetLastMutation(effects, sequence, sequence - 1);
+                break;
+
+            case "a Write whose root carries a later sequence than its transaction":
+                SetLastMutation(effects, sequence, sequence + 1);
+                break;
+
             case "a frame whose check is wrong":
                 return frame.WithDamagedCheck();
 
@@ -175,6 +187,16 @@ public sealed class MalformedTransactionTests
         DamageDescriptor(damaged);
 
         return first.WithPayload(TransactionPayload.Make(sequence, [.. TransactionPayload.EffectsOf(first), .. damaged]));
+    }
+
+    // The last mutation of the root of the Write, which the master wrote as the sequence of the
+    // transaction, becomes the one given.
+    private static void SetLastMutation(byte[] effects, ulong sequence, ulong lastMutation)
+    {
+        Assert.Equal(TransactionPayload.Write, effects[0]);
+        Assert.Equal(sequence, BinaryPrimitives.ReadUInt64LittleEndian(effects.AsSpan(TransactionPayload.WriteLastMutationAt)));
+
+        BinaryPrimitives.WriteUInt64LittleEndian(effects.AsSpan(TransactionPayload.WriteLastMutationAt), lastMutation);
     }
 
     // Name is inline and 4 bytes long; a chunked value is longer than a block of its own holds.

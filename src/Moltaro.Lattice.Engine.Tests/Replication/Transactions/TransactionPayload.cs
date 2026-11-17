@@ -18,12 +18,14 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // - Its effects follow one another until the announced length, each a kind (one byte, EffectKindEnum)
 //   and what that kind carries: a Write (1) the root as a load sends it, its length (UInt64) and then its
 //   bytes — type id (UInt32), last mutation sequence (UInt64), layout version (UInt32), root payload,
-//   values out of line —, where a master writes the sequence of the transaction as the last mutation; a
-//   Delete (2) the type id (UInt32) and then the key, in a form the tests do not read; a write that
-//   changed nothing, Unchanged (3), nothing more.
-// - The state of a key that an effect carries has a sequence: for a Write the last mutation of its root,
-//   as for a copy, so that a child applies a copy and a Write by one rule; for a Delete the sequence of
-//   its transaction.
+//   values out of line —; a Delete (2) the type id (UInt32) and then the key, in a form the tests do not
+//   read; a write that changed nothing, Unchanged (3), nothing more.
+// - The root of a Write carries the sequence of its transaction as its last mutation (the planner's
+//   block of 17 November 2026, point 3), and a child checks it on receipt: a Write whose root carries
+//   another sequence is a malformed transaction, refused whole (the coordinator's decision of
+//   17 November 2026). The state of a key that an effect carries has the sequence of its transaction,
+//   for a Write and a Delete alike; during a load the rule compares the last mutation of each root
+//   copied with the state the child holds, as before.
 // - The payload of Applied is the sequence up to which the child has applied all it has received
 //   (UInt64).
 // - The payload of LoadEnd carries S, R and the number of roots sent (LoadEndPayload).
