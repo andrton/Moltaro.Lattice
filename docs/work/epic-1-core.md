@@ -966,7 +966,7 @@ Why this order:
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | Done |
-| S09, part 2 | The write path after a proven source | Full | Not started |
+| S09, part 2 | The write path after a proven source | Full | In progress |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
