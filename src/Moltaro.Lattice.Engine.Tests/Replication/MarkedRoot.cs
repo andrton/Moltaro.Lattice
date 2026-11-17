@@ -4,10 +4,11 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
+namespace Moltaro.Lattice.Engine.Tests.Replication;
 
-// A root whose parts a test can find in a frame of a load without the encoding of the frame, so that it
-// can damage one part of it on its way to a child. By the planner's decision of 17 November 2026 after
+// A root whose parts a test can find in a frame of a load, or in a frame of a transaction that carries it
+// in a Write (Transactions), without the encoding of the frame, so that it can damage one part of it on
+// its way to a child. By the planner's decision of 17 November 2026 after
 // the study of S10 (point 2) a root travels as its type id, its last mutation sequence, its layout
 // version, the bytes of its root payload and then the bytes of each value stored out of line; the
 // stored bytes travel as they are. Two values mark the root:
@@ -20,7 +21,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 //   they travel.
 // The key Code is a short text, inline, as Name is; Note a nullable text, inline and not null; Data a
 // Binary value of 1,000 zero bytes, in a block of its own, which travels last, so the root ends where its
-// bytes end.
+// bytes end. Every record of the tests has these values but for its key, so that a frame that holds one
+// root holds each mark once.
 internal static class MarkedRoot
 {
     public const uint TypeId = 0x5EFE0001;
@@ -47,9 +49,11 @@ internal static class MarkedRoot
 
     public static LatticeEntityType EntityType => Schema.EntityTypes.Single();
 
-    public static LatticeRecord Record() => new(EntityType)
+    public static LatticeRecord Record() => Record("code");
+
+    public static LatticeRecord Record(string code) => new(EntityType)
     {
-        ["Code"] = "code",
+        ["Code"] = code,
         ["Marker"] = Marker,
         ["Name"] = "name",
         ["Note"] = "a note",

@@ -1,10 +1,10 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
-// Values for every field of EveryType, for the test that a child loads every scalar type as its master
-// holds it. For each type the list holds its extremes and its special values: NaN, both infinities,
+// Values for every field of EveryType, for the tests that a child loads every scalar type as its master
+// holds it (Loading) and applies every scalar type as its master writes it (Following). For each type the list holds its extremes and its special values: NaN, both infinities,
 // negative zero and the smallest subnormal of the floating types; a Decimal with its scale and a
 // negative zero; the first and the last instant, date, time of day and duration; an empty text, text of
 // four bytes a character and text long enough to lie in chunks; an empty Binary value, one in a block of

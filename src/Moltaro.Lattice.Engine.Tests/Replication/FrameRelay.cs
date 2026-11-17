@@ -8,11 +8,17 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // than once. What the child sends passes unchanged. The link keeps every frame each side sent, in the
 // order it arrived, so that a test can read the handshake and the frames of a load. The frames of the
 // master are those a node of the engine wrote, so their lengths are trusted; a change runs on the thread
-// of the copy, and an assertion that fails in it ends the link and fails DisposeAsync.
+// of the copy, and an assertion that fails in it ends the link and fails DisposeAsync. A test learns
+// that the connection of the child has ended — the child closed or reset it, or the link was cut —
+// from ChildEndedAsync.
 internal sealed class FrameRelay : IAsyncDisposable
 {
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
     // Guards what the copies keep, which a test reads from its own thread.
     private readonly Lock _lock = new();
+
+    private readonly TaskCompletionSource _childEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly List<WireFrame> _fromMaster = [];
 
@@ -61,6 +67,10 @@ internal sealed class FrameRelay : IAsyncDisposable
     // A relay that passes, in the place of each frame of the master, the frames the change returns.
     public static FrameRelay Start(Uri masterUri, Func<WireFrame, IEnumerable<WireFrame>> change) => new(masterUri, change);
 
+    // Completes once the copy from the child has ended: the child ended its connection, or the link was
+    // cut or ended; fails when that has not happened within the bound.
+    public Task ChildEndedAsync() => _childEnded.Task.WaitAsync(Bound);
+
     public ValueTask DisposeAsync() => _link.DisposeAsync();
 
     private async Task CopyToChildAsync(Socket master, Socket child, CancellationToken cancellationToken)
@@ -100,21 +110,28 @@ internal sealed class FrameRelay : IAsyncDisposable
     {
         var buffer = new byte[64 * 1024];
 
-        while (true)
+        try
         {
-            var read = await child.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
-
-            if (read == 0)
+            while (true)
             {
-                return;
-            }
+                var read = await child.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
 
-            lock (_lock)
-            {
-                _fromChild.AddRange(buffer.AsSpan(0, read));
-            }
+                if (read == 0)
+                {
+                    return;
+                }
 
-            await LoopbackLink.SendAsync(master, buffer.AsMemory(0, read), cancellationToken);
+                lock (_lock)
+                {
+                    _fromChild.AddRange(buffer.AsSpan(0, read));
+                }
+
+                await LoopbackLink.SendAsync(master, buffer.AsMemory(0, read), cancellationToken);
+            }
+        }
+        finally
+        {
+            _childEnded.TrySetResult();
         }
     }
 }

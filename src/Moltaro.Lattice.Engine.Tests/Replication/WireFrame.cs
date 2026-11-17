@@ -13,8 +13,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // body, as MaxDataBody includes the check, so that a frame takes 32 bytes and its body length. The
 // payload is the body without its check: what FrameCodec.Write is given and FrameCodec.TryRead returns.
 //
-// The With… members return a copy with one thing wrong and, unless the check is the thing, a check made
-// again for what the copy holds, so that only that thing is wrong.
+// The With… members return a copy with one thing changed — wrong, for most of them — and, unless the
+// check is the thing, a check made again for what the copy holds, so that only that thing differs.
 internal sealed class WireFrame
 {
     public const int HeaderSize = 32;
@@ -122,6 +122,11 @@ internal sealed class WireFrame
 
     public WireFrame WithKind(ushort kind) =>
         Make(Magic, ProtocolVersion, kind, Flags, BodyLength, CorrelationId, StreamSequence, Payload);
+
+    // The same frame at another place in the order of its stream; for a test that sends frames of
+    // its own in an order of its own, so that the order is valid.
+    public WireFrame WithStreamSequence(ulong streamSequence) =>
+        Make(Magic, ProtocolVersion, (ushort)Kind, Flags, BodyLength, CorrelationId, streamSequence, Payload);
 
     // The header announces another body length; the bytes are those of the frame, so a reader that
     // waited for the body it announces would wait for bytes that do not come.

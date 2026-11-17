@@ -1,8 +1,10 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
 // What a child that is not ready serves: nothing. Every operation of the instance, on a child of a
 // master of PieceSchema, refuses with Unavailable: the schema, the position, the listen address, the set
-// through a class and by name, a write batch, and the waits for a position and for a session.
+// through a class and by name, a write batch, and the waits for a position and for a session. It holds
+// for a child that is Connecting or Loading (Opening.NotReadyTests) and for one that became Faulted
+// (brief of Epic 1, sprint S11, decided after the study, point 9).
 internal static class NotReady
 {
     // A position of some history; a child that is not ready does not compare it with anything.

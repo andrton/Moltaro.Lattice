@@ -1,6 +1,8 @@
 namespace Moltaro.Lattice.Tests.Database;
 
-// A master and its children opened in one process.
+// A master and its children opened in one process. The tests in which a child only follows its master
+// run on both implementations (TestDatabases.ImplementationsWithFollowingChildren; Epic 1, sprint S11);
+// the others run on the placeholder, through TestData.
 public sealed class MasterAndChildTests
 {
     [Fact]
@@ -17,12 +19,12 @@ public sealed class MasterAndChildTests
         Assert.Equal([1L, 2L], child.Users().Enumerate().Select(user => user.Id).Order());
     }
 
-    [Fact]
-    public async Task Child_receives_later_changes_of_the_master()
+    [Theory]
+    [MemberData(nameof(TestDatabases.ImplementationsWithFollowingChildren), MemberType = typeof(TestDatabases))]
+    public async Task Child_receives_later_changes_of_the_master(DatabaseImplementationEnum implementation)
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
         var masterUsers = master.Users();
         var childUsers = child.Users();
 
@@ -36,13 +38,13 @@ public sealed class MasterAndChildTests
         await MasterAndChild.EventuallyAsync(() => !childUsers.TryGet(1, out _));
     }
 
-    [Fact]
-    public async Task Several_children_follow_one_master()
+    [Theory]
+    [MemberData(nameof(TestDatabases.ImplementationsWithFollowingChildren), MemberType = typeof(TestDatabases))]
+    public async Task Several_children_follow_one_master(DatabaseImplementationEnum implementation)
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var firstChild = await TestData.OpenChildAsync(address);
-        await using var secondChild = await TestData.OpenChildAsync(address);
+        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var firstChild = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var secondChild = await TestDatabases.OpenChildAsync(implementation, master);
 
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 

@@ -24,6 +24,16 @@ internal static class TestDatabases
         new(DatabaseImplementationEnum.Engine),
     ];
 
+    // The data of a theory in which a child follows the writes of its master after its load. A child of
+    // the engine that follows its master comes with Epic 1, sprint S11, and until then the row of the
+    // engine is skipped. The implementer of S11 removes the skip; the theories then take
+    // ImplementationsWithChildren, and this member goes.
+    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> ImplementationsWithFollowingChildren =>
+    [
+        new(DatabaseImplementationEnum.Placeholder),
+        new(DatabaseImplementationEnum.Engine) { Skip = ChildFollowing.NotImplemented },
+    ];
+
     // Creates a database without opening it, as LatticeDatabase.Create does.
     public static ILatticeDatabase Create(DatabaseImplementationEnum implementation, LatticeDatabaseOptions options) => implementation switch
     {
