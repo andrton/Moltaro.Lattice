@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.Replication;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -15,8 +16,17 @@ namespace Moltaro.Lattice.Engine.Children;
 // task completes only when the task that accepts and every task of a connection have ended. Then no task
 // of the listener runs and its port is free.
 //
+// The accepting ends only by the close while the master is open (review round 1 of S10). A failure that
+// concerns one connection — the peer reset it before it was accepted, or setting it up failed — ends
+// that connection, and the next one is accepted at once. Any other failure of the listening socket, such
+// as the system running out of sockets or buffers for a moment, is tried again after a pause
+// (Replication.RetryPause) that the close ends, so that a failure that lasts does not keep a processor
+// busy. The master stays Ready meanwhile; a child it cannot accept fails its open after its OpenTimeout,
+// and nothing else reports it until the diagnostics of S39.
+//
 // What the lock protects: the connections and whether the listener stops, which the task that accepts
-// and StopAsync change from their threads. No I/O and no await happens under it.
+// and StopAsync change from their threads. No I/O and no await happens under it: a connection is reset
+// after the lock is released.
 internal sealed class ChildListener
 {
     private readonly Socket _socket;
@@ -81,28 +91,31 @@ internal sealed class ChildListener
     public Task StopAsync()
     {
         Task[] running;
+        ChildConnection[] connections;
 
         lock (_lock)
         {
             _stopping = true;
             running = [_accepting, .. _connections.Values];
-
-            foreach (var connection in _connections.Keys)
-            {
-                connection.Reset();
-            }
+            connections = [.. _connections.Keys];
         }
 
         _closing.Cancel();
         _socket.Dispose();
 
+        foreach (var connection in connections)
+        {
+            connection.Reset();
+        }
+
         return Task.WhenAll(running);
     }
 
-    // Accepts until the listener stops. A connection that the peer reset before it was accepted is the
-    // peer's, and the listener goes on; any other failure of the listening socket ends the accepting.
+    // Accepts until the listener stops (see the class).
     private async Task AcceptAsync()
     {
+        var pause = default(RetryPause);
+
         while (true)
         {
             Socket accepted;
@@ -111,31 +124,71 @@ internal sealed class ChildListener
             {
                 accepted = await _socket.AcceptAsync(_closing.Token).ConfigureAwait(false);
             }
-            catch (SocketException exception) when (!_closing.IsCancellationRequested && exception.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted)
-            {
-                continue;
-            }
-            catch (Exception exception) when (exception is SocketException or ObjectDisposedException or OperationCanceledException)
+            catch (Exception) when (_closing.IsCancellationRequested)
             {
                 return;
             }
-
-            var connection = new ChildConnection(accepted, _capture, _helloTimeout);
-
-            lock (_lock)
+            catch (SocketException exception) when (exception.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted)
             {
-                if (_stopping)
+                continue;
+            }
+            catch (Exception)
+            {
+                // A failure of the listening socket that is not the peer's: tried again after a pause.
+                try
                 {
-                    connection.Reset();
-
+                    await Task.Delay(pause.Next(), _closing.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
                     return;
                 }
 
+                continue;
+            }
+
+            pause.Reset();
+
+            if (!Serve(accepted))
+            {
+                return;
+            }
+        }
+    }
+
+    // Starts a connection for the accepted socket: false when the listener stops, and the connection is
+    // reset. A socket whose connection cannot be set up, one the peer has reset already for one, is
+    // disposed, and the listener goes on.
+    private bool Serve(Socket accepted)
+    {
+        ChildConnection connection;
+
+        try
+        {
+            connection = new ChildConnection(accepted, _capture, _helloTimeout);
+        }
+        catch (Exception)
+        {
+            accepted.Dispose();
+
+            return true;
+        }
+
+        lock (_lock)
+        {
+            if (!_stopping)
+            {
                 // The task is started under the lock, so that StopAsync, which takes it, finds every
                 // connection it has to wait for; RunAsync returns at its first wait, never under the lock.
                 _connections.Add(connection, RunAsync(connection));
+
+                return true;
             }
         }
+
+        connection.Reset();
+
+        return false;
     }
 
     // Runs one connection and forgets it when it has ended.

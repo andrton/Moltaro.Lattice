@@ -189,12 +189,17 @@ internal sealed class BlockImport
             throw Invalid(layout, $"it has {total} bytes after its layout version, where its fixed part of {fixedPart} bytes and its values describe {fixedPart + inline + outOfLine}.");
         }
 
+        // The end of the root block, its header included, where the locations of values inline count from.
+        // A received location is compared without adding the length to it, which could wrap around the
+        // range of the number and pass a value that lies anywhere (review round 1 of S10).
+        var end = (ulong)(BlockHeader.Size + payloadLength);
+
         for (var index = 0; index < layout.DescriptorCount; index++)
         {
             ref readonly var field = ref layout.DescriptorField(index);
             var descriptor = ValueBlocks.Read(payload[(field.Offset - BlockHeader.Size)..]);
 
-            if (descriptor.Kind == DescriptorKindEnum.Inline && descriptor.Location + descriptor.Length > (ulong)(BlockHeader.Size + payloadLength))
+            if (descriptor.Kind == DescriptorKindEnum.Inline && (descriptor.Location > end || descriptor.Length > end - descriptor.Location))
             {
                 throw Invalid(layout, $"the value of the field {field.Field.Name} lies beyond the end of the root payload.");
             }

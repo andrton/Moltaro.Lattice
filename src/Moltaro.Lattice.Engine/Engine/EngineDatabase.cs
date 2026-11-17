@@ -581,27 +581,40 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // (ChildListener.StopAsync): each connection is reset, and its task leaves the protection of reads
     // at once, since a copy of a root waits for nothing. The open of a child ended its waits when the
     // close began, and its task ends at once; then its connection to the master closes.
+    //
+    // Every step runs whatever became of the one before (review round 1 of S10): a task of the network
+    // that faulted, which only a defect can make it, does not keep the arena from being freed. The first
+    // such failure is what the close then reports, once everything is freed.
     private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark, TaskCompletionSource closed)
     {
+        Exception? failure = null;
+
+        await operationsEnded.ConfigureAwait(false);
+
+        ChildListener? listener;
+        MasterLink? master;
+        Task? loaded;
+
+        lock (_stateLock)
+        {
+            listener = _listener;
+            loaded = _loaded?.Task;
+        }
+
         try
         {
-            await operationsEnded.ConfigureAwait(false);
-
-            ChildListener? listener;
-            MasterLink? master;
-            Task? loaded;
-
-            lock (_stateLock)
-            {
-                listener = _listener;
-                loaded = _loaded?.Task;
-            }
-
             if (listener is not null)
             {
                 await listener.StopAsync().ConfigureAwait(false);
             }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
 
+        try
+        {
             if (loaded is not null)
             {
                 await loaded.ConfigureAwait(false);
@@ -613,7 +626,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
             }
 
             master?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure ??= exception;
+        }
 
+        try
+        {
             if (_epochs.HasReadsBefore(mark))
             {
                 await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
@@ -628,12 +648,19 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _retired.Clear();
                 arena.Dispose();
             }
-
-            closed.SetResult();
         }
         catch (Exception exception)
         {
-            closed.SetException(exception);
+            failure ??= exception;
+        }
+
+        if (failure is null)
+        {
+            closed.SetResult();
+        }
+        else
+        {
+            closed.SetException(failure);
         }
     }
 
@@ -773,6 +800,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
             var memoryLimit = MemoryLimitInForce();
             var (schema, counts) = await master.ReceiveSchemaAsync(memoryLimit, token).ConfigureAwait(false);
+
+            // The schema has to be the one the handshake bound: the master announced its fingerprint in
+            // its HelloReply (review round 1 of S10).
+            if (schema.Fingerprint != master.Master.SchemaFingerprint)
+            {
+                throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} sent a schema whose fingerprint {schema.Fingerprint} is not the {master.Master.SchemaFingerprint} its HelloReply announced.");
+            }
 
             Build(schema, master.Master.History, refusesEveryWrite: "Writes through a child of the engine come with Epic 1, sprint S12: write to its master.");
 

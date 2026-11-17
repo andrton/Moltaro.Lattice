@@ -17,26 +17,21 @@ namespace Moltaro.Lattice.Engine.Loading;
 // the back-off of the milestone contract — 100 ms, doubling, at most 5 s between two attempts —, until
 // OpenTimeout has passed since the first attempt: a child may be started before its master. A connection
 // the master refused or ended before it replied counts as not reached. Once connected, the child sends
-// its Hello and waits OpenTimeout for the reply. A Refuse, a reply that is not valid, and a master the
-// child cannot load from (Replication.HelloCheck) end the open at once.
+// its Hello and waits for the reply for what is left of OpenTimeout: the child has OpenTimeout to reach
+// its master and be accepted by it (review round 1 of S10). A Refuse, a reply that is not valid, no reply
+// in that time, and a master the child cannot load from (Replication.HelloCheck) end the open at once.
 //
 // The load (ReceiveSchemaAsync, ReceiveRootsAsync). Every receive waits for the next frame at most
 // OpenTimeout: a load that keeps arriving is not ended by the timeout, however long it takes. The
 // schema, and then the roots, each placed as soon as it is whole (RootPlacement); then LoadEnd.
 //
-// The waits, and how each ends: a connect, at the end of the time left to reach the master; a pause
-// between two attempts, at its length or the end of that time, whichever comes first; a receive, after
-// OpenTimeout; a send, when the master has taken the bytes — the Hello is small and the master reads
-// it. The token of the open ends each of them, and the close of the child is in that token.
+// The waits, and how each ends: a connect and the reply to the Hello, at the end of the time left to
+// reach the master and be accepted by it; a pause between two attempts (Replication.RetryPause), at its
+// length or the end of that time, whichever comes first; a receive of the load, after OpenTimeout; a
+// send, when the master has taken the bytes — the Hello is small and the master reads it. The token of
+// the open ends each of them, and the close of the child is in that token.
 internal sealed class MasterLink : IDisposable
 {
-    // The pauses between two attempts to reach the master (milestone contract, "Initial bounded
-    // settings", the row "Reconnect / applier failure pauses"): the pace of the attempts, not a timeout
-    // or a limit; OpenTimeout bounds how long the child tries.
-    private static readonly TimeSpan FirstPause = TimeSpan.FromMilliseconds(100);
-
-    private static readonly TimeSpan LongestPause = TimeSpan.FromSeconds(5);
-
     private readonly FrameConnection _connection;
 
     private readonly TimeSpan _openTimeout;
@@ -53,13 +48,13 @@ internal sealed class MasterLink : IDisposable
 
     // Reaches the master at the address and is accepted by it (see the class). Unavailable when it
     // could not be reached within OpenTimeout, when it refused the child, or when the child cannot load
-    // from it; ValidationFailed for a reply that is not valid; TimeoutException when the master accepted
-    // the connection and replied nothing within OpenTimeout; OperationCanceledException for the token.
+    // from it, also when it accepted the connection and replied nothing within the time left;
+    // ValidationFailed for a reply that is not valid; OperationCanceledException for the token.
     public static async Task<MasterLink> ConnectAsync(Uri masterUri, TimeSpan openTimeout, HelloBody hello, CancellationToken cancellationToken)
     {
         var endPoint = EndPointOf(masterUri);
         var started = Stopwatch.GetTimestamp();
-        var pause = FirstPause;
+        var pause = default(RetryPause);
 
         while (true)
         {
@@ -85,7 +80,14 @@ internal sealed class MasterLink : IDisposable
                 connection.AddHello(FrameKindEnum.Hello, hello);
                 await connection.SendAsync(cancellationToken).ConfigureAwait(false);
 
-                var reply = await connection.ReceiveAsync(openTimeout, cancellationToken).ConfigureAwait(false);
+                var accepting = openTimeout - Stopwatch.GetElapsedTime(started);
+
+                if (accepting <= TimeSpan.Zero)
+                {
+                    throw NotAccepted(masterUri, openTimeout, null);
+                }
+
+                var reply = await connection.ReceiveAsync(accepting, cancellationToken).ConfigureAwait(false);
                 var master = MasterOf(reply, hello, masterUri);
 
                 return new MasterLink(connection, master, openTimeout);
@@ -102,6 +104,12 @@ internal sealed class MasterLink : IDisposable
                 // Not reached: refused, reset, or ended before the reply. Another attempt, after a pause.
                 Close(connection, socket);
             }
+            catch (TimeoutException exception)
+            {
+                Close(connection, socket);
+
+                throw NotAccepted(masterUri, openTimeout, exception);
+            }
             catch
             {
                 Close(connection, socket);
@@ -112,10 +120,10 @@ internal sealed class MasterLink : IDisposable
 
             if (left > TimeSpan.Zero)
             {
-                await Task.Delay(pause < left ? pause : left, cancellationToken).ConfigureAwait(false);
-            }
+                var next = pause.Next();
 
-            pause = pause * 2 < LongestPause ? pause * 2 : LongestPause;
+                await Task.Delay(next < left ? next : left, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -219,6 +227,9 @@ internal sealed class MasterLink : IDisposable
                 throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master at {masterUri} replied to the Hello with a {reply.Kind} frame.");
         }
     }
+
+    private static LatticeException NotAccepted(Uri masterUri, TimeSpan openTimeout, Exception? innerException) =>
+        new(LatticeErrorEnum.Unavailable, $"The master at {masterUri} did not accept this child within the open timeout of {openTimeout}: it replied nothing to the Hello.", innerException);
 
     private static void Close(FrameConnection? connection, Socket socket)
     {
