@@ -27,7 +27,7 @@ public sealed class ListenAddressTests
         from form in new[] { "another scheme", "a path", "no port" }
         select new TheoryDataRow<string, string>(role, form);
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_opened_at_port_0_reports_the_port_it_listens_at_and_a_child_connects_to_that_address()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -45,7 +45,7 @@ public sealed class ListenAddressTests
         Assert.Equal(address, master.ListenUri);
     }
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [MemberData(nameof(RefusedAddresses))]
     public async Task Address_with_another_scheme_a_path_or_no_port_is_refused_with_InvalidConfiguration_when_the_instance_opens(string role, string form)
     {
@@ -63,7 +63,7 @@ public sealed class ListenAddressTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_whose_port_is_in_use_fails_its_open_with_the_error_the_system_reports_and_is_closed()
     {
         using var other = new TcpListener(IPAddress.Loopback, 0);

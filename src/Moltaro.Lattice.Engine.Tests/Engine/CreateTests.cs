@@ -56,7 +56,7 @@ public sealed class CreateTests
         Assert.Equal(LatticeDatabaseStateEnum.Created, database.State);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public void Master_with_a_ListenUri_and_a_child_are_created_without_being_opened()
     {
         using var master = EngineDatabase.Create(new LatticeDatabaseOptions

@@ -14,7 +14,8 @@ namespace Moltaro.Lattice.Storage.Values;
 //
 // A Binary value and text of a UTF-16 database are copied as they are, one place at a time. Text of
 // a UTF-8 database is encoded from its characters straight into native memory, without an
-// intermediate string or array.
+// intermediate string or array. The stored bytes of a value that a child received from its master are
+// copied as they are, from the pieces of the buffer that received them (Received).
 // A chunk is full when the next character does not fit whole: the character is then split, its
 // first bytes end this chunk and the rest begins the next, because a chunk boundary is not a
 // boundary of the value (milestone contract, "Native layout and allocation"). The text is
@@ -27,8 +28,13 @@ internal ref struct ValueSource
     // The characters not handed out yet, of text.
     private ReadOnlySpan<char> _characters;
 
-    // The encoding of text; null for a Binary value.
+    // The encoding of text; null for a Binary value and for received bytes.
     private readonly LatticeStringEncodingEnum? _encoding;
+
+    // The received bytes not handed out yet, when the source is Received.
+    private ReadOnlySequence<byte> _received;
+
+    private readonly bool _isReceived;
 
     // The bytes of a split character that did not fit the end of the last place, the first of them
     // in the lowest byte: at most three, since a character takes at most four.
@@ -43,8 +49,18 @@ internal ref struct ValueSource
         _encoding = encoding;
     }
 
+    private ValueSource(ReadOnlySequence<byte> received)
+    {
+        _received = received;
+        _isReceived = true;
+    }
+
     // The bytes of a Binary value as they are.
     public static ValueSource Bytes(ReadOnlySpan<byte> bytes) => new(bytes, default, encoding: null);
+
+    // The stored bytes of a String or Binary value as a node of the same layout format stored them,
+    // received in a load: copied as they are, in either encoding of text.
+    public static ValueSource Received(ReadOnlySequence<byte> bytes) => new(bytes);
 
     // Well-formed text in the encoding of the database: its code units in the byte order of the
     // machine for UTF-16, encoded as it is handed out for UTF-8.
@@ -53,6 +69,14 @@ internal ref struct ValueSource
     // Fills the place with the next bytes of the value.
     public void Fill(Span<byte> place)
     {
+        if (_isReceived)
+        {
+            _received.Slice(0, place.Length).CopyTo(place);
+            _received = _received.Slice(place.Length);
+
+            return;
+        }
+
         switch (_encoding)
         {
             case null:

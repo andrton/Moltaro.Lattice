@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Writes;
 // whatever the write; it changes nothing on the child or on its master, and neither moves.
 public sealed class WritesOnAChildTests
 {
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Write_on_a_child_is_NotSupportedException_and_changes_nothing()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

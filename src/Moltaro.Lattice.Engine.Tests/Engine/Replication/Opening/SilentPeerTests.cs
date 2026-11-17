@@ -19,7 +19,7 @@ public sealed class SilentPeerTests
     // A timer of the system may fire a tick early.
     private static readonly TimeSpan Tolerance = TimeSpan.FromMilliseconds(100);
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_disconnects_a_peer_that_sends_nothing_once_its_OpenTimeout_has_passed()
     {
         var options = new LatticeDatabaseOptions

@@ -32,7 +32,7 @@ public sealed class RefusedPeerTests
         new("the role of a master", "Role"),
     ];
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [MemberData(nameof(Differences))]
     public async Task Peer_whose_Hello_differs_is_refused_with_the_matching_reason_before_any_data_and_leaves_nothing_registered(string difference, string reason)
     {

@@ -12,7 +12,7 @@ public sealed class VanishedChildTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Child_that_vanishes_in_the_middle_of_its_load_leaves_nothing_registered_on_the_master()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

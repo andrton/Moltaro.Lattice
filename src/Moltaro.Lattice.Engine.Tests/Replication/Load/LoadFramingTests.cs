@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 // (ReceivedRootTests).
 public sealed class LoadFramingTests
 {
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Root_larger_than_a_frame_arrives_in_several_frames_and_only_the_last_is_marked_as_its_end()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -39,7 +39,7 @@ public sealed class LoadFramingTests
         Assert.True(blocks[^1].EndsARoot, "The last frame of a root is not marked as its end.");
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Small_roots_share_a_frame()
     {
         const int Roots = 64;
@@ -53,7 +53,7 @@ public sealed class LoadFramingTests
         Assert.InRange(relay.FromMaster.Count(frame => frame.Kind == FrameKindEnum.Blocks), 1, Roots - 1);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Schema_larger_than_a_frame_arrives_in_several_frames_and_the_child_has_it()
     {
         var schema = LargeSchema();

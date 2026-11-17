@@ -16,7 +16,7 @@ public sealed class ChildMemoryLimitTests
 {
     private static readonly long Segment = new ArenaOptions().SegmentSize;
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Child_whose_MemoryLimit_cannot_hold_the_database_fails_its_open_at_once_with_Unavailable_and_holds_nothing()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

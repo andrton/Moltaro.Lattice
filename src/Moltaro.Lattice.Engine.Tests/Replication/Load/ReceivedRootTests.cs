@@ -38,7 +38,7 @@ public sealed class ReceivedRootTests
         new("a Blocks frame twice, more roots than LoadEnd announces"),
     ];
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Child_that_receives_an_invalid_root_fails_its_open_at_once_with_Unavailable_and_holds_nothing(string damage)
     {

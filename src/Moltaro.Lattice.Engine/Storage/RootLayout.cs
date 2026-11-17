@@ -58,26 +58,31 @@ internal sealed class RootLayout
     // One bit for every field that is not nullable, by LatticeField.Ordinal: what Complete requires.
     private readonly byte[] _requiredFields;
 
+    // The String and Binary fields in the order of their descriptors, which is the order of their
+    // identities: what a reader of a whole root that walks its descriptors needs (Replication.Load).
+    private readonly StoredField[] _descriptorFields;
+
     // A layout is made by Compile only.
     private RootLayout(
         LatticeEntityType entityType,
         LatticeStringEncodingEnum stringEncoding,
         StoredField[] fields,
         byte[] requiredFields,
+        StoredField[] descriptorFields,
         int nullableCount,
         int descriptorOffset,
-        int descriptorCount,
         int fixedSize)
     {
         EntityType = entityType;
         StringEncoding = stringEncoding;
         _fields = fields;
         _requiredFields = requiredFields;
+        _descriptorFields = descriptorFields;
         NullableCount = nullableCount;
         DescriptorOffset = descriptorOffset;
-        DescriptorCount = descriptorCount;
+        DescriptorCount = descriptorFields.Length;
         FixedSize = fixedSize;
-        ImageCapacity = (int)Math.Min(fixedSize + (long)InlineLimit * descriptorCount, Arena.MaxBlockSize);
+        ImageCapacity = (int)Math.Min(fixedSize + (long)InlineLimit * DescriptorCount, Arena.MaxBlockSize);
     }
 
     // Compiles the layout of an entity type of the schema; the schema gives what the entity type
@@ -139,15 +144,15 @@ internal sealed class RootLayout
         }
 
         var descriptorOffset = offset;
-        var descriptorCount = 0;
+        var descriptorFields = new List<StoredField>();
 
         foreach (var field in inIdentityOrder.Where(IsVariable))
         {
             var type = field.Declaration.Type == LatticeFieldTypeEnum.String ? StoredTypeEnum.String : StoredTypeEnum.Binary;
 
             fields[field.Ordinal] = new StoredField(field, type, ValueBlocks.DescriptorSize, offset, nullBits[field.Ordinal]);
+            descriptorFields.Add(fields[field.Ordinal]);
             offset += ValueBlocks.DescriptorSize;
-            descriptorCount++;
         }
 
         if (offset > Arena.MaxBlockSize)
@@ -162,9 +167,9 @@ internal sealed class RootLayout
             schema.StringEncoding,
             fields,
             requiredFields,
+            [.. descriptorFields],
             nullableCount,
             descriptorOffset,
-            descriptorCount,
             offset);
     }
 
@@ -207,6 +212,9 @@ internal sealed class RootLayout
     internal int DescriptorOffset { get; }
 
     internal int DescriptorCount { get; }
+
+    // The String or Binary field whose descriptor is the one at the index, 0 to DescriptorCount less one.
+    internal ref readonly StoredField DescriptorField(int index) => ref _descriptorFields[index];
 
     // The most bytes a root block of this layout can take: the fixed part with every String and
     // Binary value inline, never more than one block.

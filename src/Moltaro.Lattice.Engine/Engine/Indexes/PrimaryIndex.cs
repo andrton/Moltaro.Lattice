@@ -72,6 +72,10 @@ internal sealed class PrimaryIndex
     // The bytes of the current table. For the writer and the counters.
     public long Bytes => _table.Bytes;
 
+    // The entries of the current table: the live roots of the entity type. For the writer, under the
+    // lock of the writes.
+    public int Count => _table.Count;
+
     // The bytes of the table being built while the index grows, 0 otherwise. The counters are taken
     // between two writes, so they read 0 here; it is the figure the budget of S09 charges while a
     // growth runs.
@@ -112,6 +116,32 @@ internal sealed class PrimaryIndex
 
     // Gives back the room an insert reserved and does not publish, because it was withdrawn.
     public void Release() => _reserved--;
+
+    // For the loader of a child, before the first root of the entity type is placed: replaces the empty
+    // first table by one whose main table holds count entries without growing (IndexTable, "The capacity
+    // policy"), so that a load of the count its master announced never grows the index (the planner's
+    // decision of 17 November 2026 after the study of S10, point 6). The table keeps the version 0: no
+    // enumeration has seen the first one, since the child serves nothing before it is Ready. Under the
+    // lock of the writes. An index that holds or reserved an entry is a caller's mistake.
+    public void Presize(long count)
+    {
+        if (_table.Count != 0 || _reserved != 0)
+        {
+            throw new InvalidOperationException("Only an empty primary index is sized for a load.");
+        }
+
+        var bits = FirstBucketBits;
+
+        while (bits < IndexTable.MostBucketBits && ((long)IndexTable.MostEntriesPerBucket << bits) < count)
+        {
+            bits++;
+        }
+
+        if (bits != _table.BucketBits)
+        {
+            Volatile.Write(ref _table, new IndexTable(bits, version: 0));
+        }
+    }
 
     // Adds the entry of a key that the index does not hold, after Reserve, and ends that reservation;
     // IndexTable.Add says which store publishes it.

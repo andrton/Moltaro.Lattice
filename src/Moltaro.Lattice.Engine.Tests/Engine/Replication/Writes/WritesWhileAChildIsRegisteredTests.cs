@@ -23,7 +23,7 @@ public sealed class WritesWhileAChildIsRegisteredTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_refuses_writes_with_NotSupportedException_while_a_child_is_connected_and_both_stay_at_the_readiness_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -44,7 +44,7 @@ public sealed class WritesWhileAChildIsRegisteredTests
         Pieces.ExpectSame(master, child);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_refuses_writes_with_NotSupportedException_while_a_child_is_loading_and_the_child_loads_without_them()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -68,7 +68,7 @@ public sealed class WritesWhileAChildIsRegisteredTests
         Pieces.ExpectSame(master, child);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Writes_that_race_the_registration_of_a_child_are_each_on_the_child_or_refused_and_none_is_in_between()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -133,7 +133,7 @@ public sealed class WritesWhileAChildIsRegisteredTests
         Assert.Equal(master.Position, child.Position);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_publishes_writes_again_once_its_child_has_closed()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -22,7 +22,7 @@ public sealed class LoadedEntitiesTests
 
     private const ulong ChildSeed = 0xD1B54A32D192ED03;
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public async Task Child_reads_every_value_of_every_scalar_type_as_its_master_holds_it(string encoding)
@@ -60,7 +60,7 @@ public sealed class LoadedEntitiesTests
         }
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Master_and_child_opened_with_different_index_seeds_hold_the_same_entities()
     {
         var schema = KeySchema.Of("Utf8", "OrdinalIgnoreCase", "String", "Int64", "Guid");

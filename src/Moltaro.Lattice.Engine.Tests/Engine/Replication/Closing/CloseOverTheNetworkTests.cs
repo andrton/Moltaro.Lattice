@@ -14,7 +14,7 @@ public sealed class CloseOverTheNetworkTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task New_master_opens_on_the_same_port_right_after_the_close_of_the_first_has_completed()
     {
         var allocator = new CountingNativeAllocator();
@@ -35,7 +35,7 @@ public sealed class CloseOverTheNetworkTests
         Assert.Empty(childOfTheSecond.Set<PieceSchema.Piece>().Enumerate());
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Close_and_dispose_of_a_master_called_together_both_complete_only_once_its_port_is_free()
     {
         var first = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -52,7 +52,7 @@ public sealed class CloseOverTheNetworkTests
         Assert.Equal(address, second.ListenUri);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Child_keeps_serving_its_reads_at_its_position_after_its_master_has_closed()
     {
         var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -69,7 +69,7 @@ public sealed class CloseOverTheNetworkTests
         Assert.Equal(new string('n', 8), child.Set("Piece").Get(2L)?["Name"]);
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Close_of_a_loaded_child_returns_every_piece_of_native_memory_it_obtained()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

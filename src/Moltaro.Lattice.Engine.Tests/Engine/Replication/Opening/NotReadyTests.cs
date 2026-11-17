@@ -14,7 +14,7 @@ public sealed class NotReadyTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Child_that_cannot_reach_its_master_is_Connecting_and_every_operation_is_Unavailable()
     {
         using var port = new ClosedPort();
@@ -31,7 +31,7 @@ public sealed class NotReadyTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening.WaitAsync(Bound));
     }
 
-    [Fact(Skip = ChildLoading.NotImplemented)]
+    [Fact]
     public async Task Child_in_the_middle_of_its_load_is_Loading_and_every_operation_is_Unavailable_until_it_is_ready()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

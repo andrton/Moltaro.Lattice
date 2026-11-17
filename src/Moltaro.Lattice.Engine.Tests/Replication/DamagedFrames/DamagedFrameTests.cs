@@ -38,7 +38,7 @@ public sealed class DamagedFrameTests
         new("a wrong check"),
     ];
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [MemberData(nameof(DamagesToTheMaster))]
     public async Task Master_drops_a_peer_that_sends_a_damaged_frame_and_goes_on_serving(string damage)
     {
@@ -57,7 +57,7 @@ public sealed class DamagedFrameTests
         Pieces.ExpectSame(master, child);
     }
 
-    [Theory(Skip = ChildLoading.NotImplemented)]
+    [Theory]
     [MemberData(nameof(DamagesToTheChild))]
     public async Task Child_that_receives_a_damaged_frame_fails_its_open_at_once_with_Unavailable_and_holds_nothing(string damage)
     {
