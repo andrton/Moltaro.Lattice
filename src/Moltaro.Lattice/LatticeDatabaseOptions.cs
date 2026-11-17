@@ -75,31 +75,31 @@ public sealed class LatticeDatabaseOptions
     public Uri? MasterUri { get; init; }
 
     /// <summary>
-    /// How long the open of a child may take: from the call of <see cref="ILatticeDatabase.OpenAsync"/>
-    /// until the child is <see cref="LatticeDatabaseStateEnum.Ready"/>. The default is 30 seconds.
-    /// Read by a child only; a master does not use it.
+    /// How long a child waits for its master while it opens: to reach the master and be accepted
+    /// by it, and afterwards for the next part of the database to arrive. A load that keeps
+    /// arriving is not ended by this timeout, however long it takes; the cancellation token of the
+    /// open call bounds the whole open. 30 seconds by default; finite and positive. A master gives
+    /// a connecting node the same time to introduce itself.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The time covers reaching the master, loading the whole database and building the local
-    /// indexes. While the master cannot be reached, the child keeps trying until the time is up,
-    /// so a child may be started before its master. A child that is not ready in time fails its
-    /// open with <see cref="LatticeErrorEnum.Unavailable"/>, and the instance is closed. A failure
-    /// that another attempt cannot mend ends the open at once with
-    /// <see cref="LatticeErrorEnum.Unavailable"/>, without waiting for the rest of the time: the
-    /// master refuses the child, what the master sent is not valid, or the
-    /// <see cref="MemoryLimit"/> of the child cannot hold the database. The message names the
-    /// reason.
+    /// While the master cannot be reached, the child keeps trying until the time is up, so a child
+    /// may be started before its master. When the master cannot be reached, or nothing arrives
+    /// from it, for this time, the open fails with <see cref="LatticeErrorEnum.Unavailable"/> and
+    /// the instance is closed. A failure that another attempt cannot mend ends the open at once
+    /// with <see cref="LatticeErrorEnum.Unavailable"/>, without waiting for the time: the master
+    /// refuses the child, what the master sent is not valid, or the <see cref="MemoryLimit"/> of
+    /// the child cannot hold the database. The message names the reason.
     /// </para>
     /// <para>
-    /// The value must be finite and positive: <see cref="Validate"/> refuses zero, a negative
-    /// value, <see cref="Timeout.InfiniteTimeSpan"/> and a value of more than one day, for a master
-    /// as for a child.
+    /// <see cref="Validate"/> refuses zero, a negative value, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// and a value of more than one day, for a master as for a child.
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> The value is validated and otherwise not used: a child of the
     /// database that <see cref="LatticeDatabase"/> opens today waits for its master until the open
-    /// is cancelled or the instance is closed.
+    /// is cancelled or the instance is closed, and no node connects to a master of it over the
+    /// network.
     /// </para>
     /// </remarks>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromSeconds(30);
@@ -238,7 +238,8 @@ public sealed class LatticeDatabaseOptions
             throw Invalid($"{nameof(SynchronizationTimeout)} must be finite and positive.");
         }
 
-        // Checked for every role, as every timeout is, although only a child reads it.
+        // Checked for every role: a child waits for its master by it, and a master gives a
+        // connecting node the same time to introduce itself.
         if (!IsFiniteTimeout(OpenTimeout))
         {
             throw Invalid($"{nameof(OpenTimeout)} must be finite and positive.");

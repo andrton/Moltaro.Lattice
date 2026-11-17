@@ -1477,3 +1477,8 @@ and existing resume/reload paths. Validate endpoint outage, same-history return 
 and without retained tail, new history at the same URL and child restart. Exact URL/
 configuration syntax, protocol framing and numerical limits remain implementation and
 measurement work. No service, failover mechanism or new benchmark is implemented here.
+
+**Noted on 17 November 2026:** the contract of Epic 1, sprint S10 settles the address
+syntax for the engine: `lattice://host:port`, where port 0 in a master's address lets
+the system choose the port and the open master reports the one it chose
+([brief of S10](../work/epic-1-core.md)). The accepted text above is unchanged.

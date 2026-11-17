@@ -113,9 +113,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </para>
     /// <para>
     /// A child connects to the master at <see cref="LatticeDatabaseOptions.MasterUri"/>, loads
-    /// the whole database and only then becomes readable. When it is not ready within
-    /// <see cref="LatticeDatabaseOptions.OpenTimeout"/>, the call fails with
-    /// <see cref="LatticeErrorEnum.Unavailable"/> and the instance is closed.
+    /// the whole database and only then becomes readable. When the master cannot be reached, or
+    /// nothing arrives from it, for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, the call
+    /// fails with <see cref="LatticeErrorEnum.Unavailable"/> and the instance is closed.
     /// </para>
     /// <para>
     /// A master and its children can be opened in one process. Cancelling or failing the
@@ -130,10 +130,11 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </param>
     /// <exception cref="InvalidOperationException">The database has already been opened.</exception>
     /// <exception cref="LatticeException">
-    /// <see cref="LatticeErrorEnum.Unavailable"/>: a child is not ready within
-    /// <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or a failure that another attempt cannot
-    /// mend ended its open at once, as <see cref="LatticeDatabaseOptions.OpenTimeout"/> says; the
-    /// message names the reason, and the instance is closed.
+    /// <see cref="LatticeErrorEnum.Unavailable"/>: a child could not reach its master, or received
+    /// nothing from it, for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or a failure that
+    /// another attempt cannot mend ended its open at once, as
+    /// <see cref="LatticeDatabaseOptions.OpenTimeout"/> says; the message names the reason, and the
+    /// instance is closed.
     /// </exception>
     ValueTask OpenAsync(CancellationToken cancellationToken = default);
 

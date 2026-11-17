@@ -242,9 +242,10 @@ await using var child = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptio
 a master and its children connect inside one process only, and a child waits for its master
 until its open is cancelled or it is closed.* An address is `lattice://host:port`. With port 0
 the system chooses a free port, and the open master reports it in its `ListenUri` property,
-which is the address to give its children. A child that is not ready within `OpenTimeout`,
-30 seconds by default, fails its open with `Unavailable`; until then it keeps trying to reach
-its master, so it may be started first.
+which is the address to give its children. A child that cannot reach its master, or
+receives nothing from it, for `OpenTimeout`, 30 seconds by default, fails its open with
+`Unavailable`; until then it keeps trying, so it may be started before its master. A load
+that keeps arriving is not ended by the timeout, however long it takes.
 
 **The replication port must be reachable only from the nodes of the database.** This is a
 precondition of every deployment with children. The engine authenticates nobody at that

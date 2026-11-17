@@ -130,8 +130,9 @@ public sealed class LatticeDatabaseOptionsTests
         AssertInvalid(MemoryOnlyMaster(memoryLimit: long.MinValue));
     }
 
-    // The open timeout of a child (brief of Epic 1, sprint S10): 30 seconds by default, finite and
-    // positive, and checked by Validate for every role, although only a child reads it.
+    // The open timeout (brief of Epic 1, sprint S10): 30 seconds by default, finite and positive, and
+    // checked by Validate for every role: a child waits for its master by it, and a master gives a
+    // connecting node the same time to introduce itself.
     [Fact]
     public void Open_timeout_is_30_seconds_by_default_and_any_finite_positive_value_is_valid()
     {
