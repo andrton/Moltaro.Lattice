@@ -38,11 +38,13 @@ namespace Moltaro.Lattice.Engine;
 // The members of the write coordinator (brief of Epic 1, sprint S09, "Types and members of S09" and
 // "What is counted"; Writes.WriteCoordinator). What waits is counted in the memory budget as the
 // prepared capacity of the arena, Arena.PreparedBytes; there is no second figure of queued bytes. They
-// are read beside the others without the lock of the coordinator, each one value of its own.
+// are written under the lock of the writes, under which the counters are read.
 //
-// QueuedWrites: a current number, the writes admitted and not yet completed: waiting for their
-// identity, waiting to be prepared, being prepared, prepared, or in the commit stage. It is 0 when
-// every call of a write has returned.
+// QueuedWrites: a current number, the writes admitted and not yet completed: being prepared, prepared
+// and waiting for the storage step, in the storage step, or waiting behind an earlier write of their
+// entity, held back or resolved after a refusal of the arena. It is 0 when every call of a write has
+// returned. LargestCommitGroup is 1 in MemoryOnly, whose storage step completes at once, so that every
+// write is published in the hold of its call (brief of S09, part 2, "Counters").
 //
 // LargestCommitGroup: the most writes one commit group held since the open, at most
 // CommitGroup.MaxOperations.

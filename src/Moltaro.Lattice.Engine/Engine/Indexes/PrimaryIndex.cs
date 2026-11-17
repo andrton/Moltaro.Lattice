@@ -52,9 +52,9 @@ internal sealed class PrimaryIndex
     // and read by the counters, both under the lock of the writes.
     private long _replacementBytes;
 
-    // The inserts that have room reserved and are not published or withdrawn yet: several writes are
-    // prepared at once and published later, in their order (Writes.WriteCoordinator). The writer's
-    // alone, under the lock of the writes.
+    // The inserts that have room reserved and are not published or withdrawn yet: while a group is in
+    // the storage step, later writes are prepared and published after it, in their order
+    // (Writes.WriteCoordinator). The writer's alone, under the lock of the writes.
     private int _reserved;
 
     // What the next growth runs for the tests of the engine (EngineDatabase.HoldNextGrowth); null when

@@ -74,15 +74,15 @@ namespace Moltaro.Lattice.Storage;
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
 // rented image and the blocks of the original, and ending both would free them twice.
 //
-// Several writers at once. The arena takes no lock and has one changing thread at a time. A writer of
-// the database is given the lock of the writes (Engine.Writes.WriteExecutor), so that several writes
-// are prepared at once: it takes that lock for each allocation of a block and for each free of the
-// blocks it gives up, and for nothing else, so that it holds the lock neither while it copies bytes
-// nor while it encodes text (brief of Epic 1, sprint S09, "Who may touch what"). Its blocks are its
-// own until its root is published or freed, and it writes their headers and payloads outside the
-// lock, as a read reads the blocks of a published root (Arena, "Who uses the arena at the same
-// time"). A writer given no lock is the only thread that changes the arena, as in the tests of the
-// writer.
+// The arena takes no lock and has one changing thread at a time: a writer of the database runs under
+// the lock of the writes (Engine.Writes.WriteCoordinator), and a writer of the tests is the only
+// thread that changes its arena.
+//
+// What it allocated. SlotBytes counts the bytes of the slots of every block the writer allocated and
+// still holds, as it allocates them: the slot of the root block, and for every value stored in blocks
+// the slots of its value block, or of its directory and its chunks, by the length the value has. A
+// write of the database takes it as its encoded size (Engine.Writes.PreparedWrite.EncodedSize), so
+// that nothing walks the blocks of a root to count them afterwards.
 internal ref struct RootWriter
 {
     private readonly Arena _arena;
@@ -93,10 +93,6 @@ internal ref struct RootWriter
 
     // Whether the blocks are allocated prepared.
     private readonly bool _prepared;
-
-    // The lock under which the writer allocates and frees blocks; null when nothing else changes the
-    // arena meanwhile.
-    private readonly Lock? _writes;
 
     // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
@@ -113,6 +109,10 @@ internal ref struct RootWriter
 
     private WriterStateEnum _state;
 
+    // The bytes of the slots of the blocks the writer allocated and holds (see the class): after a
+    // Complete that returned, those of the whole root; 0 after Abandon or a failed Complete.
+    public long SlotBytes { get; private set; }
+
     // Starts a root of the entity type of the layout, in the arena, for the root that the handle
     // names, in live blocks. Refuses a null arena or layout with ArgumentNullException.
     public RootWriter(Arena arena, RootLayout layout, RootHandle root)
@@ -120,9 +120,8 @@ internal ref struct RootWriter
     {
     }
 
-    // The same, in prepared blocks when prepared is true, allocating and freeing them under the lock
-    // of the writes when one is given (see the class).
-    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared, Lock? writes = null)
+    // The same, in prepared blocks when prepared is true.
+    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared)
     {
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
@@ -131,7 +130,6 @@ internal ref struct RootWriter
         _layout = layout;
         _root = root;
         _prepared = prepared;
-        _writes = writes;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
 
@@ -419,17 +417,13 @@ internal ref struct RootWriter
         {
             var payloadLength = _rootBytes - BlockHeader.Size;
 
-            _writes?.Enter();
+            allocated = _prepared
+                ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
+                : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
 
-            try
+            if (allocated)
             {
-                allocated = _prepared
-                    ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
-                    : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
-            }
-            finally
-            {
-                _writes?.Exit();
+                SlotBytes += Arena.BlockSizeFor(payloadLength);
             }
         }
         catch (OutOfMemoryException)
@@ -547,7 +541,11 @@ internal ref struct RootWriter
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
             _rootBytes += length;
         }
-        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor, _writes))
+        else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor))
+        {
+            SlotBytes += ValueBlocks.SlotBytes(ValueBlocks.Read(descriptor));
+        }
+        else
         {
             _refusedByArena = true;
         }
@@ -569,25 +567,17 @@ internal ref struct RootWriter
     }
 
     // Frees every block the descriptors of the image name: everything the writer allocated, since
-    // the root block is allocated last, by a Complete that then cannot fail any more. Under the lock of
-    // the writes when the writer has one.
-    private readonly void FreeValues()
+    // the root block is allocated last, by a Complete that then cannot fail any more.
+    private void FreeValues()
     {
-        _writes?.Enter();
-
-        try
+        for (var index = 0; index < _layout.DescriptorCount; index++)
         {
-            for (var index = 0; index < _layout.DescriptorCount; index++)
-            {
-                var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
+            var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
 
-                ValueBlocks.Free(_arena, ValueBlocks.Read(Image[offset..]));
-            }
+            ValueBlocks.Free(_arena, ValueBlocks.Read(Image[offset..]));
         }
-        finally
-        {
-            _writes?.Exit();
-        }
+
+        SlotBytes = 0;
     }
 
     // A failed Complete: everything the writer allocated is freed, and the writer has ended.

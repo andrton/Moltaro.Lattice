@@ -150,35 +150,6 @@ internal sealed class ReadEpochs
         }
     }
 
-    // Enters the protection for a write being prepared, which looks its key up and reads the current
-    // entity as a read does (Writes.WriteExecutor), and returns the slot, which it gives to Exit. It does
-    // not look at the close or at a fault: a write admitted before the close goes on to its outcome,
-    // and the close waits for it through the barrier of the close (CloseBarrier) before it waits for
-    // the reads and frees the arena; the coordinator ends a write after a fault. It waits for a free
-    // slot as Enter does, and the token of the write ends that wait, with OperationCanceledException;
-    // it is looked at only while every slot is held.
-    public int EnterForWrite(CancellationToken cancellationToken)
-    {
-        var start = Thread.GetCurrentProcessorId();
-        var spinner = default(SpinWait);
-
-        while (true)
-        {
-            for (var probe = 0; probe < _slots.Length; probe++)
-            {
-                var slot = (start + probe) & _mask;
-
-                if (TryClaim(slot))
-                {
-                    return slot;
-                }
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            spinner.SpinOnce();
-        }
-    }
-
     // Whether a read that retries on the mark of a write in progress has to give up: the database is
     // faulted, and the write it waits for will never store its stamp (Entities.EntityTable). Loaded
     // only on that retry, never on the ordinary path of a read.

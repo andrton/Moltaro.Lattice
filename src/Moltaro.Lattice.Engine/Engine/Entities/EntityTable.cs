@@ -241,11 +241,11 @@ internal sealed class EntityTable
         return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
     }
 
-    // For a write being prepared, which calls it inside the protection of reads as a read looks a key
-    // up, while the holder of the lock of the writes changes the index and the root entries: finds a
-    // key of an entity type the engine stores, with the handle of the lifetime of its root. The write
-    // holds the reservation of its identity (Writes.WriteCoordinator), so no other write of that key is
-    // published until it is published or withdrawn, and what it finds stays the state of its key.
+    // For a write being prepared, under the lock of the writes, whose holder is the only thread that
+    // changes the index and the root entries, so it reads them without the protection of reads: finds a
+    // key of an entity type the engine stores, with the handle of the lifetime of its root. No other
+    // write of that key is prepared and unpublished meanwhile (Writes.WriteCoordinator), so what it
+    // finds stays the state of its key until the write is published or withdrawn.
     public bool TryFind(in EntityKey key, out RootHandle handle)
     {
         if (TryFindSlot(key, HashOf(key), out var slot))
@@ -273,8 +273,8 @@ internal sealed class EntityTable
 
     // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
     // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
-    // so that two spellings of a key compared without case are one identity of a write
-    // (Writes.WriteIdentity).
+    // so that two spellings of a key compared without case are one entity for the order of the writes
+    // (Writes.PendingWrite.IsOfSameEntity).
     public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
     {
         KeyKindEnum.Integer => left.Integer == right.Integer,
@@ -296,8 +296,8 @@ internal sealed class EntityTable
     // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
     // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture): the
     // array is the write's own, so nothing of the caller's is changed. A write being prepared calls it
-    // inside the protection of reads, as it looks its key up (TryFind); the reservation of its identity
-    // keeps the root it reads the current one.
+    // under the lock of the writes, as it looks its key up (TryFind), and the root it reads stays the
+    // current one until the write is published or withdrawn.
     public void KeepStoredKey(RootHandle handle, object?[] values)
     {
         var key = EntityType.Key;
@@ -562,8 +562,8 @@ internal sealed class EntityTable
     // exclusive or of the halves or the quarters of the value, which keys of a structure share
     // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
     // S08, part 1). Under the seed 0 a key enters the finalizer unchanged. Keys that are one key
-    // (KeysEqual) have one hash, so the coordinator of the writes hashes the identity of a write with
-    // it (Writes.WriteIdentity).
+    // (KeysEqual) have one hash, so the coordinator of the writes compares the entities of two writes
+    // by it before it compares their keys (Writes.PendingWrite.IsOfSameEntity).
     public uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)

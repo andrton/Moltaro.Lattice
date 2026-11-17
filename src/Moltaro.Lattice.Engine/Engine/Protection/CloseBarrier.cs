@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 // close no operation enters, and Drained completes when the last operation in progress has exited, or
 // at once when none is in progress. Reads do not pass here: a count that every read changes is memory
 // every read writes, which ReadEpochs exists to avoid. A write passes here twice, at its admission and
-// at its outcome, beside the locks it takes anyway.
+// at its outcome, beside the lock it takes anyway.
 //
 // The count and the mark of the close are one word that every change makes atomically, so an
 // operation is either counted before the close or refused after it.

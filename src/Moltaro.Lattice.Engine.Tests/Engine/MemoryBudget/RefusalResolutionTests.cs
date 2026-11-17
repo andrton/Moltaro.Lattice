@@ -3,6 +3,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
@@ -41,6 +42,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 //   that caller held in the storage step, at most three replaces of that caller complete before the
 //   write has left the coordinator. As built before the fix it kept retrying while the later replaces
 //   retired memory, for hundreds to tens of thousands of them.
+// - A later write of the entity of a refused write that waits for the writes admitted before it waits
+//   behind it, and runs after it (added by the implementer of S09, part 2).
 // Every wait is bounded; the storage of the test releases every commit when a test ends.
 public sealed class RefusalResolutionTests
 {
@@ -293,6 +296,55 @@ public sealed class RefusalResolutionTests
             Assert.Equal(LatticeLimitEnum.Memory, refused.Limit);
             Assert.Equal(0, database.Counters.QueuedWrites);
             PieceTally.Of(firstPiece).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    // Added by the implementer of S09, part 2: a refused write that waits for the writes admitted before
+    // it is not prepared, so a later write of its entity has to find it among the writes that wait, not
+    // among those prepared. Here the insert of entity 2 waits behind the delete of entity 1, held in the
+    // storage step; a replace of entity 2 made after it waits behind it, and runs after it: had it run
+    // first, it would have found no entity 2 and been NotFound.
+    [Fact]
+    public async Task Later_write_of_an_entity_waits_behind_an_earlier_write_of_it_that_waits_for_the_writes_admitted_before_it()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: 4 * Mebibyte));
+            storage.Hold();
+
+            var delete = pieces.DeleteAsync(1L).AsTask();
+            var heldDelete = await storage.NextAsync();
+
+            var waits = RefusedWriteWait.Begins(database);
+            var insert = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: (9 * Mebibyte) / 2)).AsTask());
+
+            await Task.WhenAny(waits, insert).WaitAsync(Bound);
+            Assert.True(waits.IsCompleted, $"The insert did not wait for the delete admitted before it: {Outcome(insert)}.");
+
+            var replace = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+
+            Assert.False(replace.IsCompleted, "The later replace of the entity ran before the earlier insert of it.");
+
+            storage.ReleaseAll();
+            heldDelete.Release();
+
+            Assert.True((await delete.WaitAsync(Bound)).Changed);
+
+            var inserted = await insert.WaitAsync(Bound);
+            var replaced = await replace.WaitAsync(Bound);
+
+            Assert.True(PositionSequence.Of(inserted.Position) < PositionSequence.Of(replaced.Position));
+            Assert.Equal(26, pieces.Get(2L)?.Name.Length);
+            Assert.Equal(0, database.Counters.QueuedWrites);
         }
         finally
         {

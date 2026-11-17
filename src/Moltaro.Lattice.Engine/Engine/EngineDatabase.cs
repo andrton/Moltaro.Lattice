@@ -57,19 +57,17 @@ namespace Moltaro.Lattice.Engine;
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
 // for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
-// writes in Writes (WriteCoordinator, which orders them, and WriteExecutor, which prepares and
-// publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
+// writes in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them
+// for the storage step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
 // Protection, the history and the sequence in Positions (PositionClock), and the sets of the public
 // interfaces in Sets.
 //
-// The order of the locks and of the lifetimes. The database has three locks: the lock of the state,
-// for an open, a close and a fault that race; the lock of the coordinator (WriteCoordinator), under
-// which writes are admitted, queued and completed; and the lock of the writes (WriteExecutor), under
-// which one change of a structure of the engine, the publication of one group, one drain or one count
-// of the counters runs at a time, held for synchronous work in memory only. No thread holds two of
-// them at once: the lock of the state is taken alone, the coordinator releases its lock before it
-// calls into the executor, and a thread that holds the lock of the writes takes no other lock. A read
-// takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
+// The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
+// for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
+// what it protects), under which writes are admitted, prepared, handed to the storage step and
+// published, and under which a drain or a count of the counters runs, held for synchronous work in
+// memory only. The lock of the state is taken alone; no thread that holds a lock takes the other one.
+// A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write
 // unlinks it and retires it, and the writer frees it only once the reads that entered before have
 // left (RetiredMemory); the close frees the arena only after the reads and the writes in progress
@@ -200,8 +198,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // What the engine holds at this moment, for the tests and later for diagnostics: taken between
     // two changes of the engine, under the lock of the writes, so that no change, no publication and no
-    // freeing of what was retired is half done. The counters of the coordinator are read beside them
-    // without its lock, which is never held with the lock of the writes: each is one value of its own.
+    // freeing of what was retired is half done; the counters of the coordinator are written under the
+    // same lock.
     public EngineCounters Counters
     {
         get
@@ -306,12 +304,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
-    // refused twice runs hold, once, at the first wait of its resolution, on the thread that prepares it
-    // and outside every lock, when it knows it has to wait and before it waits, so that a test can tell
-    // that the write waits instead of giving it a window of time. A refused write is resolved alone: it
-    // waits for the writes admitted before it, then for the writes in flight while it holds back later
-    // ones, then for the reads that hold retired memory (WriteCoordinator, "The refusal"); the switch
-    // runs at the first of these waits that the write has to make. When hold returns the write waits as
+    // refused twice runs hold, once, at the first wait of its resolution, outside every lock, when it
+    // knows it has to wait and before it waits, so that a test can tell that the write waits instead of
+    // giving it a window of time. A refused write is resolved alone: while it holds back the preparation
+    // of later writes it waits for the writes prepared and not published yet, then for the reads that
+    // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
+    // that the write has to make. When hold returns the write waits as
     // it would have. Only a write the arena refused loads the switch: no other write and no read pays
     // anything for it. Unavailable before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
@@ -567,8 +565,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // follows the hashes, may differ between two instances that hold the same data.
             var seed = _testInputs?.IndexSeed ?? DrawSeed();
             var writes = new Lock();
-            var executor = new WriteExecutor(writes, arena, roots, retired, clock, _epochs);
+            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs);
             var coordinator = new WriteCoordinator(
+                writes,
                 executor,
                 _testInputs?.CommitStorage ?? new MemoryOnlyStorage(),
                 _barrier,

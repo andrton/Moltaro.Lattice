@@ -3,7 +3,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // A short run of prepared writes that share one storage commit. A batch is never split across two
 // (brief of Epic 1, sprint S09, "Types and members of S09").
 //
-// A group is formed from the writes that are prepared when the commit stage becomes free: at most
+// A group is formed from the writes that are prepared when the storage step becomes free: at most
 // MaxOperations writes or MaxEncodedSize bytes of PreparedWrite.EncodedSize. A write larger than
 // MaxEncodedSize forms a group alone, so the size of a group bounds what accumulates and never
 // refuses a write. The commit stage never waits for a group to fill: a delay to fill a group belongs
@@ -15,7 +15,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // The commit stage has one group, which it forms anew for every commit (WriteCoordinator), so that a
 // commit allocates nothing for it: the storage step reads the group during its call and until the
-// task it returned completes, and the stage forms the next group only after that.
+// task it returned completes, and the stage forms the next group only after that. In MemoryOnly the
+// storage step completes in the hold of the lock that handed the group over, so every group is the one
+// write of that hold.
 internal sealed class CommitGroup
 {
     public const int MaxOperations = 32;

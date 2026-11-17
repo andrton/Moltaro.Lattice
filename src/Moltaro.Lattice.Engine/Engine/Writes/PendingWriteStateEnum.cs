@@ -1,36 +1,35 @@
 namespace Moltaro.Lattice.Engine.Writes;
 
 // Where a write stands between its admission and its completion (WriteCoordinator, which changes it
-// under the lock of the coordinator alone).
+// under the lock of the writes alone). A write that is prepared and published in the hold of its call
+// passes through none of these but Completed: it never waits.
 internal enum PendingWriteStateEnum
 {
-    // Admitted behind an earlier write of the same entity, which holds the identity: it holds nothing
-    // in the engine and waits its turn.
-    WaitingForIdentity = 1,
+    // Waits behind a prepared, unpublished write of its entity, first in first out: it is in the chain
+    // of that entity (PendingWrite.EarlierOfEntity) and holds nothing in the engine.
+    Chained = 1,
 
-    // Holds its identity and waits for one of the writes being prepared to end.
-    WaitingToPrepare = 2,
+    // Held back while an earlier write the arena refused is resolved: it is in the held list, first in
+    // first out, and holds nothing in the engine.
+    Held = 2,
 
-    // A thread prepares it.
-    Preparing = 3,
+    // Refused by the arena twice, it waits for every write admitted before it to complete (step 1 of
+    // its resolution). It holds nothing in the engine.
+    WaitingForEarlier = 3,
 
-    // The arena refused it twice, and it waits for every write admitted before it to complete (step 1
-    // of its resolution). It holds its identity and nothing in the engine.
-    WaitingForEarlier = 4,
+    // Refused by the arena twice and the oldest write, it is the write being resolved and waits for the
+    // writes prepared and not published yet to be published (step 2). It holds nothing in the engine.
+    Resolving = 4,
 
-    // The arena refused it twice, it is the oldest write and the write being resolved: no later write
-    // begins to be prepared, and it waits for the writes in flight to complete (step 2 of its
-    // resolution). It holds its identity and nothing in the engine.
-    WaitingForFlight = 9,
+    // Refused by the arena twice and resolved: a thread waits, outside every lock, for the reads that
+    // hold retired memory, and then tries it once more (step 3). It holds nothing in the engine.
+    Reading = 5,
 
-    // Prepared, with everything its publication needs, and waiting for the commit stage.
-    Prepared = 5,
+    // Prepared, with everything its publication needs, and in the queue of the writes that wait for the
+    // storage step.
+    Prepared = 6,
 
-    // Prepared, and withdrawn before its dispatch, because its token was cancelled or the database
-    // faulted: what it prepared is being released, and no group takes it.
-    Withdrawing = 6,
-
-    // Taken into a group and handed to the storage step: from here on it gets its real outcome.
+    // In the group handed to the storage step: from here on it gets its real outcome.
     Dispatched = 7,
 
     // It has its outcome, or is about to be given it: it holds nothing of the coordinator any more.
