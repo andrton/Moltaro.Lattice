@@ -4067,6 +4067,14 @@ agreed with all three on 17 November 2026, through the planner's session.
 
 #### S11 · A child loads under writes and follows the master
 
+**Carried from the review of S10:** `WriteExecutor.Install` publishes an entry with plain
+stores, sound while no read reaches an entry before the index maps its key. The capture
+reaches entries by slot; in S10 no write runs beside it. Once the capture runs under
+writes it must not take an entry whose stores are not complete: the stamp protocol of
+`TryTakeLive` is checked against `Install` for weakly ordered hardware. The refusal of
+writes while a child is registered relied on a storage step that completes at once; it
+goes with this sprint.
+
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
 
 - **Goal.** A child that loads while the master keeps writing ends exactly at a fixed
@@ -4707,6 +4715,10 @@ under the lock of the writes or by the rule this sprint states.
 
 #### S24 · The memory budget
 
+**Carried from the review of S10:** a child sizes its index from the counts its master
+announces, bounded only by its memory limit, and each accepted connection holds about
+200 KiB of managed buffers before its Hello; neither is in the budget.
+
 **Track:** full · **Needs:** S23 · **Owners:** E03, E08
 
 - **Goal.** An instance never takes more memory than its budget: a write that would
@@ -5022,6 +5034,11 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Carried from the review of S10:** the two waits of X6 end here: the master's send to a
+child that does not read, and its wait for the end of a loaded child's connection (a
+child lost without a reset is not noticed). The milestone row "concurrent captures, up
+to 10" is not built before this sprint.
+
 **Carried from S10:** `OpenTimeout` bounds the time without progress of a load; a child
 that waits for a free capture is sent a frame that counts as progress, or its wait is
 stated otherwise here.
@@ -5056,6 +5073,11 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Carried from the review of S10:** the pauses between a child's attempts (100 ms,
+doubling, at most 5 s) are constants (X6) and become options here. The listener resolves
+a host name synchronously, binds its first address only and reports a wildcard address
+in `ListenUri` as it was given; decide each here.
 
 **Track:** full · **Needs:** S33 · **Decisions:** D7 · **Owner:** E07
 
