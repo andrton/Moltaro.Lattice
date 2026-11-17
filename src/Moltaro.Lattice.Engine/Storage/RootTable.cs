@@ -16,16 +16,19 @@ namespace Moltaro.Lattice.Storage;
 // The table takes no lock; its owner says who may call what at the same time. In the database Add
 // and Release, which change the list of free slots, are called only by the thread that holds the
 // lock of the writes (Engine.Writes.WriteCoordinator), which also looks the key of a write up under
-// that lock, while reads inside the protection of reads call EntryOfSlot at the same time for slots
-// a primary index named to them. Those read only that entry and the directory of pages, which grows
-// by replacing one array with another that holds the same pages, so a reader that still has the old
-// directory finds the same entry. A reader learns of a slot
-// only through an entry of a primary index, which an insert stores with release semantics after it
-// took the slot and wrote its entry (Engine.Indexes.IndexTable.Add), and loads with acquire
-// semantics; so the plain stores of Add, of the directory and of the entry come before what the
-// reader reads. The protection of reads keeps a slot from being released while a read that could
-// have found it is inside: the entry of a deleted root is retired and released only after those
-// reads have left (Engine.Protection.RetiredMemory).
+// that lock, while reads inside the protection of reads call EntryOfSlot at the same time. Those read
+// only that entry and the directory of pages, which grows by replacing one array with another that
+// holds the same pages, so a reader that still has the old directory finds the same entry. A read by
+// key learns of a slot through an entry of a primary index, which an insert stores with release
+// semantics after it took the slot and wrote its entry (Engine.Indexes.IndexTable.Add), and loads with
+// acquire semantics; so the plain stores of Add, of the directory and of the entry come before what the
+// reader reads. The capture of a load on a master walks the slots below the extent it took instead,
+// whatever lifetime each holds, while the master writes (Engine.Children.Capture): it takes more of an
+// entry only once it has loaded the state Live with acquire semantics, which an insert stores last with
+// release semantics (Engine.Writes.WriteExecutor.Install), and every other state it skips; Add writes
+// the fields of an entry one by one, so that the state is never read torn. The protection of reads keeps
+// a slot from being released while a read that could have found it is inside: the entry of a deleted
+// root is retired and released only after those reads have left (Engine.Protection.RetiredMemory).
 internal sealed class RootTable
 {
     // The number of entries in one page.
@@ -77,12 +80,20 @@ internal sealed class RootTable
         // uint.MaxValue was retired and is never taken, so the generation cannot wrap.
         var generation = entry.Generation + 1;
 
-        entry = new RootEntry
-        {
-            Generation = generation,
-            TypeId = typeId,
-            State = RootStateEnum.Prepared,
-        };
+        // Field by field, each an aligned word written whole, and not as one assignment of the struct,
+        // which the compiler may copy in pieces of its choosing: the capture of a load reads the state of
+        // any slot while this runs (Engine.Children.Capture) and has to find it Free or Prepared, never a
+        // torn value (brief of Epic 1, sprint S11, the planner's decision after the study, point 10). The
+        // state first; neither it nor the other fields are Live, which is the only state the capture
+        // takes more of.
+        entry.State = RootStateEnum.Prepared;
+        entry.Root = default;
+        entry.LastMutationSequence = 0;
+        entry.KeyDescriptor = default;
+        entry.StoredRootId = 0;
+        entry.Generation = generation;
+        entry.TypeId = typeId;
+        entry.Reserved = 0;
 
         _counts.Count++;
 
@@ -159,7 +170,8 @@ internal sealed class RootTable
 
     // The slots below this one were given out at least once; every slot that holds a lifetime is
     // below it. For the capture of a load on a master, which walks the slots below it (the planner's
-    // block of 17 November 2026, point 3), taken under the lock of the writes.
+    // block of 17 November 2026, point 3), taken under the lock of the writes as the fence of the
+    // capture: every root live at the start of the capture lies below it.
     public int SlotExtent => _nextUnusedSlot;
 
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.

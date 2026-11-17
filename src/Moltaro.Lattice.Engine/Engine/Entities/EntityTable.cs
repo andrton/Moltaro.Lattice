@@ -703,12 +703,23 @@ internal sealed class EntityTable
     // caller entered: takes the entry as one state, by its stamp, as a read does (TryCopy), and returns
     // true with its root and the sequence of its last mutation when the root is live. The caller reaches
     // the entry by its slot in the root table, not through an index (the planner's block of 17 November
-    // 2026, point 3), so it meets entries no read meets: a slot that was never published, or that a
-    // write took for an insert and gave back when it was refused or withdrawn, has the stamp 0, the mark
-    // of a write in progress, and no write will ever store another. Such an entry holds no live root, so
-    // its state is looked at first, and the stamp is taken only of an entry that holds one; no write is
-    // published while the caller copies (Children.Capture), so the state does not change meanwhile.
-    // A root found live stays allocated until the caller leaves the protection.
+    // 2026, point 3), so it meets entries no read meets: a slot that was never published, that a write
+    // took for an insert and has not published yet, or that a write gave back when it was refused or
+    // withdrawn, is Free or Prepared, and its stamp is 0, the mark of a write in progress, which a slot
+    // given back keeps for good. Such an entry holds no live root, so its state is looked at first, and
+    // the stamp is taken only of an entry that holds one.
+    //
+    // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
+    // insert writes the root and the sequence of a new entry and only then stores the state Live, by a
+    // store with release semantics (Writes.WriteExecutor.Install); the state is loaded here with acquire
+    // semantics, so a capture that loads Live sees the root, the sequence and the type id of the lifetime
+    // that store published, and the blocks of the root; it never pairs Live with the root or the sequence
+    // of an earlier lifetime of the slot, a root that may have been freed. That earlier lifetime cannot be
+    // seen Live either once its root may have been freed: its entry is released, and the slot given to a
+    // new lifetime, only after the reads that entered before its delete was retired have left
+    // (Protection.RetiredMemory), and a read that enters after that sees the delete (Protection.ReadEpochs).
+    // A replace or a delete of the lifetime meanwhile is taken by the stamp, as for any read. A root found
+    // live stays allocated, and its entry keeps its lifetime, until the caller leaves the protection.
     public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out ArenaAddress root, out ulong lastMutation)
     {
         if (entry.AcquireState() != RootStateEnum.Live)

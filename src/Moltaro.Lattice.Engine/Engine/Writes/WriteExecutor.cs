@@ -53,9 +53,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // was replaced. It obtains no memory, grows no index, adds no root entry, does no I/O and runs no code
 // of the application. Each store has release semantics (Volatile.Write), so a read that sees one, by a
 // load with acquire semantics, sees every store before it, the blocks the preparation wrote included.
-// - Insert: the root is published in the arena and the root entry written while no read can reach
-//   them; the entry of the index is the store that publishes them (Indexes.IndexTable.Add); then the
-//   sequence of the database (PositionClock.Publish).
+// - Insert: the root is published in the arena and the root entry written while no read by key can
+//   reach them, its state Live last, by a release, for the capture of a load, which reaches entries by
+//   their slots (EntityTable.TryTakeLive); the entry of the index is the store that publishes them to a
+//   read by key (Indexes.IndexTable.Add); then the sequence of the database (PositionClock.Publish).
 // - Replace: the entry's stamp becomes MutationInProgress, then the root, then the sequence of the
 //   database, then the entry's stamp becomes the write's sequence; the old root is retired.
 // - Delete: the entry's stamp becomes MutationInProgress, then its state Deleted, then the sequence of
@@ -402,21 +403,26 @@ internal sealed class WriteExecutor
         _clock.Publish(sequence);
     }
 
-    // The stores of an insert before its position: the root becomes live, then the entry, then the
-    // entry of the index, which publishes both.
+    // The stores of an insert before its position: the root becomes live, then the entry, its state last,
+    // then the entry of the index, which publishes both to a read by key.
     private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
     {
         RootStorage.Publish(_arena, table.Layout!, root);
 
-        // No read reaches the entry before the index maps the key to it, so plain stores serve, and the
-        // first stamp of the entry is the write's sequence, with no mark before it.
+        // No read by key reaches the entry before the index maps the key to it, and the first stamp of the
+        // entry is the write's sequence, with no mark before it. The capture of a load reaches it by its
+        // slot (Children.Capture), and takes more of it only once it loads the state Live with acquire
+        // semantics, so that state is stored last, with release semantics: a capture that sees it sees
+        // the root and the sequence of this lifetime, never those of an earlier one of the slot
+        // (EntityTable.TryTakeLive; review of S10, carried to S11). x64 keeps stores in their order and
+        // hides the difference; hardware that orders stores weakly does not.
         ref var entry = ref _roots.Entry(handle);
 
         entry.Root = root;
         entry.LastMutationSequence = sequence;
-        entry.State = RootStateEnum.Live;
+        entry.ReleaseState(RootStateEnum.Live);
 
-        // The store that publishes the entry and the root, with release semantics.
+        // The store that publishes the entry and the root to a read by key, with release semantics.
         table.Add(key, handle);
     }
 
