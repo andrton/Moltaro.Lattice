@@ -219,6 +219,19 @@ sprint. The decision is recorded in the epic document, and in the
 open P1, P2 or P3 on the coordinator's own word. The report of a closed sprint says how
 many rounds it took.
 
+## A study comes before a design
+
+A sprint that builds a mechanism of the engine — storage, an index, the write path,
+replication, recovery — begins with a study, before its internal contract is fixed and
+before any code (the owner's rule of 17 November 2026). The agent reads the source, not
+summaries, of two to four established systems that solve the same problem, at pinned
+commits, the licence checked first by the rule on sources below. It reports, briefly: what
+each guarantees, what it costs, what Lattice takes and why, what does not fit and why. The
+planner and the coordinator read the report before the contract step ends. A design of our
+own is made only where nothing fits, and the report says so. The study is bounded: it
+answers the questions the brief names and is not a survey. It is a step of its sprint, not
+a sprint of its own.
+
 ## Code modelled on another project
 
 When a sprint repeats a proven solution, its code is modelled only on sources under a
