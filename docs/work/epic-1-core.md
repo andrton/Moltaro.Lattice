@@ -4219,8 +4219,11 @@ says otherwise, these replace it.
 above says otherwise, these replace it. The study read the source of Valkey (BSD-3-Clause,
 commit 97ff16e), PostgreSQL (PostgreSQL Licence, commit 11591f2), Garnet (MIT, commit
 fcc018a) and etcd (Apache-2.0, commits 65fe41f and, for raft, 99f9ffb); no file is adapted
-from them. The sentence on the watermarks of Q08.1.1 is entered when the owner has
-answered.
+from them. The owner agreed on 17 November 2026 to withdraw the deletion metadata of the
+initial capture (watermarks of deletions, no reuse of fenced slots, the claim on the
+catalog); the decision on replication and hosting carries the amendment. In Acceptance
+"its own start position, fence and watermarks" becomes "its own start position, fence
+and end position".
 
 1. **Contract line.** Internal: the capture with its start position S, its fence of root
    slots and its end position R; the shared tail of committed transactions; the

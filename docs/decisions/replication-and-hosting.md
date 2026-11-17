@@ -203,6 +203,33 @@ second full arena.
    capture/delivery retention invalidate initialization and require full reload,
    never partial readiness or a PostgreSQL fallback.
 
+**Amended on 17 November 2026 by the owner, after the study of Epic 1, sprint S11.** The
+temporary deletion metadata is withdrawn: point 2 as a whole, "temporary deletion
+metadata" in the opening paragraph, and "catalog-retention claim and deletion watermarks"
+in point 6. A capture retains nothing: no control slot is kept from reuse, no deleted
+entry keeps its key or deletion revision, and no deletion watermark travels. What remains
+of the watermark of a root is the sequence of its last mutation, which every root already
+carries. The rule that replaces them:
+
+- The child receives every copied root before any transaction of the tail, on one
+  connection, and applies a copy and an effect by one rule: a state of a key at sequence
+  *s* is skipped when the child already holds that key with a last mutation not earlier
+  than *s*; otherwise a write inserts or replaces it and a delete removes it if it is
+  held. The child addresses an entity by its key, never by a slot of the master.
+- A deleted entity cannot come back, because its delete is in the tail and the tail is
+  applied after every copy; a recreated entity has a later sequence than anything of its
+  earlier lifetime; a key copied twice is resolved by the same comparison.
+- Points 1 and 3 to 6 stand otherwise: S is registered with the range to scan in one
+  coordination step, R is recorded after the scan, the child is unreadable before it has
+  applied R, a batch is never skipped whole by one member's sequence.
+
+Why: PostgreSQL (a base backup with replay of the log by the sequence of a page), Garnet
+and etcd reach a consistent replica from a copy taken under writes by an order mark per
+unit and nothing else; the deletion metadata was needed only if effects were applied
+while copies still arrive. The guarantee does not change; the master holds less and a
+write does no accounting of deletions. A partial effect, when one exists (S18 to S20),
+is decided with its own study.
+
 Catalog/deletion metadata, pending changes and detached copy/install buffers must
 all fit finite budgets. A slow initialization cannot retain them indefinitely.
 The fixed range prevents repeated scanning of newly appended identities, but its
