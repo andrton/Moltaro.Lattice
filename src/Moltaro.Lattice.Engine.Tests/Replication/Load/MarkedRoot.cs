@@ -18,8 +18,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 //   the root payload. The payload is the root block after its header (RootLayout.RootPayload), so where
 //   the stored layout puts the null bitmap and the descriptor of a field, relative to Marker, is where
 //   they travel.
-// Name is a short text, inline; Note a nullable text, inline and not null; Data a Binary value of 1,000
-// zero bytes, in a block of its own, which travels last, so the root ends where its bytes end.
+// The key Code is a short text, inline, as Name is; Note a nullable text, inline and not null; Data a
+// Binary value of 1,000 zero bytes, in a block of its own, which travels last, so the root ends where its
+// bytes end.
 internal static class MarkedRoot
 {
     public const uint TypeId = 0x5EFE0001;
@@ -32,7 +33,7 @@ internal static class MarkedRoot
             {
               "Id": {{TypeId}}, "Name": "Marked",
               "Fields": [
-                { "Id": 1, "Name": "Id", "Type": "Int64" },
+                { "Id": 1, "Name": "Code", "Type": "String" },
                 { "Id": 2, "Name": "Marker", "Type": "Int64" },
                 { "Id": 3, "Name": "Name", "Type": "String" },
                 { "Id": 4, "Name": "Note", "Type": "String", "Nullable": true },
@@ -48,7 +49,7 @@ internal static class MarkedRoot
 
     public static LatticeRecord Record() => new(EntityType)
     {
-        ["Id"] = 1L,
+        ["Code"] = "code",
         ["Marker"] = Marker,
         ["Name"] = "name",
         ["Note"] = "a note",

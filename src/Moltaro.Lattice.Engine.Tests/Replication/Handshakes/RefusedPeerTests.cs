@@ -10,15 +10,16 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Handshakes;
 // The handshake checks that a peer is compatible (brief of Epic 1, sprint S10, Acceptance; the planner's
 // blocks of 15 November 2026, "Identity", "Byte order" and "The version of the case table", and of
 // 17 November, point 1): a peer whose Hello names another database, another history, another schema
-// fingerprint, another wire format, another layout format or another version of the case table, or the
-// role of a master, is refused with the matching reason — Database, History, Schema, Format or Role —
-// before any data frame is sent, and nothing of it is registered on the master, which publishes a write
-// afterwards. A real child cannot send most of these, so the test sends a Hello it makes itself, through
-// a connection of its own (Peer): the Hello of a real child that holds nothing yet, recorded on its way
-// to the master (Handshake), with one value changed, and the identity of the master taken from its reply
-// where the value has to be the master's for the check of the next one to be reached. The master gives a
-// peer far more than the bound to introduce itself, so that within the bound only its refusal ends the
-// connection.
+// fingerprint, another wire format, another layout format, the byte order of a big-endian machine
+// (bit 16 of the layout format, as the implementer of S10 encodes it) or another version of the case
+// table, or the role of a master, is refused with the matching reason — Database, History, Schema,
+// Format or Role — before any data frame is sent, and nothing of it is registered on the master, which
+// publishes a write afterwards. A real child cannot send most of these, so the test sends a Hello it
+// makes itself, through a connection of its own (Peer): the Hello of a real child that holds nothing yet,
+// recorded on its way to the master (Handshake), with one value changed, and the identity of the master
+// taken from its reply where the value has to be the master's for the check of the next one to be
+// reached. The master gives a peer far more than the bound to introduce itself, so that within the bound
+// only its refusal ends the connection.
 public sealed class RefusedPeerTests
 {
     public static IEnumerable<TheoryDataRow<string, string>> Differences =>
@@ -28,6 +29,7 @@ public sealed class RefusedPeerTests
         new("another schema", "Schema"),
         new("another wire format", "Format"),
         new("another layout format", "Format"),
+        new("the byte order of a big-endian machine", "Format"),
         new("another version of the case table", "Format"),
         new("the role of a master", "Role"),
     ];
@@ -64,6 +66,10 @@ public sealed class RefusedPeerTests
             "another schema" => child with { DatabaseId = master.DatabaseId, History = master.History, SchemaFingerprint = OtherSchema.Fingerprint },
             "another wire format" => child with { WireFormat = child.WireFormat + 1 },
             "another layout format" => child with { LayoutFormat = child.LayoutFormat + 1 },
+
+            // The layout version 1 in bits 0 to 15 and bit 16, which a big-endian node sets; the nodes of
+            // the tests are little-endian and send 0x00000001.
+            "the byte order of a big-endian machine" => child with { LayoutFormat = 0x0001_0001 },
             "another version of the case table" => child with { CaseTableVersion = child.CaseTableVersion + 1 },
             "the role of a master" => child with { Role = LatticeRoleEnum.Master },
             _ => throw new ArgumentOutOfRangeException(nameof(difference), difference, "No such difference."),
