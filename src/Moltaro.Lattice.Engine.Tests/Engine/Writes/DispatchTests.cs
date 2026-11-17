@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -20,6 +21,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   that thread inside its hold, between the publication and the next group, by the preparation of a
 //   write of the published entity that waited behind it, held by the allocator of the test
 //   (HeldPreparation), and cancels there.
+// - In that same hold (review round 2 of S09, part 2), a write waiting behind a prepared write that the
+//   next group withdraws gets its turn, also when every write of the queue was withdrawn and the group
+//   is left empty: it completes, and so does a later write of its entity. And a write whose token is
+//   cancelled in the hold before its turn comes, while it waits behind a write of its entity, ends
+//   cancelled when its turn comes and is not prepared: its condition is not looked at. The cancellation
+//   comes inside the hold from the growth of the primary index (EngineDatabase.HoldNextGrowth) that the
+//   preparation of an insert of entity 5 makes, the ninth entry of an index whose first table holds
+//   eight (InsertEightAsync); the hold cancels the token itself, which only hands the withdrawals to the
+//   thread pool.
 // - From the dispatch on the call returns the real outcome, and its token is not looked at: a write
 //   whose token is cancelled while the storage holds its group is published.
 // - A write admitted behind an earlier write of the same entity waits for its turn and holds nothing
@@ -139,6 +149,101 @@ public sealed class DispatchTests
             Assert.DoesNotContain(storage.Commits.SelectMany(commit => commit.Sizes), size => size == PieceTally.SlotBytesOf(withdrawn));
             Assert.Equal(0, database.Counters.QueuedWrites);
             ExpectHeld(database, behind);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    [Fact(Skip = OpenFindings.PartTwoReviewRound2)]
+    public async Task Write_behind_a_prepared_write_withdrawn_when_the_next_group_is_formed_runs_also_when_that_group_is_left_empty()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await InsertEightAsync(pieces);
+            storage.Hold();
+
+            // A delete of the absent entity 5 in the storage step, and behind it an insert of entity 5
+            // with the token; a replace of entity 1 with the token, prepared and in the queue, and a
+            // replace of entity 1 without one behind it.
+            using var cancellation = new CancellationTokenSource();
+            var deleteWrite = pieces.DeleteAsync(5L).AsTask();
+            await storage.NextAsync();
+            var insertWrite = pieces.InsertAsync(PieceSchema.Of(5, name: 10), cancellation.Token).AsTask();
+            var withdrawn = PieceSchema.Of(1, name: 26);
+            var withdrawnWrite = pieces.ReplaceAsync(withdrawn, cancellation.Token).AsTask();
+            var behindWrite = pieces.ReplaceAsync(PieceSchema.Of(1, name: 42)).AsTask();
+
+            await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(withdrawn));
+
+            // The thread that completes the storage step publishes the delete and prepares the insert,
+            // whose growth of the index cancels the token; the next group then finds the cancelled
+            // replace alone.
+            var grown = ArmCancellationAtTheNextGrowth(database, pieces, cancellation);
+
+            storage.ReleaseAll();
+
+            Assert.False((await deleteWrite.WaitAsync(Bound)).Changed);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => insertWrite.WaitAsync(Bound));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => withdrawnWrite.WaitAsync(Bound));
+            Assert.True(grown.IsCompleted, "The insert of entity 5 did not grow the primary index.");
+            Assert.True((await behindWrite.WaitAsync(Bound)).Changed);
+
+            // A later write of entity 1 completes, and no write is left among those admitted.
+            var last = PieceSchema.Of(1, name: 58);
+
+            Assert.True((await pieces.ReplaceAsync(last).AsTask().WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            Assert.Null(pieces.Get(5L));
+            ExpectHeld(database, [last, .. EightPieces().Where(piece => piece.Id != 1)]);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    [Fact]
+    public async Task Write_whose_token_is_cancelled_in_the_hold_that_gives_it_its_turn_ends_cancelled_and_is_not_prepared()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await InsertEightAsync(pieces);
+            storage.Hold();
+
+            // A delete of the absent entity 5 in the storage step; behind it an insert of entity 5 with
+            // the token, and behind that a replace of entity 5 with the token, which, were it prepared,
+            // would find no entity 5 and be NotFound.
+            using var cancellation = new CancellationTokenSource();
+            var deleteWrite = pieces.DeleteAsync(5L).AsTask();
+            await storage.NextAsync();
+            var insertWrite = pieces.InsertAsync(PieceSchema.Of(5, name: 10), cancellation.Token).AsTask();
+            var replaceWrite = pieces.ReplaceAsync(PieceSchema.Of(5, name: 26), cancellation.Token).AsTask();
+
+            // The preparation of the insert, in the hold that publishes the delete, grows the index and
+            // cancels the token; the replace has its turn in the same hold.
+            var grown = ArmCancellationAtTheNextGrowth(database, pieces, cancellation);
+
+            storage.ReleaseAll();
+
+            Assert.False((await deleteWrite.WaitAsync(Bound)).Changed);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => insertWrite.WaitAsync(Bound));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replaceWrite.WaitAsync(Bound));
+            Assert.True(grown.IsCompleted, "The insert of entity 5 did not grow the primary index.");
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            Assert.Null(pieces.Get(5L));
+            ExpectHeld(database, EightPieces());
         }
         finally
         {
@@ -399,6 +504,35 @@ public sealed class DispatchTests
             Allocator = allocator,
             CommitStorage = storage,
         });
+
+    // Entities 1 to 4 and 6 to 9, small: the first table of the primary index, of two buckets, holds
+    // eight entries, so the preparation of an insert of entity 5 grows it (Indexes.IndexTable, "The
+    // capacity policy").
+    private static PieceSchema.Piece[] EightPieces() =>
+        [.. new long[] { 1, 2, 3, 4, 6, 7, 8, 9 }.Select(id => PieceSchema.Of(id, name: 10))];
+
+    private static async Task InsertEightAsync(ILatticeSet<PieceSchema.Piece> pieces)
+    {
+        foreach (var piece in EightPieces())
+        {
+            await pieces.InsertAsync(piece);
+        }
+    }
+
+    // The next growth of the primary index cancels the token, inside the lock of the writes and on the
+    // thread of the write that grows it; the task completes when it did.
+    private static Task ArmCancellationAtTheNextGrowth(EngineDatabase database, ILatticeSet<PieceSchema.Piece> pieces, CancellationTokenSource cancellation)
+    {
+        var grown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        database.HoldNextGrowth(pieces.EntityType, () =>
+        {
+            cancellation.Cancel();
+            grown.TrySetResult();
+        });
+
+        return grown.Task;
+    }
 
     private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
         await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
