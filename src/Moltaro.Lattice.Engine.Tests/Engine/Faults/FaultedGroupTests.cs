@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
@@ -13,8 +14,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // - The write whose publication faulted, and the writes of the group after it, fail with
 //   IndeterminateOutcome: the storage step took them and the instance cannot show them. The first of
 //   them carries the injected InvalidOperationException, which names the point, as its InnerException.
-// - Writes prepared and not yet taken by the commit stage, writes waiting for their identity and
-//   writes being prepared fail with Unavailable: they did not run.
+// - Writes prepared and not yet taken by the commit stage, writes waiting for their identity, a write
+//   the arena refused that waits for the writes admitted before it, and a write being prepared fail
+//   with Unavailable: they did not run.
 // - The instance is Faulted, every later operation is Unavailable, the close works and returns every
 //   piece of native memory (CountingNativeAllocator), and with it whatever the writes held.
 // The storage step of the test (HeldCommitStorage) holds the group of three replaces while the test
@@ -25,7 +27,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // engine is internal, is armed so that the first write of the group passes it and the second fails
 // there (EngineDatabase.ArmFault with passes to skip); each write passes BeforePublication before its
 // own stores. Which write the group holds first is known by its encoded size, which differs from
-// every other's. For both points; every wait is bounded.
+// every other's. For both points.
+//
+// A write being prepared when the database faults is held there by the allocator of the test
+// (HeldPreparation), at the moment its values need a new segment of the arena; its thread holds the
+// lock of the writes meanwhile, so the fault comes from the storage step, which fails the group it
+// holds, as a storage step fails that cannot tell whether it committed (brief of S09, the block after
+// the implementation: the whole group is IndeterminateOutcome and the database Faulted), rather than
+// from a publication, which needs that lock. Every wait is bounded.
 public sealed class FaultedGroupTests
 {
     private const int Mebibyte = 1024 * 1024;
@@ -120,6 +129,57 @@ public sealed class FaultedGroupTests
             var later = await Assert.ThrowsAsync<LatticeException>(() => pieces.InsertAsync(PieceSchema.Of(7, name: 10)).AsTask().WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.Unavailable, later.Error);
+            Assert.Equal(LatticeErrorEnum.Unavailable, Assert.Throws<LatticeException>(() => pieces.Get(1L)).Error);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+
+        Assert.Equal(0, allocator.Outstanding);
+        Assert.Equal(allocator.Obtained, allocator.Returned);
+    }
+
+    [Fact]
+    public async Task Write_being_prepared_when_the_storage_step_fails_ends_in_Unavailable_and_the_group_is_IndeterminateOutcome()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
+        {
+            Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize },
+            Allocator = allocator,
+            CommitStorage = storage,
+        });
+
+        try
+        {
+            var pieces = database.Set<PieceSchema.Piece>();
+
+            // The first segment, which a value of 5 MiB outgrows.
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10));
+            storage.Hold();
+
+            var grouped = pieces.ReplaceAsync(PieceSchema.Of(1, name: 26)).AsTask();
+            var heldCommit = await storage.NextAsync();
+
+            using var held = HeldPreparation.Arm(allocator);
+            var prepared = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: 5 * Mebibyte)).AsTask());
+
+            await held.HeldAsync();
+            heldCommit.Fail(new IOException("The test failed the storage step: whether it committed is unknown."));
+
+            var indeterminate = await Assert.ThrowsAsync<LatticeException>(() => grouped.WaitAsync(Bound));
+
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, indeterminate.Error);
+            Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+
+            held.Release();
+
+            var unavailable = await Assert.ThrowsAsync<LatticeException>(() => prepared.WaitAsync(Bound));
+
+            Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
             Assert.Equal(LatticeErrorEnum.Unavailable, Assert.Throws<LatticeException>(() => pieces.Get(1L)).Error);
         }
         finally

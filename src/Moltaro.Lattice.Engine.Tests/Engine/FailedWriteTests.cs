@@ -15,9 +15,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // an entity").
 //
 // By decision O19 an entity has no size limit, so no write is refused for its size. What is left
-// of WriteRejected is the refusal for the memory of the arena, which the engine cannot be brought to
-// here: until S09 gives the option, its arena gets half of the memory the runtime reports. A value
-// above the bound of one value is ValidationFailed.
+// of WriteRejected is the refusal for the memory budget of the database, which this database, with the
+// default budget of half of the memory the runtime reports, does not come near: the tests of the
+// memory budget state it on a small arena (MemoryBudget.RefusedWriteTests), with the same rule that
+// nothing of a refused write is left. A value above the bound of one value is ValidationFailed.
 public sealed class FailedWriteTests
 {
     [Fact]

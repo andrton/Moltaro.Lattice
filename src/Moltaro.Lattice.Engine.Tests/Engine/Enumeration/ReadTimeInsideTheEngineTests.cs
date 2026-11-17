@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
@@ -31,8 +32,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // six such steps, 600 ms. The margins: the sum of the waits is at least 100 ms a step by construction,
 // since a slot is given only that long after the step began to wait, so no machine is too fast for the
 // pass to fail; a slow machine only adds to it. A single step reaches the limit only when it is held up
-// for 150 ms beyond its wait, which a pass that counted each step alone would need in order to fail as
-// well, so that pass cannot fail here except on a machine stalled for that long.
+// for 150 ms beyond its wait, or, for the first step, which waits for nothing, when the machine stalls
+// it for 250 ms. The test times every step from outside, which takes at least the time the step spent
+// inside the engine: an attempt in which no step took as long as the limit shows that the pass failed
+// for the sum, and is the one the test judges. An attempt in which one step did is not a failure of
+// the test, since that step may have failed the pass by itself; it says nothing of the sum, and the
+// test tries again with a new database. A stalled machine therefore makes the test take longer, and
+// fails it only when it stalls a step of every attempt for the whole bound of a minute. What the test
+// states is unchanged: in the attempt it judges, the pass fails with ReadTime within six steps, none of
+// which reached the limit.
 //
 // Every wait is bounded.
 public sealed class ReadTimeInsideTheEngineTests
@@ -145,13 +153,35 @@ public sealed class ReadTimeInsideTheEngineTests
     [Fact]
     public async Task Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it()
     {
-        var slots = new ReadEpochs(new object()).SlotCount;
-
         await using (var warm = await OpenWithStampsAsync(readTimeLimit: null))
         {
             Assert.Equal(Keys, warm.Set<StampSchema.Stamp>().Enumerate().Count());
         }
 
+        var trying = Stopwatch.StartNew();
+
+        for (var attempt = 1; ; attempt++)
+        {
+            var (failure, longest) = await PassOfWaitedStepsAsync();
+
+            if (longest < SumLimit)
+            {
+                Assert.True(failure is not null, $"The pass did not fail although {MostWaitedSteps} of its steps each spent {StepWait.TotalMilliseconds} ms inside the engine, against a limit of {SumLimit.TotalMilliseconds} ms.");
+                ExpectReadTime(failure);
+
+                return;
+            }
+
+            Assert.True(trying.Elapsed < Bound, $"In each of {attempt} attempts a step took as long as the limit by itself, so no attempt could show the sum.");
+        }
+    }
+
+    // One attempt of the test of the sum: a pass that has taken its first step, then steps that each
+    // wait for a slot, until the pass fails or six steps are taken. Returns the failure, null if none,
+    // and the longest time a step took, as the test saw it from outside.
+    private static async Task<(Exception? Failure, TimeSpan Longest)> PassOfWaitedStepsAsync()
+    {
+        var slots = new ReadEpochs(new object()).SlotCount;
         var database = await OpenWithStampsAsync(SumLimit, SumKeys);
         var held = new List<HeldRead>();
 
@@ -159,8 +189,12 @@ public sealed class ReadTimeInsideTheEngineTests
         {
             var stamps = database.Set<StampSchema.Stamp>();
             using var steps = stamps.Enumerate().GetEnumerator();
+            var (failure, longest) = TimedStep(steps);
 
-            Assert.True(steps.MoveNext());
+            if (failure is not null)
+            {
+                return (failure, longest);
+            }
 
             for (var read = 0; read < slots; read++)
             {
@@ -168,8 +202,6 @@ public sealed class ReadTimeInsideTheEngineTests
             }
 
             // Steps that each wait for a slot, until the pass fails.
-            Exception? failure = null;
-
             for (var step = 0; step < MostWaitedSteps && failure is null; step++)
             {
                 using var waiting = new ManualResetEventSlim();
@@ -178,7 +210,7 @@ public sealed class ReadTimeInsideTheEngineTests
                     {
                         waiting.Set();
 
-                        return Record.Exception(() => Assert.True(steps.MoveNext(), "The pass ended before its time limit failed it."));
+                        return TimedStep(steps);
                     },
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning,
@@ -189,14 +221,17 @@ public sealed class ReadTimeInsideTheEngineTests
                 Assert.False(next.IsCompleted, "A step ended while every slot of the epoch table was held.");
 
                 await held[step].ReleaseAsync();
-                failure = await next.WaitAsync(Bound);
+
+                var (stepFailure, took) = await next.WaitAsync(Bound);
+
+                failure = stepFailure;
+                longest = took > longest ? took : longest;
 
                 // The step is through and has left its slot: it is held again for the next step.
                 held.Add(await HoldSlotAsync(database, slots + step));
             }
 
-            Assert.True(failure is not null, $"The pass did not fail although {MostWaitedSteps} of its steps each spent {StepWait.TotalMilliseconds} ms inside the engine, against a limit of {SumLimit.TotalMilliseconds} ms.");
-            ExpectReadTime(failure);
+            return (failure, longest);
         }
         finally
         {
@@ -207,6 +242,16 @@ public sealed class ReadTimeInsideTheEngineTests
 
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
+    }
+
+    // One step of the pass, timed from outside: what it failed with, null if it returned an entity, and
+    // how long it took.
+    private static (Exception? Failure, TimeSpan Took) TimedStep(IEnumerator<StampSchema.Stamp> steps)
+    {
+        var watch = Stopwatch.StartNew();
+        var failure = Record.Exception(() => Assert.True(steps.MoveNext(), "The pass ended before its time limit failed it."));
+
+        return (failure, watch.Elapsed);
     }
 
     // One read by key held inside the protection of reads, of a key the read number gives.

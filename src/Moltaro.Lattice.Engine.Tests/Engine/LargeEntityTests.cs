@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // by a small one and deleted, and after that and a drain the counters of the arena are what they were
 // before it (brief of S08, "Counters and the drain, part 1": the replaced and the deleted root are
 // retired until a drain with no read in progress frees them).
-// Until S09 gives the option, the arena of the engine gets half of the memory the runtime reports
-// ("The limit before S09"), which holds the entity on every machine the tests run on.
+// The database has the default memory budget, half of the memory the runtime reports
+// (LatticeDatabaseOptions.MemoryLimit), which holds the entity on every machine the tests run on.
 //
 // What the arena holds is compared whole. Of its segments, those in use are compared: an emptied
 // segment may stay in the reserve of the arena, which then holds one segment more than before

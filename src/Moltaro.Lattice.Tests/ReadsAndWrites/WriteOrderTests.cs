@@ -14,6 +14,11 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 //   another entity made between them are not touched by it. Through the class and by name.
 // - Writes submitted faster than they complete are not refused: ten thousand at once all complete,
 //   and those to one entity in the order of their calls.
+// - A write that first waits for the position of its session takes its place in that order when the
+//   wait ends, so a later call may be executed before it (brief of S09, "The order of writes and the
+//   wait of a session"): an insert whose session depends on a position ahead of the database waits,
+//   an insert of the same entity without a session made after it completes, its write reaches that
+//   position, and the first then meets the entity the second inserted and is DuplicateKey.
 // What a write that changed an entity returns is a position; of one entity, later calls have later
 // positions (PositionSequence), and every write takes a position of its own. A delete of an absent
 // key is left out of that: the placeholder keeps the position it had for it until S12 (PositionTests).
@@ -126,6 +131,28 @@ public sealed class WriteOrderTests
 
         Assert.Equal(Enumerable.Range(1, Rounds * Entities).Select(offset => start + (ulong)offset), all);
         Assert.Equal(start + (ulong)(Rounds * Entities), PositionSequence.Of(database.Position));
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
+    public async Task Write_that_waits_for_the_position_of_its_session_takes_its_place_when_the_wait_ends_and_a_later_call_runs_before_it(DatabaseImplementationEnum implementation)
+    {
+        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        var users = database.Set<User>();
+        await users.InsertAsync(UserOf(1, "first"));
+
+        // A position the next write reaches, and a session that waits for it longer than the test needs.
+        var session = new LatticeSession(TestData.Ahead(database.Position)) { SynchronizationTimeout = Bound };
+        var waiting = users.InsertAsync(UserOf(2, "inserted after its wait"), session).AsTask();
+
+        Assert.False(waiting.IsCompleted, "The write completed before the position of its session was reached.");
+
+        var later = await users.InsertAsync(UserOf(2, "inserted by the later call")).AsTask().WaitAsync(Bound);
+        var duplicate = await Assert.ThrowsAsync<LatticeException>(() => waiting.WaitAsync(Bound));
+
+        Assert.True(later.Changed);
+        Assert.Equal(LatticeErrorEnum.DuplicateKey, duplicate.Error);
+        Assert.Equal("inserted by the later call", users.Get(2L)?.Name);
     }
 
     private static User UserOf(long key, string name, int? age = null) => new() { Id = key, Name = name, Age = age };

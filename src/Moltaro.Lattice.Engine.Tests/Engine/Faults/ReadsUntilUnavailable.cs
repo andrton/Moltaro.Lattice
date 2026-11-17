@@ -1,13 +1,13 @@
-using System.Collections.Concurrent;
-
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
 // Readers that read one entity, each on a thread of its own, from before a fault until a read reports
 // Unavailable, so that a test states what the reads that overlap a faulted publication return and that
 // none of them is left waiting. A read returns the number of the state it found, null for absence, or
 // Unavailable; a read that fails otherwise, such as one that returns a mixture of two states, fails
-// its reader and the test. Every wait is bounded: StartAsync returns once every reader has read once,
-// and EndAsync fails when a reader has not ended within the bound, which a read left retrying causes.
+// its reader and the test. A reader keeps the outcomes it met, each once: the test asks which outcomes
+// occurred, and a reader makes millions of reads where a fault leaves them retrying. Every wait is
+// bounded: StartAsync returns once every reader has read once, and EndAsync fails when a reader has not
+// ended within the bound, which a read left retrying causes.
 internal sealed class ReadsUntilUnavailable
 {
     // What a read returns when it reported Unavailable; no state has a negative number.
@@ -15,7 +15,10 @@ internal sealed class ReadsUntilUnavailable
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    private readonly ConcurrentQueue<long?> _outcomes = new();
+    // The outcomes every reader met, gathered when the reader ends.
+    private readonly HashSet<long?> _outcomes = [];
+
+    private readonly Lock _lock = new();
 
     private Task[] _readers = [];
 
@@ -41,18 +44,22 @@ internal sealed class ReadsUntilUnavailable
         return reads;
     }
 
-    // Waits until every reader has met Unavailable, and returns what every read returned.
+    // Waits until every reader has met Unavailable, and returns the outcomes the reads met.
     public async Task<IReadOnlyCollection<long?>> EndAsync()
     {
         await Task.WhenAll(_readers).WaitAsync(Bound);
 
-        return [.. _outcomes];
+        lock (_lock)
+        {
+            return [.. _outcomes];
+        }
     }
 
     private void ReadUntilUnavailable(Func<long?> read, CountdownEvent started)
     {
         var deadline = DateTime.UtcNow + Bound;
         var signalled = false;
+        var met = new HashSet<long?>();
 
         try
         {
@@ -60,7 +67,7 @@ internal sealed class ReadsUntilUnavailable
             {
                 var outcome = read();
 
-                _outcomes.Enqueue(outcome);
+                met.Add(outcome);
 
                 if (outcome == Unavailable)
                 {
@@ -78,6 +85,11 @@ internal sealed class ReadsUntilUnavailable
         }
         finally
         {
+            lock (_lock)
+            {
+                _outcomes.UnionWith(met);
+            }
+
             if (!signalled)
             {
                 started.Signal();

@@ -1,20 +1,25 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
-// A write the arena refuses frees what no read in progress can reach and tries again; while it is
-// still refused it waits, outside every lock, for the reads that hold retired memory and for every
-// write admitted before it to complete, and tries again; it is refused only when every write admitted
-// before it has completed, nothing retired is left and the arena still has no room. A write refused so
-// is WriteRejected with Limit Memory, has had no effect and never runs later, and the token of the
-// write cancels its wait (brief of Epic 1, sprint S09, "The refusal", which restates the rule of S08,
-// "Tests the sprint breaks, part 1"; decision Q14 of the decision on write admission, as amended on 16
-// November 2026). The database is opened with an arena of two segments of the default size, 8 MiB
-// (EngineTestInputs, exception X3), and a piece holds a Binary value of 3 MiB: two states of it fit,
-// three do not. A replace retires the state it replaced, which stays retired: a look of the writer
-// comes only after a segment of retired bytes or a table's worth of retired things. So:
+// A write is refused for memory only when it does not fit beside the stored data: never because of
+// memory that other writes hold for a time, and never because of memory that is retired and not
+// freed yet. A write the arena refuses gives back what it prepared, frees what is retired and tries
+// again; refused again, it is resolved alone: it waits for the writes admitted before it, holds back
+// the preparation of later ones and waits for those in flight, waits for the reads then in progress,
+// frees what is retired and tries once more. Refused then, it is WriteRejected with Limit Memory, has
+// had no effect and never runs later; its token cancels every wait (brief of Epic 1, sprint S09, "When
+// a write is refused for memory: the rule after review round 1", which replaces "The refusal" of the
+// block after S08 and the bounded retry of the block after the implementation; decision Q14 of the
+// decision on write admission, as amended). These are the cases of one refused write beside retired
+// memory, reads and earlier writes; those of later writes, of two refused writes and of many rounds
+// are stated by RefusalResolutionTests. The database is opened with an arena of two segments of the
+// default size, 8 MiB (EngineTestInputs, exception X3), and a piece holds a Binary value of 3 MiB: two
+// states of it fit, three do not. A replace retires the state it replaced, which stays retired: a look
+// of the writer comes only after a segment of retired bytes or a table's worth of retired things. So:
 // - A replace whose new state fits only once the retired one is freed, which no read holds, succeeds.
 // - When a read held inside the protection (HoldNextRead) holds the retired state, the replace waits
 //   for it, which the switch of the engine that runs when a refused write begins to wait tells
