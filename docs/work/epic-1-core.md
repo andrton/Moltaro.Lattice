@@ -4215,6 +4215,71 @@ says otherwise, these replace it.
    decide what of S..R is replayed; the test author states the outcomes (nothing deleted
    comes back, nothing inserted is missing, revisions equal), not the watermark mechanism.
 
+**Decided by the planner on 17 November 2026 after the study of S11.** Where a sentence
+above says otherwise, these replace it. The study read the source of Valkey (BSD-3-Clause,
+commit 97ff16e), PostgreSQL (PostgreSQL Licence, commit 11591f2), Garnet (MIT, commit
+fcc018a) and etcd (Apache-2.0, commits 65fe41f and, for raft, 99f9ffb); no file is adapted
+from them. The sentence on the watermarks of Q08.1.1 is entered when the owner has
+answered.
+
+1. **Contract line.** Internal: the capture with its start position S, its fence of root
+   slots and its end position R; the shared tail of committed transactions; the
+   acknowledgment that means *applied*.
+2. **Start.** A capture is registered in one hold of the lock of the writes: it takes S,
+   the published sequence, the fence of root slots and its cursor into the tail. From this
+   sprint no write is refused because of a child.
+3. **Copy.** As in S10: one root at a time inside the protection of reads, sent outside
+   it. Nothing is retained for a capture: no slot, no deleted root, no mark of a deletion.
+4. **End.** R is read in a hold of the lock of the writes after the last root was copied,
+   because a root can carry a sequence the published clock does not show yet. `LoadEnd`
+   carries S, R and the number of roots sent.
+5. **Tail.** A committed transaction is encoded and appended to one shared tail in the
+   hold of the lock of the writes that publishes it, in the order of sequences, and only
+   while a child or a capture is registered. It is framed once for all children. Every
+   child has its own cursor; a loading child is sent its stream after `LoadEnd`, on the
+   same connection. The master releases the tail up to the lowest position among its
+   children and registered captures. The tail is managed memory outside the instance
+   budget, unbounded until S33; `PendingDeliveryBytes` is what was appended less what was
+   released. A write of the master is never refused or delayed because a child is slow.
+6. **Effects.** A Write carries the root in the load format of S10; a Delete the type id
+   and the key; a write that changed nothing only its position. A transaction is checked
+   by the check of its frames, its announced length and its sequence, which follows the
+   one before; `TransactionEnd` is not built, and "its end and its digest" becomes "its
+   announced length". A transaction larger than a frame is put together whole before it
+   is applied. `RootEffect.Entity`, `EffectEncoding` through `RootReader`/`RootWriter` and
+   "the logical encoding of format 1" leave this brief; the internal types are restated as
+   S10 was built. The machine-independent encoding of the journal is decided in S27 with
+   its study; whether delivery then shares it is decided there by a figure.
+7. **Apply.** The child applies a copy and an effect by one rule, under its lock of the
+   writes: a state of a key at sequence s is skipped when the child holds that key with a
+   last mutation not earlier than s; otherwise a Write inserts or replaces and a Delete
+   removes the key if it is held. The child addresses an entity by the key in the root,
+   never by a slot of the master, so a key that arrives twice in a load is resolved by the
+   rule, not refused (this replaces the refusal of S10). The clock of a loading child
+   starts at S; it is Ready when it has applied R.
+8. **Acknowledgment** per received burst: `Applied(sequence)` when the child has applied
+   all it has received; never before R.
+9. **Divergence after R** (an effect not later than the state held) is a broken
+   invariant, not lag: the instance becomes `Faulted`, the connection is closed, every
+   operation is `Unavailable` with the reason in the message. Not "stops following". Test
+   through a hand-made stream.
+10. **`Install`.** State = Live is stored last, by a release store, because the capture
+    reaches entries by slot; the check that the assignment in `RootTable.Add` cannot tear
+    the state and the three comments that become false ride in this sprint. x64 hides the
+    hazard, so no test shows it there.
+11. This replaces points 1, 2 and 8 of the additions above; point 3 stands (revisions
+    equal), with the sequence of the copy or effect as the last mutation.
+12. **Measured, added:** the peak of `PendingDeliveryBytes` during a load at 200 writes a
+    second and at the full rate; the transactions in (S, R], the time from `LoadEnd` to
+    Ready and the share of effects skipped; the child's rate of applying against the
+    master's rate of writing; p99 and writes a second of 1 and 16 callers with no child,
+    one and two (the copy into the tail and its allocation under the lock; a write of 32
+    MiB); the time one root of 32 MiB is copied inside the protection.
+13. **Milestone contract**, "Independent base, journal and recovery": "and wire" leaves
+    the sentence "Durable and wire logical values use explicit little-endian…"; added: "The
+    replication stream carries stored bytes in the layout and byte order the Hello has
+    checked (decided after the studies of S10 and S11)".
+
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
 **Carried from S09:** a child forwards the writes of one entity in the order of their
@@ -4598,6 +4663,10 @@ child stores received bytes through its own allocation.
 - **Out of scope.** Element commands (S20). Shrinking after removals (S23).
 
 #### S20 · Partial updates
+
+**Carried from the study of S11:** how a partial update travels to a child is decided in
+the study of this sprint; if as a partial effect, a partial effect for a key not held
+during catch-up is recorded and must be resolved by a delete before R.
 
 **Track:** full · **Needs:** S19 · **Owners:** E08, E03 · **Closes:** Q07.3.6
 
