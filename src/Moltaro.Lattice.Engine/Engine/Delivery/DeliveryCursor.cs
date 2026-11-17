@@ -9,17 +9,31 @@ internal sealed class DeliveryCursor
 
     private volatile bool _dropped;
 
+    // The transaction after which the stream of the child begins, until the sender takes it (TakeStart).
+    private DeliveredTransaction? _start;
+
     public DeliveryCursor(DeliveredTransaction start, ulong startPosition)
     {
-        Start = start;
+        _start = start;
         Acknowledged = startPosition;
         _sent = startPosition;
         Capturing = true;
     }
 
-    // The transaction after which the stream of the child begins: the last one of the tail when its
-    // capture was registered, at S, so that the first one after it is the transaction of S + 1.
-    public DeliveredTransaction Start { get; }
+    // By the sender of the child, once: the transaction after which its stream begins, the last one of
+    // the tail when its capture was registered, at S, so that the first one after it is the transaction
+    // of S + 1. The cursor lets go of it, so that it holds no transaction for the life of the connection:
+    // each transaction links the next, so a reference to the first one would keep every one after it
+    // reachable, released or not, one object for every write of the master while the child is connected.
+    // From here on the sender holds only the one it has reached, and the tail those it keeps.
+    public DeliveredTransaction TakeStart()
+    {
+        var start = _start!;
+
+        _start = null;
+
+        return start;
+    }
 
     // Under the lock of the writes: the sequence up to which the child has applied the stream, S until
     // its first Applied. The tail is held for the child from the transaction after it.

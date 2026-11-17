@@ -181,7 +181,7 @@ internal sealed class ChildConnection
     // worth at a time, so that a small transaction does not cost a send of its own while others wait.
     private async Task DeliverAsync(DeliveryCursor cursor, CancellationToken cancellationToken)
     {
-        var after = cursor.Start;
+        var after = cursor.TakeStart();
 
         while (true)
         {

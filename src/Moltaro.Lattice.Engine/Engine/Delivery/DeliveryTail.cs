@@ -13,8 +13,13 @@ namespace Moltaro.Lattice.Engine.Delivery;
 //
 // Releasing. A transaction is let go of once every registered child has applied it: up to the lowest
 // position its cursors have acknowledged (Acknowledge), where a capture that has not ended counts at its
-// start. A child that has gone takes its cursor with it (Unsubscribe). PendingBytes is what was appended
-// less what was released. Until S33 the tail has no bound: a child that applies nothing makes it grow, and
+// start. A child that has gone takes its cursor with it (Unsubscribe). A released transaction lets go of
+// its bytes, and the one before it lets go of its link to it: nothing reads that link any more, and a
+// transaction that the collector has moved to an older generation and that still linked a younger one
+// would keep it, and through it every one after it, through each collection of the young generation,
+// dead or not, so that every transaction of the tail would be copied by the collector (measured with the
+// scenario readers-beside-child, 17 November 2026). PendingBytes is what was appended less what was
+// released. Until S33 the tail has no bound: a child that applies nothing makes it grow, and
 // a write of the master is never refused or delayed because of it. The tail is managed memory outside the
 // budget of the instance.
 //
@@ -176,9 +181,12 @@ internal sealed class DeliveryTail
 
         while (_kept.Next is { } next && next.Sequence <= lowest)
         {
+            var passed = _kept;
+
             _releasedBytes += next.Length;
             next.Release();
             _kept = next;
+            passed.Unlink();
         }
     }
 }

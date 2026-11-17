@@ -17,7 +17,9 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // stored with release semantics after that one is complete and loaded with acquire semantics, so the
 // sender of a child, which follows the links without a lock (Children.ChildConnection), sees every byte
 // of a transaction it reaches. The bytes are let go of when every child has applied the transaction
-// (Release); no sender reads them any more by then, since a child applies only what was sent to it.
+// (Release); no sender reads them any more by then, since a child applies only what was sent to it. The
+// link to it is let go of when the one after it is released as well (Unlink): every sender has taken that
+// one from the link by then, for the same reason.
 internal sealed class DeliveredTransaction
 {
     private DeliveredTransaction? _next;
@@ -101,6 +103,11 @@ internal sealed class DeliveredTransaction
 
     // Under the lock of the writes, by the tail, once every child has applied the transaction.
     public void Release() => Bytes = null;
+
+    // Under the lock of the writes, by the tail, once the transaction after this one is released as well:
+    // every sender has taken that one from the link, since its child has applied it, so nothing follows
+    // the link again (DeliveryTail.Release); after a drop, a sender that finds no link sees the drop.
+    public void Unlink() => Volatile.Write(ref _next, null);
 
     // An array of the exact length of a transaction with its header written, uninitialized beyond it: the
     // effects are written over every byte of it.
