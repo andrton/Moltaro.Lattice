@@ -847,9 +847,10 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
     }
 
     // The preparation of a write with the refusal of the arena (see the class): true when it is
-    // prepared, false when it waits in its resolution and is another thread's from then on. A failure,
-    // the final refusal and the cancellation of its token among them, passes through, with nothing of the
-    // write left in the engine.
+    // prepared, false when it waits in its resolution and is another thread's from then on. A failure
+    // passes through to the end of the preparation (PrepareOne), with nothing of the write left in the
+    // engine: among them the refusal of its last try, and OperationCanceledException when its token is
+    // cancelled at the end of a refused preparation.
     private bool TryPrepare(PendingWrite write, out PreparedWrite? prepared)
     {
         // A write being resolved goes on here at step 3 when it is started again (LeaveFlight, Finish):
@@ -862,7 +863,7 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
             }
 
             // The preparation ended refused, with everything it took given back: its token is honored
-            // here.
+            // here, as at the end of each refused preparation.
             write.Token.ThrowIfCancellationRequested();
 
             // Refused once: what is retired is freed, and the write tries again.
@@ -873,8 +874,8 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
                 return true;
             }
 
-            write.Token.ThrowIfCancellationRequested();
-
+            // Refused again: its token is honored under the lock, where its resolution would begin to
+            // wait.
             if (WaitsInResolution(write))
             {
                 return false;
@@ -888,6 +889,9 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         {
             return true;
         }
+
+        // Refused the last time: a token cancelled while it was tried ends it as cancelled, not refused.
+        write.Token.ThrowIfCancellationRequested();
 
         throw refusal!;
     }
