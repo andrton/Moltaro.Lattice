@@ -3506,7 +3506,10 @@ otherwise, these replace it.
   `OperationCanceledException`. Tests first: a write cancelled while it is being prepared
   is withdrawn and leaves nothing in the counters; a write cancelled during the wait of a
   resolution ends, and the writes held back go on. Every wait of a write before dispatch
-  has the token; the waits without a timeout are only those for steps of reads (X6).
+  has the token. Without a timeout are the waits for steps of reads and the waits of a
+  write for other writes — its identity, a place to be prepared, the commit stage, and
+  those of a resolution — each of which ends when the writes it waits for end (X6; the
+  coordinator's correction after the implementer listed them).
 - **The order of writes and the wait of a session** (the planner, 16 November 2026, after
   review round 1). No identity is reserved across a wait for a position: a reservation
   held for up to the timeout of a session would hold every later write of that entity
