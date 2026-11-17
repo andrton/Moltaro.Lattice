@@ -3987,6 +3987,83 @@ says otherwise, these replace it.
 - **`OpenTimeout` and the placeholder.** The placeholder validates the option and does not
   use it; tests of the timeout are tests of the engine only.
 
+**Decided by the planner on 17 November 2026 after the study of S10.** Where a sentence
+above says otherwise, these replace it. The study read the source of Valkey (BSD-3-Clause,
+commit 40e00fc), PostgreSQL (PostgreSQL Licence, commit 11591f2) and Garnet (MIT, commit
+2572760); no file is adapted from them. Points 1, 2 and 4 are reported to the owner.
+
+1. **The check of a frame is CRC32C.** Every frame ends with a CRC32C (4 bytes,
+   little-endian) over the 32 bytes of the header and the body before it.
+   `Protocol.DigestSize` becomes `CheckSize = 4`; `MaxDataBody` (64 KiB) includes the
+   check. A frame whose check fails closes the connection and applies nothing, as before.
+   The check guards against accidental damage and framing faults only; the engine
+   authenticates nobody, so a cryptographic digest without a key adds nothing, and no
+   source studied puts one on a frame. Milestone contract, "Independent base, journal and
+   recovery": "framing uses the same digest in its body envelope" becomes "A frame of the
+   replication transport carries a CRC32C over its header and body (decided after the
+   study of S10, 17 November 2026)". SHA-256 stays for persisted roots and the complete
+   journal payload (S27 on). Whether a fragmented transaction of S11 needs a check of its
+   own beyond its frames is a question of the study of S11. Header and Hello are
+   little-endian explicitly; only root payload travels in the byte order of the sender,
+   announced in `LayoutFormat`.
+2. **No address on the wire** — within Q08: the stored bytes travel and no field is
+   decoded or encoded. A root travels as: its type id, its last mutation sequence, its
+   layout version, the bytes of its root payload, then the bytes of each out-of-line value
+   in the order of its descriptors. Nothing on the wire is an address or a block number.
+   The child takes an entry of its own, writes the fixed part and stores each out-of-line
+   value through the store the write path uses (`ValueBlocks`), which writes every header
+   and location itself. Bytes of a slot that hold no value are not sent. Checked before
+   use: the type id and layout version against the schema, each descriptor's kind against
+   its length, the null bitmap against the descriptors, the total of the bytes against the
+   announced length of the root. The Acceptance sentence "the child places each block in
+   its own arena and repairs the relative addresses" becomes "the child stores the
+   received bytes through its own allocation and no received value is used as an address";
+   "An invalid address, count or length inside a received block" becomes "An invalid kind,
+   count or length inside a received root". Milestone contract, "Replication transport":
+   "Wire block IDs and relocation metadata let the child fix relative descriptors into its
+   own arena; no assumption of equal process addresses." becomes "No address and no block
+   number travels: the child stores received bytes through its own allocation, which
+   writes every location (decided after the study of S10)." Measured, added: the same
+   load reported as bytes on the wire per entity next to the stored bytes per entity.
+   Shared text and owned collections (S13, S18, S19) follow the same rule when they
+   arrive.
+3. **Roots and frames.** The first frame of a root announces the total length of the
+   root; the child allocates once and checks the end. Small roots share a `Blocks` frame,
+   which begins with their count. A schema larger than a frame is cut by the same rule as
+   a root. `LoadEnd` carries the sequence at which the load ended and the number of roots
+   sent; a child whose count differs fails its open. Acceptance, added: a child that
+   receives fewer or more roots than `LoadEnd` announces fails with `Unavailable` and
+   holds nothing.
+4. **`OpenTimeout` changes its meaning**, by principle 9 (no default turns ordinary load
+   into a refusal) and the study: a database of ordinary size does not load in 30 seconds.
+   Documentation of the option: "How long a child waits for its master while it opens: to
+   reach the master and be accepted by it, and afterwards for the next part of the
+   database to arrive. A load that keeps arriving is not ended by this timeout, however
+   long it takes; the cancellation token of the open call bounds the whole open. 30
+   seconds by default; finite and positive." Remarks of `OpenAsync`, second paragraph: "A
+   child connects to the master at `MasterUri`, loads the whole database and only then
+   becomes readable. When the master cannot be reached, or nothing arrives from it, for
+   `OpenTimeout`, the call fails with `Unavailable` and the instance is closed." Milestone
+   contract: the sentence in "Replication transport" and the row "Child open" follow ("30
+   s to reach the master and between two parts of the load, configurable"). Acceptance:
+   "fails with `Unavailable` when the open timeout passes" stays for an unreachable
+   master; added: a master that accepts and then sends nothing fails the open after
+   `OpenTimeout`; a load that takes longer than `OpenTimeout` in total while frames keep
+   arriving becomes Ready (a small timeout and the internal hold of the sender between
+   frames). A contract commit of its own. For the brief of S33: a child that waits for a
+   free capture is sent a frame that counts as progress, or its wait is stated otherwise
+   there.
+5. **A silent peer is bounded,** with no new option: the master reads `OpenTimeout` too. A
+   peer that connects to a master and has not sent a valid Hello within the master's
+   `OpenTimeout` is disconnected. "`OpenTimeout` is read by a child only" is withdrawn;
+   the documentation of the option gains "A master gives a connecting node the same time
+   to introduce itself." Test through a raw connection. The waiting sender stays in X6
+   until S33.
+6. **The implementer's:** the child sizes its index from the root count the master
+   announces at the start (in `HelloReply` or a first frame of the load; `LoadEnd` still
+   verifies it); one reused buffer per connection; the test of the port is "a new master
+   opens on the same port right after the close completes".
+
 #### S11 · A child loads under writes and follows the master
 
 **Track:** full · **Needs:** S10 · **Decisions:** P3 · **Owner:** E07
@@ -4314,6 +4391,9 @@ says otherwise, these replace it.
 
 #### S13 · Text entries and Dictionary strings
 
+**Carried from S10:** what travels to a child holds no address and no block number; the
+child stores received bytes through its own allocation.
+
 **Track:** full · **Needs:** S12 · **Owner:** E02
 
 - **Goal.** Equal text of Dictionary fields is stored once per database, and any text an
@@ -4445,6 +4525,9 @@ unpublished write of another entity waits behind it, as a write to the same enti
 
 #### S18 · Owned values, Lists and references
 
+**Carried from S10:** what travels to a child holds no address and no block number; the
+child stores received bytes through its own allocation.
+
 **Track:** full · **Needs:** S17, S03 · **Decisions:** P9 · **Owner:** E01
 
 - **Goal.** An entity with nested owned values, ordered Lists and references is stored,
@@ -4472,6 +4555,9 @@ unpublished write of another entity waits behind it, as a write to the same enti
 - **Out of scope.** Map and Set (S19). Element commands (S20).
 
 #### S19 · Maps and Sets
+
+**Carried from S10:** what travels to a child holds no address and no block number; the
+child stores received bytes through its own allocation.
 
 **Track:** full · **Needs:** S18 · **Owners:** E01, E04
 
@@ -4934,6 +5020,10 @@ second per storage commit.
 ### Stage 7. Replication to release level
 
 #### S33 · Bounded delivery and slow children
+
+**Carried from S10:** `OpenTimeout` bounds the time without progress of a load; a child
+that waits for a free capture is sent a frame that counts as progress, or its wait is
+stated otherwise here.
 
 **Track:** full · **Needs:** S32 · **Decisions:** P3 · **Owner:** E07
 
