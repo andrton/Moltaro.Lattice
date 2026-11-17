@@ -231,12 +231,9 @@ schema order and explicit field comparers; keys are not raw byte-memcmp tuples.
 Comparison/hash has one schema-owned service across indexes, Map/Set and direct
 lookups. Use accepted .NET Equals/CompareTo semantics for floating-point values,
 with compatible NaN/zero hashes. String comparison is Ordinal/OrdinalIgnoreCase,
-independent of UTF-8/UTF-16 storage. Ordinal can stream UTF-16 code units; initial
-UTF-8 IgnoreCase comparisons decode into pre-reserved UTF-16 scratch and use .NET
-ordinal span comparison/hashing. Reserve/reuse scratch before gates, including write
-publication needs; no per-comparison managed string allocation. This deliberate
-CPU/workspace cost is measured against the memory target. Do not substitute UTF-8
-byte ordering, culture collation, or an unverified custom case-folding algorithm.
+independent of UTF-8/UTF-16 storage. Comparison without case uses the versioned case
+table of the core ([strings](../decisions/strings.md), Q46), the same on every node; no
+.NET culture or runtime table takes part. No comparison allocates a managed string.
 
 Numeric lookup/bound parameters bind once to the declared field type using the
 accepted allowlist: same-type values; in-range integer-to-integer; exact integer-to-
@@ -578,7 +575,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; no hard limit by default, by the owner's decision of 15 November 2026. An application may set one, and appends beyond it are then refused. Without one the time of a recovery grows with the unapplied tail |
 | Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
-| Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
+| Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB. The bound of pending replication is built with S33; until then it is counted and reported, and a slow child makes it grow |
 | Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered. Built with S33; until then captures are not limited |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
@@ -587,7 +584,8 @@ be larger than any bounded buffer of this table — an internal
 group, the pending replication, a batch of base application: each of them bounds what
 accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
 for its own size. What a transaction needs is reserved in the instance budget before it is
-committed, the copy for delivery to children included; a transaction the budget cannot
+committed, the copy for delivery to children included (from S24/S33; until then that copy
+is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
 hold is refused before it has any effect.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
