@@ -54,6 +54,28 @@ internal static class RootStorage
         arena.Publish(root);
     }
 
+    // The bytes of the slots of a root written with the layout: its root block and every block it owns,
+    // each the whole slot of its size class (Arena.BlockSizeFor), as ArenaCounters.PreparedBytes counts
+    // a prepared block. It reads the root block and changes nothing; the blocks a value owns are
+    // counted from the length its descriptor gives, by the placement of RootLayout. The root is
+    // recognized as Free recognizes it, and refused in the same cases.
+    public static long SlotBytes(Arena arena, RootLayout layout, ArenaAddress root)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        var payload = layout.RootPayload(arena, root);
+        var bytes = (long)Arena.BlockSizeFor(payload.Length);
+
+        for (var index = 0; index < layout.DescriptorCount; index++)
+        {
+            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
+
+            bytes += ValueBlocks.SlotBytes(ValueBlocks.Read(payload[offset..]));
+        }
+
+        return bytes;
+    }
+
     // Retires a published root that a write replaced or deleted: the root block and every block it
     // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
     // whole state, and its bytes leave the live counters. It changes no byte and allocates nothing.

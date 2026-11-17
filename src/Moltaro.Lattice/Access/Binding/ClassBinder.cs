@@ -51,13 +51,19 @@ internal sealed class ClassBinder
         var place = new Place(type, property, field, owner);
         var toRecord = ToRecord(property.PropertyType, field.Declaration, place);
 
+        // A Binary property binds only as a byte[] (ToRecord); its value is checked as ToRecord checks
+        // it, and not copied.
+        var take = field.Declaration.Type == LatticeFieldTypeEnum.Binary
+            ? ReadAsTheyAre(property.PropertyType, static value => value, place)
+            : toRecord;
+
         // The get accessor is called virtually, as C# calls it: an override of a derived class of the
         // bound one is the one that runs.
         var instance = Expression.Parameter(typeof(object), "instance");
         var read = Expression.Convert(Expression.Call(Expression.Convert(instance, type), getAccessor), typeof(object));
         var get = Expression.Lambda<Func<object, object?>>(read, instance).Compile();
 
-        return new BoundProperty(field, property, getAccessor, setAccessor, get, toRecord);
+        return new BoundProperty(field, property, getAccessor, setAccessor, get, toRecord, take);
     }
 
     // The property of a field is the one C# finds by its name on the class: the public member of

@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 // entity type of an open database, shared by its sets.
 internal sealed class SetOperations
 {
-    private readonly WriteExecutor _writes;
+    private readonly WriteCoordinator _writes;
 
     private readonly PositionClock _clock;
 
@@ -23,7 +23,7 @@ internal sealed class SetOperations
 
     private readonly TimeSpan? _readTimeLimit;
 
-    public SetOperations(EntityTable table, WriteExecutor writes, PositionClock clock, LatticeDatabaseOptions options)
+    public SetOperations(EntityTable table, WriteCoordinator writes, PositionClock clock, LatticeDatabaseOptions options)
     {
         Table = table;
         _writes = writes;

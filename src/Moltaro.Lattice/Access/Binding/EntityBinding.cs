@@ -63,10 +63,14 @@ internal sealed class EntityBinding<TEntity>
     }
 
     // Entity -> values to store, in the form a record holds and checked against the schema at
-    // every depth. The result shares nothing mutable with the entity. The value of every field of
-    // the entity is checked against the bound of one value before it is copied; a String or Binary
-    // value inside a collection or an owned value is not, as RecordValues.Submit says why.
-    public object?[] Capture(TEntity entity)
+    // every depth. The value of every field of the entity is checked against the bound of one value
+    // before it is copied; a String or Binary value inside a collection or an owned value is not, as
+    // RecordValues.Submit says why. With copyBinary true the result shares nothing mutable with the
+    // entity. With false it shares the byte arrays of the fields of the entity, checked to be byte[]
+    // as a copy is: the engine copies each once, into its own memory, while the write runs, and the
+    // caller keeps the entity unchanged until the write completes (BoundProperty.Take;
+    // RecordValues.Submit says the same of a record).
+    public object?[] Capture(TEntity entity, bool copyBinary)
     {
         var values = new object?[_properties.Length];
         foreach (var property in _properties)
@@ -79,7 +83,7 @@ internal sealed class EntityBinding<TEntity>
                     throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"{EntityType.Name}.{property.Field.Name} {ValueBound.Problem}");
                 }
 
-                values[property.Field.Ordinal] = property.ToRecord(value);
+                values[property.Field.Ordinal] = copyBinary ? property.ToRecord(value) : property.Take(value);
             }
             else if (!property.Field.Declaration.IsNullable)
             {

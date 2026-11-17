@@ -53,12 +53,20 @@ internal static class ValueBlocks
     // or nothing (brief of S05, "The size of an entity").
     //
     // The blocks are prepared when prepared is true (Arena.TryAllocatePrepared), and live otherwise.
-    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, bool prepared, int length, ref ValueSource source, scoped Span<byte> place)
+    //
+    // The lock of the writes, when one is given, is taken for each allocation and for the free of what
+    // a value that is not stored allocated, and for nothing else: the bytes are copied, and text is
+    // encoded, outside it (brief of Epic 1, sprint S09, "Who may touch what"). The arena takes no lock
+    // and has one changing thread at a time, the holder of that lock; a block allocated is this
+    // writer's until it is published or freed, and its header and payload are written outside the lock
+    // as a read reads a published one (Arena, "Who uses the arena at the same time"). No lock is given
+    // where the caller is the only thread that changes the arena.
+    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, bool prepared, int length, ref ValueSource source, scoped Span<byte> place, Lock? writes)
     {
         if (length <= RootLayout.SingleBlockLimit)
         {
             // One block: it is allocated or, when the allocation fails, nothing is.
-            if (!TryAllocate(arena, length, BlockKindEnum.Value, root, layoutVersion, prepared, default, 0, out var block))
+            if (!TryAllocate(arena, writes, length, BlockKindEnum.Value, root, layoutVersion, prepared, default, 0, out var block))
             {
                 return false;
             }
@@ -71,7 +79,7 @@ internal static class ValueBlocks
 
         var chunks = ChunkCount(length);
 
-        if (!TryAllocate(arena, chunks * DescriptorSize, BlockKindEnum.ChunkDirectory, root, layoutVersion, prepared, default, 0, out var directory))
+        if (!TryAllocate(arena, writes, chunks * DescriptorSize, BlockKindEnum.ChunkDirectory, root, layoutVersion, prepared, default, 0, out var directory))
         {
             return false;
         }
@@ -92,9 +100,9 @@ internal static class ValueBlocks
                 var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
                 var entryOffset = chunk * DescriptorSize;
 
-                if (!TryAllocate(arena, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, prepared, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                if (!TryAllocate(arena, writes, chunkLength, BlockKindEnum.Chunk, root, layoutVersion, prepared, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
                 {
-                    Free(arena, stored);
+                    FreeUnder(arena, writes, stored);
 
                     return false;
                 }
@@ -106,7 +114,7 @@ internal static class ValueBlocks
         catch (OutOfMemoryException)
         {
             // The chunks allocated so far and the directory go before the failure passes on.
-            Free(arena, stored);
+            FreeUnder(arena, writes, stored);
 
             throw;
         }
@@ -114,6 +122,21 @@ internal static class ValueBlocks
         Write(place, stored);
 
         return true;
+    }
+
+    // Frees every block of a value as Free does, under the lock of the writes when one is given.
+    public static void FreeUnder(Arena arena, Lock? writes, in ValueDescriptor descriptor)
+    {
+        writes?.Enter();
+
+        try
+        {
+            Free(arena, descriptor);
+        }
+        finally
+        {
+            writes?.Exit();
+        }
     }
 
     // Names the root block as the parent of the value block or the directory of a value, with the
@@ -157,6 +180,30 @@ internal static class ValueBlocks
 
                 arena.Free(directory);
                 break;
+        }
+    }
+
+    // The bytes of the slots of the blocks of a value, by the length its descriptor gives and the
+    // placement of TryStore: its value block, or its directory and its chunks, each the whole slot of
+    // its size class. A value inline or null owns no block.
+    public static long SlotBytes(in ValueDescriptor descriptor)
+    {
+        switch (descriptor.Kind)
+        {
+            case DescriptorKindEnum.Block:
+                return Arena.BlockSizeFor((int)descriptor.Length);
+
+            case DescriptorKindEnum.Chunked:
+                var length = (int)descriptor.Length;
+                var chunks = ChunkCount(length);
+                var last = length - ((chunks - 1) * RootLayout.ChunkPayload);
+
+                return Arena.BlockSizeFor(chunks * DescriptorSize)
+                    + ((long)(chunks - 1) * Arena.BlockSizeFor(RootLayout.ChunkPayload))
+                    + Arena.BlockSizeFor(last);
+
+            default:
+                return 0;
         }
     }
 
@@ -250,11 +297,12 @@ internal static class ValueBlocks
         }
     }
 
-    // Allocates a block of a root, prepared or live, and completes its header: the arena writes the
-    // root, the kind and the length; the layout version, the parent and the offset of the descriptor
-    // in the parent are written here.
+    // Allocates a block of a root, prepared or live, under the lock of the writes when one is given
+    // (TryStore), and completes its header: the arena writes the root, the kind and the length; the
+    // layout version, the parent and the offset of the descriptor in the parent are written here.
     private static bool TryAllocate(
         Arena arena,
+        Lock? writes,
         int payloadLength,
         BlockKindEnum kind,
         RootHandle root,
@@ -264,9 +312,20 @@ internal static class ValueBlocks
         uint descriptorOffset,
         out ArenaAddress address)
     {
-        var allocated = prepared
-            ? arena.TryAllocatePrepared(payloadLength, kind, root, out address)
-            : arena.TryAllocate(payloadLength, kind, root, out address);
+        bool allocated;
+
+        writes?.Enter();
+
+        try
+        {
+            allocated = prepared
+                ? arena.TryAllocatePrepared(payloadLength, kind, root, out address)
+                : arena.TryAllocate(payloadLength, kind, root, out address);
+        }
+        finally
+        {
+            writes?.Exit();
+        }
 
         if (!allocated)
         {

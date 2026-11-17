@@ -9,9 +9,16 @@ namespace Moltaro.Lattice.Engine.Tests.Storage;
 // or that came back already, fails the test, and is not handed to the native allocator. When
 // FailNextAllocation is set, the next request fails as the native allocator fails, with
 // OutOfMemoryException, obtains nothing and clears the setting.
+//
+// HoldNextAllocation runs an action once, at the next request, on the thread that makes it and
+// before anything is obtained: a test of the engine holds a write there while it is being prepared,
+// since the arena obtains a segment only for a block a preparation allocates. That thread holds the
+// lock of the writes of the engine meanwhile, so the action waits for nothing that needs it.
 internal sealed class CountingNativeAllocator : NativeAllocator
 {
     private readonly HashSet<nint> _outstanding = [];
+
+    private Action? _hold;
 
     // How many times memory was obtained.
     public int Obtained { get; private set; }
@@ -24,8 +31,13 @@ internal sealed class CountingNativeAllocator : NativeAllocator
 
     public bool FailNextAllocation { get; set; }
 
+    // Arms the action that the next request runs once.
+    public void HoldNextAllocation(Action hold) => Volatile.Write(ref _hold, hold);
+
     public override nint Allocate(int size)
     {
+        Interlocked.Exchange(ref _hold, null)?.Invoke();
+
         if (FailNextAllocation)
         {
             FailNextAllocation = false;

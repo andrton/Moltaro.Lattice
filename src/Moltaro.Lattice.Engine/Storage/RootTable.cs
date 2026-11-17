@@ -16,7 +16,8 @@ namespace Moltaro.Lattice.Storage;
 // The table takes no lock; its owner says who may call what at the same time. In the database Add
 // and Release, which change the list of free slots, are called only by the thread that holds the
 // lock of the writes (Engine.Writes.WriteExecutor), while reads inside the protection of reads call
-// EntryOfSlot at the same time for slots a primary index named to them. Those read only that entry
+// EntryOfSlot at the same time for slots a primary index named to them, as writes being prepared do
+// when they look their key up. Those read only that entry
 // and the directory of pages, which grows by replacing one array with another that holds the same
 // pages, so a reader that still has the old directory finds the same entry. A reader learns of a slot
 // only through an entry of a primary index, which an insert stores with release semantics after it

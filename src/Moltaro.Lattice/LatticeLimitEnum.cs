@@ -15,4 +15,10 @@ public enum LatticeLimitEnum
     /// The time of a read inside the engine: <see cref="LatticeDatabaseOptions.ReadTimeLimit"/>.
     /// </summary>
     ReadTime = 2,
+
+    /// <summary>
+    /// The memory budget of the instance: <see cref="LatticeDatabaseOptions.MemoryLimit"/>. A
+    /// write it cannot hold is refused with <see cref="LatticeErrorEnum.WriteRejected"/>.
+    /// </summary>
+    Memory = 3,
 }

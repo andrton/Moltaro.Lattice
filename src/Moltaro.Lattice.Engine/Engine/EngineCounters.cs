@@ -34,10 +34,37 @@ namespace Moltaro.Lattice.Engine;
 // PublishedSequence: the sequence of the last published position, 0 for a database without a
 // write and 1 after the first. The public API shows positions only; a test of the engine reads
 // the number here (the planner's answer to Q38).
+//
+// The members of the write coordinator (brief of Epic 1, sprint S09, "Types and members of S09" and
+// "What is counted"; Writes.WriteCoordinator). What waits is counted in the memory budget as the
+// prepared capacity of the arena, Arena.PreparedBytes; there is no second figure of queued bytes. They
+// are read beside the others without the lock of the coordinator, each one value of its own.
+//
+// QueuedWrites: a current number, the writes admitted and not yet completed: waiting for their
+// identity, waiting to be prepared, being prepared, prepared, or in the commit stage. It is 0 when
+// every call of a write has returned.
+//
+// LargestCommitGroup: the most writes one commit group held since the open, at most
+// CommitGroup.MaxOperations.
+//
+// LargestCommitGroupBytes: the most bytes of PreparedWrite.EncodedSize one commit group held since the
+// open, at most CommitGroup.MaxEncodedSize unless a larger write formed a group alone. The two maxima
+// are taken independently of each other, and a lone large write is a group of one that counts in both.
+//
+// MemoryLimit: the memory budget in force, in bytes, fixed when the instance opened: the
+// LatticeDatabaseOptions.MemoryLimit that was given, or half of
+// GC.GetGCMemoryInfo().TotalAvailableMemoryBytes and never less than one segment when none was, so
+// that a test can state the default. When a test gave the options of the arena (EngineTestInputs.Arena)
+// they are the options of the arena, MemoryLimit of the options of the database is not read, and this
+// is the limit of those options. It is the limit of the arena (brief of S09, "The refusal").
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,
     long RetiredIndexBytes,
     long ReplacementIndexBytes,
     int RootEntries,
-    long PublishedSequence);
+    long PublishedSequence,
+    int QueuedWrites,
+    int LargestCommitGroup,
+    long LargestCommitGroupBytes,
+    long MemoryLimit);

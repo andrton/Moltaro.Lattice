@@ -142,7 +142,7 @@ internal sealed class DynamicSet : ILatticeSet
         object?[] values;
         try
         {
-            values = record.Capture();
+            values = record.Capture(copyBinary: true);
         }
         catch (LatticeException exception)
         {

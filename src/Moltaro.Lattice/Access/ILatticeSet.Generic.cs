@@ -33,6 +33,14 @@ namespace Moltaro.Lattice.Access;
 /// wait for other children. A failed write changes nothing.
 /// </para>
 /// <para>
+/// Writes to one entity are executed in the order their calls were made: a call that is made
+/// after an earlier call has returned its task is executed after it, whether or not the earlier
+/// task was awaited. A write that first waits for the position of its session takes its place in
+/// that order when the wait ends, so a later call may be executed before it. Calls that race on
+/// different threads have no order between them. Writes to different entities have no order
+/// beyond their positions.
+/// </para>
+/// <para>
 /// A write that takes a <see cref="LatticeSession"/> is executed by the master after the
 /// position the session depends on, and moves the session forward to its own position.
 /// </para>
@@ -44,9 +52,9 @@ namespace Moltaro.Lattice.Access;
 /// must not be submitted again.
 /// </para>
 /// <para>
-/// An entity passed to a write must stay unchanged until the returned task completes.
-/// The primary key of an entity never changes; writing an entity with another key
-/// addresses another entity.
+/// Do not change the entity, its collections or its byte arrays until the write completes:
+/// the database reads them while the call runs. The primary key of an entity never changes;
+/// writing an entity with another key addresses another entity.
 /// </para>
 /// <para>
 /// A primary key argument has the key type declared in the schema; an integer of another
@@ -174,15 +182,14 @@ public interface ILatticeSet<TEntity>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The traversal is lazy and runs over live data without blocking writes. Each primary
-    /// key appears at most once per pass, also when its entity is replaced, or deleted and
-    /// created again, while the pass runs. A completed pass includes every entity that
-    /// existed unchanged throughout it. Entities inserted, replaced or deleted during the
-    /// pass may or may not be reflected, and a returned entity is one state that was written;
-    /// a change during the pass does not end it. Each new enumeration is a separate pass. The
-    /// engine remembers the keys it has returned for the length of the pass, so that none is
-    /// returned twice; that memory grows with the pass and is what a memory limit of a read
-    /// bounds.
+    /// The traversal is lazy and runs over live data without blocking writes; a change during
+    /// the pass does not end it. The enumeration is not a snapshot. An entity that exists from
+    /// the start of the pass to its end is returned exactly once, in one state that was written:
+    /// the one before or the one after a replace made during the pass. An entity inserted or
+    /// deleted during the pass may or may not be returned. No key is returned twice. Each new
+    /// enumeration is a separate pass. The engine remembers the keys it has returned for the
+    /// length of the pass, so that none is returned twice; that memory grows with the pass and
+    /// is what a memory limit of a read bounds.
     /// </para>
     /// <para>
     /// Nothing is held between two steps, so an enumeration that is abandoned, disposed or

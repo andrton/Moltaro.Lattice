@@ -98,6 +98,13 @@ internal sealed class UserDatabase : IDisposable
     // One replace of the next user with the values it has, for a writer on one thread.
     public void ReplaceNext() => ByName.ReplaceAsync(_users[_replaced++ % _users.Count]).AsTask().GetAwaiter().GetResult();
 
+    // One replace of the user at the place, taken modulo the users, with the values it has, for writers
+    // on several threads that each replace users of their own.
+    public void Replace(int place) => ByName.ReplaceAsync(_users[place % _users.Count]).AsTask().GetAwaiter().GetResult();
+
+    // The counters of the engine, for a scenario that reports what the write coordinator formed.
+    public EngineCounters Counters => _database.Counters;
+
     // A user of the writer with the key, above the fixture's: a copy of a user of the fixture with
     // that key, not inserted yet.
     public LatticeRecord NewUser(long key)

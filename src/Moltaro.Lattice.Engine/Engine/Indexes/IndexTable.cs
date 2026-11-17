@@ -140,9 +140,10 @@ internal sealed class IndexTable
     // The entries the table holds. For the writer.
     public int Count => _counts.Entries;
 
-    // Whether the main table holds as many entries as its policy allows, so that the next insert makes
-    // a table of twice the main buckets, unless this one is the largest. For the writer.
-    public bool IsFull => Count >= MostEntriesPerBucket * _mainBuckets;
+    // Whether the main table holds as many entries as its policy allows, counting the entries of the
+    // inserts reserved and not published yet, so that the next insert makes a table of twice the main
+    // buckets, unless this one is the largest. For the writer.
+    public bool IsFull(int reserved) => Count + reserved >= MostEntriesPerBucket * _mainBuckets;
 
     // The bytes of the table: its main array, with the words that align it, and its overflow.
     public long Bytes => ((long)_words.Length * sizeof(long)) + _overflow.Bytes;
@@ -171,15 +172,28 @@ internal sealed class IndexTable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public long ReadOverflow(long address, int word) => _overflow.Read(address, word);
 
-    // Makes room for an entry of the hash before the insert is published: an empty word in the bucket
-    // of the hash or its overflow buckets, or an overflow bucket to take, adding a page to the overflow
-    // when it has none left. For the writer; an OutOfMemoryException leaves the table as it was.
-    public void Reserve(uint hash)
+    // Makes room for an entry of the hash before the insert is published, while the given number of
+    // other inserts have room reserved and are not published yet: an empty word in the chain of the
+    // hash, or an overflow bucket to take, adding pages to the overflow when it has too few left. For
+    // the writer; an OutOfMemoryException leaves the table as it was, with any page added before it.
+    //
+    // Why the room holds for every insert reserved, in whatever order they are published. An insert
+    // takes at most one overflow bucket: its entry goes into an empty word of its chain, or into a new
+    // overflow bucket. An insert alone, with no other reserved, needs none when its chain has an empty
+    // word, since nothing else can take that word before it is published. Otherwise the overflow keeps
+    // at least as many free buckets as inserts are reserved, this one included. A publication takes at
+    // most one bucket and ends one reservation, a withdrawn insert ends one and takes none, and a delete
+    // empties a word: the free buckets stay at least the reservations, so an insert that finds no empty
+    // word when it is published finds a free bucket, also the one alone whose word another insert,
+    // reserved after it, took. A table that replaces this one is reserved anew (PrimaryIndex.Reserve).
+    public void Reserve(uint hash, int others)
     {
-        if (!EmptyWordOf(hash, out _, out _))
+        if (others == 0 && EmptyWordOf(hash, out _, out _))
         {
-            _overflow.Reserve();
+            return;
         }
+
+        _overflow.Reserve(others + 1);
     }
 
     // Adds the entry of a key that the index does not hold, after Reserve. The entry is written by
@@ -323,7 +337,7 @@ internal sealed class IndexTable
         }
         else
         {
-            _overflow.Reserve();
+            _overflow.Reserve(1);
 
             var overflow = _overflow.Take();
 

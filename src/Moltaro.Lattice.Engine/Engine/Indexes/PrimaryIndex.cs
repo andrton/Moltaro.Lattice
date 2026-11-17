@@ -13,9 +13,10 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // engine's own after the hash index of Garnet/Tsavorite). It holds its current table (IndexTable),
 // which a lookup reads while the one writer inserts, deletes or grows it.
 //
-// Growth. Before an insert is published, Reserve makes sure the table has room for its entry, so that
-// the publication allocates nothing (milestone contract, "Index preparation and traversal"). The main
-// table grows by the count alone (IndexTable, "The capacity policy"): when it is full, the writer
+// Growth. Before an insert is published, Reserve makes sure the table has room for its entry, beside
+// the entries of the other inserts prepared and not published yet, so that no publication allocates
+// (milestone contract, "Index preparation and traversal"). The main table grows by the count, with
+// those entries, alone (IndexTable, "The capacity policy"): when it is full, the writer
 // builds a table with twice the main buckets from the words of the current one,
 // while readers go on with the current one, which nobody changes meanwhile because only the writer
 // changes a table; it publishes the new table by one store and retires the old one by the epoch of
@@ -36,8 +37,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // current table, which a step reads as they change, and not its version (Entities.EntityTable says
 // why a walk stays correct through both).
 //
-// Who calls what. Find and TableAndVersion from reads inside the protection of reads and from the
-// writer; everything else only from the thread that holds the lock of the writes.
+// Who calls what. Find and TableAndVersion from reads and from writes being prepared, each inside the
+// protection of reads; everything else only from the thread that holds the lock of the writes.
 internal sealed class PrimaryIndex
 {
     // The first table: two main buckets and a page of one overflow bucket.
@@ -50,6 +51,11 @@ internal sealed class PrimaryIndex
     // The bytes of the table being built while the index grows, 0 otherwise. Written by the writer
     // and read by the counters, both under the lock of the writes.
     private long _replacementBytes;
+
+    // The inserts that have room reserved and are not published or withdrawn yet: several writes are
+    // prepared at once and published later, in their order (Writes.WriteCoordinator). The writer's
+    // alone, under the lock of the writes.
+    private int _reserved;
 
     // What the next growth runs for the tests of the engine (EngineDatabase.HoldNextGrowth); null when
     // no test armed it, which is all a growth pays: one load of a field nothing else writes.
@@ -84,22 +90,33 @@ internal sealed class PrimaryIndex
         return table;
     }
 
-    // Makes room for the entry of one more key of the hash before it is published: grows the main
-    // table when it is full, unless it is the largest, and then makes room in the chain of the hash
-    // (IndexTable.Reserve). An OutOfMemoryException leaves the current table in place.
+    // Makes room for the entry of one more key of the hash before it is published, beside the inserts
+    // that reserved room before and are not published or withdrawn yet: grows the main table when it is
+    // full with them, unless it is the largest, and then makes room in the chain of the hash for this
+    // one and for them (IndexTable.Reserve), in the table that is current then, so that a grown table
+    // has the room of every reservation. Each reservation ends with Add or with Release. An
+    // OutOfMemoryException leaves the current table in place and reserves nothing.
     public void Reserve(uint hash)
     {
-        if (_table.IsFull && _table.BucketBits < IndexTable.MostBucketBits)
+        if (_table.IsFull(_reserved) && _table.BucketBits < IndexTable.MostBucketBits)
         {
             Grow();
         }
 
-        _table.Reserve(hash);
+        _table.Reserve(hash, _reserved);
+        _reserved++;
     }
 
-    // Adds the entry of a key that the index does not hold, after Reserve; IndexTable.Add says which
-    // store publishes it.
-    public void Add(uint hash, uint slot) => _table.Add(hash, slot);
+    // Gives back the room an insert reserved and does not publish, because it was withdrawn.
+    public void Release() => _reserved--;
+
+    // Adds the entry of a key that the index does not hold, after Reserve, and ends that reservation;
+    // IndexTable.Add says which store publishes it.
+    public void Add(uint hash, uint slot)
+    {
+        _table.Add(hash, slot);
+        _reserved--;
+    }
 
     // Removes the entry of the slot, which the index holds under the hash.
     public void Remove(uint hash, uint slot) => _table.Remove(hash, slot);
@@ -111,14 +128,25 @@ internal sealed class PrimaryIndex
     {
         var current = _table;
 
-        // Retiring the old table after the publication allocates nothing.
+        // Retiring the old table after the publication allocates nothing. An OutOfMemoryException
+        // while the new table is built gives the place back and leaves the current table in place.
         _retired.Reserve();
 
-        var grown = new IndexTable(current.BucketBits + 1, current.Version + 1);
+        IndexTable grown;
 
-        _replacementBytes = grown.Bytes;
-        current.CopyInto(grown);
-        _replacementBytes = grown.Bytes;
+        try
+        {
+            grown = new IndexTable(current.BucketBits + 1, current.Version + 1);
+            _replacementBytes = grown.Bytes;
+            current.CopyInto(grown);
+            _replacementBytes = grown.Bytes;
+        }
+        catch
+        {
+            _replacementBytes = 0;
+            _retired.Release();
+            throw;
+        }
 
         // The release of this store publishes the new table with its version and every entry written
         // into it: a reader that reads the new table (Find, TableAndVersion) sees them all. A reader

@@ -200,6 +200,17 @@ Release partial preparation/reservations; leave stored data and revisions unchan
 Do not add a wait for future reader completion or future compaction on this path.
 Existing background reclamation continues under its own bounded schedule.
 
+**Amended on 16 November 2026.** "Do not add a wait for future reader completion on this
+path" is superseded. Since reads are protected by epochs and memory is freed later (the
+owner's decision of 16 November 2026), a write the arena refuses first frees what is
+retired, then waits for the reads that still hold retired memory and frees it; and by the
+rule that the database waits where it can instead of refusing (the owner's decision O20)
+a write is refused only when it does not fit beside the stored data: it waits for the
+writes admitted before it, holds back the preparation of later ones until those in flight
+have completed, frees what is retired and retries once alone. The wait is bounded and the
+token of the write cancels it. This resolution is the planner's reading of O20, reported
+to the owner.
+
 Reserve/prepare the state needed for publication before durable commit. No root gate
 spans journal I/O. A reservation does not guarantee that the OS will satisfy every
 allocation; preparation failures are different from failures after a durable commit.

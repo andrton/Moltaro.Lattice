@@ -102,7 +102,15 @@ remembers the keys it has returned, returns no identity twice and every entity n
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
 `ReadTimeLimit`, none set by default, bound the memory and the time of a pass, and no
 call carries limits of its own; every hash of the primary index uses a seed the instance
-draws when it opens. The public entry keeps the refusals of the placeholder until S12.
+draws when it opens. From S09 a write of the engine passes a coordinator: admission, in
+which it takes its place among the writes of its entity; preparation, of several writes
+at once; and commit in one order, in groups of at most 32 writes or 8 MiB handed to a
+storage step, which in MemoryOnly completes at once. Writes to one entity are executed in
+the order of their calls; a write is withdrawn by its token until it is dispatched;
+`MemoryLimit` is the limit of the arena, and a write is refused for memory only when it
+does not fit beside the stored data; a fault of a publication leaves the instance
+`Faulted`. S09, part 2 holds this write path against the proven ones. The public entry
+keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -285,6 +293,24 @@ documentation before this document is removed.
 | S08, part 2 | The same pass beside a writing thread, and with the index growing once during it (about 132,000 entities) | beside replaces 59 to 60 ms; beside inserts and deletes 59 to 61 ms; with a growth 88 to 90 ms in the implementer's first runs, 195 to 240 ms on a loaded machine later; in part 1 the two last failed | development-3 | 16 November 2026 |
 | S08, part 2 | Memory a pass holds per key it has returned, at 100,000 keys | 21.0 bytes for an Int64 key, 41.9 for a Guid, 68.2 for a String of 13 characters; between half and all of that over one doubling of the table | development-3 | 16 November 2026 |
 | S08, part 2 | Reads by key in total, by class, without a writer, the branch against main in alternating runs | 16 threads 14.7 to 15.6 M/s against 14.9; 20 threads 14.9 to 16.2 against 15.6 to 17.1: no difference | development-3 | 16 November 2026 |
+| S09 | Completed writes a second of 1, 4 and 16 calling threads, replaces; three alternating runs against S08 | 1.19 to 1.27 M/s, 0.43 to 0.63 M/s, 0.58 to 0.67 M/s; on S08 1.79 to 1.91 M/s, 1.17 to 1.25 M/s, 1.08 to 1.19 M/s | development-3 | 17 November 2026 |
+| S09 | The same for inserts and deletes | 1.45 to 1.74 M/s, 0.36 to 0.74 M/s, 0.62 to 0.71 M/s; on S08 3.10 to 3.30 M/s, 2.10 to 2.26 M/s, 2.06 to 2.18 M/s | development-3 | 17 November 2026 |
+| S09 | p99 of one write with 16 calling threads; bytes of managed memory allocated per write | 60 to 74 µs against 320 to 700 µs on S08 (1.6 to 2.7 ms beside 16 readers in the review); 160 bytes a replace and 136 an insert or delete for one caller, as on S08, and 350 to 362 with 4 callers, 538 to 543 with 16 | development-3 | 17 November 2026 |
+| S09 | Reads by key in total on 16 threads, alone and beside 1, 4 and 16 writing callers | 19.2 M/s alone against 18.1 to 18.4 on S08; 15.9 to 17.3, 14.7 to 15.5 and 13.8 to 14.7 beside the callers, against 16.9 to 17.9, 16.1 to 17.4 and 15.8 to 16.5 on S08; readers of another database of the process fall alike | development-3 | 17 November 2026 |
+
+The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
+a third to a half for one caller, and several callers write about half of what one writes
+where S08 lost about a third. The cause is the work of the coordinator on every write —
+two locks taken several times where S08 took one, the queue of an identity, and for
+callers that wait a hand-over between threads — and not the number of places of
+preparation: with 16 or 64 places instead of 2 nothing was gained. What the path gives
+for it: the order of calls, cancellation before dispatch, a p99 of a write with many
+callers that is lower, and groups for the storage step of S27. Reads by key did not fall:
+beside writing callers they are about 10% lower, and so are readers of another database,
+so it is the share of the machine. The requirements are 200 writes a second, 10,000 at
+the peak and a p99 of 50 ms; the lowest rate measured is 233,000 a second. The owner
+decided on 17 November 2026 that S09 closes with these figures and that S09, part 2 puts
+the write path on a proven source at once.
 
 The figures of S08, part 2 come from the scenario `enumerate`. Remembering the keys costs
 about a quarter of a pass, about 110 ns an entity; with a limit set a pass also takes
@@ -790,7 +816,8 @@ settles. They are approved with the plan, each by name.
   none set by default; they hold for every enumeration and, from S15, every search, with
   one error code and the exceeded limit named in `Limit`. No call carries limits of its
   own (the owner, 16 November 2026).
-- **The number of preparing workers is between 1 and 64.**
+- **The number of preparing workers is internal:** 2 places of preparation since S09, no
+  option and no rule of the contract that bounds it.
 - **An address is `lattice://host:port`**, and `ILatticeDatabase.ListenUri` reports the
   address a master actually listens at, so that port 0 can be used.
 - **A field is its identity, its name and its declaration.** `LatticeField` loses `Type`,
@@ -938,7 +965,8 @@ Why this order:
 | S07 | Every key type and declared value | Full | Done |
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
-| S09 | Write coordinator and write limits | Full | Not started |
+| S09 | Write coordinator and write limits | Full | Done |
+| S09, part 2 | The write path after a proven source | Full | Not started |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
@@ -3133,9 +3161,6 @@ be studied: how they do it is to be learned from their source and, in essence, r
   [Q09.1](../decisions/write-acknowledgment.md); [Q14 master memory pressure, root size](../decisions/write-admission.md);
   [stable inputs, cancellation at the commit boundary](../decisions/mutation-commands.md);
   [initial settings](../design/milestone-1-engine-contract.md#initial-bounded-settings).
-- **Acceptance, added by the planner on 16 November 2026.** The temporary memory of reads
-  in progress counts against the instance budget (carried from S08, whose part 2 counts
-  it for the limit of a read only).
 - **Acceptance.** Writes to different entities prepare concurrently and are published in
   one order of positions. Writes to one entity execute in the order they were admitted.
   A group holds at most 32 operations or 8 MiB and waits at most 1 ms to fill.
@@ -3200,7 +3225,7 @@ the arena.
 `WriteRejected` carries the `Limit` that refused the write. In this sprint the
 memory budget bounds the arena, prepared capacity included: a write the arena cannot hold
 is refused with `Limit` set to `Memory`. S24 extends the same budget to the indexes, the
-text table, the pages of root entries, prepared capacity and the scratch of reads; until then those are not
+text table, the pages of root entries and the native scratch of reads, if any exists by then; until then those are not
 counted, and the documentation of `MemoryLimit` says so. Retired memory counts against
 the budget; a write that meets the budget drains first and waits for the reads in
 progress before it is refused (the owner's decision of 16 November 2026 on deferred
@@ -3283,6 +3308,305 @@ Where a sentence above says otherwise, these replace it.
   interfaces.
 - **The placeholder** ignores `MemoryLimit` until S12; the documentation of the option
   says "not enforced yet" for the public entry, as the other options of this stage do.
+
+**Added by the planner on 16 November 2026, after S08.** Where a sentence above says
+otherwise, these replace it.
+
+- **Gates.** "The values are encoded outside the lock that orders writes, and an insert
+  takes the catalog gate exclusively once, at publication" becomes: the values of a write
+  are encoded outside the lock of the writes, and publication under that lock only
+  installs what was prepared: the stores of S08 in their order, the position, the
+  retirement of what was replaced.
+- **Who may touch what.** S08 left the arena, the table of root entries, the indexes, the
+  position clock and the retired list with one changing thread, the holder of the lock of
+  the writes. S09 keeps that rule and does not make any of them safe for several threads.
+  A write passes three steps. *Admission*, short, under the lock of the coordinator: the
+  write reserves its identity (entity type and key, as the schema compares keys) in a
+  first-in-first-out queue of that identity; a write whose identity is reserved by an
+  earlier one waits its turn there and holds nothing in the engine. *Preparation*, of
+  several writes at once, each holding its reservation so that no other write of that
+  entity can overtake it: it looks the key up and reads what it needs of the current
+  entity as a read does, inside the protection of reads; it checks its condition; it
+  encodes its values into prepared blocks. Whatever changes a structure of the engine it
+  does under the lock of the writes, held for that change alone and never while bytes are
+  copied or a value is encoded: each allocation of a prepared block, the free of blocks
+  it abandons, for an insert the new root entry and the room in the index (which may grow
+  it), the room in the retired list. *Commit*, in one order: groups, the storage step,
+  then publication under the lock of the writes. The lock of the coordinator and the lock
+  of the writes are never held together; a type that takes both says so. No lock of its
+  own for the arena is built: if the figures for 4 and 16 callers show the lock of the
+  writes bounding preparation, that is reported with the number, and an arena lock
+  ordered after the lock of the writes is the next step, not a part of this sprint. The
+  reservation makes "captures needed current values" of the milestone contract safe
+  without a gate: nothing else changes that entity until the write is published or
+  abandoned, and its root cannot be freed under a read inside the protection.
+- **The memory of reads is not in the budget.** The memory budget of the instance counts
+  the native memory the engine holds. What an enumeration remembers is managed memory of
+  its enumerator: it is bounded by `ReadMemoryLimit` when that is set and is no part of
+  the instance budget. The documentation of `MemoryLimit` says the budget counts what the
+  engine holds, not the managed heap of the application, "nor what an enumeration
+  remembers". The sentence of the Acceptance of S08 on counting it in the instance budget,
+  and an addition to this brief that carried it, are withdrawn; S24 counts native scratch
+  of reads, if any exists by then.
+- **The refusal.** `MemoryLimit` becomes the limit of the arena the engine opens (the
+  internal option the tests of S08 already set), so the refused-write path of S08 is the
+  path: no second check beside it. `WriteRejected` from it carries `Limit` = `Memory`.
+  With several writes prepared at once the rule of when a write is refused is restated,
+  since other writes now hold prepared memory and retire while it waits: a write the
+  arena refuses frees what is retired and retries; while it is still refused it waits,
+  outside every lock, for the reads that hold retired memory and for every write admitted
+  before it to complete, and retries; it is refused only when every write admitted before
+  it has completed, nothing retired is left and the arena still has no room. That is
+  finite — the writes ahead of it are finite — and the token of the write cancels the
+  wait. A write refused so has had no effect and never runs later. Acceptance: on a small
+  arena, a write that fits only after an earlier, still unpublished replace has retired
+  its old root and it was freed, completes; one that does not fit an otherwise idle
+  database is refused with `Limit` = `Memory`. Exception X6 is re-read by the contract
+  author against this path: the wait for reads now happens outside the lock of the
+  writes.
+- **`Enumerate`.** The contract says what the engine does. In `ILatticeSet<TEntity>` and
+  `ILatticeSet` the sentence with "may or may not be reflected" becomes: "The enumeration
+  is not a snapshot. An entity that exists from the start of the pass to its end is
+  returned exactly once, in one state that was written: the one before or the one after a
+  replace made during the pass. An entity inserted or deleted during the pass may or may
+  not be returned. No key is returned twice." The contract author checks that the
+  placeholder holds it and reports before changing anything if it does not. The sentence
+  of `ILatticeIndex` about a search stays until S14 and S15.
+- **No wait to fill a group in MemoryOnly.** "A group holds at most 32 operations or 8 MiB
+  and waits at most 1 ms to fill" becomes: a group is formed from the writes that are
+  prepared when the commit stage becomes free, at most 32 operations or 8 MiB, a larger
+  write alone; the commit stage never waits for a group to fill. A delay to fill a group
+  is a matter of the durable storage step and is decided with its sprint (S27), with
+  figures. `CommitGroup.MaxDelay` is not built in S09, and "that a group waits at most
+  1 ms" leaves the list of what the reviews check.
+- **A fault during publication and the reads that retry.** Publication is several stores,
+  and between the mark of a write in progress and the new stamp a read of that entity
+  retries. Added to "Faulted": a fault during publication never leaves a read retrying: a
+  read that retries checks the state of the instance and reports `Unavailable` once it is
+  `Faulted`. "No reader sees a partial state" means: no read returns a mixture of two states
+  of an entity, and none is left retrying. A read that overlaps a faulted publication
+  returns the state before the write, the whole state of the write, which the storage step
+  had taken, or `Unavailable`; a read that begins after the instance is `Faulted` reports
+  `Unavailable`. Acceptance, for a replace, a delete and an insert: with
+  `DuringPublication` armed for a replace, a read of that entity started before and one
+  started after both end, with the old state or `Unavailable`, within the time of the
+  test.
+- **Measured, added.** Completed writes a second for 1 caller next to the figures of S08,
+  part 1 on the same scenario (replace, insert and delete), and reads by key on 16
+  threads while 1, 4 and 16 callers write, next to S08. A fall of the single caller from
+  the hand-over between threads is reported with its size and cause; reads by key do not
+  fall against S08 beyond noise (reads first, the rule of the owner of 16 November 2026).
+  A fall is handled as the owner said in the coordinator's session on the same day and
+  as the [development process](process.md#when-to-stop-and-ask-the-owner) now states:
+  the cause is found, existing solutions are studied, alternatives are tried; the sprint
+  stops for the owner only when nothing helped, the fall is not what the problem costs
+  everywhere, and a requirement is missed.
+- **Answers of the planner to the contract author, 16 November 2026**, from standing
+  decisions.
+  - *Sizes.* `PreparedWrite.EncodedSize` is `long`, and so is every sum of it;
+    `CommitGroup.MaxEncodedSize` is a `long` constant. No rule bounds an entity (O19).
+  - *The computed default* is never refused: half of the memory the runtime reports, and
+    not less than the minimum of `MemoryLimit`, one segment. The sentence "the validation
+    of that open uses the same value" is dropped; `Validate` checks only an explicit
+    `MemoryLimit`, and the documentation of the option gains "and never less than" the
+    minimum.
+  - *The internal `Create` with `ArenaOptions`.* They are the options of the arena and
+    `MemoryLimit` of the public options is not read; `EngineCounters.MemoryLimit` reports
+    the limit in force. Tests of a small arena use `ArenaOptions`; tests of the option use
+    the public open.
+  - *The fault points* both lie after the storage step and both fault the instance.
+    `BeforePublication`: the storage step of the group has completed and no store of its
+    publication has been made; in MemoryOnly "committed" means that the storage step
+    returned. "A preparation that fails releases everything and the instance stays Ready"
+    needs no fault point: it is shown by real failures of a preparation (a refusal of the
+    arena, a cancelled write, a value the writer refuses). `DuringPublication`: for a
+    replace, after the store of the root and before the new stamp, the mark set; for a
+    delete, after the store of the state and before the new stamp, the mark set; for an
+    insert, after the store of the index entry and before the position is published. An
+    armed point throws `InvalidOperationException` with a message naming the point.
+  - *After a fault.* A write of the group whose stores were all made before the fault gets
+    its real result: it is published. The write whose publication faulted and the writes
+    of the group after it get `LatticeException` with `IndeterminateOutcome`: the storage
+    step took them and the instance cannot show them; the injected exception is the
+    `InnerException` of the first of them. Writes prepared and not yet taken by the commit
+    stage, writes being prepared and writes waiting for their identity get `Unavailable`:
+    they did not run, and everything they held is released. Every later operation is
+    `Unavailable`; a close works.
+  - *The counters.* `QueuedWrites` is a current number: the writes admitted and not yet
+    completed — waiting for their identity, waiting to be prepared, being prepared,
+    prepared, in the commit stage; 0 when every call has returned. `LargestCommitGroup` and
+    `LargestCommitGroupBytes` are maxima since the open, taken independently of each
+    other; a lone large write is a group of one and counts in both.
+  - *Dispatch* is the moment the commit stage takes the write into a group and hands the
+    group to the storage step: the call of `ICommitStorage.CommitAsync`. Before it a
+    cancelled write is withdrawn, releases what it prepared and ends in
+    `OperationCanceledException`; from it on the call returns the real outcome and the
+    token is not looked at. No switch is added: the internal `Create` takes an
+    `ICommitStorage`, a real boundary of the engine, and the storage of a test holds a
+    commit until the test releases it. While it is held, later writes are admitted and
+    prepared and wait for the commit stage, so a test can cancel one before its dispatch
+    and state through `PreparedBytes` and `QueuedWrites` that nothing of it is left, state
+    that several are prepared at once, and form groups of a known size. The default
+    storage of MemoryOnly completes at once. The storage of the tests lives in the engine
+    test project.
+  - *Positions.* The writes of a group take consecutive positions from `FirstSequence`, in
+    the order the commit stage took them, which for one entity is the order of admission;
+    a delete of an absent key takes one as any write does.
+  - *The order of writes to one entity* is a public guarantee, documented on the write
+    members of both sets in the contract commit: "Writes to one entity are executed in the
+    order their calls were made: a call that is made after an earlier call has returned
+    its task is executed after it, whether or not the earlier task was awaited. Calls that
+    race on different threads have no order between them. Writes to different entities
+    have no order beyond their positions."
+  - *The refusal and decision Q14* of the decision on write admission: a dated addition
+    there says that the write waits for reads and for the writes admitted before it; the
+    wait for earlier writes is the planner's reading of O20, reported to the owner.
+  - *Coordinator:* the commit types live in `Engine/Writes`, by the folder rule.
+- **Added by the planner on 16 November 2026, after the implementation.**
+  - *One write path.* The three steps hold for both modes, and the figures of the path are
+    judged again with S27, where the question is writes a second per storage commit. No
+    short path is built for MemoryOnly: it would be a second implementation of order,
+    cancellation and faults for the mode that is not the default of a master.
+  - *One bounded pass at the bookkeeping*, after the review, each change kept only if a
+    figure moves beyond noise and nothing restructured: a write that completes without
+    waiting allocates nothing for its completion, and the record of a write in the
+    coordinator is reused from a pool; adjacent acquisitions of the lock of the
+    coordinator with nothing between them become one; the identity dictionary is skipped
+    for a write that finds no other in flight only if that keeps the first-in-first-out
+    rule without a second code path. Reported: bytes allocated per write before and
+    after, for a lone caller and for 16. If the pass moves nothing, that is the result.
+  - *The retry of a refused write is bounded by the writes admitted before it.* A write
+    the arena refuses frees what is retired and retries. While it is refused it waits for
+    every write admitted before it to complete and for what was retired up to that moment
+    to be freed — the reads then in progress leave within one step each — and retries
+    once more. If the arena still has no room it is refused, whatever later writes have
+    retired since. One mark taken when the last earlier write completes, the newest
+    retired item at that moment, is enough; the wait ends when the retired list has been
+    freed up to the mark. Acceptance: on a small arena a write that cannot fit is refused
+    while another caller keeps replacing a small entity, within the time of the test.
+  - *A storage step that throws* leaves the outcome of its group unknown: the whole group
+    gets `IndeterminateOutcome` and the instance is `Faulted`. That is the rule for an
+    exception the storage does not classify.
+  - *A close waits for a storage step in progress;* a close is complete.
+  - *One reused `CommitGroup`.* The documentation of `ICommitStorage.CommitAsync` says:
+    "The group and its list belong to the commit stage and are reused: a storage reads
+    them until its task completes and keeps no reference afterwards."
+  - *Preparing workers.* There are 2 places of preparation; the number is internal and no
+    rule of the contract bounds it. With 64 places nothing was gained.
+- **When a write is refused for memory: the rule after review round 1** (the planner, 16
+  November 2026; the first reviewer found that the rule above refused a write that fits
+  when a later write held prepared memory). This replaces every earlier wording of it in
+  this brief: "The refusal" of the block after S08, and "The retry of a refused write is
+  bounded" of the block after the implementation.
+  A write is refused for memory only when it does not fit beside the stored data: never
+  because of memory that other writes, earlier or later, hold only for a time, and never
+  because of memory that is retired and not freed yet. A write the arena refuses gives
+  back everything it prepared, frees what is retired and retries. If it is refused again,
+  it is resolved alone: (1) it waits for every write admitted before it to complete; (2)
+  it holds back the preparation of later writes: writes admitted after it are admitted
+  and wait, and none begins to prepare; those already prepared or in the commit stage
+  complete, and it waits for them; (3) it waits for the reads then in progress to leave
+  the protection, frees what is retired, and retries once, with no other write holding
+  prepared memory; (4) if the arena has room, it goes on as any write; if not, it is
+  refused with `WriteRejected` and `Limit` = `Memory`. In both cases the later writes go
+  on at once. While it waits it holds no prepared memory. Two writes refused at the same
+  time are resolved one after the other, in the order they were admitted. The wait is
+  bounded by the writes in flight when step 2 begins and by one step of the reads then in
+  progress; no write admitted later prolongs it. The token of the write cancels the wait
+  at any of its steps, and the later writes then go on. A refusal is rare, so holding
+  preparation back for it costs the ordinary path nothing: the ordinary path pays one
+  check.
+  Acceptance, tests first: on an arena of 8 MiB, an insert of 3 MiB that is the oldest
+  write while a later replace of 3 MiB is prepared and held completes; without hooks, a
+  5 MiB insert into an empty 8 MiB arena beside a 9 MiB insert that can never fit: the
+  5 MiB insert always completes and the 9 MiB one is always refused, over the rounds the
+  test author sizes; two replaces that both fit in either order both complete; a write
+  that cannot fit is refused within the time of the test while another caller keeps
+  replacing a small entity; after a refusal the writes held back complete and
+  `QueuedWrites` returns to 0.
+- **Cancellation before dispatch** (the planner, the same day, after the same review).
+  Before dispatch, the token of a write is honored at every wait — for its identity, for
+  a place to be prepared, for earlier writes, for the writes in flight in a resolution,
+  for reads that hold retired memory — and when its preparation ends. A cancellation that
+  arrives while its values are being encoded takes effect when the encoding ends, before
+  the write can be dispatched: it is withdrawn, what it prepared is freed, and it ends in
+  `OperationCanceledException`. Tests first: a write cancelled while it is being prepared
+  is withdrawn and leaves nothing in the counters; a write cancelled during the wait of a
+  resolution ends, and the writes held back go on. Every wait of a write before dispatch
+  has the token. Without a timeout are the waits for steps of reads and the waits of a
+  write for other writes — its identity, a place to be prepared, the commit stage, and
+  those of a resolution — each of which ends when the writes it waits for end (X6; the
+  coordinator's correction after the implementer listed them).
+- **The order of writes and the wait of a session** (the planner, 16 November 2026, after
+  review round 1). No identity is reserved across a wait for a position: a reservation
+  held for up to the timeout of a session would hold every later write of that entity
+  behind a wait that may fail. The sentence on order of both sets becomes: "Writes to one
+  entity are executed in the order their calls were made: a call that is made after an
+  earlier call has returned its task is executed after it, whether or not the earlier task
+  was awaited. A write that first waits for the position of its session takes its place in
+  that order when the wait ends, so a later call may be executed before it. Calls that
+  race on different threads have no order between them. Writes to different entities have
+  no order beyond their positions." Written by the implementer with the fixes. One test: a
+  write with a session ahead of the database and a later write without a session to the
+  same entity — the later one completes first, the first completes when its position is
+  reached, and both results are those of that order.
+- **Unchanged and confirmed again.** `PrepareWorkers` internal, starting at 2; a write
+  larger than a group forms one alone; what is counted (`PreparedBytes`, no
+  `QueuedWriteBytes`); no managed copy of an input; order of admission; the placeholder
+  ignores `MemoryLimit` until S12.
+
+#### S09, part 2 · The write path after a proven source
+
+**Track:** full, two reviewers · **Needs:** S09 · **Decided by:** the owner, 17 November
+2026, in the planner's session. The owner read the figures of S09 and the comparison with
+the industry and asked why the approaches of the industry are not simply repeated to keep
+writes as fast as they can be. For reads the sources were studied and repeated; the
+coordinator of S09 — a queue per identity, places of preparation, a commit stage — came
+from the design documents, written before any measurement, and was never held against a
+working system. Of three ways — this sprint now, the question left until S27, or left as
+it is — the owner chose the first. S09 closes as it is.
+
+- **Goal.** Writes keep every guarantee of S09 and follow a write path that an
+  established system with one order of writes uses; several callers write no less in
+  total than one.
+- **Step 1, a study, before any code** — as in S08, part 1. The implementer reads the
+  source, not summaries, of: the write group of RocksDB (the write thread: joining a
+  group, leader and followers, the pipelined form); the execution of commands on one
+  thread in Valkey; the single writer of LMDB; and Tsavorite for contrast. For each it
+  writes what the system guarantees about the order of writes and about conditions
+  (insert only if absent, an expected revision), what it costs per write, and what it
+  does when a log has to be written first. It then proposes the path for Lattice and says
+  for each guarantee of S09 how the path keeps it, and in a paragraph each how the batch
+  of S17 (all its entities at one position), the partial update of S20 (which needs the
+  current state) and the durable storage step of S27 fit. The coordinator and the planner
+  read the report before anything is built. Licences by the rule of the process: each is
+  checked at the commit read; where a project offers several, the permissive one is
+  taken; a source under a licence that is not permissive is not opened.
+- **What does not move.** The public contract of S09 and its Acceptance: the order of
+  writes to one entity with its sentence on the wait of a session, consecutive positions,
+  cancellation before dispatch and not after, the rule of when a write is refused for
+  memory, the faults and what each caller sees, a close that is complete, no managed copy
+  of an input, `ICommitStorage` as the boundary of the storage step and the bounds of a
+  group it is handed. The scenario tests of S09 pass with their assertions unchanged. A
+  test of the engine that states the internal shape of the coordinator and not a
+  guarantee — what `QueuedWrites` counts, how many writes are prepared at once — is
+  reported and restated by the test author.
+- **What may go.** The queue per identity, its dictionary, the places of preparation, the
+  number of acquisitions of the two locks: whatever the proven path does not need. If
+  conditions are checked when a write is published, as in S08, and the path keeps the
+  order of calls without a reservation, the reservation goes; the milestone contract,
+  "Write coordinator and revision semantics", is then corrected with the sprint — the
+  planner sends the text after the study — and the owner has agreed to the direction.
+- **Acceptance, measured** on the scenario of S09, next to S08 and S09: writes a second of
+  one caller not lower than S08 beyond noise; the total of 4 and of 16 callers not lower
+  than that of one caller; reads by key on 16 threads not lower than S09; p99 of a write
+  and bytes allocated per write reported. A figure that misses is handled by the rule of
+  the process: cause, comparison, alternatives, and the owner only if a requirement is
+  missed. If the study finds that no proven path gives more than S09 has under these
+  guarantees, that is the result: it is reported with the evidence and the coordinator
+  of S09 stays.
+- **Out of scope.** The durable step (S27), the batch (S17), a second path for
+  MemoryOnly.
 
 ### Stage 3. Master and children
 
@@ -3548,6 +3872,10 @@ otherwise, these replace it.
   whole. A delete of an absent key on the master moves the position of the child.
 
 #### S12 · Writes through a child, sessions; the placeholder is removed
+
+**Carried from S09:** a child forwards the writes of one entity in the order of their
+calls, each taking its place when the wait for the position of its session has ended;
+the guarantee of S09 holds through a child.
 
 **Carried from the review of S08, part 1:** when the engine library becomes packable in
 this sprint, `THIRD-PARTY-NOTICES.md` is packed into its package as it is into the
@@ -3997,8 +4325,8 @@ otherwise, these replace it.
 - **Acceptance.** A write that cannot reserve its memory is refused before commit and
   does not wait for compaction; reads continue, and after memory is freed writes are
   accepted again. The budget counts the arena with its reserve, both tables of a growing
-  primary index, secondary index nodes, the text table, prepared capacity of writes in flight, the scratch of reads, the pages of root entries
-  and the queued write input; S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
+  primary index, secondary index nodes, the text table, the native scratch of reads if any exists, and the pages of root entries
+  (prepared capacity is counted in the arena since S09, and a waiting write holds nothing in the engine); S26 adds the retained outcomes of a MemoryOnly master. A reservation that fails releases everything it took,
   shown by the counters. A child over its budget pauses application, keeps its reads and
   resumes when memory is free again; reloading after a long pause is S34. Nothing queued
   runs after its cancellation.
@@ -4082,6 +4410,14 @@ otherwise, these replace it.
   the library, which is excluded by decision.
 
 #### S27 · PostgreSQL provider and Durable open
+
+**Carried from S09:** what a failed storage step means is stated by this sprint: a
+rejection the storage knows to be definite releases the group and leaves the instance
+Ready; only an outcome it cannot know is the case of S09, `IndeterminateOutcome` for the
+group and a faulted instance. The storage step has a timeout, so that a close, which
+waits for a step in progress, is finite. The figures of the write path of S09 — writes
+a second of several callers below those of one — are judged again here, as writes a
+second per storage commit.
 
 **Track:** full · **Needs:** S26 · **Decisions:** O1, O4, O9 · **Owner:** E06
 

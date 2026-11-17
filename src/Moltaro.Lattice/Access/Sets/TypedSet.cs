@@ -151,7 +151,7 @@ internal sealed class TypedSet<TEntity> : ILatticeSet<TEntity>
         object?[] values;
         try
         {
-            values = _binding.Capture(entity);
+            values = _binding.Capture(entity, copyBinary: true);
         }
         catch (LatticeException exception)
         {

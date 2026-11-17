@@ -8,14 +8,25 @@ namespace Moltaro.Lattice.Access;
 /// insert, replace, upsert and delete. Obtained from <see cref="ILatticeDatabase.Set(string)"/>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Every entity type of the schema is available this way, whether or not a .NET class is
 /// declared for it. The data and the rules are the same as for
 /// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
 /// synchronous reads return what this node has now, the asynchronous ones first wait for
 /// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
-/// through a child, complete when that child has applied them; a record passed to a write
-/// must stay unchanged until the returned task completes; the same failures are reported.
+/// through a child, complete when that child has applied them; do not change a record passed
+/// to a write, its collections or its byte arrays until the write completes, because the
+/// database reads them while the call runs; the same failures are reported.
 /// A record of another entity type is an <see cref="ArgumentException"/>.
+/// </para>
+/// <para>
+/// Writes to one entity are executed in the order their calls were made: a call that is made
+/// after an earlier call has returned its task is executed after it, whether or not the earlier
+/// task was awaited. A write that first waits for the position of its session takes its place in
+/// that order when the wait ends, so a later call may be executed before it. Calls that race on
+/// different threads have no order between them. Writes to different entities have no order
+/// beyond their positions.
+/// </para>
 /// </remarks>
 public interface ILatticeSet
 {

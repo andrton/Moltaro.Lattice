@@ -34,13 +34,15 @@ namespace Moltaro.Lattice.Storage;
 // that holds the lock of the writes (Engine.Writes.WriteExecutor). Reads inside the protection of
 // reads (Engine.Protection) call IsValid, Header and Payload at the same time, for the
 // blocks of the roots they reached, which are live or retired and are not freed while such a read
-// is inside. Those read only the metadata of the block's own slot, region and segment, which no
+// is inside; and so do writes being prepared, outside that lock, for the prepared blocks they
+// allocated, which are theirs until their root is published or freed (Storage.RootWriter). Those read only the metadata of the block's own slot, region and segment, which no
 // change of the arena alters while the block is allocated; a change for another block writes other
 // bits of the same words and other elements of the same arrays, and a reader sees their old or
 // their new value, either of which leaves the bit of its own block set. A grown segment table is a
 // new array: a reader that still has the old one finds the same segments in it. A reader learns of
 // a block only through the publication of a root, which is ordered after everything the arena wrote
-// for that block (Engine.Writes.WriteExecutor says which store publishes).
+// for that block (Engine.Writes.WriteExecutor says which store publishes); a write being prepared, by
+// its allocation under the lock of the writes, which it released after the arena wrote the block.
 internal sealed unsafe class Arena : IDisposable
 {
     // The size of the first segment table: slot 0, which is never used, and three segments. The
@@ -119,6 +121,10 @@ internal sealed unsafe class Arena : IDisposable
 
     // The size of one segment in bytes, as the options gave it.
     public int SegmentSize => _segmentSize;
+
+    // The most native capacity the arena may obtain, in bytes, as the options gave it
+    // (ArenaOptions.MemoryLimit).
+    public long MemoryLimit => _memoryLimit;
 
     // The largest size class, header included. The largest payload is therefore MaxBlockSize
     // minus the 32-byte header, 65,504 bytes: the chunk payload of the milestone contract.

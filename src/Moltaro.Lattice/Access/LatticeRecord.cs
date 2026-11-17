@@ -37,9 +37,11 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// <b>A record is not the boundary of the database.</b> The boundary is a write, through a
 /// set or by adding to a write batch, and a read. A write validates the record again and
-/// copies it at every depth, owned values and byte arrays included: nothing changed in the
-/// record afterwards reaches what was submitted. What a read returns shares nothing with the
-/// database or with another read.
+/// copies it at every depth, owned values and byte arrays included. A write through a set
+/// reads the record while the call runs, so the record must not change until the write
+/// completes, as <see cref="ILatticeSet"/> says; adding to a write batch copies it when it is
+/// added. Nothing changed in the record afterwards reaches what was submitted. What a read
+/// returns shares nothing with the database or with another read.
 /// </para>
 /// </remarks>
 public sealed class LatticeRecord
@@ -117,9 +119,10 @@ public sealed class LatticeRecord
     /// <exception cref="InvalidCastException">The field value is not a <typeparamref name="T"/>.</exception>
     public T? Get<T>(string fieldName) => this[fieldName] is { } value ? (T)value : default;
 
-    // Record -> values to store, checked against the schema at every depth. The result shares
-    // nothing mutable with the record.
-    internal object?[] Capture() => RecordValues.Submit(EntityType, _values);
+    // Record -> values to store, checked against the schema at every depth. With copyBinary true the
+    // result shares nothing mutable with the record; with false it shares the byte arrays of the
+    // fields of the entity, which the engine reads while the write runs (RecordValues.Submit).
+    internal object?[] Capture(bool copyBinary) => RecordValues.Submit(EntityType, _values, copyBinary);
 
     // The values the record holds, by LatticeField.Ordinal, for a read that fills a new record in
     // place: the engine, which puts into it values it has made for this record alone, each in the

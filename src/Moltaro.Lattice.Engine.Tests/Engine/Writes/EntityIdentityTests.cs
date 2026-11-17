@@ -1,0 +1,59 @@
+using Moltaro.Lattice.Access;
+
+namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
+
+// The identity a write reserves at its admission is its entity type and its key as the schema compares
+// keys (brief of Epic 1, sprint S09, "Who may touch what"; Writes.WriteIdentity): two spellings of a
+// String key compared without case are one entity, so a write of one spelling waits behind a write of
+// the other as behind any write of its entity, and holds nothing meanwhile. The storage step of the
+// test (HeldCommitStorage) holds an insert of "abcdef"; an insert of "ABCDEF" admitted after it is not
+// prepared, while an insert of another key admitted after both is; once the first is published, the
+// second finds the entity and is DuplicateKey, and the entity keeps the spelling it was inserted with.
+// In a database of UTF-8 and in one of UTF-16 (KeySchema).
+public sealed class EntityIdentityTests
+{
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
+    [Theory]
+    [InlineData("Utf8")]
+    [InlineData("Utf16")]
+    public async Task Write_of_another_spelling_of_a_key_compared_without_case_waits_behind_the_write_of_the_first_spelling(string encoding)
+    {
+        var storage = new HeldCommitStorage();
+        var database = await EngineMaster.OpenAsync(KeySchema.Of(encoding, "OrdinalIgnoreCase", "String"), new EngineTestInputs { CommitStorage = storage });
+        var records = database.Set("String");
+
+        try
+        {
+            var first = records.InsertAsync(KeySchema.RecordOf(records, "abcdef", "first")).AsTask();
+            await storage.NextAsync();
+
+            var one = database.Counters.Arena.PreparedBytes;
+            var spelling = records.InsertAsync(KeySchema.RecordOf(records, "ABCDEF", "second")).AsTask();
+
+            // Another key, of the same length and value: prepared, unlike the spelling admitted before it.
+            var other = records.InsertAsync(KeySchema.RecordOf(records, "ghijkl", "first")).AsTask();
+            var counters = await CountersWait.UntilAsync(database, counters => counters.Arena.PreparedBytes >= 2 * one, "the insert of another key is prepared");
+
+            Assert.Equal(2 * one, counters.Arena.PreparedBytes);
+            Assert.Equal(3, counters.QueuedWrites);
+
+            storage.ReleaseAll();
+
+            Assert.True((await first.WaitAsync(Bound)).Changed);
+            Assert.True((await other.WaitAsync(Bound)).Changed);
+
+            var duplicate = await Assert.ThrowsAsync<LatticeException>(() => spelling.WaitAsync(Bound));
+
+            Assert.Equal(LatticeErrorEnum.DuplicateKey, duplicate.Error);
+            Assert.Equal("abcdef", records.Get("ABCDEF")?["Id"]);
+            Assert.Equal("first", records.Get("ABCDEF")?["Body"]);
+            Assert.Equal(2, database.Counters.RootEntries);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+}

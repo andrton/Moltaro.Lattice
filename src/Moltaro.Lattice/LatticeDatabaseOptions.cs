@@ -107,18 +107,82 @@ public sealed class LatticeDatabaseOptions
     public TimeSpan? ReadTimeLimit { get; init; }
 
     /// <summary>
+    /// The memory budget of this instance, in bytes: the most memory the engine may hold for the
+    /// database. <see langword="null"/>, the default: half of the memory the .NET runtime reports
+    /// as available to the process, taken when the instance opens, and never less than 4 MiB.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The default is half of <see cref="GCMemoryInfo.TotalAvailableMemoryBytes"/> of
+    /// <see cref="GC.GetGCMemoryInfo()"/>, read when the instance opens, and never less than
+    /// 4 MiB, the smallest value the option accepts; the default is never refused. On a machine
+    /// without limits that figure is its physical memory. In a container it is by default three quarters
+    /// of the memory limit of the container. A heap hard limit configured for the garbage
+    /// collector lowers it, although that setting limits the managed heap and says nothing about
+    /// the memory the engine needs. The budget in force is fixed when the instance opens and does
+    /// not follow later changes of the memory available.
+    /// </para>
+    /// <para>
+    /// The default is per instance: each instance computes it from the memory of the whole
+    /// process, so two instances that rely on it may together take all of that memory. Set the
+    /// value explicitly when one process opens several instances, in production, and whenever
+    /// the heap of the garbage collector is limited. A value above the physical memory is
+    /// allowed, for an application that prefers its memory to be paged out rather than have
+    /// writes refused.
+    /// </para>
+    /// <para>
+    /// The budget counts what the engine holds, not the managed heap of the application, nor what
+    /// an enumeration remembers, which <see cref="ReadMemoryLimit"/> bounds when it is set. It
+    /// counts the native memory in which the entities are stored, with the room that writes in
+    /// progress have prepared there and the memory a write replaced or removed until the reads
+    /// that could still reach it have left. The indexes, the text that Dictionary storage shares
+    /// and the entries the engine keeps to find each entity are not counted yet. The budget is not
+    /// a limit on the memory of the process.
+    /// </para>
+    /// <para>
+    /// A write that the budget cannot hold is refused before it has any effect, with
+    /// <see cref="LatticeErrorEnum.WriteRejected"/> and <see cref="LatticeLimitEnum.Memory"/>,
+    /// and never runs later. Before it is refused it waits for the reads that still hold
+    /// replaced memory and for the writes submitted before it, so it is refused only when the
+    /// budget cannot hold it once they are done. A write that waits for its turn holds nothing of
+    /// the budget: any number of writes may wait, and none is refused for their number.
+    /// </para>
+    /// <para>
+    /// A value set smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes
+    /// memory, is refused by <see cref="Validate"/>.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no default is
+    /// computed, and no write is refused for the budget.
+    /// </para>
+    /// </remarks>
+    public long? MemoryLimit { get; init; }
+
+    // One segment of the arena of the engine, the unit in which it takes native memory, and so the
+    // smallest MemoryLimit: an arena holds at least one segment. Validate refuses an explicit value
+    // below it, and the computed default is never less than it. The engine takes the default size
+    // of its segments from here (Storage.ArenaOptions.SegmentSize), so that Validate and the arena
+    // agree on it.
+    internal const int ArenaSegmentSize = 4 * 1024 * 1024;
+
+    /// <summary>
     /// Checks that the options describe a supported instance.
     /// </summary>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing, a
-    /// timeout or a limit is out of its range, such as a limit that is set and not positive,
-    /// or the values are incompatible.
+    /// timeout or a limit is out of its range, such as a limit that is set and not positive or a
+    /// <see cref="MemoryLimit"/> that is set and smaller than 4 MiB, or the values are incompatible.
     /// </exception>
     public void Validate()
     {
         if (!IsFiniteTimeout(SynchronizationTimeout))
         {
             throw Invalid($"{nameof(SynchronizationTimeout)} must be finite and positive.");
+        }
+
+        if (MemoryLimit is { } memory && memory < ArenaSegmentSize)
+        {
+            throw Invalid($"{nameof(MemoryLimit)} must be at least {ArenaSegmentSize} bytes, one segment of the memory of the engine, when it is set; leave it null for the default.");
         }
 
         if (ReadMemoryLimit is { } readMemory && readMemory <= 0)

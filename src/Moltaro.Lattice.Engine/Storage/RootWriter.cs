@@ -73,6 +73,16 @@ namespace Moltaro.Lattice.Storage;
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
 // rented image and the blocks of the original, and ending both would free them twice.
+//
+// Several writers at once. The arena takes no lock and has one changing thread at a time. A writer of
+// the database is given the lock of the writes (Engine.Writes.WriteExecutor), so that several writes
+// are prepared at once: it takes that lock for each allocation of a block and for each free of the
+// blocks it gives up, and for nothing else, so that it holds the lock neither while it copies bytes
+// nor while it encodes text (brief of Epic 1, sprint S09, "Who may touch what"). Its blocks are its
+// own until its root is published or freed, and it writes their headers and payloads outside the
+// lock, as a read reads the blocks of a published root (Arena, "Who uses the arena at the same
+// time"). A writer given no lock is the only thread that changes the arena, as in the tests of the
+// writer.
 internal ref struct RootWriter
 {
     private readonly Arena _arena;
@@ -83,6 +93,10 @@ internal ref struct RootWriter
 
     // Whether the blocks are allocated prepared.
     private readonly bool _prepared;
+
+    // The lock under which the writer allocates and frees blocks; null when nothing else changes the
+    // arena meanwhile.
+    private readonly Lock? _writes;
 
     // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
@@ -106,8 +120,9 @@ internal ref struct RootWriter
     {
     }
 
-    // The same, in prepared blocks when prepared is true.
-    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared)
+    // The same, in prepared blocks when prepared is true, allocating and freeing them under the lock
+    // of the writes when one is given (see the class).
+    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared, Lock? writes = null)
     {
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
@@ -116,6 +131,7 @@ internal ref struct RootWriter
         _layout = layout;
         _root = root;
         _prepared = prepared;
+        _writes = writes;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
 
@@ -367,7 +383,8 @@ internal ref struct RootWriter
 
     // Ends the root and returns the address of its root block. A nullable field that was never set
     // is null. Refuses with LatticeException: ValidationFailed when a field that is not nullable was
-    // never set; WriteRejected when the arena cannot give the blocks of the entity. When it fails,
+    // never set; WriteRejected when the arena cannot give the blocks of the entity, with Limit Memory,
+    // since the limit of the arena of a database is its memory budget. When it fails,
     // everything the writer allocated is freed: LiveBytes, ClassSlackBytes and PreparedBytes of the
     // arena are as they were before the writer, while a segment the arena obtained for the writer
     // may stay in its reserve, so Segments and ReservedSegments may differ.
@@ -392,21 +409,27 @@ internal ref struct RootWriter
 
         if (_refusedByArena)
         {
-            throw Refuse(LatticeErrorEnum.WriteRejected, $"The arena has no room for the entity of {_layout.EntityType.Name}.");
+            throw RefuseForMemory();
         }
 
         ArenaAddress root;
+        bool allocated;
 
         try
         {
             var payloadLength = _rootBytes - BlockHeader.Size;
-            var allocated = _prepared
-                ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
-                : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
 
-            if (!allocated)
+            _writes?.Enter();
+
+            try
             {
-                throw Refuse(LatticeErrorEnum.WriteRejected, $"The arena has no room for the entity of {_layout.EntityType.Name}.");
+                allocated = _prepared
+                    ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
+                    : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
+            }
+            finally
+            {
+                _writes?.Exit();
             }
         }
         catch (OutOfMemoryException)
@@ -417,6 +440,11 @@ internal ref struct RootWriter
             End(WriterStateEnum.Failed);
 
             throw;
+        }
+
+        if (!allocated)
+        {
+            throw RefuseForMemory();
         }
 
         // TryAllocate wrote the root, the kind and the length; a root has no parent and the offset 0.
@@ -519,7 +547,7 @@ internal ref struct RootWriter
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
             _rootBytes += length;
         }
-        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor))
+        else if (!ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor, _writes))
         {
             _refusedByArena = true;
         }
@@ -541,14 +569,24 @@ internal ref struct RootWriter
     }
 
     // Frees every block the descriptors of the image name: everything the writer allocated, since
-    // the root block is allocated last, by a Complete that then cannot fail any more.
+    // the root block is allocated last, by a Complete that then cannot fail any more. Under the lock of
+    // the writes when the writer has one.
     private readonly void FreeValues()
     {
-        for (var index = 0; index < _layout.DescriptorCount; index++)
-        {
-            var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
+        _writes?.Enter();
 
-            ValueBlocks.Free(_arena, ValueBlocks.Read(Image[offset..]));
+        try
+        {
+            for (var index = 0; index < _layout.DescriptorCount; index++)
+            {
+                var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
+
+                ValueBlocks.Free(_arena, ValueBlocks.Read(Image[offset..]));
+            }
+        }
+        finally
+        {
+            _writes?.Exit();
         }
     }
 
@@ -559,6 +597,19 @@ internal ref struct RootWriter
         End(WriterStateEnum.Failed);
 
         return new LatticeException(error, message);
+    }
+
+    // A failed Complete because the arena has no room for the entity: its limit is the memory budget
+    // of the database (LatticeDatabaseOptions.MemoryLimit), which the refusal names.
+    private LatticeException RefuseForMemory()
+    {
+        FreeValues();
+        End(WriterStateEnum.Failed);
+
+        return new LatticeException(LatticeErrorEnum.WriteRejected, $"The memory budget of the database cannot hold the entity of {_layout.EntityType.Name}.")
+        {
+            Limit = LatticeLimitEnum.Memory,
+        };
     }
 
     // Returns the image to the pool; nothing reads or writes it afterwards.

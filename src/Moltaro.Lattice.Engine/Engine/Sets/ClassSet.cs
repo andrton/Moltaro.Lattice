@@ -14,7 +14,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 // reachable from it, and nothing else (brief of S06, "The allocation of a read"). The constructor and
 // the set accessors of the class run after the read left the protection of reads (ClassCopier). A write takes
 // the values of the object through the binding of the core, which checks them against the schema at
-// every depth.
+// every depth and takes a byte array of a field as the object holds it: the engine copies it once,
+// into its own memory, while the write runs (EntityBinding.Capture; the planner's answer to Q43).
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     where TEntity : class
 {
@@ -130,7 +131,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
         try
         {
-            values = _binding.Capture(entity);
+            values = _binding.Capture(entity, copyBinary: false);
         }
         catch (LatticeException exception)
         {

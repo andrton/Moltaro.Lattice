@@ -13,8 +13,10 @@ internal sealed class ArenaOptions
     // The size of one native segment in bytes: the unit in which the arena obtains memory from the
     // native allocator and returns it. At least MaxBlockSize, and a whole multiple of it, because
     // the arena divides a segment into regions of MaxBlockSize bytes; any other size is refused
-    // with ArgumentOutOfRangeException. The default holds 64 regions.
-    public int SegmentSize { get; init; } = 4 * 1024 * 1024;
+    // with ArgumentOutOfRangeException. The default, 4 MiB, holds 64 regions; it is the size the
+    // contract names as the smallest memory budget of an instance (LatticeDatabaseOptions.MemoryLimit),
+    // and both take it from LatticeDatabaseOptions.ArenaSegmentSize.
+    public int SegmentSize { get; init; } = LatticeDatabaseOptions.ArenaSegmentSize;
 
     // How many completely empty segments the arena keeps for reuse instead of freeing them; not
     // negative. They count against MemoryLimit like any other segment.
