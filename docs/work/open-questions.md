@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q52. Does the write path need the parallel form?
+
+| | |
+| --- | --- |
+| **Found** | 17 November 2026, the study of Epic 1, sprint S09, part 2 |
+| **Question** | Writes are prepared one at a time under the lock of the writes, so several calling threads write less in total than one, and one write of a large entity holds the lock while it is encoded. The form that scales writers in established systems fixes the order first and lets each caller encode in parallel, which needs an arena that allocates on several threads. Does the write path need it? |
+| **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
+| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
