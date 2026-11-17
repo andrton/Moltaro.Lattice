@@ -4,10 +4,12 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
-// Inserts prepared at once each reserve room in the primary index beside the others, so that every
-// one finds its room when it is published, in whatever order, and publication obtains nothing (brief
-// of Epic 1, sprint S09, "Who may touch what": an insert makes room in the index while it is prepared,
-// which may grow it, and publication only installs what was prepared; review round 1 of S09). The keys
+// Inserts prepared while the storage step holds a group, none of them published yet, each reserve room
+// in the primary index beside the others, so that every one finds its room when it is published, in
+// whatever order, and publication obtains nothing (milestone contract, "Write coordinator and revision
+// semantics": a write reserves everything its publication needs while it is prepared, which may grow
+// the index; brief of S09, part 2: publication only installs what was prepared; review round 1 of
+// S09). The keys
 // all share one hash under the seed 0 (CollidingKeys), so they fall on one chain of buckets of the
 // index: beyond the seven entries a bucket holds, every seven of them need an overflow bucket, which
 // the reservations have to provide for all of them together, and the main table, which grows by the

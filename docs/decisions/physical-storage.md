@@ -25,8 +25,8 @@ internals and detailed copy boundaries remain open within Q16. The accepted
 [persisted-base rationale](../design/questions/persisted-base-layout.md) separates durable
 placement from live allocation; exact saved-to-live encoding remains Q16/E06 work.
 [Master write coordination](../design/questions/master-write-order.md) accepts per-object
-protection, concurrent independent preparation and sequential saving/publication
-of short bounded groups with internal group commit; exact budgets and scheduler
+protection, preparation of one write at a time (as amended on 17 November 2026) and
+sequential saving/publication of short bounded groups with internal group commit; exact budgets and scheduler
 integration remain engineering work. [Q17 allocation](allocation-and-compaction.md)
 accepts size-class reuse and automatic bounded incremental compaction with region
 accounting/benefit-based triggers and a [bounded empty-segment reserve](allocation-and-compaction.md#empty-segment-retention-and-release)

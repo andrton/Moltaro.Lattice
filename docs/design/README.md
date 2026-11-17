@@ -44,6 +44,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Engine foundation](engine-foundation.md) | Fixed requirements and the ownership overview. Its physical proposal is the earlier text; the milestone contract fixes the mechanisms it leaves open |
 | [Arena protocol](arena-protocol.md) | Concrete bounded-experiment protocol for root/text protection, preparation, deletion, relocation and reclamation; production integration limits |
 | [How reads are protected](epoch-protection.md) | An explanation for a reader, not a specification: epochs, memory that is freed later, and what an application can rely on; with an [animated version](epoch-protection.html) |
+| [How a write is executed](write-path.md) | An explanation for a reader, not a specification: the lock of the writes, groups at the storage step, the order of writes to one entity and what it costs; with an [animated version](write-path.html) |
 | [Architecture](index.html) | Illustrated design; generated from [Markdown](architecture.md) |
 | [Decision register](questions.md) | Settled contracts and the specified engineering areas; nothing in it awaits a decision |
 | [Decision records](../decisions/README.md) | Detailed rationale and alternatives, grouped by responsibility |

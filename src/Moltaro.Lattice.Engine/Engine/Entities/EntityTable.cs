@@ -51,8 +51,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // primary index that finds them, and the reads by key and by enumeration, inside the protection of
 // reads by epochs (Protection.ReadEpochs; arena protocol, "Deferred reclamation, 16 November 2026").
 // The write executor changes the index and the root entries under the lock of the writes; this class
-// says how they are read while it does, by reads and by the writes it prepares, which look their key
-// up as a read does (TryFind).
+// says how reads read them while it does. A write being prepared looks its key up under that lock
+// (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
 //
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
@@ -241,11 +241,11 @@ internal sealed class EntityTable
         return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
     }
 
-    // For a write being prepared, which calls it inside the protection of reads as a read looks a key
-    // up, while the holder of the lock of the writes changes the index and the root entries: finds a
-    // key of an entity type the engine stores, with the handle of the lifetime of its root. The write
-    // holds the reservation of its identity (Writes.WriteCoordinator), so no other write of that key is
-    // published until it is published or withdrawn, and what it finds stays the state of its key.
+    // For a write being prepared, under the lock of the writes, whose holder is the only thread that
+    // changes the index and the root entries, so it reads them without the protection of reads: finds a
+    // key of an entity type the engine stores, with the handle of the lifetime of its root. No other
+    // write of that key is prepared and unpublished meanwhile (Writes.WriteCoordinator), so what it
+    // finds stays the state of its key until the write is published or withdrawn.
     public bool TryFind(in EntityKey key, out RootHandle handle)
     {
         if (TryFindSlot(key, HashOf(key), out var slot))
@@ -273,8 +273,8 @@ internal sealed class EntityTable
 
     // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
     // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
-    // so that two spellings of a key compared without case are one identity of a write
-    // (Writes.WriteIdentity).
+    // so that two spellings of a key compared without case are one entity for the order of the writes
+    // (Writes.PendingWrite.IsOfSameEntity).
     public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
     {
         KeyKindEnum.Integer => left.Integer == right.Integer,
@@ -296,8 +296,8 @@ internal sealed class EntityTable
     // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
     // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture): the
     // array is the write's own, so nothing of the caller's is changed. A write being prepared calls it
-    // inside the protection of reads, as it looks its key up (TryFind); the reservation of its identity
-    // keeps the root it reads the current one.
+    // under the lock of the writes, as it looks its key up (TryFind), and the root it reads stays the
+    // current one until the write is published or withdrawn.
     public void KeepStoredKey(RootHandle handle, object?[] values)
     {
         var key = EntityType.Key;
@@ -317,12 +317,13 @@ internal sealed class EntityTable
 
     // Reads the entity with the key into the copy: true when it exists, with the revision of the
     // state copied; false when it does not. The sequence is that of the answer, as the comment of the
-    // class says. ObjectDisposedException after the close.
-    public bool TryRead<TCopy, TResult>(in EntityKey key, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
+    // class says. ObjectDisposedException after the close. The token of an asynchronous read ends its
+    // wait for a slot of the protection, with OperationCanceledException (ReadEpochs.Enter).
+    public bool TryRead<TCopy, TResult>(in EntityKey key, ref TCopy copy, out LatticeRevision revision, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var protection = _epochs.Enter();
+        var protection = _epochs.Enter(cancellationToken);
 
         try
         {
@@ -380,8 +381,12 @@ internal sealed class EntityTable
     // round enters the protection of reads and leaves it, and a call holds nothing when it returns; a
     // pass whose entity was not committed, because its build failed, finds it again at its next step.
     // ObjectDisposedException after the close, at every call; LatticeException with ReadLimitExceeded
-    // from a call that would exceed a read limit and from every call after it (EntityPass).
-    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence)
+    // from a call that would exceed a read limit and from every call after it (EntityPass). The token
+    // of an asynchronous enumeration ends the wait of a round for a slot of the protection, and each
+    // round looks at it before it looks at the limits, so a cancellation is reported before a limit is
+    // and takes effect between two rounds (brief of S09, part 2, the second finding of the outside
+    // review it carries); OperationCanceledException then, with the pass as it was before the call.
+    public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -397,10 +402,11 @@ internal sealed class EntityTable
             {
                 // The bound of the text of a key that needs room in the pass, or -1 when none does.
                 var room = -1;
-                var protection = _epochs.Enter();
+                var protection = _epochs.Enter(cancellationToken);
 
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     pass.ThrowIfFailed();
                     pass.CheckTime(started);
 
@@ -471,9 +477,12 @@ internal sealed class EntityTable
                     _epochs.Exit(protection);
                 }
 
-                // Outside the protection: the room is counted against the memory limit, then made.
+                // Outside the protection: the room is counted against the memory limit, then made; a
+                // cancellation is reported before the limit is.
                 if (room >= 0)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     if (pass.LimitsMemory)
                     {
                         pass.CheckMemory(pass.Returned.BytesWithRoomFor(room));
@@ -556,8 +565,8 @@ internal sealed class EntityTable
     // exclusive or of the halves or the quarters of the value, which keys of a structure share
     // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
     // S08, part 1). Under the seed 0 a key enters the finalizer unchanged. Keys that are one key
-    // (KeysEqual) have one hash, so the coordinator of the writes hashes the identity of a write with
-    // it (Writes.WriteIdentity).
+    // (KeysEqual) have one hash, so the coordinator of the writes compares the entities of two writes
+    // by it before it compares their keys (Writes.PendingWrite.IsOfSameEntity).
     public uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)

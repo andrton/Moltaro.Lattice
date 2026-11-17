@@ -35,12 +35,15 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // beside the callers is what the callers take of the machine, and what the readers of the written
 // database lose beyond it is what the writes do to their reads inside the engine.
 //
+// What a write of an entity of 32 MiB costs the other writers is the scenario large-writes
+// (LargeWritesScenario).
+//
 // A series starts its threads, lets them work for a warm-up, then counts in a window of a fixed length.
 // The threads are not pinned to processors; with 16 readers and 16 callers there are more threads than
 // the logical processors of the development machine, and each line says how many there were. A figure
 // is the result of one window, and the program is run three times for a figure to be compared.
 //
-// A run takes about a minute and a half on the development machine.
+// A run takes about a minute on the development machine.
 internal static class WriteCallersScenario
 {
     public const string Name = "write-callers";

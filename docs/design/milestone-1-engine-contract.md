@@ -270,24 +270,37 @@ public sort-key tie breaker or keyset-paging contract.
 ## Write coordinator and revision semantics
 
 Durable operation admission follows the [retry protocol](operation-retry-protocol.md).
-Then reserve logical root identities through a coordinator-owned FIFO conflict queue.
-For WriteBatch, claim all distinct `(type,key)` identities atomically under the short
-coordinator mutex; do not hold a subset while waiting for others. Independent roots
-can prepare concurrently. These reservations are ownership records, not held arena
-locks across storage I/O. The compactor skips reserved root payloads.
+Writes are executed one at a time under one lock of the writes, with a group commit at
+the storage boundary (the owner's decision of 17 November 2026 to put the write path on a
+proven source; the study of S09, part 2 names the sources). A call takes the lock once
+and prepares its write in place: it looks the key up, checks its conditions against the
+published state, encodes its values into prepared blocks and reserves everything its
+publication needs. No other write runs meanwhile, so nothing has to be reserved against
+another writer. A WriteBatch is prepared the same way, all of its entities in one hold.
 
-Preparation validates schema/input/existence/revision conditions, captures needed
-current values under short read gates, obtains replacement blocks and index nodes,
-and reserves complete publication capacity. No other logical mutation of those roots
-can overtake it. Prepared descriptors stay valid until publish/abort because of the
-reservation and text/lifetime claims. Release everything on pre-commit failure.
+The prepared write joins the open group. When no group is in the storage step, the group
+is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
+publishes in the same hold and returns its result. While a group is in the storage step,
+later calls prepare under the lock and form the next group — at most 32 writes or 8 MiB,
+a larger write alone, never waiting to fill — and whoever completes the storage step
+publishes its group in order and hands over the next. A write to an entity that has an
+earlier write not yet completed — prepared and unpublished, or itself waiting — waits
+behind the latest such write, first in first out, and holds nothing while it waits; so
+does a batch one of whose entities has one. It is prepared when that write completes in
+any way, published, refused or cancelled, and is checked against the state published
+then. In MemoryOnly this happens only while a write refused for memory is being
+resolved. A write whose token is cancelled before its dispatch is never dispatched.
+Prepared blocks stay valid until
+they are published or abandoned, because nothing else can reach them. Everything is
+released on a failure before the commit.
 
-One ordered commit stage forms short groups, preserves explicit WriteBatch boundaries,
-assigns positions transactionally and awaits PostgreSQL. Independent operations in
-one SQL commit retain their own tokens and positions; they do not become an application
-transaction. Publish each operation in order, with a whole WriteBatch at one position.
-A committed-publication failure stops the instance, including background application,
-until close/reopen recovers every committed operation. The host process need not exit.
+The storage step is called under the lock and only takes the group; its work is behind
+the task it returns. It assigns positions transactionally and, in Durable, awaits
+PostgreSQL. Independent operations in one commit retain their own tokens and positions;
+they do not become an application transaction. Publish each operation in order, with a
+whole WriteBatch at one position. A committed-publication failure stops the instance,
+including background application, until close/reopen recovers every committed operation.
+The host process need not exit.
 
 Each logical root change receives the operation position as its new revision component.
 The opaque revision binds history, type/key and that position; a revision from another
@@ -520,7 +533,6 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | --- | --- |
 | Root encoded size, including owned data | No limit of its own, by the owner's decision of 15 November 2026. A root is refused only when the instance memory budget cannot hold it; one String or Binary value is bounded by the storage format |
 | Explicit WriteBatch | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of roots nor on the size. A batch is refused only when a resource cannot hold it: the instance memory budget, the hard limit of the journal |
-| Active prepare workers | 2; internal, not an option |
 | Internal group | Up to 32 operations / 8 MiB; 1 ms collection delay for a durable commit only, not built before S27; never split a WriteBatch |
 | Queued write input | No limit of its own, by the owner's decision of 15 November 2026: neither on the number of requests nor on their bytes. A write waits for its turn, what waits is counted in the instance budget, and a write is refused only when the budget cannot hold it |
 | Storage recovery wait / SQL failure deadline | 30 s / 5 s per attempt, explicit Unknown around uncertain commit |

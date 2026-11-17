@@ -10,7 +10,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // its own type or as an integer of another width that fits, the key is converted without a box. The
 // entity has an Enum field, which is set into the object without a box as well. The returned copy is
 // the object and its string, measured as ReadAllocationTests measures it, in the test collection of
-// the tests that measure managed allocation.
+// the tests that measure managed allocation. By name a Guid key is given without a box as well (brief
+// of S09, part 2, the third of the findings of the outside review it carries, and Q51), as a Guid or
+// as an object the caller holds, boxed before the reads are measured: a read allocates the returned
+// record with what it holds, the boxed Guid of its key, the boxed integer of its Enum field and the
+// string, and a read of an absent key allocates nothing.
 [Collection<ManagedAllocationCollection>]
 public sealed class KeyReadAllocationTests
 {
@@ -21,6 +25,8 @@ public sealed class KeyReadAllocationTests
     }
 
     private static readonly Guid Key = Guid.Parse("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
+    private static readonly Guid Absent = Guid.Parse("2b1f4c8e-03a9-4d55-8a0e-6f2d9b7c1e34");
 
     [Fact]
     public Task Read_by_an_Int8_key_given_as_its_own_type_or_another_width_allocates_the_returned_object_and_its_string_and_nothing_else() =>
@@ -37,6 +43,53 @@ public sealed class KeyReadAllocationTests
     [Fact]
     public Task Read_by_a_Guid_key_allocates_the_returned_object_and_its_string_and_nothing_else() =>
         ExpectAsync("Guid", Key, static items => items.Get(Key));
+
+    [Fact]
+    public async Task Read_by_a_Guid_key_by_name_given_as_a_Guid_or_as_an_object_allocates_the_returned_record_and_what_it_holds_and_nothing_else()
+    {
+        await using var database = await EngineMaster.OpenAsync(SchemaOf<Guid>("Guid"));
+        var items = database.Set("Item");
+        var level = (byte)LevelEnum.High;
+        await items.InsertAsync(new LatticeRecord(items.EntityType) { ["Id"] = Key, ["Level"] = level, ["Text"] = "text" });
+        var expected = Measure(() => new LatticeRecord(items.EntityType)) + Measure(() => Key) + Measure(() => level) + Measure(() => new string(' ', 4));
+
+        // The keys an object holds are boxed by the caller, before the reads are measured.
+        object key = Key;
+        object absent = Absent;
+        Func<LatticeRecord?>[] present =
+        [
+            () => items.Get(Key),
+            () => items.TryGet(Key, out var found, out _) ? found : null,
+            () => items.Get(key),
+            () => items.TryGet(key, out var found, out _) ? found : null,
+        ];
+        Func<LatticeRecord?>[] missing = [() => items.Get(Absent), () => items.Get(absent)];
+
+        foreach (var read in present)
+        {
+            _ = read();
+            var start = GC.GetAllocatedBytesForCurrentThread();
+            var found = read();
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+
+            Assert.NotNull(found);
+            Assert.Equal(Key, found["Id"]);
+            Assert.Equal(level, found["Level"]);
+            Assert.Equal("text", found["Text"]);
+            Assert.Equal(expected, allocated);
+        }
+
+        foreach (var read in missing)
+        {
+            _ = read();
+            var start = GC.GetAllocatedBytesForCurrentThread();
+            var found = read();
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+
+            Assert.Null(found);
+            Assert.Equal(0, allocated);
+        }
+    }
 
     // Stores one item with the key, and measures each read after the same read warmed it up.
     private static async Task ExpectAsync<TKey>(string keyType, TKey key, params Func<ILatticeSet<Item<TKey>>, Item<TKey>?>[] reads)

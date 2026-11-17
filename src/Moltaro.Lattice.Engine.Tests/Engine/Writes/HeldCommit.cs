@@ -3,15 +3,18 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // One call of HeldCommitStorage.CommitAsync: the group the commit stage handed to the storage step,
 // as the storage saw it when the call came, with the positions the storage assigned to it. The commit
 // completes when the test releases it, or at once when the storage did not hold it; a test can also
-// make it fail, as a storage step fails that cannot tell whether it committed.
+// make it fail, as a storage step fails that cannot tell whether it committed. Its completion runs
+// what waits for it on a thread of the pool, or, when it is inline, on the thread that releases or
+// fails it, before Release or Fail returns.
 internal sealed class HeldCommit
 {
-    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _released;
 
-    public HeldCommit(IReadOnlyList<long> sizes, ulong firstSequence)
+    public HeldCommit(IReadOnlyList<long> sizes, ulong firstSequence, bool inline)
     {
         Sizes = sizes;
         FirstSequence = firstSequence;
+        _released = new TaskCompletionSource(inline ? TaskCreationOptions.None : TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     // PreparedWrite.EncodedSize of every write of the group, in the order of the group.

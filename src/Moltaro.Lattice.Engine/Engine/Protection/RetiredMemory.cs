@@ -32,14 +32,14 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   They are derived from the table and the arena, not options.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
-// - a write that the arena refused, which drains, and while retired memory is left waits, outside the
-//   lock, for the reads that hold it (ReadsToWaitFor) and drains again, before it is refused
+// - a write that the arena refused, which drains, and in its resolution waits, outside the lock, for
+//   the reads that hold what is retired (ReadsToWaitFor) and drains again, before it is refused
 //   (Writes.WriteCoordinator, "The refusal").
 //
 // Room. A write that will retire something reserves a place for it while it is prepared (Reserve),
-// beside the places other writes prepared at the same time reserved, so that retiring it after its
-// publication allocates nothing; the place is taken when it retires and given back when the write is
-// withdrawn (Release).
+// beside the places the writes prepared before it and not published yet reserved, so that retiring it
+// after its publication allocates nothing; the place is taken when it retires and given back when the
+// write is withdrawn (Release).
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
@@ -70,8 +70,9 @@ internal sealed class RetiredMemory
     // The capacity of the list, as EnsureCapacity reports it.
     private int _capacity;
 
-    // The places reserved for things that writes prepared and not published yet will retire: several
-    // writes are prepared at once and published later, in their order (Writes.WriteCoordinator).
+    // The places reserved for things that writes prepared and not published yet will retire: while a
+    // group is in the storage step, later writes are prepared and published after it, in their order
+    // (Writes.WriteCoordinator).
     private int _reserved;
 
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)

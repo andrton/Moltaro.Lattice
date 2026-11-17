@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
@@ -41,6 +43,22 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 //   that caller held in the storage step, at most three replaces of that caller complete before the
 //   write has left the coordinator. As built before the fix it kept retrying while the later replaces
 //   retired memory, for hundreds to tens of thousands of them.
+// - A later write of the entity of a refused write that waits for the writes admitted before it waits
+//   behind it, and runs after it (added by the implementer of S09, part 2).
+// Review round 1 of S09, part 2, on writes that waited forever when the write at the head of the chain
+// of their entity ended in a wait of a resolution, or when the database faulted during one:
+// - A write cancelled while it is held back by a resolution, or while it waits for the writes admitted
+//   before it, lets the later write of its entity, which waits behind it, run: that write completes.
+// - A fault of the storage step while a write waits in step 2 of its resolution, a later write of
+//   another entity is held back and a write of its own entity waits behind it ends each of them, with
+//   IndeterminateOutcome for the group in the storage step and Unavailable for the others.
+// - A close in the same situation, without a fault, completes once all of them have their outcomes,
+//   and the arena has returned every piece of native memory it obtained (CountingNativeAllocator).
+// Review round 2 of S09, part 2: a write that becomes the write being resolved while the next group is
+// formed, because the write before it was withdrawn there, waits for the writes of that group, which
+// hold prepared memory, and is not refused for memory they hold only for a time: once they are
+// published it completes. The cancellation comes inside the hold that forms the group, from the growth
+// of the primary index that the preparation of an insert makes there (EngineDatabase.HoldNextGrowth).
 // Every wait is bounded; the storage of the test releases every commit when a test ends.
 public sealed class RefusalResolutionTests
 {
@@ -51,12 +69,23 @@ public sealed class RefusalResolutionTests
     // A value of 2.5 MiB: three states of it fit the arena, four do not.
     private const int Replaced = (5 * Mebibyte) / 2;
 
+    // Values of the test of a write resolved while the next group is formed, in the arena of 8 MiB: two
+    // entities of 1.5 MiB, a replace of each of 1.5 MiB, and a value of 4.25 MiB that does not fit beside
+    // the four, fits beside three of them only for a time, and fits beside the two that are left.
+    private const int Medium = (3 * Mebibyte) / 2;
+
+    private const int Resolved = (17 * Mebibyte) / 4;
+
     // The rounds of the tests without a hook; see the class.
     private const int Rounds = 60;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
+    // How long a write that waits for a write in flight is given to end wrongly (see the test of a write
+    // resolved while the next group is formed).
+    private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task Oldest_write_refused_while_a_later_write_holds_prepared_memory_completes_once_that_write_is_published()
@@ -301,6 +330,327 @@ public sealed class RefusalResolutionTests
         }
     }
 
+    // Added by the implementer of S09, part 2: a refused write that waits for the writes admitted before
+    // it is not prepared, so a later write of its entity has to find it among the writes that wait, not
+    // among those prepared. Here the insert of entity 2 waits behind the delete of entity 1, held in the
+    // storage step; a replace of entity 2 made after it waits behind it, and runs after it: had it run
+    // first, it would have found no entity 2 and been NotFound.
+    [Fact]
+    public async Task Later_write_of_an_entity_waits_behind_an_earlier_write_of_it_that_waits_for_the_writes_admitted_before_it()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: 4 * Mebibyte));
+            storage.Hold();
+
+            var delete = pieces.DeleteAsync(1L).AsTask();
+            var heldDelete = await storage.NextAsync();
+
+            var waits = RefusedWriteWait.Begins(database);
+            var insert = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: (9 * Mebibyte) / 2)).AsTask());
+
+            await Task.WhenAny(waits, insert).WaitAsync(Bound);
+            Assert.True(waits.IsCompleted, $"The insert did not wait for the delete admitted before it: {Outcome(insert)}.");
+
+            var replace = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+
+            Assert.False(replace.IsCompleted, "The later replace of the entity ran before the earlier insert of it.");
+
+            storage.ReleaseAll();
+            heldDelete.Release();
+
+            Assert.True((await delete.WaitAsync(Bound)).Changed);
+
+            var inserted = await insert.WaitAsync(Bound);
+            var replaced = await replace.WaitAsync(Bound);
+
+            Assert.True(PositionSequence.Of(inserted.Position) < PositionSequence.Of(replaced.Position));
+            Assert.Equal(26, pieces.Get(2L)?.Name.Length);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelled_write_held_back_by_a_resolution_lets_the_later_write_of_its_entity_run()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, inserted, replaced, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back by the resolution, the head of the chain of entity 3, and a write of entity 3
+            // behind it.
+            using var cancellation = new CancellationTokenSource();
+            var head = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300), cancellation.Token).AsTask();
+            var later = PieceSchema.Of(3, name: 26);
+            var laterWrite = pieces.UpsertAsync(later).AsTask();
+
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => head.WaitAsync(Bound));
+            Assert.False(laterWrite.IsCompleted, "The later write of entity 3 ran while the resolution held writes back.");
+
+            storage.ReleaseAll();
+            heldReplace.Release();
+
+            Assert.True((await replace.WaitAsync(Bound)).Changed);
+            Assert.True((await insert.WaitAsync(Bound)).Changed);
+            Assert.True((await laterWrite.WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of(replaced, inserted, later).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelled_write_that_waits_for_the_writes_admitted_before_it_lets_the_later_write_of_its_entity_run()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: 4 * Mebibyte));
+            storage.Hold();
+
+            var delete = pieces.DeleteAsync(1L).AsTask();
+            var heldDelete = await storage.NextAsync();
+
+            // Refused beside entity 1, it waits for the delete admitted before it, at the head of the
+            // chain of entity 2; a write of entity 2 waits behind it.
+            using var cancellation = new CancellationTokenSource();
+            var waits = RefusedWriteWait.Begins(database);
+            var head = Task.Run(() => pieces.InsertAsync(PieceSchema.Of(2, name: 10, data: (9 * Mebibyte) / 2), cancellation.Token).AsTask());
+
+            await Task.WhenAny(waits, head).WaitAsync(Bound);
+            Assert.True(waits.IsCompleted, $"The insert did not wait for the delete admitted before it: {Outcome(head)}.");
+
+            var later = PieceSchema.Of(2, name: 26);
+            var laterWrite = pieces.UpsertAsync(later).AsTask();
+
+            await cancellation.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => head.WaitAsync(Bound));
+
+            storage.ReleaseAll();
+            heldDelete.Release();
+
+            Assert.True((await delete.WaitAsync(Bound)).Changed);
+            Assert.True((await laterWrite.WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of(later).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Fault_while_a_write_is_resolved_and_later_writes_are_held_back_ends_every_one_of_them()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, _, _, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back, and a write of the entity of the refused write behind it.
+            var heldBack = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300)).AsTask();
+            var own = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+
+            Assert.Equal(4, database.Counters.QueuedWrites);
+
+            heldReplace.Fail(new IOException("The test failed the storage step: whether it committed is unknown."));
+
+            var indeterminate = await Assert.ThrowsAsync<LatticeException>(() => replace.WaitAsync(Bound));
+
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, indeterminate.Error);
+
+            foreach (var write in new[] { insert, heldBack, own })
+            {
+                var unavailable = await Assert.ThrowsAsync<LatticeException>(() => write.WaitAsync(Bound));
+
+                Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
+            }
+
+            Assert.Equal(LatticeDatabaseStateEnum.Faulted, database.State);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Close_while_a_write_is_resolved_and_later_writes_are_held_back_completes_once_each_has_its_outcome()
+    {
+        var allocator = new CountingNativeAllocator();
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage, allocator);
+        var pieces = database.Set<PieceSchema.Piece>();
+        Task? closing = null;
+
+        try
+        {
+            await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
+            var (insert, replace, _, _, heldReplace) = await RefusedBesideALaterReplaceAsync(database, storage, insertData: Large);
+
+            // Held back, and a write of the entity of the refused write behind it.
+            var heldBack = pieces.InsertAsync(PieceSchema.Of(3, name: 10, note: 300)).AsTask();
+            var own = pieces.ReplaceAsync(PieceSchema.Of(2, name: 26)).AsTask();
+            Task<LatticeWriteResult>[] waiting = [replace, insert, heldBack, own];
+
+            closing = database.CloseAsync().AsTask();
+
+            Assert.False(closing.IsCompleted, "The close completed while a write was resolved and writes were held back.");
+            Assert.DoesNotContain(waiting, write => write.IsCompleted);
+            Assert.True(allocator.Outstanding > 0, "The native memory was returned while writes were in progress.");
+
+            storage.ReleaseAll();
+            heldReplace.Release();
+
+            var results = await Task.WhenAll(waiting).WaitAsync(Bound);
+
+            Assert.All(results, result => Assert.True(result.Changed));
+
+            await closing.WaitAsync(Bound);
+
+            Assert.Equal(0, allocator.Outstanding);
+            Assert.Equal(allocator.Obtained, allocator.Returned);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await (closing ?? database.CloseAsync().AsTask()).WaitAsync(Bound);
+        }
+    }
+
+    [Fact]
+    public async Task Refused_write_resolved_while_a_write_taken_into_the_next_group_is_prepared_waits_for_it_and_completes()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            // Entities 1 and 3 of 1.5 MiB and six small ones: eight entries, which the first table of the
+            // primary index holds, so the insert of entity 5 below grows it.
+            PieceSchema.Piece[] stored =
+            [
+                PieceSchema.Of(1, name: 10, data: Medium),
+                PieceSchema.Of(3, name: 10, data: Medium),
+                .. new long[] { 2, 4, 6, 7, 8, 9 }.Select(id => PieceSchema.Of(id, name: 10)),
+            ];
+
+            foreach (var piece in stored)
+            {
+                await pieces.InsertAsync(piece);
+            }
+
+            storage.Hold();
+
+            // A replace of entity 9 in the storage step; behind it Y, a replace of entity 1 of 1.5 MiB,
+            // and B, a delete of the absent entity 5, prepared; then Y and B form the next group, held.
+            var first = PieceSchema.Of(9, name: 26);
+            var firstWrite = pieces.ReplaceAsync(first).AsTask();
+            var heldFirst = await storage.NextAsync();
+            var y = PieceSchema.Of(1, name: 26, data: Medium);
+            var yWrite = pieces.ReplaceAsync(y).AsTask();
+            var bWrite = pieces.DeleteAsync(5L).AsTask();
+
+            await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(first) + PieceTally.SlotBytesOf(y));
+            heldFirst.Release();
+            Assert.True((await firstWrite.WaitAsync(Bound)).Changed);
+
+            var heldYB = await storage.NextAsync();
+
+            Assert.Equal(2, heldYB.Count);
+
+            // Behind Y a replace of entity 1, behind B an insert of entity 5, both with the token. W, a
+            // replace of entity 6 of 4.25 MiB, does not fit beside Y and waits for the writes admitted
+            // before it. X, a replace of entity 3 of 1.5 MiB, is prepared and in the queue.
+            using var cancellation = new CancellationTokenSource();
+            var cWrite = pieces.ReplaceAsync(PieceSchema.Of(1, name: 42), cancellation.Token).AsTask();
+            var eWrite = pieces.InsertAsync(PieceSchema.Of(5, name: 10), cancellation.Token).AsTask();
+            var w = PieceSchema.Of(6, name: 26, data: Resolved);
+            var waits = RefusedWriteWait.Begins(database);
+            var wWrite = Task.Run(() => pieces.ReplaceAsync(w).AsTask());
+
+            await Task.WhenAny(waits, wWrite).WaitAsync(Bound);
+            Assert.True(waits.IsCompleted, $"W did not wait for the writes admitted before it: {Outcome(wWrite)}.");
+
+            var x = PieceSchema.Of(3, name: 26, data: Medium);
+            var xWrite = pieces.ReplaceAsync(x).AsTask();
+
+            await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(y) + PieceTally.SlotBytesOf(x));
+
+            // Completing Y and B: in that hold the replace of entity 1 is prepared behind X, the insert
+            // of entity 5 grows the index and the token is cancelled there, and the next group takes X
+            // and withdraws the replace, which makes W the write being resolved.
+            var grown = false;
+
+            database.HoldNextGrowth(pieces.EntityType, () =>
+            {
+                Volatile.Write(ref grown, true);
+                cancellation.Cancel();
+            });
+            heldYB.Release();
+
+            var heldX = await storage.NextAsync();
+
+            Assert.True(Volatile.Read(ref grown), "The insert of entity 5 did not grow the primary index.");
+            Assert.Equal(new[] { PieceTally.SlotBytesOf(x) }, heldX.Sizes);
+
+            // While X is prepared and unpublished W waits for it. Nothing shows that a write waits for a
+            // write in flight, so the test gives a W that was resolved against the memory X holds a
+            // second to be refused; a W that waits is never failed by that.
+            var ended = await Task.WhenAny(wWrite, Task.Delay(Window));
+
+            Assert.True(ended != wWrite, $"W ended while X, which holds memory W needs only for a time, was in the storage step: {Outcome(wWrite)}.");
+
+            storage.ReleaseAll();
+
+            Assert.True((await yWrite.WaitAsync(Bound)).Changed);
+            Assert.False((await bWrite.WaitAsync(Bound)).Changed);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cWrite.WaitAsync(Bound));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => eWrite.WaitAsync(Bound));
+            Assert.True((await xWrite.WaitAsync(Bound)).Changed);
+            Assert.True((await wWrite.WaitAsync(Bound)).Changed);
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of([first, y, x, w, .. stored.Where(piece => piece.Id is 2 or 4 or 7 or 8)]).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await CloseAsync(database);
+        }
+    }
+
     [Fact]
     public async Task Write_that_cannot_fit_is_refused_after_the_writes_in_flight_while_another_caller_keeps_replacing_a_small_entity()
     {
@@ -421,8 +771,8 @@ public sealed class RefusalResolutionTests
     private static async Task CloseAsync(EngineDatabase database) =>
         await database.CloseAsync().AsTask().WaitAsync(Bound);
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = new NativeAllocator(), CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage, NativeAllocator? allocator = null) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator ?? new NativeAllocator(), CommitStorage = storage });
 
     // Two writes made at once, each on a thread of its own. Both threads spin until the test lets them
     // go together: a wait of the system that wakes one thread after the other would give the first a

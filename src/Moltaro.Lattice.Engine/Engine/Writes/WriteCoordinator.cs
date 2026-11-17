@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -7,151 +6,159 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
-// The write coordinator of a master (brief of Epic 1, sprint S09; milestone contract, "Write
-// coordinator and revision semantics"). Many callers write at once; the coordinator orders, bounds and
-// publishes their writes. A write passes three steps:
-// - Admission, short, under the lock of the coordinator, on the thread of the call before the call
-//   returns its task: the write reserves its identity, entity type and key as the schema compares keys
-//   (WriteIdentity), in a first-in-first-out chain of that identity. A write whose identity an earlier
-//   one holds waits its turn there and holds nothing in the engine. So writes to one entity run in the
-//   order their calls were made: a call made after an earlier call returned its task is admitted after
-//   it, and no write of the entity is prepared before the one ahead of it is published or withdrawn. A
-//   write with a session is admitted once the position of its session is published (SubmitAsync): no
-//   identity is reserved across that wait (brief of S09, "The order of writes and the wait of a
-//   session").
-// - Preparation, of at most PrepareWorkers writes at once, each holding its identity
-//   (WriteExecutor.TryPrepare): it looks its key up inside the protection of reads, checks its
-//   condition, and encodes its values into prepared blocks, taking the lock of the writes for each
-//   change of a structure of the engine alone. A write that holds its identity and finds no place
-//   among the writes being prepared waits for one, and holds nothing in the engine meanwhile.
-// - Commit, in one order: the commit stage takes the writes prepared when it is free into a group, at
-//   most CommitGroup.MaxOperations writes or CommitGroup.MaxEncodedSize bytes, a larger write alone,
-//   and never waits for a group to fill; it hands the group to the storage step (ICommitStorage), whose
-//   call is the dispatch, and publishes it under the lock of the writes (WriteExecutor.Publish). The
-//   writes of a group take consecutive positions from CommitOutcome.FirstSequence in its order.
+// The write coordinator of a master (brief of Epic 1, sprint S09, part 2, "The path, decided after the
+// study"; milestone contract, "Write coordinator and revision semantics"). Writes are executed one at a
+// time under one lock, the lock of the writes, with a group commit at the storage boundary. The path
+// follows published designs, taken as ideas and not as code: the single writer of LMDB, which runs
+// every write under one writer mutex and checks its conditions against the current state
+// (libraries/liblmdb/mdb.c, mdb_txn_begin and mdb_txn_commit), and the group commit of the commit
+// pipeline of Pebble (commit.go: the order and the log record under one mutex, publication in order)
+// and of PostgreSQL (xlog.c, XLogFlush: whoever finds the log free writes for everyone queued behind
+// it), with the bounds of the write group of RocksDB (db/write_thread.cc). The study of S09, part 2
+// names the commits read.
 //
-// The threads. A write is prepared on the thread of its call when a place among the writes being
-// prepared is free at its admission, and the commit stage runs on that thread too when it is free, so
-// a caller alone pays no hand-over between threads: its write is admitted, prepared, committed and
-// published within the call, and the task it returns is complete. A write that has to wait is taken
-// further by the thread that ends what it waits for, which hands it to the thread pool
-// (ThreadPool.UnsafeQueueUserWorkItem, with the write as the work item, so that nothing more is
-// allocated): the end of the earlier write of its identity, the end of a preparation, which passes its
-// place to the next write waiting for one, and the end of the writes a write the arena refused waits
-// for. A thread of the pool that prepared a write goes on with the next one waiting while it does
-// not become the commit stage. The commit stage, once taken, publishes group after group while
-// prepared writes are there; on the thread of a call it stops once the write of that call is
-// published and gives the stage up, with a work item of the thread pool that takes it when nobody else
-// has, so that no call waits for the writes of others and no prepared write is left without a stage.
-// A call whose write it prepared finds the stage busy spins a little, outside every lock, until its
-// write has its outcome or the stage is free to take (AwaitCommitStage), as a waiter of the combining
-// technique of Hendler, Incze, Shavit and Tzafrir ("Flat combining and the synchronization-parallelism
-// tradeoff", 2010; the idea, no code) waits for its request to be served or the combiner to be free:
-// the call then returns a complete task, and its caller is not woken by another thread. Measured on
-// the development machine, three runs each against the same design without it: 4 callers that insert
-// and delete made 462,000 to 713,000 writes a second, against 355,000 to 423,000, and 16 callers that
-// replace 626,000 to 661,000, against 554,000 to 603,000; one caller and the readers beside the callers
-// were as fast with it as without. Where the storage step does not complete at once, the stage goes on
-// where it completes, and the call returns. The task of a write completes on the thread pool
-// (PendingWrite), never inside a lock and never by running code of the application on a thread of the
-// engine.
+// One write, when the storage step completes at once, as in MemoryOnly. Its call takes the lock once.
+// Under it the write is admitted, prepared in place (WriteExecutor.TryPrepare: lookup, condition,
+// encoding, reservations), handed to the storage step as a group of one (ICommitStorage.CommitAsync,
+// called under the lock: it only takes the group), and, since that task is complete, published in the
+// same hold. The call releases the lock and returns the result itself: no other thread touches the
+// write, and nothing is allocated for it (see "What a write allocates").
 //
-// The locks, in their order. The coordinator has the lock of the coordinator, under which it changes
-// the chains of the identities, the list of the writes admitted, its two queues, the places of the
-// writes being prepared, the writes in flight, the write being resolved, whether the commit stage is
-// taken, its counters and whether the database faulted. The executor has the lock of the writes
-// (WriteExecutor). The two are never held together: the coordinator calls the executor, and the
-// storage step, only after it has released its own lock, and the executor takes no other lock. No
-// lock is held across an await, a wait or a call of the storage step, and none is taken inside the
-// protection of reads. A thread that holds the lock of the coordinator takes no other lock.
+// When the storage step is busy. A group whose storage step did not complete at once is in the
+// storage step until its task completes; the writes prepared meanwhile wait in the queue of the
+// prepared writes, and their calls return their tasks. The thread on which the storage completes takes
+// the lock, publishes the group in its order, gives its writes their outcomes, prepares the writes that
+// can be prepared now (below), and hands the next group to the storage step: at most
+// CommitGroup.MaxOperations writes or CommitGroup.MaxEncodedSize bytes from the head of the queue, a
+// larger write alone, never waiting to fill. Whoever holds the lock and finds no group in the storage
+// step and prepared writes in the queue hands them over before it releases the lock (Drive), so no
+// prepared write is ever left with nobody to dispatch it: either a group is in the storage step, whose
+// completion will dispatch the queue, or the queue is empty when the lock is released. The writes of a
+// group take consecutive positions from CommitOutcome.FirstSequence, in its order.
 //
-// Why the hand-overs are ordered (the .NET memory model, not that of x64). A write passes from thread
-// to thread only through the lock of the coordinator and the work items of the thread pool, which
-// release what a thread wrote before them and acquire it on the thread that goes on, so every step of
-// a write sees what the steps before it wrote: the thread that prepares it writes its blocks, its root
-// entry and its PreparedWrite, then takes the lock to put it into the queue of the commit stage; the
-// stage takes the lock to take it into a group, then the lock of the writes to publish it, and the
-// stores that publish it have release semantics (WriteExecutor), so a read that sees them sees the
-// blocks. The next write of an identity is started under the lock after the one before it was
-// published, so it looks the entity up as that write left it. The fields of a write that the lock does
-// not guard are written by one thread before such a hand-over and read after it (PendingWrite).
+// The order of writes to one entity, and the wait behind an unpublished write. A call takes its place
+// in the order when it takes the lock: a call made after an earlier call returned its task takes the
+// lock after it, and the earlier write was by then published, or prepared and in the queue or in the
+// storage step, or waiting in a chain, in the held list or in a resolution. A write whose entity has
+// such an earlier write, one that has not completed, waits behind the latest of them, first in first
+// out, in the chain of that entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so
+// it is prepared only once every earlier write of its entity has completed, and its condition is
+// checked against the state they left. Those writes are found in the list of the writes admitted that
+// waited (FindLastOfEntity, and "The refusal" below); when that list is empty, as in MemoryOnly
+// except while the writes a resolution held back are started, nothing is looked at and no key is
+// hashed for it. The wait ends: the write it waits
+// behind completes — published when its storage step completes (the timeout of that step belongs to
+// S27), refused, cancelled, failed, or ended by a fault — and every way a write completes starts the
+// next write of its chain under the same lock (AdvanceChain). A write with a session takes its place
+// when the wait for its position ends (brief of S09, "The order of writes and the wait of a session").
 //
-// What a write holds, and until when. From its admission to its outcome it holds an entry of the
-// barrier of the close (CloseBarrier), so a close lets every write admitted before it reach its
-// outcome and frees the arena only after the last has ended; and its identity, so that no other write
-// of its entity overtakes it. From its preparation to its publication or withdrawal it holds what the
-// preparation made: prepared blocks, which ArenaCounters.PreparedBytes counts, for an insert a root
-// entry and room in the index, for a replace or a delete a place in the retired list. A write is in
-// flight while it is being prepared, prepared, withdrawn or in the commit stage; the coordinator counts
-// those writes, for the resolution of a refused write.
+// The lock of the writes, given by the database, which takes it as well for its counters and its
+// drain. It protects the arena, the table of root entries, the primary indexes, the position clock and
+// the retired list (WriteExecutor), and the state of this class: the queue of the prepared writes, the
+// group in the storage step, the chains, the list of the writes admitted that waited, the held list,
+// the write being resolved, the admission number, whether the database faulted, and the counters. It
+// is held for work in memory only: no I/O, no await, no code of the application, no wait for anything
+// but the lock itself. The storage step is called under it and only takes the group (ICommitStorage).
+// It is the only lock of the writes, and a thread that holds it takes no other lock of the database:
+// what a hold decided for other threads — the fault of the database, the outcomes of their writes, the
+// end of a resolution — is carried out after the lock is released (Finish). A read takes none. A write
+// holds the lock while its values are copied into the arena, so one write of a large entity holds
+// every other write back for as long as its copy takes; reads are not held back. The lock is not fair:
+// a caller that releases it and takes it again at once may pass a caller that waited. A gate that lets
+// the callers take it first in first out was measured in S09, part 2 and not kept: it bounded the wait
+// of a small write behind large ones to one large write, but small writes then went no faster than the
+// large ones, and with more threads than processors, 16 writing callers beside 16 readers, the writes
+// all but stopped. What is kept against the unfair hand-over is narrow: a write larger than
+// CommitGroup.MaxEncodedSize, the bound above which a write forms a group alone, gives its processor
+// up once (Thread.Yield) after its call released the lock, so that a caller the release woke can take
+// the lock before the large caller takes it again for its next write. It makes that pass rarer and
+// does not bound it: Thread.Yield gives the processor only to a thread ready on the same one, and the
+// lock lets arriving callers pass a waiting one until that one has waited 100 ms
+// (System.Threading.Lock). Measured in S09, part 2, with and without it alternated on a machine with
+// other load, beside a caller that writes entities of 32 MiB one after another: the p99 of the small
+// writes of another caller was 98 to 115 ms in 12 of 14 rounds without it, a few µs in the other two,
+// and with it below 18 ms in 10 of 15 rounds and 24 to 59 ms in the others; the maximum stayed at 110
+// to 125 ms either way. The series of ordinary writes did not move, since a write pays one comparison
+// of its size for it.
+//
+// Why the hand-overs are ordered (the .NET memory model). Everything a write is and has passes between
+// threads only under the lock of the writes, which releases what a thread wrote before it and acquires
+// it on the thread that takes it next; the stores of a publication have release semantics
+// (WriteExecutor), so a read that sees them sees the blocks. The outcome of a write that another
+// thread completes is written under the lock and given after it, by its value source.
 //
 // Cancellation (decision "Cancellation at the commit boundary"; brief of S09, "Dispatch" and
-// "Cancellation before dispatch"). Until its dispatch the token of a write is honored at every wait —
-// for its identity, for a place to be prepared, for the writes admitted before it, for the writes in
-// flight in a resolution, for the reads that hold retired memory — and when its preparation ends, also
-// a preparation the arena refused. A write that waits is withdrawn by the thread that cancels its
-// token (Cancel); one prepared and waiting for the commit stage is withdrawn on a thread of the pool,
-// so that the thread that cancels never takes the lock of the writes; one being prepared looks at its
-// token when its preparation ends, and while it waits for reads, so a cancellation that comes while
-// its values are encoded takes effect when the encoding ends, before it can be dispatched. A withdrawn
-// write releases what it prepared, leaves the lists of the coordinator, and its call ends in
-// OperationCanceledException, after nothing of it is left in QueuedWrites or in the counters of the
-// engine. From the dispatch on the token is not looked at, and the call returns the real outcome.
-//
-// The waits of a write before its dispatch, and how each ends. The wait for the position of its
-// session has the timeout of the session and the token. The waits for its identity, for a place to be
-// prepared, for the writes admitted before it, for the writes in flight in a resolution and for the
-// commit stage have no timeout: each has the token and ends when the writes it waits for end. The
-// waits for steps of reads, for a free slot of the protection when the lookup finds every slot held
-// (ReadEpochs.EnterForWrite) and for the reads that hold retired memory, have no timeout either and
-// have the token; a read leaves within one step (exception X6). The lock of the coordinator and the
-// lock of the writes are taken as locks, for changes in memory only.
+// "Cancellation before dispatch"). Until its dispatch, the call of ICommitStorage.CommitAsync for its
+// group, the token of a write is honored at every wait — chained, held, prepared and in the queue,
+// waiting in a resolution for the writes admitted before it, for the writes in flight or for the reads
+// that hold retired memory — and when its preparation ends, also a preparation the arena refused. The
+// cancellation of a write that waits in a list or in a resolution hands its withdrawal to the thread
+// pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never takes the lock of the
+// writes: there it leaves its list, gives back what it prepared, starts the next write of its chain,
+// and its call ends in OperationCanceledException. The coordinator never makes a cancelled write run
+// before that thread of the pool runs: a prepared write whose token is cancelled is withdrawn when a
+// group is formed instead of being taken into it (FormGroup), as the work item would withdraw it, and
+// a write that waited in a chain or in the held list is ended instead of being prepared when its turn
+// comes (Start); either way the next write of its entity starts in the same hold, and the work item
+// finds the write ended and does nothing. A write whose resolution waits for reads looks at its token
+// in that wait itself. From the dispatch on the token is not looked at, and the call returns the real
+// outcome.
 //
 // The refusal (brief of S09, "When a write is refused for memory: the rule after review round 1";
-// decision Q14 as amended). A write is refused for memory only when it does not fit beside the stored
-// data, never for memory other writes hold for a time or that is retired and not freed yet. A write
-// the arena refuses has given back everything it prepared (WriteExecutor.TryPrepare); it frees what is
-// retired and tries again. Refused again, it is resolved alone, holding its identity and no prepared
-// memory:
-// 1. It waits for every write admitted before it to complete (WaitingForEarlier). The end of the last
-//    of them makes it the oldest write and goes on to step 2 (Finish).
-// 2. It becomes the write being resolved: from then on no later write begins to be prepared — later
-//    writes are admitted and wait for a place (TakePlaceOrWait, PassPlace), which is the one check the
-//    ordinary path pays — and it waits for the writes in flight, all of them later than it, to complete
-//    (WaitingForFlight). Each of them ends: being prepared, its preparation ends; prepared or in the
-//    commit stage, the stage publishes it; refused, it waits for this write, admitted before it, and
-//    holds nothing. The end of the last of them goes on to step 3 (LeaveFlight).
-// 3. It waits, outside every lock, for the reads then in progress that hold retired memory to leave
-//    the protection, frees what is retired, and tries once more, with no other write holding prepared
-//    memory.
+// decision Q14 as amended; brief of S09, part 2, "The path, decided after the study"). A write is
+// refused for memory only when it does not fit beside the stored data, never for memory other writes
+// hold for a time or that is retired and not freed yet. A write the arena refuses has given back
+// everything it prepared (WriteExecutor.TryPrepare); it frees what is retired and tries again. Refused
+// again, it is resolved alone, holding nothing:
+// 1. It waits for every write admitted before it to complete (WaitingForEarlier). The writes that
+//    concern it are those of the list of the writes admitted that waited (_oldest, PendingWrite.Older):
+//    a write enters that list when its call leaves the lock with the write not completed, and leaves it
+//    when it completes, so the list is in the order of admission, and a write that completed in the
+//    hold of its call, which no other write could wait for, never enters it. While it waits in step 1,
+//    later writes go on as any write. The end of the last write before it makes it the oldest and goes
+//    on to step 2 (Complete).
+// 2. It becomes the write being resolved (_resolving). From then on no write admitted after it begins
+//    to be prepared: a later write whose entity has an earlier write that has not completed waits in
+//    its chain as any write does, and every other later write waits in the held list, first in first
+//    out. It waits while any
+//    write is prepared and not published (Resolving): in the queue or in the group, all of them
+//    later than it, prepared before it became the oldest. Each of them ends: a write that holds the
+//    lock hands the queue over, and the storage step completes. When none is left the wait ends (end of
+//    Drive).
+// 3. Then, on a thread of its own outside every lock — the thread of its call when it never had to wait
+//    before, otherwise a thread of the pool (EndResolution) — it waits for the reads then in progress
+//    that hold retired memory to leave the protection, frees what is retired, and tries once more, with
+//    no other write holding prepared memory.
 // 4. If the arena has room it goes on as any write; if not, it is refused with WriteRejected and Limit
-//    Memory, has had no effect and never runs later. Either way the resolution ends, and the later
-//    writes go on at once (EndResolution).
-// Only the oldest write is resolved, so two writes refused at the same time are resolved one after the
-// other in the order of their admission. The wait is finite (exception X6): the writes admitted before
-// it are finite and none of them waits for it; the writes in flight when step 2 begins are finite, no
-// later one begins, and each ends within its own waits; a read leaves within a step; no write
-// admitted later prolongs it. Its token ends it at any step, and the later writes then go on. The
-// switch of the tests runs at the first wait of the resolution of a write, whichever it is
-// (HoldNextRefusedWriteWait).
+//    Memory, has had no effect and never runs later. Either way the resolution ends, and the held
+//    writes start at once, in their order.
+// In MemoryOnly a write completes in the hold of its call, so a refused write is the oldest and nothing
+// is prepared and unpublished, and the resolution is the path of S08: free what is retired, wait for
+// the reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held
+// back are prepared in one hold and published as one group, and one of them that the arena refuses
+// there may find writes before it not completed and writes prepared beside it, and goes through steps
+// 1 and 2 as in a database whose storage step is busy. Only the oldest write is resolved, so two
+// writes refused at the same time are resolved one after the other in the order of their admission.
+// The wait is finite (exception X6): the writes admitted before it are finite and none of them waits
+// for it; the writes it waits for in step 2 are finite, no later one begins, and each ends with its
+// storage step; a read leaves within a step; no write admitted later prolongs it. Its token ends it at
+// any step, and the held writes then go on. The switch of the tests runs at the first wait of the
+// resolution of a write, whichever it is (HoldNextRefusedWriteWait).
 //
-// What a write allocates. The coordinator allocates a record for a write, PendingWrite, with the value
-// source of its task and the PreparedWrite it owns, and nothing else: the identities, the lists and the
-// queues are links of the records, and a write that waits is handed to the thread pool as its own work
-// item. A token that can be cancelled adds its registration. A record is reused: one is kept for the
-// next write when a write its call published ends, its token could not be cancelled, and the call
-// returns the result itself instead of the task. Nothing refers to such a record any more then: its
-// call ran the commit stage that published it and has left it (CompleteGroup), no queue, chain or list
-// holds it, no registration can run, and its group is formed anew before it is read again. Every other
-// write keeps its record, which its task, its registration or another thread may still read, and the
-// collector takes it. The same pattern as the value-task sources the runtime reuses for its sockets.
-// Measured with write-callers on the development machine, three alternating runs each: a lone caller's
-// write allocates 160 bytes in the whole process instead of 488 for a replace, and 136 instead of 464
-// for an insert and a delete, all of them the caller's own (the values the core takes, the task the
-// scenario makes), as before S09; the collections of generation 0 in a window of 2 s fell from 94 to 129
-// to 30 to 37. With 4 callers a write allocates 350 to 362 bytes instead of 507, with 16 as before, 538
-// to 543, since most of their writes wait. The writes a second and the reads beside them did not move
-// beyond noise.
+// The waits of a write before its dispatch, and how each ends. The wait for the position of its
+// session has the timeout of the session and the token. The wait for the lock of the writes is that of
+// a lock: it ends when the holder releases it, after work in memory alone. The waits in a chain, in the
+// held list, in the queue of the prepared writes and in steps 1 and 2 of a resolution have no timeout
+// and have the token; each ends when the writes it waits for end, as above. The wait for the reads that
+// hold retired memory has no timeout and has the token; a read leaves within one step (exception X6).
+//
+// What a write allocates. A write prepared and published in the hold of its call uses the record the
+// coordinator keeps for the next write (_spare), which only the holder of the lock takes and gives
+// back: no other thread and no registration ever saw it, so it serves again at once, and the call
+// returns its result as a value. A write that waits keeps a record of its own, allocated then, with the
+// value source of its task, and the collector takes it once its task completed; a token that can be
+// cancelled adds its registration. A storage step that does not complete at once adds the task of its
+// completion.
 //
 // A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
 // storage step or of a publication faults the database: reads are refused from then on, a read that
@@ -159,18 +166,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (EngineDatabase.Fault). The writes of the group published before the failure get their results; the
 // write whose publication failed and the writes of the group after it get IndeterminateOutcome, the
 // first with the failure as its InnerException, and when the storage step itself failed the whole
-// group does; every other write admitted gets Unavailable once it has released what it held: at once
-// when it waits, at the end of its preparation when it is being prepared, whatever its preparation
-// met. Every later write is Unavailable, and a close works.
-internal sealed class WriteCoordinator : IThreadPoolWorkItem
+// group does; every other write admitted gets Unavailable once it has released what it held. Every
+// later write is Unavailable, and a close works.
+internal sealed class WriteCoordinator
 {
-    // How many writes are prepared at once: the starting value of the milestone contract, internal and
-    // no option, since it refuses nothing (brief of S09, "PrepareWorkers is no public option"; with 64
-    // places nothing was gained).
-    private const int PrepareWorkers = 2;
-
-    // The lock of the coordinator (see the class).
-    private readonly Lock _lock = new();
+    // The lock of the writes (see the class).
+    private readonly Lock _writes;
 
     private readonly WriteExecutor _executor;
 
@@ -186,56 +187,47 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
     // Faults the database (EngineDatabase): its state, its reads and its waits for a position.
     private readonly Action _faultDatabase;
 
-    // For every identity a write holds, the last write of it admitted: the end of its chain.
-    private readonly Dictionary<WriteIdentity, PendingWrite> _identities = [];
-
-    // The group in the commit stage, formed anew for every commit.
+    // The group handed to the storage step, formed anew for every dispatch.
     private readonly CommitGroup _group = new();
 
-    // The writes admitted and not completed, in the order of their admission.
-    private PendingWrite? _oldest;
-
-    private PendingWrite? _newest;
-
-    // The writes that hold their identity and wait for a place among the writes being prepared, first
-    // in first out. A write withdrawn while it waits here stays in the queue, completed, and is passed
-    // over.
-    private PendingWrite? _readyFirst;
-
-    private PendingWrite? _readyLast;
-
-    // The writes prepared and waiting for the commit stage, in the order their preparation ended. A
-    // write withdrawn here stays in the queue and is passed over.
+    // The writes prepared and not handed to the storage step yet, in the order they were prepared.
     private PendingWrite? _preparedFirst;
 
     private PendingWrite? _preparedLast;
 
-    // The writes being prepared, at most PrepareWorkers.
-    private int _preparing;
+    // Whether the group holds writes, which are prepared and not published: from the first write
+    // FormGroup takes into it, through the storage step, until it is published or the database faults.
+    private bool _groupPending;
 
-    // The writes in flight: being prepared, prepared, withdrawn or in the commit stage (see the class).
-    private int _inFlight;
+    // The writes admitted and not completed that waited, in the order of their admission (see the
+    // class, "The refusal").
+    private PendingWrite? _oldest;
+
+    private PendingWrite? _newest;
+
+    // The writes held back while a refused write is resolved, in the order they were held.
+    private PendingWrite? _heldFirst;
+
+    private PendingWrite? _heldLast;
 
     // The write being resolved after the arena refused it twice, from step 2 of its resolution to its
-    // end; null otherwise. While it is set no other write begins to be prepared (see the class).
+    // end; null otherwise (see the class).
     private PendingWrite? _resolving;
 
-    // Whether a thread runs the commit stage. Read without the lock by a caller that waits for it.
-    private volatile bool _committing;
+    // The number of the last write admitted.
+    private long _admitted;
 
     // Set once the storage step or a publication failed; never cleared.
-    private volatile bool _faulted;
+    private bool _faulted;
 
-    // The counters (EngineCounters), written under the lock and read by the counters of the database
-    // without it.
+    // The counters (EngineCounters), written under the lock and read by the counters of the database.
     private int _queued;
 
     private int _largestGroup;
 
     private long _largestGroupBytes;
 
-    // A record of a write that served a write its call published, kept for the next write (see the
-    // class, "What a write allocates"); null when none is kept. Taken and given back by exchange.
+    // The record for the next write (see the class, "What a write allocates"); null when none is kept.
     private PendingWrite? _spare;
 
     // What the next write the arena refused runs at the first wait of its resolution, for the tests of
@@ -243,8 +235,9 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
     // write loads it.
     private Action? _waitHold;
 
-    public WriteCoordinator(WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase)
+    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase)
     {
+        _writes = writes;
         _executor = executor;
         _storage = storage;
         _barrier = barrier;
@@ -314,92 +307,152 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         return Admit(table, kind, key, values, expectedRevision, session, cancellationToken);
     }
 
-    // The cancellation of the token of a write, on the thread that cancels it, which takes no lock but
-    // that of the coordinator: a write that waits ends at once; one prepared and waiting for the commit
-    // stage is withdrawn on a thread of the pool, which gives back what it prepared under the lock of the
-    // writes (Withdraw); one being prepared looks at its token itself, and one dispatched is not touched.
-    public void Cancel(PendingWrite write)
-    {
-        PendingWrite? started = null;
-        var end = false;
-        var withdraw = false;
-
-        lock (_lock)
-        {
-            switch (write.State)
-            {
-                case PendingWriteStateEnum.WaitingForIdentity or PendingWriteStateEnum.WaitingToPrepare
-                    or PendingWriteStateEnum.WaitingForEarlier or PendingWriteStateEnum.WaitingForFlight:
-                    started = Finish(write);
-                    end = true;
-                    break;
-
-                case PendingWriteStateEnum.Prepared:
-                    write.State = PendingWriteStateEnum.Withdrawing;
-                    withdraw = true;
-                    break;
-            }
-        }
-
-        if (withdraw)
-        {
-            ThreadPool.UnsafeQueueUserWorkItem(write, preferLocal: false);
-        }
-
-        if (end)
-        {
-            End(write, new OperationCanceledException(write.Token));
-            Start(started);
-        }
-    }
-
-    // A write handed to the thread pool (PendingWrite.Execute): prepared, once it holds its identity and
-    // a place among the writes being prepared, or withdrawn, once its token was cancelled while it was
-    // prepared (Cancel).
-    public void Run(PendingWrite write)
-    {
-        if (write.State == PendingWriteStateEnum.Withdrawing)
-        {
-            Withdraw(write, new OperationCanceledException(write.Token));
-        }
-        else
-        {
-            RunPreparation(write, inline: false);
-        }
-    }
-
     // Arms the switch of the tests: the next write the arena refused runs hold once, at the first wait of
     // its resolution (EngineDatabase.HoldNextRefusedWriteWait).
     public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
-    public void ArmFault(EngineFaultPointEnum point, int skippedPasses) => _executor.Arm(point, skippedPasses);
-
-    // The work item that a call whose write is published leaves when it gives the stage up with prepared
-    // writes left (see the class): takes the stage unless a caller that waited for it, or a write whose
-    // preparation ended, took it first.
-    void IThreadPoolWorkItem.Execute()
+    public void ArmFault(EngineFaultPointEnum point, int skippedPasses)
     {
-        bool commit;
-
-        lock (_lock)
+        lock (_writes)
         {
-            commit = !_committing && !_faulted && FormGroup();
-            _committing |= commit;
+            _executor.Arm(point, skippedPasses);
+        }
+    }
+
+    // On a thread of the pool, once the token of a write that waits was cancelled (PendingWrite.Execute):
+    // a write that waits in a list leaves it, gives back what it prepared, starts the next write of its
+    // chain and ends in OperationCanceledException. A write dispatched, one whose resolution waits for
+    // reads, which looks at its token itself, and one that has ended are not touched.
+    public void Withdraw(PendingWrite write)
+    {
+        var pass = default(Pass);
+
+        lock (_writes)
+        {
+            var cancelled = new OperationCanceledException(write.Token);
+
+            switch (write.State)
+            {
+                case PendingWriteStateEnum.Chained:
+                    Unchain(write);
+                    End(write, cancelled, ref pass);
+                    break;
+
+                case PendingWriteStateEnum.Held:
+                    Unlink(ref _heldFirst, ref _heldLast, write);
+                    End(write, cancelled, ref pass);
+                    AdvanceChain(write, ref pass);
+                    break;
+
+                case PendingWriteStateEnum.Prepared:
+                    Unlink(ref _preparedFirst, ref _preparedLast, write);
+                    _executor.Release(write.Prepared!);
+                    End(write, cancelled, ref pass);
+                    AdvanceChain(write, ref pass);
+                    break;
+
+                case PendingWriteStateEnum.WaitingForEarlier:
+                    End(write, cancelled, ref pass);
+                    AdvanceChain(write, ref pass);
+                    break;
+
+                case PendingWriteStateEnum.Resolving:
+                    _resolving = null;
+                    End(write, cancelled, ref pass);
+                    AdvanceChain(write, ref pass);
+                    ReleaseHeld(ref pass);
+                    break;
+            }
+
+            Drive(ref pass);
         }
 
-        if (commit)
-        {
-            _ = CommitAsync(own: null);
-        }
+        Finish(ref pass);
+    }
+
+    // Step 3 of the resolution of a refused write (see the class), on a thread of the pool, once the
+    // writes it waited for in step 2 were published (PendingWrite.Execute).
+    public void EndResolution(PendingWrite write)
+    {
+        var pass = Resolve(write, own: false);
+
+        Finish(ref pass);
     }
 
     private static LatticeException Unavailable() =>
         new(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
 
-    // Whether a write in this state is in flight (see the class).
-    private static bool IsInFlight(PendingWriteStateEnum state) =>
-        state is PendingWriteStateEnum.Preparing or PendingWriteStateEnum.Prepared or PendingWriteStateEnum.Withdrawing or PendingWriteStateEnum.Dispatched;
+    // Takes the write out of a list linked by Next, which holds it; linear in the list (see
+    // FindLastOfEntity).
+    private static void Unlink(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
+    {
+        PendingWrite? before = null;
+
+        for (var current = first; current is not null; current = current.Next)
+        {
+            if (!ReferenceEquals(current, write))
+            {
+                before = current;
+
+                continue;
+            }
+
+            if (before is null)
+            {
+                first = write.Next;
+            }
+            else
+            {
+                before.Next = write.Next;
+            }
+
+            if (ReferenceEquals(last, write))
+            {
+                last = before;
+            }
+
+            write.Next = null;
+
+            return;
+        }
+    }
+
+    private static void Append(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
+    {
+        write.Next = null;
+
+        if (last is null)
+        {
+            first = write;
+        }
+        else
+        {
+            last.Next = write;
+        }
+
+        last = write;
+    }
+
+    // A chained write leaves the chain of its entity; the writes behind it wait behind the one before
+    // it. A write in the state Chained outside a hold of the lock always has the write before it: only
+    // AdvanceChain clears it, and the write it makes ready is started in the same hold (Drive, Pass),
+    // so Withdraw, the only caller, never meets a chained write without one.
+    private static void Unchain(PendingWrite write)
+    {
+        var earlier = write.EarlierOfEntity!;
+        var later = write.LaterOfEntity;
+
+        earlier.LaterOfEntity = later;
+
+        if (later is not null)
+        {
+            later.EarlierOfEntity = earlier;
+        }
+
+        write.EarlierOfEntity = null;
+        write.LaterOfEntity = null;
+    }
 
     // A write with a session whose position is not published yet: admitted once it is, so it takes its
     // place among the writes of its entity when the wait ends.
@@ -419,10 +472,8 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         return await Admit(table, kind, key, values, expectedRevision, session, cancellationToken).ConfigureAwait(false);
     }
 
-    // Admission (see the class), then the preparation on this thread when the write may be prepared at
-    // once. After a fault a write is refused here, so that no write enters the lists of the coordinator
-    // after the fault has ended those in them; the preparation of a write admitted before the fault ends
-    // in Unavailable at its end (PrepareOne).
+    // The call of a write (see the class): one hold of the lock that admits it and, when nothing makes
+    // it wait, prepares, dispatches and publishes it; then the outcome, or the task when it waits.
     private ValueTask<LatticeWriteResult> Admit(
         EntityTable table,
         WriteKindEnum kind,
@@ -441,56 +492,83 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
             return ValueTask.FromException<LatticeWriteResult>(exception);
         }
 
-        var write = Interlocked.Exchange(ref _spare, null) ?? new PendingWrite(this);
-        var prepareHere = false;
+        var pass = default(Pass);
+        PendingWrite? write = null;
+        LatticeWriteResult result = default;
+        Exception? failure = null;
+        var large = false;
 
-        write.Begin(table, kind, key, values, expectedRevision, session, cancellationToken);
-        bool faulted;
-
-        lock (_lock)
+        lock (_writes)
         {
-            faulted = _faulted;
-
-            if (!faulted)
+            // After a fault a write is refused here, so that none enters the lists after the fault has
+            // ended those in them.
+            if (_faulted)
             {
-                // Last in the list of the writes admitted.
-                write.Older = _newest;
-
-                if (_newest is null)
-                {
-                    _oldest = write;
-                }
-                else
-                {
-                    _newest.Newer = write;
-                }
-
-                _newest = write;
+                failure = Unavailable();
+            }
+            else
+            {
+                write = _spare ?? new PendingWrite(this);
+                _spare = null;
+                write.Begin(table, kind, key, values, expectedRevision, session, cancellationToken, ++_admitted);
                 _queued++;
+                pass.Own = write;
+                Start(write, ref pass);
+                Drive(ref pass);
 
-                ref var last = ref CollectionsMarshal.GetValueRefOrAddDefault(_identities, new WriteIdentity(table, key), out var reserved);
-
-                if (reserved)
+                if (!pass.OwnEnded)
                 {
-                    // Behind the last write of its identity.
-                    last!.LaterOfIdentity = write;
-                    write.EarlierOfIdentity = last;
-                    write.State = PendingWriteStateEnum.WaitingForIdentity;
+                    List(write);
                 }
                 else
                 {
-                    prepareHere = TakePlaceOrWait(write);
-                }
+                    result = write.Outcome;
+                    failure = write.Failure;
+                    large = write.Prepared?.EncodedSize > CommitGroup.MaxEncodedSize;
 
-                last = write;
+                    // Nothing refers to the record any more: no other thread saw it, and it was never
+                    // registered (see the class).
+                    write.ResetAfterItsCall();
+                    _spare = write;
+                }
             }
         }
 
-        if (faulted)
+        Finish(ref pass);
+
+        if (write is null)
         {
             _barrier.Exit();
 
-            return ValueTask.FromException<LatticeWriteResult>(Unavailable());
+            return ValueTask.FromException<LatticeWriteResult>(failure!);
+        }
+
+        // A write refused twice with nothing to wait for is resolved on the thread of its call.
+        if (pass.ReadsHere is not null)
+        {
+            var resolved = Resolve(write, own: true);
+
+            Finish(ref resolved);
+
+            if (resolved.OwnEnded)
+            {
+                result = write.Outcome;
+                failure = write.Failure;
+                pass.OwnEnded = true;
+            }
+        }
+
+        if (pass.OwnEnded)
+        {
+            // A write larger than a group gives its processor up once after it released the lock (see
+            // the class, "The lock of the writes"), so that a caller woken by that release can take the
+            // lock before this caller takes it again.
+            if (large)
+            {
+                Thread.Yield();
+            }
+
+            return Outcome(session, result, failure);
         }
 
         if (cancellationToken.CanBeCanceled)
@@ -498,34 +576,41 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
             Register(write);
         }
 
-        if (prepareHere)
-        {
-            RunPreparation(write, inline: true);
-
-            // A write its call published, whose token cannot be cancelled, is referred to by nothing
-            // any more (see the class): the call returns its result, and the record serves the next
-            // write.
-            if (!cancellationToken.CanBeCanceled && write.TryTakeResult(out var result))
-            {
-                write.Reset();
-                Volatile.Write(ref _spare, write);
-
-                return new ValueTask<LatticeWriteResult>(result);
-            }
-        }
-
         return write.Task;
     }
 
-    // Registers the cancellation of the token of the write. A token already cancelled runs Cancel
-    // here, at once. The registration is kept under the lock, so that the end of the write, which
-    // unregisters it, finds it, or the write has ended before and it is unregistered here.
+    // The outcome of a write its call gives itself: its session moves to its position, the write leaves
+    // the barrier of the close, and the call returns.
+    private ValueTask<LatticeWriteResult> Outcome(LatticeSession? session, LatticeWriteResult result, Exception? failure)
+    {
+        try
+        {
+            if (failure is null)
+            {
+                session?.Advance(result.Position);
+            }
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+
+        return failure is null ? new ValueTask<LatticeWriteResult>(result) : ValueTask.FromException<LatticeWriteResult>(failure);
+    }
+
+    // Registers the cancellation of the token of a write that waits. A token already cancelled hands its
+    // withdrawal to the pool at once. The registration is kept under the lock, so that the end of the
+    // write, which unregisters it, finds it, or the write has ended before and it is unregistered here.
     private void Register(PendingWrite write)
     {
-        var registration = write.Token.UnsafeRegister(static state => Cancelled((PendingWrite)state!), write);
+        var registration = write.Token.UnsafeRegister(static state => ThreadPool.UnsafeQueueUserWorkItem((PendingWrite)state!, preferLocal: false), write);
         bool ended;
 
-        lock (_lock)
+        lock (_writes)
         {
             ended = write.State == PendingWriteStateEnum.Completed;
 
@@ -541,514 +626,456 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         }
     }
 
-    private static void Cancelled(PendingWrite write) => write.Coordinator.Cancel(write);
-
-    // Under the lock: a place among the writes being prepared for the write, which holds its identity,
-    // or a place in the queue of those that wait for one. No write but the one being resolved begins to
-    // be prepared while a refused write is resolved: the one check the ordinary path pays for a refusal.
-    // True when it has a place to be prepared.
-    private bool TakePlaceOrWait(PendingWrite write)
+    // Under the lock: the way of a write that may go on now — at its admission, at the end of the write
+    // before it in its chain, or at the end of a resolution that held it back.
+    private void Start(PendingWrite write, ref Pass pass)
     {
-        if (_preparing < PrepareWorkers && _resolving is null)
+        if (_faulted)
         {
-            BeginPreparation(write);
+            End(write, Unavailable(), ref pass);
+            AdvanceChain(write, ref pass);
 
-            return true;
+            return;
         }
 
-        write.State = PendingWriteStateEnum.WaitingToPrepare;
-
-        if (_readyFirst is null)
+        // A write whose token was cancelled while it waited ends here, before anything is prepared for
+        // it, whether or not the thread of the pool its cancellation went to has run.
+        if (write.Token.IsCancellationRequested)
         {
-            _readyFirst = write;
+            End(write, new OperationCanceledException(write.Token), ref pass);
+            AdvanceChain(write, ref pass);
+
+            return;
         }
-        else
+
+        if (FindLastOfEntity(write) is { } last)
         {
-            _readyLast!.NextInQueue = write;
+            // The latest earlier write of the entity has no write behind it: one admitted after it would
+            // be the latest.
+            last.LaterOfEntity = write;
+            write.EarlierOfEntity = last;
+            write.State = PendingWriteStateEnum.Chained;
+
+            return;
         }
 
-        _readyLast = write;
+        if (_resolving is { } resolving && write.Admission > resolving.Admission)
+        {
+            write.State = PendingWriteStateEnum.Held;
+            Append(ref _heldFirst, ref _heldLast, write);
 
-        return false;
+            return;
+        }
+
+        Prepare(write, ref pass);
     }
 
-    // Under the lock: the write takes a place and is in flight.
-    private void BeginPreparation(PendingWrite write)
+    // Under the lock: the latest write of the entity of the write that was admitted before it, has not
+    // completed and waited: prepared and unpublished, in a chain, held, or in a resolution; null when
+    // there is none. The write waits behind it. Every such write is in the list of the writes admitted
+    // that waited (see the class, "The refusal"), and a write of the call that holds the lock is the only
+    // one not in it yet, so the list is searched, from the newest write admitted before this one back.
+    // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
+    // resolution. The search is linear in the writes that wait, and so is Unlink in the queue and the
+    // held list: with 40,000 writes waiting behind a busy storage step an admission took 0.6 to 0.8 ms
+    // in review round 1 of S09, part 2. It never runs while the storage step completes at once; whether
+    // a busy durable step needs a structure that finds them faster is settled in the brief of S27.
+    private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
-        _preparing++;
-        _inFlight++;
-        write.State = PendingWriteStateEnum.Preparing;
-    }
-
-    // Under the lock: the next write that waits for a place, taken out of the queue; null when none
-    // does.
-    private PendingWrite? NextReady()
-    {
-        while (_readyFirst is { } ready)
+        for (var listed = write.Listed ? write.Older : _newest; listed is not null; listed = listed.Older)
         {
-            _readyFirst = ready.NextInQueue;
-            ready.NextInQueue = null;
-
-            if (_readyFirst is null)
+            if (listed.IsOfSameEntity(write))
             {
-                _readyLast = null;
-            }
-
-            if (ready.State == PendingWriteStateEnum.WaitingToPrepare)
-            {
-                return ready;
+                return listed;
             }
         }
 
         return null;
     }
 
-    // Under the lock, at the end of a preparation: its place passes to the next write that waits for
-    // one, which is returned to be prepared, or is given back, as it is while a refused write is
-    // resolved.
-    private PendingWrite? PassPlace()
+    // Under the lock: prepares the write, which has no earlier write of its entity that has not
+    // completed, and puts it into the queue of the prepared writes; or ends it, or begins its
+    // resolution (see the class, "The refusal").
+    private void Prepare(PendingWrite write, ref Pass pass)
     {
-        if (_resolving is null && NextReady() is { } ready)
-        {
-            _inFlight++;
-            ready.State = PendingWriteStateEnum.Preparing;
-
-            return ready;
-        }
-
-        _preparing--;
-
-        return null;
-    }
-
-    // Under the lock: a write leaves flight, and when it was the last of the writes a resolved write
-    // waits for, that write goes on to step 3 of its resolution with a place, every place being free
-    // then. Returns it, to be started after the lock.
-    private PendingWrite? LeaveFlight()
-    {
-        _inFlight--;
-
-        if (_inFlight == 0 && _resolving is { State: PendingWriteStateEnum.WaitingForFlight } resolved)
-        {
-            BeginPreparation(resolved);
-
-            return resolved;
-        }
-
-        return null;
-    }
-
-    // Under the lock: the write, refused twice and now the oldest write, becomes the write being
-    // resolved (step 2, see the class). True when it goes on to step 3 at once, holding the place it
-    // has; false when it waits for the writes in flight, after it left flight itself.
-    private bool BeginResolution(PendingWrite write)
-    {
-        _resolving = write;
-
-        if (_inFlight == 1)
-        {
-            return true;
-        }
-
-        _inFlight--;
-        write.State = PendingWriteStateEnum.WaitingForFlight;
-
-        return false;
-    }
-
-    // Under the lock, when the write being resolved is prepared or ends: no write is held back any more,
-    // and those that wait for a place take the places that are free. Returns them, to be started after
-    // the lock; none after a fault.
-    private PendingWrite? EndResolution()
-    {
-        _resolving = null;
-
-        PendingWrite? started = null;
-
-        while (!_faulted && _preparing < PrepareWorkers && NextReady() is { } ready)
-        {
-            BeginPreparation(ready);
-            ready.NextToStart = started;
-            started = ready;
-        }
-
-        return started;
-    }
-
-    // Prepares the write, which has a place, and goes on with what the end of its preparation gives
-    // this thread (see the class): the commit stage, or, on a thread of the pool, the next write that
-    // took the place.
-    private void RunPreparation(PendingWrite write, bool inline)
-    {
-        var current = write;
-
-        while (current is not null)
-        {
-            var next = PrepareOne(current, out var commit, out var waitsForStage);
-
-            if (commit)
-            {
-                Schedule(next);
-                _ = CommitAsync(inline ? write : null);
-
-                return;
-            }
-
-            if (inline)
-            {
-                Schedule(next);
-
-                if (waitsForStage)
-                {
-                    AwaitCommitStage(write);
-                }
-
-                return;
-            }
-
-            current = next;
-        }
-    }
-
-    // A caller whose write is prepared and waits for the commit stage: spins a little, outside every
-    // lock, until its write has its outcome or the stage is free, and then takes the stage itself, so
-    // that the call returns its outcome instead of waiting for another thread to complete it (see the
-    // class). The spin is bounded: SpinWait, until its next spin would give up the processor, some
-    // microseconds; then the call returns the task of the write, which the stage completes.
-    private void AwaitCommitStage(PendingWrite write)
-    {
-        var spinner = default(SpinWait);
-
-        while (!spinner.NextSpinWillYield)
-        {
-            spinner.SpinOnce(sleep1Threshold: -1);
-
-            if (_committing)
-            {
-                continue;
-            }
-
-            bool commit;
-
-            lock (_lock)
-            {
-                if (write.State != PendingWriteStateEnum.Prepared)
-                {
-                    if (write.State == PendingWriteStateEnum.Completed)
-                    {
-                        return;
-                    }
-
-                    continue;
-                }
-
-                commit = !_committing && !_faulted && FormGroup();
-                _committing |= commit;
-            }
-
-            if (commit)
-            {
-                _ = CommitAsync(write);
-
-                return;
-            }
-        }
-    }
-
-    // One preparation and its end, under the lock: the place passes on, and the write goes to the
-    // commit stage, taking it when it is free (commit) or waiting for it (waitsForStage), or is
-    // withdrawn, or ends, or waits in its resolution. Returns the write the place passed to, if any.
-    private PendingWrite? PrepareOne(PendingWrite write, out bool commit, out bool waitsForStage)
-    {
-        var prepared = default(PreparedWrite);
-        var failure = default(Exception);
-        var waits = false;
+        PreparedWrite? prepared;
 
         try
         {
-            waits = !TryPrepare(write, out prepared);
+            if (!TryPrepareTwice(write, out prepared))
+            {
+                BeginResolution(write, ref pass);
+
+                return;
+            }
         }
         catch (Exception exception)
         {
-            failure = exception;
+            End(write, exception, ref pass);
+            AdvanceChain(write, ref pass);
+
+            return;
         }
 
-        PendingWrite? next;
-        PendingWrite? started = null;
-        var withdraw = false;
-
-        commit = false;
-        waitsForStage = false;
-
-        lock (_lock)
+        // Its token is honored when its preparation ends, before it can be dispatched.
+        if (write.Token.IsCancellationRequested)
         {
-            // A write that waits in its resolution is another thread's from the moment it waits
-            // (TryPrepare): nothing of it is touched here but its place, given back.
-            if (waits)
-            {
-                next = PassPlace();
-            }
-            else if (failure is not null)
-            {
-                next = PassPlace();
+            _executor.Release(prepared);
+            End(write, new OperationCanceledException(write.Token), ref pass);
+            AdvanceChain(write, ref pass);
 
-                // After a fault a write being prepared did not run: Unavailable, whatever it met.
-                if (_faulted)
-                {
-                    failure = Unavailable();
-                }
-
-                started = Finish(write);
-            }
-            else if (_faulted || write.Token.IsCancellationRequested)
-            {
-                next = PassPlace();
-                write.Prepared = prepared;
-                write.State = PendingWriteStateEnum.Withdrawing;
-                failure = _faulted ? Unavailable() : new OperationCanceledException(write.Token);
-                withdraw = true;
-            }
-            else
-            {
-                // A write resolved and prepared: the writes it held back go on at once.
-                if (ReferenceEquals(_resolving, write))
-                {
-                    started = EndResolution();
-                }
-
-                next = PassPlace();
-                write.Prepared = prepared;
-                write.State = PendingWriteStateEnum.Prepared;
-                EnqueuePrepared(write);
-
-                if (!_committing)
-                {
-                    _committing = true;
-                    commit = FormGroup();
-                    _committing = commit;
-                }
-
-                waitsForStage = !commit;
-            }
+            return;
         }
 
-        if (withdraw)
-        {
-            Withdraw(write, failure!);
-        }
-        else if (failure is not null)
-        {
-            End(write, failure);
-        }
-
-        Start(started);
-
-        return next;
+        write.Prepared = prepared;
+        write.State = PendingWriteStateEnum.Prepared;
+        Append(ref _preparedFirst, ref _preparedLast, write);
     }
 
-    // The preparation of a write with the refusal of the arena (see the class): true when it is
-    // prepared, false when it waits in its resolution and is another thread's from then on. A failure
-    // passes through to the end of the preparation (PrepareOne), with nothing of the write left in the
-    // engine: among them the refusal of its last try, and OperationCanceledException when its token is
-    // cancelled at the end of a refused preparation.
-    private bool TryPrepare(PendingWrite write, out PreparedWrite? prepared)
+    // Under the lock: the preparation of a write with the first two tries of a refusal of the arena
+    // (see the class): true when it is prepared, false when it was refused twice and holds nothing. Its
+    // token is honored at the end of each refused try, with OperationCanceledException.
+    private bool TryPrepareTwice(PendingWrite write, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out PreparedWrite? prepared)
     {
-        // A write being resolved goes on here at step 3 when it is started again (LeaveFlight, Finish):
-        // the coordinator set it under its lock before it handed the write over.
-        if (!ReferenceEquals(_resolving, write))
-        {
-            if (_executor.TryPrepare(write, out prepared, out _))
-            {
-                return true;
-            }
-
-            // The preparation ended refused, with everything it took given back: its token is honored
-            // here, as at the end of each refused preparation.
-            write.Token.ThrowIfCancellationRequested();
-
-            // Refused once: what is retired is freed, and the write tries again.
-            _executor.DrainRetired();
-
-            if (_executor.TryPrepare(write, out prepared, out _))
-            {
-                return true;
-            }
-
-            // Refused again: its token is honored under the lock, where its resolution would begin to
-            // wait.
-            if (WaitsInResolution(write))
-            {
-                return false;
-            }
-        }
-
-        // Step 3: alone, after the reads then in progress that hold retired memory have left, once.
-        WaitForReadsAndDrain(write);
-
-        if (_executor.TryPrepare(write, out prepared, out var refusal))
+        if (_executor.TryPrepare(write, out prepared, out _))
         {
             return true;
         }
 
-        // Refused the last time: a token cancelled while it was tried ends it as cancelled, not refused.
         write.Token.ThrowIfCancellationRequested();
 
-        throw refusal!;
+        // Refused once: what is retired is freed, and the write tries again.
+        _executor.DrainRetired();
+
+        if (_executor.TryPrepare(write, out prepared, out _))
+        {
+            return true;
+        }
+
+        write.Token.ThrowIfCancellationRequested();
+
+        return false;
     }
 
-    // A write refused twice (see the class): waits for the writes admitted before it (step 1), or
-    // becomes the write being resolved and waits for the writes in flight (step 2), or goes on to step 3
-    // at once, holding its place; true when it waits, and from then on the write is another thread's,
-    // so nothing of it is touched after the lock. A wait is not begun after a fault, which ended every
-    // write that waited, nor once its token is cancelled, because nothing would end it then; the write
-    // ends with Unavailable or OperationCanceledException instead.
-    private bool WaitsInResolution(PendingWrite write)
+    // Under the lock: the resolution of a write refused twice begins (see the class): step 1 while a
+    // write admitted before it has not completed, step 2 when it is the oldest.
+    private void BeginResolution(PendingWrite write, ref Pass pass)
     {
-        var waits = false;
-        var offer = false;
-        bool faulted;
-        bool cancelled;
-        PendingWrite? started = null;
+        // The write of the call that holds the lock enters the list of the writes that waited now: every
+        // write in it was admitted before it.
+        List(write);
 
-        lock (_lock)
+        if (write.Older is not null)
         {
-            faulted = _faulted;
-            cancelled = write.Token.IsCancellationRequested;
+            write.State = PendingWriteStateEnum.WaitingForEarlier;
+            Offer(write, ref pass);
 
-            if (!faulted && !cancelled)
-            {
-                if (write.Older is not null)
-                {
-                    write.State = PendingWriteStateEnum.WaitingForEarlier;
-                    started = LeaveFlight();
-                    waits = true;
-                }
-                else
-                {
-                    waits = !BeginResolution(write);
-                }
-
-                // The switch of the tests runs at the first wait of the resolution alone.
-                if (waits)
-                {
-                    offer = !write.Waited;
-                    write.Waited = true;
-                }
-            }
+            return;
         }
 
-        if (faulted)
-        {
-            throw Unavailable();
-        }
-
-        if (cancelled)
-        {
-            throw new OperationCanceledException(write.Token);
-        }
-
-        Start(started);
-
-        if (offer)
-        {
-            RunWaitHold();
-        }
-
-        return waits;
+        BecomeResolved(write, ref pass);
     }
 
-    // Step 3 of a resolution: waits, outside every lock, for the reads that hold retired memory, and
-    // frees it. Its token cancels the wait.
-    private void WaitForReadsAndDrain(PendingWrite write)
+    // Under the lock: the oldest write, refused twice, becomes the write being resolved (step 2), and
+    // goes on to step 3 at once when no write holds prepared memory.
+    private void BecomeResolved(PendingWrite write, ref Pass pass)
     {
-        var epoch = _executor.ReadsToWaitFor(out var retired);
+        _resolving = write;
 
-        if (!retired)
+        if (HoldsPreparedMemory())
+        {
+            write.State = PendingWriteStateEnum.Resolving;
+            Offer(write, ref pass);
+
+            return;
+        }
+
+        ToReads(write, ref pass);
+    }
+
+    // Under the lock: the switch of the tests is offered to a write that begins to wait in its
+    // resolution, after the lock, unless it was offered at an earlier wait.
+    private static void Offer(PendingWrite write, ref Pass pass)
+    {
+        if (!write.Waited)
+        {
+            pass.Offer = write;
+        }
+    }
+
+    // Under the lock: the write enters the list of the writes admitted that waited, last, unless it is
+    // in it.
+    private void List(PendingWrite write)
+    {
+        if (write.Listed)
         {
             return;
         }
 
-        if (epoch != 0)
+        write.Listed = true;
+        write.Older = _newest;
+
+        if (_newest is null)
         {
-            OfferWaitHold(write);
-            _executor.WaitForReads(epoch, write.Token);
-        }
-
-        _executor.DrainRetired();
-    }
-
-    // The switch of the tests, at the first wait of the resolution of a write: here at the wait for
-    // reads, on the thread that resolves it, which alone touches it then.
-    private void OfferWaitHold(PendingWrite write)
-    {
-        if (!write.Waited)
-        {
-            write.Waited = true;
-            RunWaitHold();
-        }
-    }
-
-    private void RunWaitHold()
-    {
-        if (_waitHold is not null)
-        {
-            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
-        }
-    }
-
-    // A prepared write withdrawn before its dispatch, whose state is Withdrawing: gives back what it
-    // prepared under the lock of the writes, leaves the coordinator, and ends with the failure.
-    private void Withdraw(PendingWrite write, Exception failure)
-    {
-        _executor.Release(write.Prepared!);
-
-        PendingWrite? started;
-
-        lock (_lock)
-        {
-            started = Finish(write);
-        }
-
-        End(write, failure);
-        Start(started);
-    }
-
-    // Under the lock: the write goes into the queue of the commit stage.
-    private void EnqueuePrepared(PendingWrite write)
-    {
-        if (_preparedLast is null)
-        {
-            _preparedFirst = write;
+            _oldest = write;
         }
         else
         {
-            _preparedLast.NextInQueue = write;
+            _newest.Newer = write;
         }
 
-        _preparedLast = write;
+        _newest = write;
     }
 
-    // Under the lock: the next group, from the writes prepared now, in their order; false when none
-    // is prepared. Its writes are dispatched from here on: the stage hands the group to the storage
-    // step next, and no token is looked at any more.
-    private bool FormGroup()
+    // Under the lock: the write leaves the list of the writes admitted that waited, when it is in it; when
+    // it was the oldest and the next one waits in step 1 of its resolution, that one is resolved now.
+    private void Unlist(PendingWrite write, ref Pass pass)
+    {
+        if (!write.Listed)
+        {
+            return;
+        }
+
+        var older = write.Older;
+        var newer = write.Newer;
+
+        if (older is null)
+        {
+            _oldest = newer;
+        }
+        else
+        {
+            older.Newer = newer;
+        }
+
+        if (newer is null)
+        {
+            _newest = older;
+        }
+        else
+        {
+            newer.Older = older;
+        }
+
+        write.Older = null;
+        write.Newer = null;
+        write.Listed = false;
+
+        if (older is null && newer is { State: PendingWriteStateEnum.WaitingForEarlier } && !_faulted)
+        {
+            BecomeResolved(newer, ref pass);
+        }
+    }
+
+    // Under the lock: whether a write is prepared and not published, and so holds prepared memory: one
+    // is in the queue, or in the group, from the first write the group being formed took (FormGroup)
+    // to its publication. Every prepared write that is not published is in one of the two, so the
+    // answer is that of the whole state at every moment of a hold, also while a group is formed and a
+    // write withdrawn there ends.
+    private bool HoldsPreparedMemory() => _preparedFirst is not null || _groupPending;
+
+    // Under the lock: the write being resolved goes on to step 3, which waits outside every lock: on the
+    // thread of its call when that call holds the lock now, otherwise on a thread of the pool.
+    private void ToReads(PendingWrite write, ref Pass pass)
+    {
+        write.State = PendingWriteStateEnum.Reading;
+
+        if (ReferenceEquals(write, pass.Own))
+        {
+            pass.ReadsHere = write;
+        }
+        else
+        {
+            write.ResolutionPending = 1;
+            pass.Scheduled = write;
+        }
+    }
+
+    // Step 3 of a resolution and its end (see the class), outside the lock until it takes it for the
+    // last try; for the write of the call that runs it when own is true.
+    private Pass Resolve(PendingWrite write, bool own)
+    {
+        var pass = default(Pass);
+        long epoch;
+        bool retired;
+        Exception? cancelled = null;
+
+        lock (_writes)
+        {
+            epoch = _executor.ReadsToWaitFor(out retired);
+        }
+
+        if (retired && epoch != 0)
+        {
+            OfferWaitHold(write);
+
+            try
+            {
+                _executor.WaitForReads(epoch, write.Token);
+            }
+            catch (OperationCanceledException exception)
+            {
+                cancelled = exception;
+            }
+        }
+
+        lock (_writes)
+        {
+            if (own)
+            {
+                pass.Own = write;
+            }
+
+            _resolving = null;
+
+            if (_faulted)
+            {
+                End(write, Unavailable(), ref pass);
+            }
+            else if (cancelled is not null)
+            {
+                End(write, cancelled, ref pass);
+            }
+            else
+            {
+                TryLast(write, ref pass);
+            }
+
+            if (write.State == PendingWriteStateEnum.Completed)
+            {
+                AdvanceChain(write, ref pass);
+            }
+
+            ReleaseHeld(ref pass);
+            Drive(ref pass);
+        }
+
+        return pass;
+    }
+
+    // Under the lock: the last try of a resolved write, with no other write holding prepared memory:
+    // into the queue of the prepared writes, or refused for memory.
+    private void TryLast(PendingWrite write, ref Pass pass)
+    {
+        try
+        {
+            _executor.DrainRetired();
+
+            if (_executor.TryPrepare(write, out var prepared, out var refusal))
+            {
+                if (write.Token.IsCancellationRequested)
+                {
+                    _executor.Release(prepared);
+                    End(write, new OperationCanceledException(write.Token), ref pass);
+
+                    return;
+                }
+
+                write.Prepared = prepared;
+                write.State = PendingWriteStateEnum.Prepared;
+                Append(ref _preparedFirst, ref _preparedLast, write);
+
+                return;
+            }
+
+            // A token cancelled while it was tried ends it as cancelled, not refused.
+            write.Token.ThrowIfCancellationRequested();
+            End(write, refusal!, ref pass);
+        }
+        catch (Exception exception)
+        {
+            End(write, exception, ref pass);
+        }
+    }
+
+    // Under the lock: the held writes start, in their order, as the end of a resolution lets them.
+    private void ReleaseHeld(ref Pass pass)
+    {
+        while (_heldFirst is { } held)
+        {
+            _heldFirst = held.Next;
+            held.Next = null;
+            pass.AddReady(held);
+        }
+
+        _heldLast = null;
+    }
+
+    // Under the lock: as long as a write can go on, it goes on: the writes made ready start, and the
+    // queue of the prepared writes is handed to the storage step whenever no group is in it. The loop
+    // is left only when no write is ready (see Pass). At the end a resolved write that no longer has
+    // anything to wait for goes on to step 3.
+    private void Drive(ref Pass pass)
+    {
+        while (true)
+        {
+            if (pass.TakeReady() is { } ready)
+            {
+                Start(ready, ref pass);
+
+                continue;
+            }
+
+            if (_groupPending || _faulted)
+            {
+                break;
+            }
+
+            if (FormGroup(ref pass))
+            {
+                Commit(ref pass);
+
+                continue;
+            }
+
+            // No group was formed, and a write FormGroup withdrew may have made the next write of its
+            // entity ready.
+            if (!pass.HasReady)
+            {
+                break;
+            }
+        }
+
+        if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving && !HoldsPreparedMemory())
+        {
+            ToReads(resolving, ref pass);
+        }
+    }
+
+    // Under the lock: the next group, from the head of the queue of the prepared writes; false when no
+    // write was taken. A prepared write whose token is cancelled is withdrawn here instead of being
+    // taken into the group, whether or not the thread of the pool its cancellation went to has run
+    // (see the class, "Cancellation"); the next write of its entity becomes ready, and Drive starts
+    // it. The writes taken are dispatched from here on: the group is handed to the storage step next,
+    // and no token is looked at any more. From the first of them on the group holds prepared memory
+    // (_groupPending), so that a write withdrawn after it, whose end may make a refused write the one
+    // being resolved, does not find nothing prepared while the group holds it (HoldsPreparedMemory).
+    private bool FormGroup(ref Pass pass)
     {
         _group.Clear();
 
         while (_preparedFirst is { } write)
         {
-            if (write.State == PendingWriteStateEnum.Prepared)
+            if (write.Token.IsCancellationRequested)
             {
-                if (!_group.TryAdd(write.Prepared!))
-                {
-                    break;
-                }
+                _preparedFirst = write.Next;
+                write.Next = null;
+                _executor.Release(write.Prepared!);
+                End(write, new OperationCanceledException(write.Token), ref pass);
+                AdvanceChain(write, ref pass);
 
-                write.State = PendingWriteStateEnum.Dispatched;
+                continue;
             }
 
-            _preparedFirst = write.NextInQueue;
-            write.NextInQueue = null;
+            if (!_group.TryAdd(write.Prepared!))
+            {
+                break;
+            }
+
+            _groupPending = true;
+            write.State = PendingWriteStateEnum.Dispatched;
+            _preparedFirst = write.Next;
+            write.Next = null;
         }
 
         if (_preparedFirst is null)
@@ -1076,360 +1103,348 @@ internal sealed class WriteCoordinator : IThreadPoolWorkItem
         return true;
     }
 
-    // The commit stage, taken by this thread with a group formed (see the class): the storage step,
-    // the publication, the outcomes, then the next group. On the thread of a call (own) it stops once
-    // the write of the call has its outcome.
-    private async ValueTask CommitAsync(PendingWrite? own)
+    // Under the lock: the storage step for the group formed (the dispatch), which only takes it
+    // (ICommitStorage). A task already completed means the group is committed, and it is published in
+    // this hold; otherwise the thread on which it completes publishes it (CompleteStorageAsync).
+    private void Commit(ref Pass pass)
     {
-        while (true)
-        {
-            CommitOutcome outcome;
+        ValueTask<CommitOutcome> storing;
 
-            try
-            {
-                var storing = _storage.CommitAsync(_group, CancellationToken.None);
-
-                // The stage goes on where the storage completes, and the call returns.
-                if (!storing.IsCompleted)
-                {
-                    own = null;
-                }
-
-                outcome = await storing.ConfigureAwait(false);
-            }
-            catch (Exception exception)
-            {
-                Fault(firstSequence: 0, published: 0, exception);
-
-                return;
-            }
-
-            var published = _executor.Publish(_group, outcome.FirstSequence, out var failure);
-
-            if (failure is not null)
-            {
-                Fault(outcome.FirstSequence, published, failure);
-
-                return;
-            }
-
-            if (!CompleteGroup(outcome.FirstSequence, own))
-            {
-                return;
-            }
-        }
-    }
-
-    // The outcomes of the writes of the group, published at consecutive sequences from the first, and
-    // then the next group under the lock, unless the stage stops here: true when it goes on.
-    private bool CompleteGroup(ulong firstSequence, PendingWrite? own)
-    {
-        var writes = _group.Writes;
-        PendingWrite? started = null;
-
-        lock (_lock)
-        {
-            for (var index = 0; index < writes.Count; index++)
-            {
-                started = Join(started, Finish(writes[index].Write));
-            }
-        }
-
-        for (var index = 0; index < writes.Count; index++)
-        {
-            var prepared = writes[index];
-
-            // The write of the call that runs the stage, which the call may take the result of itself.
-            if (ReferenceEquals(prepared.Write, own))
-            {
-                own.PublishedByItsCall = true;
-            }
-
-            Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete));
-        }
-
-        Start(started);
-
-        var handOff = false;
-        bool goesOn;
-
-        lock (_lock)
-        {
-            if (own is not null && own.State == PendingWriteStateEnum.Completed)
-            {
-                // The call has its outcome: it gives the stage up, and what is left goes to a caller
-                // that waits for the stage, or to the thread pool.
-                handOff = _preparedFirst is not null;
-                goesOn = false;
-            }
-            else
-            {
-                goesOn = !_faulted && FormGroup();
-            }
-
-            _committing = goesOn;
-        }
-
-        if (handOff)
-        {
-            ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
-        }
-
-        return goesOn;
-    }
-
-    // A failure of the storage step or of the publication of the group (see the class, "A fault"): the
-    // writes of the group before the one that failed were published at consecutive sequences from the
-    // first.
-    private void Fault(ulong firstSequence, int published, Exception failure)
-    {
-        _faultDatabase();
-
-        var writes = _group.Writes;
-        PendingWrite? ended = null;
-        PendingWrite? withdrawn = null;
-
-        lock (_lock)
-        {
-            // Nothing goes on from here: no write is started again, and none is resolved.
-            _faulted = true;
-            _committing = false;
-            _resolving = null;
-
-            for (var index = 0; index < writes.Count; index++)
-            {
-                Finish(writes[index].Write);
-            }
-
-            // Every other write admitted that waits, or is prepared and waits for the commit stage. One
-            // being prepared ends at the end of its preparation; one withdrawn already, by its own path.
-            for (var write = _oldest; write is not null;)
-            {
-                var newer = write.Newer;
-
-                switch (write.State)
-                {
-                    case PendingWriteStateEnum.WaitingForIdentity or PendingWriteStateEnum.WaitingToPrepare
-                        or PendingWriteStateEnum.WaitingForEarlier or PendingWriteStateEnum.WaitingForFlight:
-                        Finish(write);
-                        write.NextToStart = ended;
-                        ended = write;
-                        break;
-
-                    case PendingWriteStateEnum.Prepared:
-                        write.State = PendingWriteStateEnum.Withdrawing;
-                        write.NextToStart = withdrawn;
-                        withdrawn = write;
-                        break;
-                }
-
-                write = newer;
-            }
-
-            _readyFirst = null;
-            _readyLast = null;
-            _preparedFirst = null;
-            _preparedLast = null;
-        }
-
-        for (var index = 0; index < writes.Count; index++)
-        {
-            var prepared = writes[index];
-
-            if (index < published)
-            {
-                Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete));
-            }
-            else
-            {
-                End(prepared.Write, new LatticeException(
-                    LatticeErrorEnum.IndeterminateOutcome,
-                    "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
-                    index == published ? failure : null));
-            }
-        }
-
-        for (var write = ended; write is not null;)
-        {
-            var next = write.NextToStart;
-
-            write.NextToStart = null;
-            End(write, Unavailable());
-            write = next;
-        }
-
-        for (var write = withdrawn; write is not null;)
-        {
-            var next = write.NextToStart;
-
-            write.NextToStart = null;
-            Withdraw(write, Unavailable());
-            write = next;
-        }
-    }
-
-    // Under the lock: the write leaves the list of the writes admitted and the chain of its identity,
-    // and flight when it was in flight, and is completed for the coordinator. Returns the writes its end
-    // lets go on, chained by NextToStart, which the caller starts after the lock (Start): the next write
-    // of its identity; the oldest write when it waits for the writes admitted before it and this was the
-    // last of them, which goes on to step 2 of its resolution; the write being resolved when this was the
-    // last write in flight it waited for; the writes held back when this was the write being resolved.
-    // After a fault nothing goes on.
-    private PendingWrite? Finish(PendingWrite write)
-    {
-        PendingWrite? started = null;
-
-        if (IsInFlight(write.State))
-        {
-            started = LeaveFlight();
-        }
-
-        if (ReferenceEquals(_resolving, write))
-        {
-            started = Join(started, EndResolution());
-        }
-
-        var older = write.Older;
-        var newer = write.Newer;
-
-        if (older is null)
-        {
-            _oldest = newer;
-        }
-        else
-        {
-            older.Newer = newer;
-        }
-
-        if (newer is null)
-        {
-            _newest = older;
-        }
-        else
-        {
-            newer.Older = older;
-        }
-
-        write.Older = null;
-        write.Newer = null;
-        _queued--;
-
-        // The oldest write, refused twice, waited for this one: it is resolved now (step 2).
-        if (older is null && newer is { State: PendingWriteStateEnum.WaitingForEarlier } && !_faulted)
-        {
-            _inFlight++;
-
-            if (BeginResolution(newer))
-            {
-                // Nothing else is in flight, so every place is free: it takes one.
-                _preparing++;
-                newer.State = PendingWriteStateEnum.Preparing;
-                newer.NextToStart = started;
-                started = newer;
-            }
-        }
-
-        var earlier = write.EarlierOfIdentity;
-        var later = write.LaterOfIdentity;
-
-        if (earlier is not null)
-        {
-            // A write that waited for its identity leaves the chain.
-            earlier.LaterOfIdentity = later;
-
-            if (later is not null)
-            {
-                later.EarlierOfIdentity = earlier;
-            }
-            else
-            {
-                _identities[new WriteIdentity(write.Table, write.Key)] = earlier;
-            }
-        }
-        else if (later is not null)
-        {
-            // The identity passes to the next write of it.
-            later.EarlierOfIdentity = null;
-
-            if (!_faulted && TakePlaceOrWait(later))
-            {
-                later.NextToStart = started;
-                started = later;
-            }
-        }
-        else
-        {
-            _identities.Remove(new WriteIdentity(write.Table, write.Key));
-        }
-
-        write.EarlierOfIdentity = null;
-        write.LaterOfIdentity = null;
-        write.State = PendingWriteStateEnum.Completed;
-
-        return started;
-    }
-
-    // Two chains of writes to start, as one.
-    private static PendingWrite? Join(PendingWrite? chain, PendingWrite? more)
-    {
-        while (more is not null)
-        {
-            var next = more.NextToStart;
-
-            more.NextToStart = chain;
-            chain = more;
-            more = next;
-        }
-
-        return chain;
-    }
-
-    // Hands every write of the chain, which has its place to be prepared, to the thread pool.
-    private static void Start(PendingWrite? chain)
-    {
-        while (chain is not null)
-        {
-            var next = chain.NextToStart;
-
-            chain.NextToStart = null;
-            Schedule(chain);
-            chain = next;
-        }
-    }
-
-    private static void Schedule(PendingWrite? write)
-    {
-        if (write is not null)
-        {
-            ThreadPool.UnsafeQueueUserWorkItem(write, preferLocal: false);
-        }
-    }
-
-    // The outcome of a write that was published: its session moves to its position, and its call
-    // returns. Outside every lock; the write leaves the barrier of the close last.
-    private void Succeed(PendingWrite write, LatticeWriteResult result)
-    {
         try
         {
-            write.Session?.Advance(result.Position);
+            storing = _storage.CommitAsync(_group, CancellationToken.None);
         }
         catch (Exception exception)
         {
-            End(write, exception);
+            FaultGroup(0, 0, exception, ref pass);
 
             return;
         }
 
+        if (!storing.IsCompleted)
+        {
+            _ = CompleteStorageAsync(storing.AsTask());
+
+            return;
+        }
+
+        CommitOutcome outcome;
+
+        try
+        {
+            outcome = storing.Result;
+        }
+        catch (Exception exception)
+        {
+            FaultGroup(0, 0, exception, ref pass);
+
+            return;
+        }
+
+        PublishGroup(outcome.FirstSequence, ref pass);
+    }
+
+    // A storage step that did not complete at once: its group is published on the thread on which it
+    // completes, never on the thread that dispatched it, which holds the lock and goes on.
+    private async Task CompleteStorageAsync(Task<CommitOutcome> storing)
+    {
+        CommitOutcome outcome = default;
+        Exception? failure = null;
+
+        try
+        {
+            outcome = await storing.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        var pass = default(Pass);
+
+        lock (_writes)
+        {
+            if (failure is null)
+            {
+                PublishGroup(outcome.FirstSequence, ref pass);
+            }
+            else
+            {
+                FaultGroup(0, 0, failure, ref pass);
+            }
+
+            Drive(ref pass);
+        }
+
+        Finish(ref pass);
+    }
+
+    // Under the lock: publishes the group at consecutive sequences from the first, gives its writes
+    // their outcomes, and starts the next write of the chain of each. When a publication failed the
+    // database faults first, before a write of the group completes, so that the end of one of them
+    // begins no resolution while the writes of the group after the failure still hold prepared memory.
+    private void PublishGroup(ulong firstSequence, ref Pass pass)
+    {
+        var published = _executor.Publish(_group, firstSequence, out var failure);
+        var writes = _group.Writes;
+
+        pass.Published = true;
+
+        if (failure is not null)
+        {
+            FaultGroup(firstSequence, published, failure, ref pass);
+        }
+
+        _groupPending = false;
+
+        for (var index = 0; index < published; index++)
+        {
+            var prepared = writes[index];
+
+            Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete), ref pass);
+            AdvanceChain(prepared.Write, ref pass);
+        }
+    }
+
+    // Under the lock: a failure of the storage step of the group, or of the publication of its write at
+    // the index published (see the class, "A fault"): the writes of the group from that index on are
+    // IndeterminateOutcome, and every other write admitted ends with Unavailable, once it has released
+    // what it held.
+    private void FaultGroup(ulong firstSequence, int published, Exception failure, ref Pass pass)
+    {
+        _faulted = true;
+        _groupPending = false;
+        pass.Faulted = true;
+
+        var writes = _group.Writes;
+
+        for (var index = published; index < writes.Count; index++)
+        {
+            var write = writes[index].Write;
+
+            End(write, new LatticeException(
+                LatticeErrorEnum.IndeterminateOutcome,
+                "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
+                index == published ? failure : null), ref pass);
+            AdvanceChain(write, ref pass);
+        }
+
+        while (_preparedFirst is { } prepared)
+        {
+            _preparedFirst = prepared.Next;
+            prepared.Next = null;
+            _executor.Release(prepared.Prepared!);
+            End(prepared, Unavailable(), ref pass);
+            AdvanceChain(prepared, ref pass);
+        }
+
+        _preparedLast = null;
+
+        if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving)
+        {
+            _resolving = null;
+            End(resolving, Unavailable(), ref pass);
+            AdvanceChain(resolving, ref pass);
+        }
+
+        for (var listed = _oldest; listed is not null;)
+        {
+            var newer = listed.Newer;
+
+            if (listed.State == PendingWriteStateEnum.WaitingForEarlier)
+            {
+                End(listed, Unavailable(), ref pass);
+                AdvanceChain(listed, ref pass);
+            }
+
+            listed = newer;
+        }
+
+        // The held writes and the writes of every chain start, and end with Unavailable (Start).
+        ReleaseHeld(ref pass);
+    }
+
+    // Under the lock: the next write of the chain of the write, which has ended or is published, starts.
+    private static void AdvanceChain(PendingWrite write, ref Pass pass)
+    {
+        if (write.LaterOfEntity is { } later)
+        {
+            write.LaterOfEntity = null;
+            later.EarlierOfEntity = null;
+            pass.AddReady(later);
+        }
+    }
+
+    // Under the lock: the write succeeded, and its outcome is given after the lock.
+    private void Succeed(PendingWrite write, LatticeWriteResult result, ref Pass pass)
+    {
+        write.Outcome = result;
+        write.Failure = null;
+        Complete(write, ref pass);
+    }
+
+    // Under the lock: the write ends with the failure, given after the lock.
+    private void End(PendingWrite write, Exception failure, ref Pass pass)
+    {
+        write.Failure = failure;
+        Complete(write, ref pass);
+    }
+
+    private void Complete(PendingWrite write, ref Pass pass)
+    {
+        write.State = PendingWriteStateEnum.Completed;
+        _queued--;
+        Unlist(write, ref pass);
+
+        if (ReferenceEquals(write, pass.Own))
+        {
+            pass.OwnEnded = true;
+        }
+        else
+        {
+            pass.AddEnded(write);
+        }
+    }
+
+    // After the lock: what the hold decided. The database faults first, so that the reads give up; the
+    // waits for a position are woken after a publication; every other write that ended gets its
+    // outcome; a resolution that goes on to step 3 goes to the thread pool; the switch of the tests runs
+    // for a write that begins to wait in its resolution.
+    private void Finish(ref Pass pass)
+    {
+        if (pass.Faulted)
+        {
+            _faultDatabase();
+        }
+
+        if (pass.Published)
+        {
+            _executor.WakePositions();
+        }
+
+        for (var write = pass.Ended; write is not null;)
+        {
+            var next = write.NextEnded;
+
+            write.NextEnded = null;
+            Deliver(write);
+            write = next;
+        }
+
+        if (pass.Scheduled is { } scheduled)
+        {
+            ThreadPool.UnsafeQueueUserWorkItem(scheduled, preferLocal: false);
+        }
+
+        if (pass.Offer is { } offered)
+        {
+            OfferWaitHold(offered);
+        }
+    }
+
+    // After the lock: the outcome of a write another thread decided. Its session moves to its position,
+    // its call returns, and the write leaves the barrier of the close last.
+    private void Deliver(PendingWrite write)
+    {
         write.Registration.Unregister();
-        write.Succeed(result);
+
+        if (write.Failure is { } failure)
+        {
+            write.Fail(failure);
+        }
+        else
+        {
+            try
+            {
+                write.Session?.Advance(write.Outcome.Position);
+                write.Succeed(write.Outcome);
+            }
+            catch (Exception exception)
+            {
+                write.Fail(exception);
+            }
+        }
+
         _barrier.Exit();
     }
 
-    // The failure a write ends with. Outside every lock; the write leaves the barrier of the close last.
-    private void End(PendingWrite write, Exception failure)
+    // The switch of the tests, at the first wait of the resolution of a write, outside every lock.
+    private void OfferWaitHold(PendingWrite write)
     {
-        write.Registration.Unregister();
-        write.Fail(failure);
-        _barrier.Exit();
+        if (write.Waited)
+        {
+            return;
+        }
+
+        write.Waited = true;
+
+        if (_waitHold is not null)
+        {
+            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+        }
+    }
+
+    // What one hold of the lock of the writes decided, to be carried out after it (Finish), and the
+    // writes it has to start in the hold (Drive). A value on the stack of the hold: nothing is allocated
+    // for it.
+    private struct Pass
+    {
+        // The write of the call that holds the lock, if a call does, and whether its outcome was decided.
+        public PendingWrite? Own;
+
+        public bool OwnEnded;
+
+        // A write being resolved whose step 3 runs on the thread of its call, which holds the lock.
+        public PendingWrite? ReadsHere;
+
+        // A write being resolved whose step 3 runs on a thread of the pool.
+        public PendingWrite? Scheduled;
+
+        // A write that begins to wait in step 2 of its resolution, for the switch of the tests.
+        public PendingWrite? Offer;
+
+        // Whether a group was published, and whether the database faulted.
+        public bool Published;
+
+        public bool Faulted;
+
+        // The writes to start in this hold, first in first out, linked by Next. A ready write keeps
+        // the state it waited in, Chained without the write before it or Held outside the held list,
+        // which only Start may see; so Drive starts every ready write before the hold ends, and
+        // Withdraw, which takes the lock, never finds one.
+        private PendingWrite? _ready;
+
+        private PendingWrite? _readyLast;
+
+        // The writes another thread's call waits for whose outcome this hold decided, linked by NextEnded.
+        public PendingWrite? Ended;
+
+        public readonly bool HasReady => _ready is not null;
+
+        public void AddReady(PendingWrite write) => Append(ref _ready, ref _readyLast, write);
+
+        public PendingWrite? TakeReady()
+        {
+            var write = _ready;
+
+            if (write is not null)
+            {
+                _ready = write.Next;
+                write.Next = null;
+
+                if (_ready is null)
+                {
+                    _readyLast = null;
+                }
+            }
+
+            return write;
+        }
+
+        public void AddEnded(PendingWrite write)
+        {
+            write.NextEnded = Ended;
+            Ended = write;
+        }
     }
 }

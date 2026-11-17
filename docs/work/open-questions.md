@@ -67,6 +67,15 @@ in the meantime.
 | **Until answered** | The engine contract states the rule under its table of settings; nothing before S09 depends on it |
 | **Decides** | The planner, with the contracts of the stages of S26 to S32 and of S33 to S36 |
 
+### Q52. Does the write path need the parallel form?
+
+| | |
+| --- | --- |
+| **Found** | 17 November 2026, the study of Epic 1, sprint S09, part 2 |
+| **Question** | Writes are prepared one at a time under the lock of the writes, so several calling threads write less in total than one, and one write of a large entity holds the lock while it is encoded. The form that scales writers in established systems fixes the order first and lets each caller encode in parallel, which needs an arena that allocates on several threads. Does the write path need it? |
+| **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
+| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
@@ -484,3 +493,12 @@ in the meantime.
 | **Question** | The primary index hashed Int64 and Guid keys through a mixing function without a seed that can be inverted, so whoever chooses the keys could put many on one 32-bit hash: memory stayed bounded and every key was found, but a read of one of them walked the chain, 287 µs against 0.2 µs. Does the index get a seed of its own per instance? |
 | **Answer** | The planner, 16 November 2026, from standing rules: yes. The cost is one word of state and one operation per hash; nothing a node shares depends on the hash; and "nobody outside chooses the keys" is something the database cannot know of an application. Each instance draws a seed when it opens; every hash of the primary index uses it, for every key type and both comparisons; the seed is never stored, sent or shown; the order of an enumeration is unspecified |
 | **Where the rule lives** | The brief of S08, part 2 in the [document of Epic 1](epic-1-core.md), which carries the work |
+
+### Q51. A read by name boxes a numeric key
+
+| | |
+| --- | --- |
+| **Found** | 17 November 2026, an outside review of `main` after Epic 1, sprint S09 |
+| **Question** | The members of `ILatticeSet` take a primary key as `object`, so a read by name of an integer or a Guid key allocates a box on every call: 2,400,000 bytes for 100,000 reads of absent Int64 keys, against 0 through a class. The brief of S06 had left the box out of the measured read as the caller's allocation. Is that the contract? |
+| **Answer** | The planner, 17 November 2026, on the rules of `AGENTS.md`, reported to the owner: no. A signature that forces boxing per call on a read path is a defect of the contract, and access by name is not a second-class path. Every member by name that takes a primary key gets a form that takes it without a box; the shape — a generic key parameter, or overloads for the key families — is chosen by a figure in the contract step |
+| **Where the rule lives** | The brief of S09, part 2 in the [document of Epic 1](epic-1-core.md), which carries the change; the sentence of the brief of S06 is corrected |

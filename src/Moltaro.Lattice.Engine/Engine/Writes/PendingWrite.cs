@@ -8,23 +8,27 @@ namespace Moltaro.Lattice.Engine.Writes;
 // One write from its admission to its outcome (WriteCoordinator): what the caller gave, where it
 // stands, the links of the lists of the coordinator it is in, and the task of the call. The task the
 // call returns is a ValueTask over it, so that no Task is allocated for a write (the value source of
-// .NET, ManualResetValueTaskSourceCore), or the result itself when the call published the write.
+// .NET, ManualResetValueTaskSourceCore), or the result itself when the write was published in the hold
+// of its call.
 //
-// One record serves one write at a time, from Begin to its outcome, and may then serve another
-// (WriteCoordinator, "What a write allocates"): Reset gives back everything it refers to and moves the
-// value source to its next version, so that a task of the write before can never read the write
-// after. It owns its PreparedWrite, which serves each write it holds in the same way (Prepare).
+// One record serves one write at a time, from Begin to its outcome. A record whose write was prepared
+// and published in the hold of its call, which no other thread and no registration ever saw and whose
+// task was never given out, serves the next write (WriteCoordinator, "What a write allocates"):
+// ResetAfterItsCall clears what that write set, and Begin sets the inputs of the next. Every other
+// record is left to the collector once its write has its outcome, since its task, its registration or
+// another thread may still read it. It owns its PreparedWrite, which serves each write it holds in the
+// same way (Prepare).
 //
-// Who touches what. The inputs are set by Begin and not changed until Reset. State and the links are
-// changed under the lock of the coordinator alone. Waited and Prepared are written by the thread that
-// prepares it and read by the next thread that does, or by the commit stage, each after the lock of
-// the coordinator has passed between them; PublishedByItsCall is written and read by the thread of
-// the call alone. The completion is set once for each write, outside every lock, and its continuations
-// run on the thread pool, never on the thread that completes it, so that no code of the application
-// runs on a thread of the engine (RunContinuationsAsynchronously).
+// Who touches what. The inputs are set by Begin and not changed until the write has its outcome.
+// Every other field is written and read under the lock of the writes, except Outcome and Failure,
+// which the thread that decides the outcome writes under the lock and reads after it, and the
+// completion, which is set once for each write, outside every lock; its continuations run on the
+// thread pool, never on the thread that completes it, so that no code of the application runs on a
+// thread of the engine (RunContinuationsAsynchronously).
 //
-// It is a work item of the thread pool, so that a write that waited for its turn is prepared on a
-// thread of the pool without another allocation (IThreadPoolWorkItem).
+// It is a work item of the thread pool, so that its withdrawal after a cancellation, and the end of
+// its resolution after a refusal of the arena, run on a thread of the pool without another allocation
+// (IThreadPoolWorkItem).
 internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThreadPoolWorkItem
 {
     private readonly WriteCoordinator _coordinator;
@@ -34,14 +38,17 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // The prepared state of the write it holds, made once and set by each preparation.
     private PreparedWrite? _record;
 
+    // The hash of its key, once a scan of the writes in flight needed it (HashOf); valid while
+    // _hashed is set.
+    private uint _hash;
+
+    private bool _hashed;
+
     public PendingWrite(WriteCoordinator coordinator)
     {
         _coordinator = coordinator;
         _completion.RunContinuationsAsynchronously = true;
     }
-
-    // The coordinator that admitted it, for the cancellation of its token.
-    public WriteCoordinator Coordinator => _coordinator;
 
     public EntityTable Table { get; private set; } = null!;
 
@@ -59,41 +66,56 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     public CancellationToken Token { get; private set; }
 
+    // The number of its admission: the writes are admitted one at a time, in this order, under the lock
+    // of the writes.
+    public long Admission { get; private set; }
+
     public PendingWriteStateEnum State { get; set; }
 
-    // The writes of the same identity admitted just before and just after it: the first of the chain
-    // holds the identity, the others wait for it in the order of their admission.
-    public PendingWrite? EarlierOfIdentity { get; set; }
+    // The writes of the same entity just before and just after it in the chain of that entity: the
+    // first of the chain has not completed — it is prepared and not published yet, held back, or in
+    // the resolution of a refusal of the arena — and the others wait behind it in the order of their
+    // admission (PendingWriteStateEnum.Chained).
+    public PendingWrite? EarlierOfEntity { get; set; }
 
-    public PendingWrite? LaterOfIdentity { get; set; }
+    public PendingWrite? LaterOfEntity { get; set; }
 
-    // The writes admitted just before and just after it, of every entity: the list of the writes
-    // admitted and not completed, in the order of their admission.
+    // The writes admitted just before and just after it among those that waited, of every entity, and
+    // whether it is in that list: a write enters it when its call leaves the lock with the write not
+    // completed, so the list holds the writes admitted and not completed that ever waited, in the order
+    // of their admission (WriteCoordinator, "The refusal").
     public PendingWrite? Older { get; set; }
 
     public PendingWrite? Newer { get; set; }
 
-    // The next write of the queue it is in: the writes waiting to be prepared, or the writes prepared
-    // and waiting for the commit stage.
-    public PendingWrite? NextInQueue { get; set; }
+    public bool Listed { get; set; }
 
-    // The next write that the end of another made ready, while the coordinator starts them.
-    public PendingWrite? NextToStart { get; set; }
+    // The next write of the list it is in: the queue of the prepared writes, the held list, or the
+    // writes a hold of the lock has to start (WriteCoordinator.Drive).
+    public PendingWrite? Next { get; set; }
 
-    // Whether the switch of the tests was offered at a wait of its resolution, which it is at the first
-    // only (WriteCoordinator.OfferWaitHold). Written by the thread that decides the wait.
-    public bool Waited { get; set; }
-
-    // Whether the commit stage that published it ran on the thread of its call, inside the call, so
-    // that the call returns the result and no other thread refers to the write any more
-    // (WriteCoordinator.CompleteGroup).
-    public bool PublishedByItsCall { get; set; }
+    // The next write whose outcome a hold of the lock decided and gives after it.
+    public PendingWrite? NextEnded { get; set; }
 
     // What the preparation made, from its end to the outcome.
     public PreparedWrite? Prepared { get; set; }
 
-    // The registration of the cancellation of the token, for a token that can be cancelled.
+    // The registration of the cancellation of the token, for a write that waits with a token that can
+    // be cancelled.
     public CancellationTokenRegistration Registration { get; set; }
+
+    // Whether the switch of the tests was offered at a wait of its resolution, which it is at the first
+    // only (WriteCoordinator.OfferWaitHold).
+    public bool Waited { get; set; }
+
+    // Set when the coordinator handed the end of its resolution to the thread pool, and taken by the
+    // work item that runs it (Execute).
+    public int ResolutionPending;
+
+    // Its outcome, decided under the lock and given after it: the result, or the failure.
+    public LatticeWriteResult Outcome { get; set; }
+
+    public Exception? Failure { get; set; }
 
     // The task of the call.
     public ValueTask<LatticeWriteResult> Task => new(this, _completion.Version);
@@ -106,7 +128,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         object?[]? values,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
-        CancellationToken token)
+        CancellationToken token,
+        long admission)
     {
         Table = table;
         Kind = kind;
@@ -115,7 +138,26 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         ExpectedRevision = expectedRevision;
         Session = session;
         Token = token;
+        Admission = admission;
     }
+
+    // The hash of its key, as its entity type hashes keys (EntityTable.HashOf), computed once.
+    public uint HashOf()
+    {
+        if (!_hashed)
+        {
+            _hash = Table.HashOf(Key);
+            _hashed = true;
+        }
+
+        return _hash;
+    }
+
+    // Whether the other write is of the same entity: of the same entity type and with a key that the
+    // schema compares equal to this one, so that two spellings of a String key compared without case
+    // are one entity (EntityTable.KeysEqual).
+    public bool IsOfSameEntity(PendingWrite other) =>
+        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.KeysEqual(Key, other.Key);
 
     // The prepared state of the write, set from what its preparation made (WriteExecutor).
     public PreparedWrite Prepare(PublicationKindEnum kind, RootHandle handle, ArenaAddress root, long encodedSize)
@@ -126,39 +168,23 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         return _record;
     }
 
-    // The result of a write its call published and that succeeded: true with the result, which the call
-    // returns itself; false otherwise, and the call returns the task.
-    public bool TryTakeResult(out LatticeWriteResult result)
-    {
-        if (PublishedByItsCall && _completion.GetStatus(_completion.Version) == ValueTaskSourceStatus.Succeeded)
-        {
-            result = _completion.GetResult(_completion.Version);
-
-            return true;
-        }
-
-        result = default;
-
-        return false;
-    }
-
-    // Ends the write it held, once nothing refers to it any more: gives back what it refers to, and the
-    // value source moves to its next version.
-    public void Reset()
+    // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
+    // go of the inputs, so that the record keeps nothing of the caller alive, and clears its state, its
+    // prepared state, its outcome and the hash of its key; no list, chain, registration or task was
+    // ever given it, so its links are null and its value source was never read (WriteCoordinator, "What
+    // a write allocates").
+    public void ResetAfterItsCall()
     {
         Table = null!;
         Key = default;
-        Values = null;
-        ExpectedRevision = null;
-        Session = null;
         Token = default;
+        Values = null;
+        Session = null;
+        ExpectedRevision = null;
         State = default;
-        Waited = false;
-        PublishedByItsCall = false;
         Prepared = null;
-        Registration = default;
-        _record?.Set(default, default, default, 0);
-        _completion.Reset();
+        Failure = null;
+        _hashed = false;
     }
 
     public void Succeed(LatticeWriteResult result) => _completion.SetResult(result);
@@ -172,7 +198,17 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags) =>
         _completion.OnCompleted(continuation, state, token, flags);
 
-    // Prepared on a thread of the pool, once it holds its identity and a place among the writes being
-    // prepared, or withdrawn there, once its token was cancelled while it waited for the commit stage.
-    public void Execute() => _coordinator.Run(this);
+    // On a thread of the pool: the end of its resolution, when the coordinator handed it over, or its
+    // withdrawal, once its token was cancelled while it waited.
+    public void Execute()
+    {
+        if (Interlocked.Exchange(ref ResolutionPending, 0) == 1)
+        {
+            _coordinator.EndResolution(this);
+        }
+        else
+        {
+            _coordinator.Withdraw(this);
+        }
+    }
 }

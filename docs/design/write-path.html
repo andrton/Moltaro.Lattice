@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a write is executed — Moltaro.Lattice</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c2330; --muted: #5d6878; --line: #c9d1dc; --panel: #f4f6f9;
+    --a: #1f6feb; --b: #8250df; --c: #1a7f37; --d: #bf5b04;
+    --lock: #9a6700; --lock-bg: #fff3cd; --store-bg: #e6f0ff; --store: #1f6feb;
+    --done-bg: #dcf5e3; --done: #1a7f37; --park-bg: #fde8e8; --park: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --fg: #e3e8ef; --muted: #98a4b3; --line: #3a4350; --panel: #1b212a;
+      --a: #6cb0ff; --b: #c4a0ff; --c: #56d37a; --d: #f0a55a;
+      --lock: #e3b341; --lock-bg: #3d3212; --store-bg: #16263f; --store: #6cb0ff;
+      --done-bg: #173a24; --done: #56d37a; --park-bg: #43201f; --park: #ff8f85;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { color: var(--muted); }
+  .status { border-left: 3px solid var(--lock); background: var(--panel); padding: 10px 14px; margin: 18px 0; font-size: .93rem; }
+  blockquote { margin: 16px 0; padding: 10px 16px; border-left: 3px solid var(--done); background: var(--panel); font-size: 1.05rem; }
+  figure { margin: 20px 0 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  svg { display: block; width: 100%; height: auto; background: var(--panel); }
+  .controls { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--fg); }
+  button:disabled { opacity: .45; cursor: default; }
+  .count { color: var(--muted); font-size: .9rem; margin-left: auto; }
+  .caption { padding: 14px; border-top: 1px solid var(--line); min-height: 104px; }
+  .caption b { display: block; margin-bottom: 2px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .93rem; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  a { color: var(--a); }
+
+  /* drawing */
+  text { fill: var(--fg); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .small { font-size: 11.5px; fill: var(--muted); }
+  .head { font-size: 12px; fill: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+  .box { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+  #lockBox { fill: var(--lock-bg); stroke: var(--lock); stroke-width: 1.4; }
+  #storeBox { fill: var(--store-bg); stroke: var(--store); stroke-width: 1.4; }
+  #doneBox { fill: var(--done-bg); stroke: var(--done); stroke-width: 1.2; }
+  #parkBox { fill: var(--park-bg); stroke: var(--park); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .flow { stroke: var(--line); stroke-width: 2; fill: none; }
+  .w { transition: transform .9s ease, opacity .5s ease; }
+  .w rect { stroke-width: 0; }
+  .w text { fill: #fff; font-weight: 600; font-size: 12px; text-anchor: middle; }
+  .wa rect { fill: var(--a); } .wb rect { fill: var(--b); } .wc rect { fill: var(--c); } .wd rect { fill: var(--d); }
+  @media (prefers-color-scheme: dark) { .w text { fill: #10141a; } }
+  #pos { font-size: 24px; font-weight: 700; text-anchor: middle; }
+  @media (prefers-reduced-motion: reduce) { .w { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>How a write is executed: one at a time, grouped at the storage step</h1>
+  <p class="lead">Moltaro.Lattice · an explanation, not a specification. The same text without the
+    animation is in <a href="write-path.md">write-path.md</a>; the rule is in the
+    <a href="milestone-1-engine-contract.md#write-coordinator-and-revision-semantics">milestone contract</a>.
+    How reads are protected meanwhile: <a href="epoch-protection.html">epochs</a>.</p>
+  <p class="status"><b>Status.</b> Decided on 17 November 2026 and being built in Epic 1, sprint S09, part 2.
+    This page describes the intended behavior; storage in PostgreSQL is not built yet.</p>
+
+  <h2>The idea</h2>
+  <blockquote>A write is prepared and published under one lock, one write at a time. Writes are
+    gathered into a group only where something slow has to happen: at the storage step.</blockquote>
+  <p>Any number of threads may write; every write still takes its place in one order, its
+    <em>position</em>. Step through one write when storage takes no time, and then four writes when
+    the storage step is slow.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" role="img" aria-labelledby="capTitle capText">
+      <defs>
+        <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/>
+        </marker>
+      </defs>
+
+      <text class="head" x="30" y="34">Callers</text>
+      <rect class="box" x="30" y="44" width="130" height="226" rx="8"/>
+      <text class="small" x="95" y="262" text-anchor="middle">threads that write</text>
+
+      <text class="head" x="205" y="34">Lock of the writes</text>
+      <rect id="lockBox" x="205" y="44" width="130" height="110" rx="8"/>
+      <text id="lockNote" class="small" x="270" y="140" text-anchor="middle">free</text>
+
+      <text class="head" x="205" y="196">Waits behind a write</text>
+      <rect id="parkBox" x="205" y="206" width="130" height="64" rx="8"/>
+      <text id="parkNote" class="small" x="270" y="258" text-anchor="middle">nobody</text>
+
+      <text class="head" x="380" y="34">Open group</text>
+      <rect class="box" x="380" y="44" width="130" height="110" rx="8"/>
+      <text id="groupNote" class="small" x="445" y="140" text-anchor="middle">empty</text>
+
+      <text class="head" x="555" y="34">Storage step</text>
+      <rect id="storeBox" x="555" y="44" width="130" height="110" rx="8"/>
+      <text id="storeNote" class="small" x="620" y="140" text-anchor="middle">idle</text>
+      <text id="storeMode" class="small" x="620" y="172" text-anchor="middle">completes at once (memory only)</text>
+
+      <text class="head" x="730" y="34">Published</text>
+      <rect id="doneBox" x="730" y="44" width="140" height="226" rx="8"/>
+      <text class="small" x="800" y="296" text-anchor="middle">position of the database</text>
+      <text id="pos" x="800" y="330">41</text>
+
+      <path class="flow" marker-end="url(#tip)" d="M162 99 L201 99"/>
+      <path class="flow" marker-end="url(#tip)" d="M337 99 L376 99"/>
+      <path class="flow" marker-end="url(#tip)" d="M512 99 L551 99"/>
+      <path class="flow" marker-end="url(#tip)" d="M687 99 L726 99"/>
+
+      <text class="small" x="30" y="330">Reads take no lock and go on</text>
+      <text class="small" x="30" y="346">while all of this happens.</text>
+
+      <!-- writes; each starts at its home among the callers -->
+      <g id="w1" class="w wa"><rect x="0" y="0" width="100" height="28" rx="6"/><text x="50" y="19">A · key 7</text></g>
+      <g id="w2" class="w wa"><rect x="0" y="0" width="100" height="28" rx="6"/><text x="50" y="19">A · key 8</text></g>
+      <g id="w3" class="w wb"><rect x="0" y="0" width="100" height="28" rx="6"/><text x="50" y="19">B · key 3</text></g>
+      <g id="w4" class="w wc"><rect x="0" y="0" width="100" height="28" rx="6"/><text x="50" y="19">C · key 5</text></g>
+      <g id="w5" class="w wd"><rect x="0" y="0" width="100" height="28" rx="6"/><text x="50" y="19">D · key 3</text></g>
+    </svg>
+    <div class="controls">
+      <button id="prev" type="button">← Back</button>
+      <button id="next" type="button">Next →</button>
+      <button id="play" type="button">Play</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="caption" aria-live="polite"><b id="capTitle"></b><span id="capText"></span></div>
+  </figure>
+
+  <h2>Two writes to one entity</h2>
+  <p>A write is checked against the published state. While an entity has an earlier write that
+    has not completed, a later write to it waits behind that one and holds nothing. Not completed
+    means prepared and not published yet, or itself still waiting its turn. When the earlier write
+    completes, published, refused or cancelled, the later one is checked against the state that
+    is published then. So a later write never overtakes an earlier one. When storage takes no time
+    this happens only while a write refused for lack of memory is being settled: otherwise a write
+      is published in the same hold of the lock that prepared it.</p>
+
+  <h2>What an application can rely on</h2>
+  <table>
+    <tr><th>Guarantee</th><th>What it means</th></tr>
+    <tr><td>Order for one entity</td><td>Writes to one entity are executed in the order their calls were made. A write that first waits for the position of its session takes its place when that wait ends. Calls that race on different threads have no order between them.</td></tr>
+    <tr><td>A write is whole</td><td>Readers see the state before a write or after it, never a mixture.</td></tr>
+    <tr><td>Cancellation is honest</td><td>Before a write is handed to the storage step, cancelling it withdraws it and leaves nothing behind. After that, the call returns what really happened.</td></tr>
+    <tr><td>Nothing is refused for being busy</td><td>Writes that arrive faster than they complete wait their turn. A write is refused only when it does not fit into the memory of the database beside the stored data.</td></tr>
+    <tr><td>Reads are not held up</td><td>A read takes no lock and goes on while writes run.</td></tr>
+  </table>
+
+  <h2>What it costs</h2>
+  <ul>
+    <li>Writes do not speed up with more writing threads: the work in memory is serial. Every
+      database that keeps one order of writes in memory pays this; what scales with callers is the
+      storage step, through groups.</li>
+    <li>A very large entity holds other writes back while its values are encoded under the lock.
+      Reads are not affected. Measured: one write of 32 MiB holds the lock for about 3 ms.</li>
+    <li>The lock is not fair: under many writing threads a single write can wait longer than the
+      average. Measured at its worst: beside a caller that writes entities of 32 MiB one after
+      another, a caller of small writes completed 1,500 to 4,300 a second where alone it completes
+      about two million, and a single small write waited up to about 110 ms. A write that large
+      gives its processor up once after it releases the lock; that helps and bounds nothing.</li>
+    <li>Measured in memory only, on the development machine: one calling thread replaces about
+      1.6 million entities a second, 16 threads about 1.0 million in total; reads by key on 16
+      threads beside them stay at about 15 million a second.</li>
+  </ul>
+
+  <h2>A known design</h2>
+  <p>Nothing here is invented for this database. One writer at a time under one lock is how
+    established embedded stores execute writes, and gathering the writes that arrive during a commit
+    into the next commit is the group commit that database servers have used for decades.</p>
+</main>
+
+<script>
+(function () {
+  // Places a write can be at.
+  var HOME = { w1: [45, 60], w2: [45, 60], w3: [45, 100], w4: [45, 140], w5: [45, 180] };
+  var LOCK = [220, 70], PARK = [220, 216];
+  var GROUP = [[395, 58], [395, 92]];
+  var STORE = [[570, 58], [570, 92]];
+  var DONE = [[750, 58], [750, 92], [750, 126], [750, 160], [750, 194]];
+  var FAST = "completes at once (memory only)", SLOW = "slow: a commit to PostgreSQL";
+
+  var steps = [
+    { title: "At rest.", text: "The position of the database is 41. Nobody is writing. In this first part the storage step takes no time: the database is kept in memory only.",
+      at: {}, hide: ["w2"], lock: "free", park: "nobody", group: "empty", store: "idle", mode: FAST, pos: 41 },
+    { title: "A takes the lock and prepares its write.", text: "The thread that made the call takes the lock of the writes. Under it, it looks key 7 up, checks the condition of the write and encodes the values into memory that no reader can see yet. No other write runs meanwhile.",
+      at: { w1: LOCK }, hide: ["w2"], lock: "held by A", park: "nobody", group: "empty", store: "idle", mode: FAST, pos: 41 },
+    { title: "Published in the same hold.", text: "The storage step completes at once and gives the write position 42. Still holding the lock, A publishes the write: readers can find it now. A releases the lock and its call returns the result. Nothing was handed to another thread, and nothing waited.",
+      at: { w1: DONE[0] }, hide: ["w2"], lock: "free", park: "nobody", group: "empty", store: "idle", mode: FAST, pos: 42 },
+    { title: "Now let the storage step be slow.", text: "With PostgreSQL the storage step is a commit, which takes time. A writes key 8: it prepares under the lock as before.",
+      at: { w1: DONE[0], w2: LOCK }, hide: [], lock: "held by A", park: "nobody", group: "empty", store: "idle", mode: SLOW, pos: 42 },
+    { title: "A's write is in the storage step. The lock is free.", text: "No group was in the storage step, so the write goes there at once, as a group of one. The wait for storage happens outside the lock: other callers can prepare meanwhile.",
+      at: { w1: DONE[0], w2: STORE[0] }, hide: [], lock: "free", park: "nobody", group: "empty", store: "committing", mode: SLOW, pos: 42 },
+    { title: "B prepares and joins the open group.", text: "B takes the lock, checks and encodes its write to key 3, puts it into the open group and releases the lock. Its call now waits for the result.",
+      at: { w1: DONE[0], w2: STORE[0], w3: GROUP[0] }, hide: [], lock: "free", park: "nobody", group: "1 write", store: "committing", mode: SLOW, pos: 42 },
+    { title: "C joins the same group. D has to wait behind B.", text: "C does the same for key 5. D writes key 3, the entity B has a prepared, unpublished write for. D cannot be checked against a state that is not published yet, so it waits behind B and holds nothing while it waits.",
+      at: { w1: DONE[0], w2: STORE[0], w3: GROUP[0], w4: GROUP[1], w5: PARK }, hide: [], lock: "free", park: "D, behind B", group: "2 writes", store: "committing", mode: SLOW, pos: 42 },
+    { title: "The commit completes; the next group goes in.", text: "A's write is published at position 43 and its call returns. The open group, B and C, goes to the storage step together: one commit for both. A group never waits to fill; it takes what is there.",
+      at: { w1: DONE[0], w2: DONE[1], w3: STORE[0], w4: STORE[1], w5: PARK }, hide: [], lock: "free", park: "D, behind B", group: "empty", store: "committing", mode: SLOW, pos: 43 },
+    { title: "B and C are published, in order.", text: "One commit served two writes; each has its own position, 44 and 45. The more callers write, the larger the groups, and the less each write pays for storage.",
+      at: { w1: DONE[0], w2: DONE[1], w3: DONE[2], w4: DONE[3], w5: PARK }, hide: [], lock: "free", park: "D, behind B", group: "empty", store: "idle", mode: SLOW, pos: 45 },
+    { title: "D takes its turn.", text: "B is published, so D takes the lock and is checked against the state B produced. Writes to one entity are executed in the order their calls were made.",
+      at: { w1: DONE[0], w2: DONE[1], w3: DONE[2], w4: DONE[3], w5: LOCK }, hide: [], lock: "held by D", park: "nobody", group: "empty", store: "idle", mode: SLOW, pos: 45 }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var at = 0, timer = null;
+
+  function show() {
+    var s = steps[at];
+    Object.keys(HOME).forEach(function (id) {
+      var to = s.at[id] || HOME[id];
+      $(id).style.transform = "translate(" + to[0] + "px," + to[1] + "px)";
+      $(id).setAttribute("opacity", s.hide.indexOf(id) >= 0 ? 0 : 1);
+    });
+    $("lockNote").textContent = s.lock;
+    $("parkNote").textContent = s.park;
+    $("groupNote").textContent = s.group;
+    $("storeNote").textContent = s.store;
+    $("storeMode").textContent = s.mode;
+    $("pos").textContent = s.pos;
+    $("capTitle").textContent = s.title;
+    $("capText").textContent = " " + s.text;
+    $("count").textContent = "Step " + (at + 1) + " of " + steps.length;
+    $("prev").disabled = at === 0;
+    $("next").disabled = at === steps.length - 1;
+  }
+
+  function stop() { clearInterval(timer); timer = null; $("play").textContent = "Play"; }
+
+  $("prev").onclick = function () { stop(); if (at > 0) { at--; show(); } };
+  $("next").onclick = function () { stop(); if (at < steps.length - 1) { at++; show(); } };
+  $("play").onclick = function () {
+    if (timer) { stop(); return; }
+    if (at === steps.length - 1) { at = 0; show(); }
+    $("play").textContent = "Pause";
+    timer = setInterval(function () {
+      if (at === steps.length - 1) { stop(); return; }
+      at++; show();
+    }, 4500);
+  };
+
+  show();
+})();
+</script>
+</body>
+</html>

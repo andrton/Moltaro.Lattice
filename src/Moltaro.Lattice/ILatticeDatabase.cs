@@ -243,7 +243,11 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <remarks>
     /// Entities returned by earlier reads stay valid. A MemoryOnly database saves nothing:
     /// its data is gone after closing. A child whose master has closed keeps serving its
-    /// local reads. Disposing the database closes it in the same way.
+    /// local reads. Disposing the database closes it in the same way. A call made while an
+    /// earlier close is in progress, and a dispose, starts no other close: it completes when
+    /// that close completes, once the memory is released; the token of a call cancels the wait
+    /// of that call alone. The synchronous <see cref="IDisposable.Dispose"/> blocks its thread
+    /// until the close has completed.
     /// </remarks>
     /// <param name="cancellationToken">
     /// Cancels waiting for the close to finish. The database still closes.

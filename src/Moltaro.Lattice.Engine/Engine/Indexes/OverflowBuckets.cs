@@ -20,9 +20,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // the page; the address 0 kept for none; a counter of the buckets given out, from which the next one
 // is taken, and a new page added when the pages are used up. What differs:
 // - Pages are added by the writer before it publishes the writes that need them (Reserve, for as many
-//   buckets as the inserts prepared at once may take), never on the path of a read, and Take refuses
-//   when Reserve has not made room: no path writes outside the pages. Tsavorite allocates the next
-//   page ahead and takes addresses with an interlocked add, because many threads take them.
+//   buckets as the inserts prepared and not published yet may take), never on the path of a read, and
+//   Take refuses when Reserve has not made room: no path writes outside the pages. Tsavorite allocates
+//   the next page ahead and takes addresses with an interlocked add, because many threads take them.
 // - The number of buckets in a page is a sixteenth of the main buckets of the table, at least one, so
 //   that the overflow of a small table is small and that of a large one grows by large steps.
 //   Tsavorite's pages hold 2^16 records.

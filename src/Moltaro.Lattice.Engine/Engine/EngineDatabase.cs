@@ -49,23 +49,25 @@ namespace Moltaro.Lattice.Engine;
 // the reads that entered before the mark, and only then frees the arena with everything retired. It
 // does not wait for that inside the call: CloseAsync returns a task that completes then, and a
 // cancellation of its token ends only the wait of the caller. A wait for a position ends with the
-// close.
+// close. The close is one operation (brief of S09, part 2, the first finding of the outside review it
+// carries): the first call of CloseAsync or DisposeAsync begins it and keeps its task, and every
+// later call waits for that same task, so no call completes before the arena is freed, whichever
+// call it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread
+// until then.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
 // for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
-// writes in Writes (WriteCoordinator, which orders them, and WriteExecutor, which prepares and
-// publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
+// writes in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them
+// for the storage step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
 // Protection, the history and the sequence in Positions (PositionClock), and the sets of the public
 // interfaces in Sets.
 //
-// The order of the locks and of the lifetimes. The database has three locks: the lock of the state,
-// for an open, a close and a fault that race; the lock of the coordinator (WriteCoordinator), under
-// which writes are admitted, queued and completed; and the lock of the writes (WriteExecutor), under
-// which one change of a structure of the engine, the publication of one group, one drain or one count
-// of the counters runs at a time, held for synchronous work in memory only. No thread holds two of
-// them at once: the lock of the state is taken alone, the coordinator releases its lock before it
-// calls into the executor, and a thread that holds the lock of the writes takes no other lock. A read
-// takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
+// The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
+// for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
+// what it protects), under which writes are admitted, prepared, handed to the storage step and
+// published, and under which a drain or a count of the counters runs, held for synchronous work in
+// memory only. The lock of the state is taken alone; no thread that holds a lock takes the other one.
+// A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write
 // unlinks it and retires it, and the writer frees it only once the reads that entered before have
 // left (RetiredMemory); the close frees the arena only after the reads and the writes in progress
@@ -115,6 +117,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
     private readonly ConcurrentDictionary<Type, object> _classSets = new();
 
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
+
+    // The close, once a call has begun it: completes when the arena has been freed. Set under the lock
+    // of the state by the call that sets Closed, and never changed afterwards.
+    private TaskCompletionSource? _closed;
 
     // The parts of the open database. Set by the open before the state becomes Ready, which a member
     // reads first, and never changed afterwards.
@@ -192,8 +198,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // What the engine holds at this moment, for the tests and later for diagnostics: taken between
     // two changes of the engine, under the lock of the writes, so that no change, no publication and no
-    // freeing of what was retired is half done. The counters of the coordinator are read beside them
-    // without its lock, which is never held with the lock of the writes: each is one value of its own.
+    // freeing of what was retired is half done; the counters of the coordinator are written under the
+    // same lock.
     public EngineCounters Counters
     {
         get
@@ -298,12 +304,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
-    // refused twice runs hold, once, at the first wait of its resolution, on the thread that prepares it
-    // and outside every lock, when it knows it has to wait and before it waits, so that a test can tell
-    // that the write waits instead of giving it a window of time. A refused write is resolved alone: it
-    // waits for the writes admitted before it, then for the writes in flight while it holds back later
-    // ones, then for the reads that hold retired memory (WriteCoordinator, "The refusal"); the switch
-    // runs at the first of these waits that the write has to make. When hold returns the write waits as
+    // refused twice runs hold, once, at the first wait of its resolution, outside every lock, when it
+    // knows it has to wait and before it waits, so that a test can tell that the write waits instead of
+    // giving it a window of time. A refused write is resolved alone: while it holds back the preparation
+    // of later writes it waits for the writes prepared and not published yet, then for the reads that
+    // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
+    // that the write has to make. When hold returns the write waits as
     // it would have. Only a write the arena refused loads the switch: no other write and no read pays
     // anything for it. Unavailable before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
@@ -453,28 +459,40 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // Lets no operation start any more, ends the waits for a position, and frees the arena once the
-    // reads and writes in progress have ended (see the class). The cancellation token ends only the
-    // wait for that: the database still closes, and the arena is freed when they have ended.
+    // reads and writes in progress have ended (see the class). The first call begins the close; every
+    // later call, of this or of DisposeAsync, joins it. The cancellation token ends only the wait of
+    // its call: the database still closes, and the arena is freed when they have ended.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
+        TaskCompletionSource closed;
+        var begins = false;
+
         lock (_stateLock)
         {
-            if (_state == LatticeDatabaseStateEnum.Closed)
+            if (_closed is null)
             {
-                return ValueTask.CompletedTask;
+                _closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _state = LatticeDatabaseStateEnum.Closed;
+                begins = true;
             }
 
-            _state = LatticeDatabaseStateEnum.Closed;
+            closed = _closed;
         }
 
-        _clock?.Close();
+        if (begins)
+        {
+            _clock?.Close();
 
-        // The mark first: a read that enters from now on leaves at once, and the reads that entered
-        // before announce an epoch below the one returned here.
-        var mark = _epochs.Close();
-        var closed = FreeAfterOperationsAsync(_barrier.Close(), mark);
+            // The mark first: a read that enters from now on leaves at once, and the reads that entered
+            // before announce an epoch below the one returned here.
+            var mark = _epochs.Close();
 
-        return closed.IsCompleted ? new ValueTask(closed) : new ValueTask(closed.WaitAsync(cancellationToken));
+            _ = FreeAfterOperationsAsync(_barrier.Close(), mark, closed);
+        }
+
+        var task = closed.Task;
+
+        return task.IsCompleted ? new ValueTask(task) : new ValueTask(task.WaitAsync(cancellationToken));
     }
 
     public ValueTask DisposeAsync() => CloseAsync();
@@ -483,26 +501,35 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
     // counts of the counters in progress have ended and then the reads that entered before the mark of
-    // the close. When nothing is in progress it does so before it returns. The wait for the reads
-    // runs on a thread of the pool, because a read may be held by a test while its caller goes on; it
-    // ends as ReadEpochs.WaitForReadsBefore says.
-    private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark)
+    // the close, and then completes the close. When nothing is in progress it does so before it
+    // returns. The wait for the reads runs on a thread of the pool, because a read may be held by a
+    // test while its caller goes on; it ends as ReadEpochs.WaitForReadsBefore says.
+    private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark, TaskCompletionSource closed)
     {
-        await operationsEnded.ConfigureAwait(false);
-
-        if (_epochs.HasReadsBefore(mark))
+        try
         {
-            await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
+            await operationsEnded.ConfigureAwait(false);
+
+            if (_epochs.HasReadsBefore(mark))
+            {
+                await Task.Run(() => _epochs.WaitForReadsBefore(mark, CancellationToken.None)).ConfigureAwait(false);
+            }
+
+            // The parts are set only when the open published them; an open that the close overtook
+            // frees its own arena (Load). The arena is the only native memory of the database;
+            // everything else is managed.
+            if (_arena is { } arena)
+            {
+                _retired!.Drain();
+                _retired.Clear();
+                arena.Dispose();
+            }
+
+            closed.SetResult();
         }
-
-        // The parts are set only when the open published them; an open that the close overtook frees
-        // its own arena (Load). The arena is the only native memory of the database; everything else
-        // is managed.
-        if (_arena is { } arena)
+        catch (Exception exception)
         {
-            _retired!.Drain();
-            _retired.Clear();
-            arena.Dispose();
+            closed.SetException(exception);
         }
     }
 
@@ -538,8 +565,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // follows the hashes, may differ between two instances that hold the same data.
             var seed = _testInputs?.IndexSeed ?? DrawSeed();
             var writes = new Lock();
-            var executor = new WriteExecutor(writes, arena, roots, retired, clock, _epochs);
+            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs);
             var coordinator = new WriteCoordinator(
+                writes,
                 executor,
                 _testInputs?.CommitStorage ?? new MemoryOnlyStorage(),
                 _barrier,

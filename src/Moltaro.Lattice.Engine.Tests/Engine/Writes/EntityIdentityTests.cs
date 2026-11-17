@@ -2,13 +2,14 @@ using Moltaro.Lattice.Access;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// The identity a write reserves at its admission is its entity type and its key as the schema compares
-// keys (brief of Epic 1, sprint S09, "Who may touch what"; Writes.WriteIdentity): two spellings of a
-// String key compared without case are one entity, so a write of one spelling waits behind a write of
-// the other as behind any write of its entity, and holds nothing meanwhile. The storage step of the
-// test (HeldCommitStorage) holds an insert of "abcdef"; an insert of "ABCDEF" admitted after it is not
-// prepared, while an insert of another key admitted after both is; once the first is published, the
-// second finds the entity and is DuplicateKey, and the entity keeps the spelling it was inserted with.
+// A write to an entity that has a prepared, unpublished write waits behind it and holds nothing
+// meanwhile (milestone contract, "Write coordinator and revision semantics"), and its entity is its
+// entity type and its key as the schema compares keys: two spellings of a String key compared without
+// case are one entity, so a write of one spelling waits behind a write of the other as behind any
+// write of its entity. The storage step of the test (HeldCommitStorage) holds an insert of "abcdef";
+// an insert of "ABCDEF" admitted after it is not prepared, while an insert of another key admitted
+// after both is; once the first is published, the second finds the entity and is DuplicateKey, and the
+// entity keeps the spelling it was inserted with.
 // In a database of UTF-8 and in one of UTF-16 (KeySchema).
 public sealed class EntityIdentityTests
 {

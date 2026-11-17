@@ -8,9 +8,8 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // database, for the 100,000 users of UserDatabase, on one thread, alone and while a writer runs.
 //
 // Each series is timed as ReadSeries says, with keys drawn from the generator of the fixture, the
-// same on every run. Reads by class return a FixtureUser, reads by name a record; the keys of the
-// reads by name are boxed before the series, because a key boxed by a signature that takes object is
-// the caller's allocation.
+// same on every run. Reads by class return a FixtureUser, reads by name a record; both are given the
+// key as an Int64, which neither boxes (Q51 of the open questions).
 //
 // The writer replaces users with the values they have, one after the other, on a thread of its own.
 // No figure here judges a gate: G2 is measured in S40 under a manifest of its own.
@@ -26,7 +25,6 @@ internal static class ReadByKeyScenario
         using var users = UserDatabase.Load();
 
         var keys = users.Keys(KeySeed, ReadSeries.Reads);
-        var boxedKeys = keys.Select(key => (object)key).ToArray();
 
         return
         [
@@ -36,8 +34,8 @@ internal static class ReadByKeyScenario
             "",
             ReadSeries.Run("By class, alone", count => ByClass(users.ByClass, keys, count), writer: null),
             ReadSeries.Run("By class, with a writer", count => ByClass(users.ByClass, keys, count), users.ReplaceNext),
-            ReadSeries.Run("By name, alone", count => ReadSeries.ByName(users.ByName, boxedKeys, count), writer: null),
-            ReadSeries.Run("By name, with a writer", count => ReadSeries.ByName(users.ByName, boxedKeys, count), users.ReplaceNext),
+            ReadSeries.Run("By name, alone", count => ReadSeries.ByName(users.ByName, keys, count), writer: null),
+            ReadSeries.Run("By name, with a writer", count => ReadSeries.ByName(users.ByName, keys, count), users.ReplaceNext),
         ];
     }
 

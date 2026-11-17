@@ -35,8 +35,9 @@ The accepted [preparation policy](physical-storage.md#targeted-mutation-preparat
 uses targeted changes for explicit partial updates and full replacement for Save
 without changing this completion guarantee. Internal storage batching is accepted
 below. The later [ordered commit/publication decision](#ordered-commit-and-publication)
-accepts concurrent independent preparation followed by one ordered stage per
-instance. Exact worker counts, admission budgets and batch sizes remain engineering work.
+accepts one ordered stage per instance; since its amendment of 17 November 2026 changes
+are also prepared in it, one write at a time. Admission budgets and batch sizes remain
+engineering work.
 
 ### Per-object coordination and internal group commit
 
@@ -52,8 +53,7 @@ root/index gate is held over I/O. This requires write scheduling/ownership disti
 from the short reader-excluding publication gate.
 
 This per-object decision permits many concurrent callers and storage batching.
-The ordered stage selected below adds the scheduling baseline while preserving
-concurrent independent preparation. Batch limits and concrete same-root dependency
+The ordered stage selected below adds the scheduling baseline. Batch limits and concrete same-root dependency
 handling remain engineering work. Commit amortization is not an end-to-end
 throughput guarantee.
 
@@ -101,6 +101,23 @@ then save and publish short bounded groups sequentially through one ordered stag
 per database instance. Complete the current group's storage outcome and local
 publication before advancing the next group through that stage. Concurrent API
 callers and independent preparation remain supported within admission budgets.
+
+**Amended on 17 November 2026 by the owner.** Changes are prepared one write at a time,
+under the one lock of the writes that also publishes them; they are not prepared
+concurrently. Epic 1, sprint S09, built concurrent preparation in front of the ordered
+stage and measured it: the coordination it needs cost more than the overlap gained (one
+caller replaced 1.21–1.29 million entities a second and 16 callers 0.57–0.64 million in
+total, against 1.59–1.63 and 0.91–1.03 million for the path that replaced it, in memory
+only), and the write path was rebuilt after established stores that execute writes under
+one lock and group them only at the storage commit. What stands unchanged: any number of
+callers may write concurrently; no lock is held across the storage wait; while a group is
+in storage, other writes are prepared and form the next group; one storage commit serves
+a group; groups are published in order, the current one before the next. Where this
+record or a document that cites it says "concurrent independent preparation", read
+"preparation of other writes while a group is in storage". Whether preparation runs
+concurrently is not a guarantee to applications; it is open again as
+[Q52](../work/open-questions.md#q52-does-the-write-path-need-the-parallel-form) for the
+stage that builds durable storage.
 
 - Preserve conflict ownership for the same root and explicit WriteBatch so that
   a prepared mutation's predecessor cannot be invalidated before commit. Work on

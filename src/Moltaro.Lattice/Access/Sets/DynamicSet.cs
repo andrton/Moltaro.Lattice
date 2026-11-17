@@ -22,11 +22,16 @@ internal sealed class DynamicSet : ILatticeSet
     public ILatticeIndex<LatticeRecord> Index(string indexName) =>
         SetIndex<LatticeRecord>.Resolve(EntityType, indexName);
 
-    public LatticeRecord? Get(object key) => TryGet(key, out var record, out _) ? record : null;
+    public LatticeRecord? Get<TKey>(TKey key)
+        where TKey : notnull =>
+        TryGet(key, out var record, out _) ? record : null;
 
-    public bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record) => TryGet(key, out record, out _);
+    public bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record)
+        where TKey : notnull =>
+        TryGet(key, out record, out _);
 
-    public bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
+    public bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
+        where TKey : notnull
     {
         if (!_database.TryRead(EntityType, FieldValues.NormalizeKey(EntityType, key), out var stored, out _))
         {
@@ -40,7 +45,8 @@ internal sealed class DynamicSet : ILatticeSet
         return true;
     }
 
-    public ValueTask<LatticeReadResult<LatticeRecord>> GetAsync(object key, LatticeSession session, CancellationToken cancellationToken = default)
+    public ValueTask<LatticeReadResult<LatticeRecord>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(session);
         return ReadAsync(FieldValues.NormalizeKey(EntityType, key), session, cancellationToken);
@@ -84,16 +90,20 @@ internal sealed class DynamicSet : ILatticeSet
     public ValueTask<LatticeWriteResult> UpsertAsync(LatticeRecord record, LatticeSession session, CancellationToken cancellationToken = default) =>
         Save(WriteKindEnum.Upsert, record, null, Required(session), cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, null, null, cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeSession session, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, null, Required(session), cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, expectedRevision, null, cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, expectedRevision, Required(session), cancellationToken);
 
     private static LatticeSession Required(LatticeSession session)
@@ -152,6 +162,7 @@ internal sealed class DynamicSet : ILatticeSet
         return _database.WriteAsync(kind, EntityType, values[EntityType.Key.Ordinal]!, values, expectedRevision, session, cancellationToken);
     }
 
-    private ValueTask<LatticeWriteResult> Delete(object key, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
+    private ValueTask<LatticeWriteResult> Delete<TKey>(TKey key, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
+        where TKey : notnull =>
         _database.WriteAsync(WriteKindEnum.Delete, EntityType, FieldValues.NormalizeKey(EntityType, key), null, expectedRevision, session, cancellationToken);
 }

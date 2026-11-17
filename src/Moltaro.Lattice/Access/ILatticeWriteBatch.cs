@@ -200,6 +200,7 @@ public interface ILatticeWriteBatch
     /// Adds the deletion of the entity of the named entity type with the given primary
     /// key. A key that is absent when the batch is executed is not a failure.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="entityName">The entity type name declared in the schema.</param>
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <exception cref="ArgumentException">
@@ -209,12 +210,14 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
-    void Delete(string entityName, object key);
+    void Delete<TKey>(string entityName, TKey key)
+        where TKey : notnull;
 
     /// <summary>
     /// Adds the deletion of the entity of the named entity type with the given primary
     /// key, provided it still has the expected revision when the batch is executed.
     /// </summary>
+    /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="entityName">The entity type name declared in the schema.</param>
     /// <param name="key">The primary key, of the key type declared in the schema.</param>
     /// <param name="expectedRevision">The revision read together with the record.</param>
@@ -225,7 +228,8 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
-    void Delete(string entityName, object key, LatticeRevision expectedRevision);
+    void Delete<TKey>(string entityName, TKey key, LatticeRevision expectedRevision)
+        where TKey : notnull;
 
     /// <summary>
     /// Submits the batch. Completes when the master has published the whole batch and,

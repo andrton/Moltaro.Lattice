@@ -102,15 +102,16 @@ remembers the keys it has returned, returns no identity twice and every entity n
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
 `ReadTimeLimit`, none set by default, bound the memory and the time of a pass, and no
 call carries limits of its own; every hash of the primary index uses a seed the instance
-draws when it opens. From S09 a write of the engine passes a coordinator: admission, in
-which it takes its place among the writes of its entity; preparation, of several writes
-at once; and commit in one order, in groups of at most 32 writes or 8 MiB handed to a
-storage step, which in MemoryOnly completes at once. Writes to one entity are executed in
-the order of their calls; a write is withdrawn by its token until it is dispatched;
-`MemoryLimit` is the limit of the arena, and a write is refused for memory only when it
-does not fit beside the stored data; a fault of a publication leaves the instance
-`Faulted`. S09, part 2 holds this write path against the proven ones. The public entry
-keeps the refusals of the placeholder until S12.
+draws when it opens. Since S09, part 2 a write of the engine is prepared and published
+under one lock of the writes, one write at a time, and handed to a storage step in
+groups of at most 32 writes or 8 MiB; in MemoryOnly that step completes at once and the
+call publishes in the same hold. Writes to one entity are executed in the order of their
+calls; a write is withdrawn by its token until it is dispatched; `MemoryLimit` is the
+limit of the arena, and a write is refused for memory only when it does not fit beside
+the stored data; a fault of a publication leaves the instance `Faulted`. The close of a
+database is one operation that every later call joins; the token of an asynchronous read
+is honored in every wait of its step; a key is given by name without a box. The public
+entry keeps the refusals of the placeholder until S12.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -170,7 +171,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R18 | Complete writes: Insert, Replace, Upsert, Delete; expected revisions; immutable keys; a complete write is never turned into a diff; inputs stay stable until completion | [Q13](../decisions/mutation-commands.md) | Must | Works | S06–S08 |
 | R19 | Explicit partial updates: scalar assignments, replacement of a whole collection field and the accepted List, Map and Set element commands, in order, atomic for one entity | [Q13](../decisions/mutation-commands.md) | Must | Absent | S20 |
 | R20 | The atomic write batch: several entity types, one operation per type and key, one position, bounded, refused as a whole | [Q01](../decisions/document-model.md), [Q13](../decisions/mutation-commands.md#repeated-roots-inside-an-explicit-writebatch) | Must | Contract; `WriteBatchTests` skipped | S17 |
-| R21 | Write coordination: parallel preparation, order per entity, ordered bounded commit and publication, resources prepared before effects commit, cancellation only before dispatch, a failed publication stops the instance | [Q09.1](../decisions/write-acknowledgment.md), [Q13](../decisions/mutation-commands.md#cancellation-at-the-commit-boundary) | Must | Absent | S09 |
+| R21 | Write coordination: preparation of one write at a time (as amended on 17 November 2026), order per entity, ordered bounded commit and publication, resources prepared before effects commit, cancellation only before dispatch, a failed publication stops the instance | [Q09.1](../decisions/write-acknowledgment.md), [Q13](../decisions/mutation-commands.md#cancellation-at-the-commit-boundary) | Must | Absent | S09 |
 | R22 | Workload limits are options, validated together when the instance opens | [Engine contract](../design/milestone-1-engine-contract.md#initial-bounded-settings) | Must | Only the synchronization timeout | S06–S08, S09, S10–S11, S17, S23–S24, S26–S34, S39 |
 | R23 | Operation identities: a token kept before submission, a retained outcome, safe repetition for 15 minutes by default, never a second execution | [Q13](../decisions/mutation-commands.md#operation-identity-and-retained-results-accepted-for-v1), [retry protocol](../design/operation-retry-protocol.md) | Must | Absent | S26, S28–S29, S31 |
 | R24 | Durable is the default mode and MemoryOnly is explicit; the mode is chosen when the instance opens; children are MemoryOnly and never connect to PostgreSQL | [Q09.5](../decisions/persistence-modes.md), [Q09.6](../decisions/persistence-backends.md) | Must | Options exist; Durable refuses | S27 |
@@ -297,6 +298,12 @@ documentation before this document is removed.
 | S09 | The same for inserts and deletes | 1.45 to 1.74 M/s, 0.36 to 0.74 M/s, 0.62 to 0.71 M/s; on S08 3.10 to 3.30 M/s, 2.10 to 2.26 M/s, 2.06 to 2.18 M/s | development-3 | 17 November 2026 |
 | S09 | p99 of one write with 16 calling threads; bytes of managed memory allocated per write | 60 to 74 µs against 320 to 700 µs on S08 (1.6 to 2.7 ms beside 16 readers in the review); 160 bytes a replace and 136 an insert or delete for one caller, as on S08, and 350 to 362 with 4 callers, 538 to 543 with 16 | development-3 | 17 November 2026 |
 | S09 | Reads by key in total on 16 threads, alone and beside 1, 4 and 16 writing callers | 19.2 M/s alone against 18.1 to 18.4 on S08; 15.9 to 17.3, 14.7 to 15.5 and 13.8 to 14.7 beside the callers, against 16.9 to 17.9, 16.1 to 17.4 and 15.8 to 16.5 on S08; readers of another database of the process fall alike | development-3 | 17 November 2026 |
+| S09, part 2 | Completed writes a second of 1, 4 and 16 calling threads, replaces; alternating rounds against S08 and S09, the rounds in which the machine ran at its ordinary speed | 1.59 to 1.63 M/s, 1.04 to 1.10 M/s, 0.91 to 1.03 M/s; on S08 1.86 to 1.92, 1.25 to 1.32, 1.16 to 1.23 M/s; on S09 1.21 to 1.29, 0.38 to 0.67, 0.57 to 0.64 M/s | development-3 | 17 November 2026 |
+| S09, part 2 | The same for inserts and deletes | 2.35 to 2.58 M/s, 1.75 to 1.81 M/s, 1.54 to 1.80 M/s; on S08 3.01 to 3.04, 2.05 to 2.22, 1.95 to 2.21 M/s; on S09 1.72 to 1.79, 0.30 to 0.69, 0.60 to 0.68 M/s | development-3 | 17 November 2026 |
+| S09, part 2 | p99 of one write for 1, 4 and 16 calling threads, replaces, alone; bytes of managed memory allocated per write | 1.3 µs, 94 to 99 µs, 0.95 to 1.0 ms (S08: 1.3 µs, 75 to 83 µs, 0.59 to 0.71 ms); 160 bytes a replace and 124 an insert or delete for any number of callers (S08: 160 and 136; S09: up to 546) | development-3 | 17 November 2026 |
+| S09, part 2 | Reads by key in total on 16 threads, alone and beside 16 callers that replace | 17.5 to 19.6 M/s alone; 14.9 to 15.7 M/s beside the callers, against 15.1 to 15.3 on S08 and 13.9 to 14.4 on S09 | development-3 | 17 November 2026 |
+| S09, part 2 | One write of an entity of 32 MiB: how long it holds the lock of the writes | p50 2.6 to 2.7 ms, p99 5 to 7 ms | development-3 | 17 November 2026 |
+| S09, part 2 | Small writes of one caller beside a caller that writes entities of 32 MiB one after another | 1,500 to 4,300 writes/s, p99 from microseconds to 16 ms, the longest wait 100 to 112 ms; without the give-way of a large write 900 to 1,600 writes/s, p99 up to 64 ms; on S08 0.57 to 0.91 M/s with a longest wait of 3 to 7 ms, on S09 1.24 to 1.44 M/s with 0.2 to 0.4 ms | development-3 | 17 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -311,6 +318,32 @@ so it is the share of the machine. The requirements are 200 writes a second, 10,
 the peak and a p99 of 50 ms; the lowest rate measured is 233,000 a second. The owner
 decided on 17 November 2026 that S09 closes with these figures and that S09, part 2 puts
 the write path on a proven source at once.
+
+The figures of S09, part 2 come from the scenarios `write-callers` and `large-writes`,
+measured after a restart of the machine in alternating rounds; in some rounds the machine
+ran at about a third of its speed, and the rows give the rounds in which it did not.
+Against S09 the write path is faster for every number of callers, by a third for one and
+by 1.5 to 3 times for 4 and 16, allocates what S08 allocated, and keeps what S09 added:
+the order of calls, cancellation before dispatch and groups for the storage step. Against
+S08 it is 14 to 17% lower for one caller, and for several by the same share, since all
+of a write runs under the one lock. The implementer measured where the 70 to 90 ns a
+write go: about 10 ns outside the engine call, and the rest in what a write carries since
+S09 and S08 did not have — the record of the write, the group, the storage step and
+publication as a step of its own; none of the simple removals gave a measurable gain, and
+the one that did, a second path for a write that completes in its hold, was not taken.
+The Acceptance line "one caller not lower than S08" is therefore not met; the owner
+decided on 17 November 2026 that the path is accepted as it is and that optimization
+stops here. Reads did not fall. What a large entity costs is new: a caller that writes
+entities of 32 MiB one after another leaves another caller about a thousandth of its
+small writes, because the lock of .NET is not fair and lets the caller that just released
+it take it again for up to about 100 ms; a write larger than the limit of a group gives
+its processor up once after it releases the lock, which raises the small writes about
+2.5 times and bounds nothing. A first-in-first-out gate in front of the lock was
+measured and dropped: with 16 callers beside 16 readers on 20 processors no write
+completed in less than 10 ms. This is the input of Q52. Two reviewers measured that,
+while a storage step is busy, admitting a write walks the list of the writes that wait:
+with 40,000 waiting, 0.6 to 0.8 ms an admission; it never happens in MemoryOnly and is
+carried to S27.
 
 The figures of S08, part 2 come from the scenario `enumerate`. Remembering the keys costs
 about a quarter of a pass, about 110 ns an entity; with a limit set a pass also takes
@@ -816,8 +849,6 @@ settles. They are approved with the plan, each by name.
   none set by default; they hold for every enumeration and, from S15, every search, with
   one error code and the exceeded limit named in `Limit`. No call carries limits of its
   own (the owner, 16 November 2026).
-- **The number of preparing workers is internal:** 2 places of preparation since S09, no
-  option and no rule of the contract that bounds it.
 - **An address is `lattice://host:port`**, and `ILatticeDatabase.ListenUri` reports the
   address a master actually listens at, so that port 0 can be used.
 - **A field is its identity, its name and its declaration.** `LatticeField` loses `Type`,
@@ -966,7 +997,7 @@ Why this order:
 | S08, part 1 | The protection of reads: reads by key scale with threads | Full | Done |
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | Done |
-| S09, part 2 | The write path after a proven source | Full | Not started |
+| S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Not started |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
@@ -2610,6 +2641,10 @@ contract author found. The tests state them.
 - **The allocation of a read.** "The returned copy" is the object or the record with
   everything reachable from it, and nothing else is allocated; a key boxed by a public
   signature that takes `object` is the caller's allocation, outside the measured read.
+  *Corrected on 17 November 2026:* that sentence was wrong. A signature that forces a box
+  on every call of a read path is a defect of the contract, and access by name is no
+  second-class path; S09, part 2 gives the sets by name a form that takes a key without
+  a box (Q51 of the open questions).
   The sets of the core box the key and pass an array, so the engine has sets of its own.
 - **The coherent read** is stated by a stress test with a bounded number of replaces and
   no sleep: a writer replaces one entity with states whose fields are derived from one
@@ -3597,14 +3632,113 @@ it is — the owner chose the first. S09 closes as it is.
   order of calls without a reservation, the reservation goes; the milestone contract,
   "Write coordinator and revision semantics", is then corrected with the sprint — the
   planner sends the text after the study — and the owner has agreed to the direction.
-- **Acceptance, measured** on the scenario of S09, next to S08 and S09: writes a second of
-  one caller not lower than S08 beyond noise; the total of 4 and of 16 callers not lower
-  than that of one caller; reads by key on 16 threads not lower than S09; p99 of a write
-  and bytes allocated per write reported. A figure that misses is handled by the rule of
-  the process: cause, comparison, alternatives, and the owner only if a requirement is
-  missed. If the study finds that no proven path gives more than S09 has under these
-  guarantees, that is the result: it is reported with the evidence and the coordinator
-  of S09 stays.
+- **Acceptance, measured**, as restated by the planner on 17 November 2026 after the study
+  (the line "the total of 4 and of 16 callers not lower than that of one caller" was
+  wrong: no path whose work in memory is serial can meet it, that of S08 and of LMDB
+  included). On the scenario of S09, on a quiet machine, next to S08 and S09: writes a
+  second of one caller not lower than S08 beyond noise; the total of 4 and of 16 callers
+  not lower than that of S08 at the same count; reads by key on 16 threads not lower than
+  S09; bytes allocated per write as S08. Reported: p99 of a write for 1, 4 and 16
+  callers, alone and beside readers; and what a large entity costs the others — how long
+  the lock of the writes is held by one write of 32 MiB, and p99 of small writes of
+  another caller while a caller writes entities of 32 MiB one after another; that pair
+  decides whether a parallel form is ever needed, so it is measured carefully. A figure
+  that misses is handled by the rule of the process. The implementation report also
+  says: that the size of a write is counted by the writer and not walked afterwards; and,
+  in a paragraph on fairness, whether a fair lock was measured and what it cost — the
+  lock is not fair and p99 with 16 callers returns to the 1.8 ms of S08 — kept only if a
+  figure justifies it.
+- **The path, decided after the study** (the planner, 17 November 2026): the path the
+  study recommends, the writer of LMDB with the group commit of PostgreSQL and Pebble at
+  the storage boundary. It is written out in the milestone contract, "Write coordinator
+  and revision semantics", which this sprint corrects. A leader with followers, as in
+  LevelDB, was prototyped and dropped on its figures. Sources read at pinned commits,
+  licences checked first: RocksDB (under Apache-2.0), LevelDB, Valkey, LMDB, Pebble,
+  PostgreSQL, Garnet/Tsavorite; Redis was not opened, its licences are not permissive.
+  What changes in the brief of S09: its Acceptance line "Writes to different entities
+  prepare concurrently and are published in one order of positions" becomes "Writes are
+  prepared and published one at a time, under the lock of the writes, in one order of
+  positions"; "the values of a write are encoded outside the lock of the writes" becomes
+  "a write is prepared under the lock of the writes, in the hold that checks its
+  condition; publication only installs what was prepared"; "Who may touch what", with its
+  three steps and the lock of the coordinator, is withdrawn whole. The refusal for memory
+  keeps its rule, only when a write does not fit beside the stored data: in MemoryOnly no
+  other write holds prepared memory when a caller prepares, so it is the path of S08 —
+  free what is retired, wait for the reads that hold it, retry, refuse — and the
+  resolution alone is kept, in a smaller form, for when the storage step is busy; its
+  tests pass unchanged.
+- **`ICommitStorage.CommitAsync`**, its documentation: "Called under the lock of the
+  writes. The call itself only takes the group: it does not block, performs no I/O and
+  runs no code that waits; whatever takes time is behind the task it returns. A task that
+  is already completed means the group is committed, and the caller publishes it in the
+  same hold. The group and its list belong to the commit stage and are reused: the
+  storage reads them until its task completes and keeps no reference afterwards."
+- **Counters.** `QueuedWrites` keeps its meaning, admitted and not completed. In
+  MemoryOnly `LargestCommitGroup` is 1 (*corrected after review round 1:* except after a
+  write refused for memory was resolved, when the writes it held back are prepared in one
+  hold and published as one group), and the tests that form larger groups do so
+  through the held storage. Tests of S09 that state the shape that goes are restated by
+  the test author before the implementer starts: `CommitGroupTests.Writes_prepared_while_
+  a_call_runs_the_commit_stage…` (it uses a storage that blocks inside its call, which the
+  rule above forbids: it becomes "writes prepared while the storage step holds a group,
+  whose calls returned their tasks, are dispatched and published by whoever completes the
+  storage step"), `MemoryOnlyPositionsTests` (it waits for a group of more than one write
+  under the storage of MemoryOnly, which never forms: it becomes "sequences are exactly
+  1..N, one per write"), and comments that say which thread holds the lock of the writes.
+- **Carried by this sprint under O16, tests first, as its first commits and independent
+  of the study: three findings of an outside review of `main` at `6564720`** (the owner ran
+  it on 17 November 2026; no P1, three P2; the planner agrees with all three, and the
+  owner said they are fixed in this sprint, and merged all the same if the sprint ends
+  with the coordinator of S09 staying).
+  1. *A second `CloseAsync` completes before the memory is freed.* The first call sets
+     `Closed` at once, so a second call returns a completed task while reads are still
+     inside and a segment is still allocated; after the wait of the first call was
+     cancelled, a `DisposeAsync` cannot wait for the release either. The rule: the close of
+     a database is one operation. Every call of `CloseAsync` and `DisposeAsync` after the
+     first joins it and completes when it completes; the token of a call ends the wait of
+     that call only and never the close. Tests: with a read held inside the protection the
+     first close waits, a second call is not completed, both complete after the read
+     leaves and the arena reports nothing allocated; a first call whose token is cancelled
+     ends in `OperationCanceledException` and a later `DisposeAsync` still waits for the
+     release. The same is checked on the `LatticeDatabase` wrapper if it keeps a state of
+     its own.
+  2. *The cancellation of an enumeration is lost inside the wait for an epoch slot.* The
+     token is checked before a step and not passed on; with every slot taken a cancelled
+     `MoveNextAsync` goes on waiting, and after a slot is free it reports
+     `ReadLimitExceeded` where the contract promises `OperationCanceledException`. The
+     rule: the token of an asynchronous enumeration is honored inside every wait of a step
+     — for the position of the session, for a slot of the protection — and between the
+     rounds of a step; a cancellation is reported before a limit is. Test: every slot held
+     through the internal switch, `MoveNextAsync` cancelled before `ReadTimeLimit` — it
+     ends in `OperationCanceledException` while the slots are still held. X6: the wait for
+     a slot has the token wherever the caller gave one; the synchronous forms have none.
+  3. *Reads by name box a numeric key:* 100,000 reads of absent Int64 keys allocate
+     2,400,000 bytes by name against 0 through a class. The contract changes; nothing is
+     released. Every member of `ILatticeSet`, and of the batch by name if it takes a key
+     as `object`, that takes a primary key gets a form that takes it without a box. The
+     shape is chosen by a figure between two plain ones, in the contract step: (a) the key
+     parameter becomes generic, `Get<TKey>(TKey key) where TKey : notnull` and so on,
+     replacing `object key` — a boxed key still works as `TKey` = `object`; one member per
+     operation, but a generic method of an interface is dispatched more slowly; (b)
+     overloads beside `object key` for the key families `long`, `ulong`, `Guid` and
+     `string` — more members, plain dispatch. Whichever reads by name with 0 bytes and is
+     not slower per call than the form through a class beyond noise is taken; if both are,
+     (a), for fewer members. The rule of the key stays: an integer of any width that fits,
+     a Guid, a string; nothing parsed. Tests: the allocation test of reads by key gains
+     the cases by name for Int64, Guid and String keys, present and absent, 0 bytes. The
+     measurement scenario of reads by key measures by name as well from now on.
+     *Chosen in the contract step, 17 November 2026: (a), the generic key.* Both shapes read
+     by name with 0 bytes, and neither is slower than the read through a class (ratios to
+     the class read of the same round between 0.87 and 0.99 for both, on a loaded machine);
+     the form that took `object` allocated 24 bytes for an Int64 key and 32 for a Guid on
+     every call. Against (b) stood, beside 40 members instead of 8: the language would
+     convert `char` and `nint` to the `long` overload, so by name would accept what a class
+     refuses, and a literal `null` would bind to `string`. What a caller sees: every call
+     compiles as before; a literal `null` key no longer compiles. The delete of the batch by
+     name changed alike; the delete of the batch through a class keeps `object` until S17
+     decides how a batch stores its keys. `IndexKey` and `IndexBound` keep their values as
+     `object` and allocate on every search: not this defect, since a search is not
+     implemented, and a matter of the contracts of S14 and S15.
 - **Out of scope.** The durable step (S27), the batch (S17), a second path for
   MemoryOnly.
 
@@ -4087,6 +4221,9 @@ otherwise, these replace it.
 
 #### S16 · Unique indexes
 
+**Carried from S09, part 2:** a write whose unique value is held by a prepared,
+unpublished write of another entity waits behind it, as a write to the same entity does.
+
 **Track:** full · **Needs:** S15 · **Owners:** E04, E08
 
 - **Goal.** A value of a unique index has at most one owner, whatever callers do at the
@@ -4285,6 +4422,9 @@ otherwise, these replace it.
 
 #### S23 · Compaction and shrink
 
+**Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
+under the lock of the writes or by the rule this sprint states.
+
 **Track:** full · **Needs:** S22 · **Owners:** E01, E03 · **Closes:** Q17
 
 - **Goal.** A database that changes for a long time with a constant amount of live data
@@ -4410,6 +4550,17 @@ otherwise, these replace it.
   the library, which is excluded by decision.
 
 #### S27 · PostgreSQL provider and Durable open
+
+**Carried from S09, part 2:** the durable storage step is a log writer behind
+`CommitAsync`: the call hands the group over and returns; the commit to PostgreSQL runs
+behind its task. `CommitAsync` for the next group may be called on the thread that
+completes the task of the previous one, from inside that completion. While a storage
+step is busy, admitting a write walks the list of the writes that wait
+(`WriteCoordinator.FindLastOfEntity`), and withdrawing one walks it too (`Unlink`):
+measured by two reviewers at 0.6 to 0.8 ms an admission with 40,000 writes waiting, and
+19 s to cancel 40,000. This sprint replaces the walk by a lookup by entity, paid only
+when writes wait, and measures admission with a backlog. It also gives the input of Q52
+its durable figures.
 
 **Carried from S09:** what a failed storage step means is stated by this sprint: a
 rejection the storage knows to be definite releases the group and leaves the instance

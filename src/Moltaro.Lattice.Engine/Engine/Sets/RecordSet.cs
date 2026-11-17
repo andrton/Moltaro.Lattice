@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 
 // The entities of one entity type by name, as records, on the engine. It behaves as the contract of
 // ILatticeSet says, member for member as ClassSet does; a read allocates the returned record, with
-// what it holds, and nothing else. A key boxed by the caller, as the signatures that take object
-// have it, is the caller's allocation (brief of S06, "The allocation of a read"). A write takes the
+// what it holds, and nothing else. A key given to a read or a delete is converted as ClassSet
+// converts it, without a box (KeyArgument; Q51 of the open questions). A write takes the
 // byte arrays of the fields of a record as the record holds them, and the engine copies each once,
 // into its own memory, while the write runs (LatticeRecord.Capture; the planner's answer to Q43).
 internal sealed class RecordSet : ILatticeSet
@@ -26,11 +26,16 @@ internal sealed class RecordSet : ILatticeSet
     public ILatticeIndex<LatticeRecord> Index(string indexName) =>
         SetIndex<LatticeRecord>.Resolve(EntityType, indexName);
 
-    public LatticeRecord? Get(object key) => TryGet(key, out var record, out _) ? record : null;
+    public LatticeRecord? Get<TKey>(TKey key)
+        where TKey : notnull =>
+        TryGet(key, out var record, out _) ? record : null;
 
-    public bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record) => TryGet(key, out record, out _);
+    public bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record)
+        where TKey : notnull =>
+        TryGet(key, out record, out _);
 
-    public bool TryGet(object key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
+    public bool TryGet<TKey>(TKey key, [MaybeNullWhen(false)] out LatticeRecord record, out LatticeRevision revision)
+        where TKey : notnull
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
@@ -39,7 +44,8 @@ internal sealed class RecordSet : ILatticeSet
         return record is not null;
     }
 
-    public ValueTask<LatticeReadResult<LatticeRecord>> GetAsync(object key, LatticeSession session, CancellationToken cancellationToken = default)
+    public ValueTask<LatticeReadResult<LatticeRecord>> GetAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(session);
 
@@ -80,16 +86,20 @@ internal sealed class RecordSet : ILatticeSet
     public ValueTask<LatticeWriteResult> UpsertAsync(LatticeRecord record, LatticeSession session, CancellationToken cancellationToken = default) =>
         Save(WriteKindEnum.Upsert, record, null, Required(session), cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, null, null, cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeSession session, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, null, Required(session), cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, expectedRevision, null, cancellationToken);
 
-    public ValueTask<LatticeWriteResult> DeleteAsync(object key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default) =>
+    public ValueTask<LatticeWriteResult> DeleteAsync<TKey>(TKey key, LatticeRevision expectedRevision, LatticeSession session, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
         Delete(key, expectedRevision, Required(session), cancellationToken);
 
     private static LatticeSession Required(LatticeSession session)
@@ -124,6 +134,7 @@ internal sealed class RecordSet : ILatticeSet
         return _operations.WriteAsync(kind, KeyArgument.OfValues(_operations.Table, values), values, expectedRevision, session, cancellationToken);
     }
 
-    private ValueTask<LatticeWriteResult> Delete(object key, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
+    private ValueTask<LatticeWriteResult> Delete<TKey>(TKey key, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
+        where TKey : notnull =>
         _operations.WriteAsync(WriteKindEnum.Delete, KeyArgument.Of(_operations.Table, key), null, expectedRevision, session, cancellationToken);
 }

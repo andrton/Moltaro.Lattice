@@ -111,8 +111,11 @@ internal sealed class ReadEpochs
     // The wait ends: a read holds its slot only while it looks up and copies, which waits for nothing
     // and runs no code of the application (Entities.IRootCopy), so every held slot is left within one
     // step of a read; a test that holds reads through HoldNextRead holds each for a bounded time. A
-    // waiting read takes part in no refusal and never fails for the wait.
-    public int Enter()
+    // waiting read takes part in no refusal and never fails for the wait. The token of an asynchronous
+    // read ends the wait, with OperationCanceledException (brief of S09, part 2, the second finding of
+    // the outside review it carries); it is looked at only after every slot was found held, so a read
+    // that finds a slot, and a synchronous read, which has no token, pay nothing for it.
+    public int Enter(CancellationToken cancellationToken = default)
     {
         var start = Thread.GetCurrentProcessorId();
         var spinner = default(SpinWait);
@@ -140,34 +143,6 @@ internal sealed class ReadEpochs
             if (Volatile.Read(ref _state) != 0)
             {
                 ThrowForState();
-            }
-
-            spinner.SpinOnce();
-        }
-    }
-
-    // Enters the protection for a write being prepared, which looks its key up and reads the current
-    // entity as a read does (Writes.WriteExecutor), and returns the slot, which it gives to Exit. It does
-    // not look at the close or at a fault: a write admitted before the close goes on to its outcome,
-    // and the close waits for it through the barrier of the close (CloseBarrier) before it waits for
-    // the reads and frees the arena; the coordinator ends a write after a fault. It waits for a free
-    // slot as Enter does, and the token of the write ends that wait, with OperationCanceledException;
-    // it is looked at only while every slot is held.
-    public int EnterForWrite(CancellationToken cancellationToken)
-    {
-        var start = Thread.GetCurrentProcessorId();
-        var spinner = default(SpinWait);
-
-        while (true)
-        {
-            for (var probe = 0; probe < _slots.Length; probe++)
-            {
-                var slot = (start + probe) & _mask;
-
-                if (TryClaim(slot))
-                {
-                    return slot;
-                }
             }
 
             cancellationToken.ThrowIfCancellationRequested();

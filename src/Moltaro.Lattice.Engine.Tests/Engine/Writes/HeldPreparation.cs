@@ -9,10 +9,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // preparation, before anything is obtained. The test arms it, submits a write whose values need a new
 // segment, waits until Inside completes, acts, and releases it; the preparation then goes on.
 //
-// The thread of the preparation holds the lock of the writes of the engine while it is held (the root
-// writer takes it for each allocation), so a test does nothing meanwhile that needs that lock: it does
-// not read the counters, write or drain, and nothing it waits for publishes. Every wait is bounded: a
-// hold the test never releases lets the preparation go on after the bound.
+// The thread of the preparation holds the lock of the writes of the engine while it is held, since an
+// allocation of the arena is made under that lock, so a test does nothing meanwhile that needs that
+// lock and waits for nothing that does: it does not read the counters, write or drain, it does not
+// wait for the callbacks of a cancellation or for the outcome of a write, and nothing it waits for
+// publishes. Every wait is bounded: a hold the test never releases lets the preparation go on after
+// the bound.
 internal sealed class HeldPreparation : IDisposable
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);

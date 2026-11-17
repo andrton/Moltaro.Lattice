@@ -30,17 +30,25 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   table of root entries gains no entry. Inserts that grow the primary index several times, replaces
 //   and deletes.
 // - No prepared write is left without a commit stage (Acceptance: writes submitted at once all
-//   complete; WriteCoordinator, "The threads"). A call that finds the stage free runs it on its own
-//   thread and gives it up once its own write is published; writes prepared meanwhile, whose calls have
-//   returned their tasks, are then taken by the stage on another thread. The storage of the test holds
-//   the commit of such a call inside its call of the storage step (HoldNextInCall), as a storage step
-//   that completes at once but takes its time, while eight writes of other entities are prepared and
-//   their calls return; then it lets the call go on. Its write is published alone, and the eight
-//   complete as well.
+//   complete; milestone contract, "Write coordinator and revision semantics": whoever completes the
+//   storage step publishes its group and hands over the next). While the storage step holds the group
+//   of one write, eight writes of other entities are prepared and their calls return their tasks; no
+//   call of the test runs anything after that. The test completes the storage step from a thread of
+//   its own: the first write is published, and the eight are dispatched as the next group, which the
+//   storage holds in turn; completing that step publishes the eight. The storage of the test only takes
+//   a group in its call and never blocks there, as a storage step has to (ICommitStorage.CommitAsync).
+//   Its completion runs what waits for it on a thread of the pool, and, as the durable storage step of
+//   S27 will, on the thread that completes its task (review round 1 of S09, part 2: a storage of the
+//   tests that completes only on the pool hid that form).
 // Every wait is bounded; the storage releases every commit when a test ends.
 public sealed class CommitGroupTests
 {
     private const int Mebibyte = 1024 * 1024;
+
+    // Where the completion of a held storage step runs what waits for it.
+    private const string OnThePool = "on a thread of the pool";
+
+    private const string OnTheReleasingThread = "on the thread that completes its task";
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -245,35 +253,44 @@ public sealed class CommitGroupTests
         }
     }
 
-    [Fact]
-    public async Task Writes_prepared_while_a_call_runs_the_commit_stage_complete_once_that_call_has_its_own_write_published_and_gives_the_stage_up()
+    [Theory]
+    [InlineData(OnThePool)]
+    [InlineData(OnTheReleasingThread)]
+    public async Task Writes_prepared_while_the_storage_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_storage_step(string completion)
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldCommitStorage(inline: completion == OnTheReleasingThread);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
         try
         {
-            // The call that finds the stage free and runs it, on a thread of its own, since its commit
-            // is held inside its call.
-            storage.HoldNextInCall();
-
+            // The group of the first write is in the storage step; its call has returned its task.
             var first = PieceSchema.Of(0, name: 10);
-            var firstWrite = Task.Run(() => pieces.InsertAsync(first).AsTask());
+            var firstWrite = pieces.InsertAsync(first).AsTask();
             var held = await storage.NextAsync();
 
-            // Prepared while the stage is taken; each call returns its task.
+            // Prepared while the storage step holds that group; each call returns its task.
             PieceSchema.Piece[] later = [.. Enumerable.Range(1, 8).Select(SmallOf)];
             var writes = later.Select(piece => pieces.InsertAsync(piece).AsTask()).ToArray();
             var counters = await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf([first, .. later]));
 
             Assert.Equal(9, counters.QueuedWrites);
             Assert.Equal(1, held.Count);
+            Assert.False(firstWrite.IsCompleted, "The write whose commit is held completed.");
             Assert.DoesNotContain(writes, write => write.IsCompleted);
 
+            // Completing the storage step publishes the first write and dispatches the eight.
             held.Release();
 
             Assert.True((await firstWrite.WaitAsync(Bound)).Changed);
+
+            var next = await storage.NextAsync();
+
+            Assert.Equal(later.Select(PieceTally.SlotBytesOf).Order(), next.Sizes.Order());
+            Assert.DoesNotContain(writes, write => write.IsCompleted);
+
+            // Completing that one publishes them.
+            next.Release();
 
             var results = await Task.WhenAll(writes).WaitAsync(Bound);
 

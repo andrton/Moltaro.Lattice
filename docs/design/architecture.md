@@ -18,12 +18,13 @@ The same engine runs embedded in an application or in a dedicated service.
 <!-- DIAGRAM:architecture -->
 
 **Many callers, one authoritative master.** Application threads may submit writes
-concurrently. Independent preparation overlaps; short bounded groups commit and
-publish in order. Children forward writes and apply the master's confirmed changes.
+concurrently. Writes are prepared and published one at a time; when the storage step is
+slow, the writes that arrive meanwhile form short bounded groups that commit and publish
+in order ([how a write is executed](write-path.md)). Children forward writes and apply the master's confirmed changes.
 Lattice has no second master and no node that accepts a write by itself: a child that
 cannot reach the master cannot write, and goes on reading its own memory.
 
-**Local reads.** A ready child reads its own arena. PostgreSQL belongs to the Durable
+**Local reads.** How reads are protected while writes run: [epochs](epoch-protection.md). A ready child reads its own arena. PostgreSQL belongs to the Durable
 master; children never connect to it. An embedded MemoryOnly master also works without
 PostgreSQL or a child connection. Persistence mode is fixed when opening the instance:
 Durable is the default for a master, and a child is always MemoryOnly.

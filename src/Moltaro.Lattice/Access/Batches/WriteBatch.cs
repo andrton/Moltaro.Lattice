@@ -61,9 +61,13 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         where TEntity : class =>
         Delete(EntityBinding<TEntity>.For(_schema).EntityType, key, expectedRevision);
 
-    public void Delete(string entityName, object key) => Delete(Resolve(entityName), key, null);
+    public void Delete<TKey>(string entityName, TKey key)
+        where TKey : notnull =>
+        Delete(Resolve(entityName), key, null);
 
-    public void Delete(string entityName, object key, LatticeRevision expectedRevision) => Delete(Resolve(entityName), key, expectedRevision);
+    public void Delete<TKey>(string entityName, TKey key, LatticeRevision expectedRevision)
+        where TKey : notnull =>
+        Delete(Resolve(entityName), key, expectedRevision);
 
     public ValueTask<LatticeWriteResult> CommitAsync(CancellationToken cancellationToken = default) =>
         Commit();

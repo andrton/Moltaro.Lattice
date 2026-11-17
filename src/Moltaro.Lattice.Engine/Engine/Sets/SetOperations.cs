@@ -36,14 +36,15 @@ internal sealed class SetOperations
     public EntityTable Table { get; }
 
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
-    // the protection, only when the entity exists. Null when it does not.
-    public TResult? TryRead<TCopy, TResult>(in EntityKey key, TCopy copy, out LatticeRevision revision, out ulong sequence)
+    // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
+    // read ends its wait for a slot of the protection (EntityTable.TryRead).
+    public TResult? TryRead<TCopy, TResult>(in EntityKey key, TCopy copy, out LatticeRevision revision, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            return Table.TryRead<TCopy, TResult>(key, ref copy, out revision, out sequence) ? copy.Build() : null;
+            return Table.TryRead<TCopy, TResult>(key, ref copy, out revision, out sequence, cancellationToken) ? copy.Build() : null;
         }
         finally
         {
@@ -59,7 +60,7 @@ internal sealed class SetOperations
     {
         await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
 
-        var result = TryRead<TCopy, TResult>(key, copy, out var revision, out var sequence);
+        var result = TryRead<TCopy, TResult>(key, copy, out var revision, out var sequence, cancellationToken);
         var position = _clock.At(sequence);
 
         session.Advance(position);
@@ -92,14 +93,15 @@ internal sealed class SetOperations
 
     // The next item of the pass, built from its copy outside the protection of reads and only then
     // committed to the pass, so that an item whose build throws is not taken as returned; null at the
-    // end, with the sequence of the end.
-    public TResult? Next<TCopy, TResult>(EntityPass pass, TCopy copy, out ulong sequence)
+    // end, with the sequence of the end. The token of an asynchronous enumeration is honored inside the
+    // step (EntityTable.TryReadNext); the synchronous one gives none.
+    public TResult? Next<TCopy, TResult>(EntityPass pass, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            if (!Table.TryReadNext<TCopy, TResult>(pass, ref copy, out sequence))
+            if (!Table.TryReadNext<TCopy, TResult>(pass, ref copy, out sequence, cancellationToken))
             {
                 return null;
             }
