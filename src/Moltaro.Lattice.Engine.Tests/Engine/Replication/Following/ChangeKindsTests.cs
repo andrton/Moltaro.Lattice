@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 // (the planner's block of 15 November 2026, "Acceptance, added").
 public sealed class ChangeKindsTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_applies_each_kind_of_change_of_its_master_and_holds_what_the_master_holds_with_the_same_revisions()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -44,7 +44,7 @@ public sealed class ChangeKindsTests
         Assert.Equal([1L, 3L, 4L, 5L], child.Set<PieceSchema.Piece>().Enumerate().Select(piece => piece.Id).Order());
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Delete_of_an_absent_key_on_the_master_moves_the_position_of_the_child_and_changes_nothing_else()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

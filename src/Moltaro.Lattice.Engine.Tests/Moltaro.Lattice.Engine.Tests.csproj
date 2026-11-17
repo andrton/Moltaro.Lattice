@@ -16,18 +16,6 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Tests of Epic 1, sprint S11 that address internal members of the engine its implementer creates
-         under the names of the brief: FrameKindEnum.Transaction = 7 and Applied = 9,
-         EngineDatabase.SuspendApplying() and EngineCounters.ActiveCaptures and PendingDeliveryBytes; the
-         shapes of the bodies they assume are stated in Replication/Transactions/TransactionPayload.cs and
-         Replication/LoadEndPayload.cs. NothingRegistered, and the tests of S10 that state through it that
-         nothing of a child is left on its master, read the two counters. Until those members exist these
-         files are not compiled; the tests of S11 among them are skipped with the reason of the sprint
-         (ChildFollowing.NotImplemented) as well, and those of S10 run again once they compile. The
-         implementer of S11 removes this item when the members are there. -->
-    <Compile Remove="Engine\Replication\NothingRegistered.cs;Engine\Replication\Opening\CancelledOpenTests.cs;Engine\Replication\Opening\ChildMemoryLimitTests.cs;Engine\Replication\Opening\VanishedChildTests.cs;Engine\Replication\Delivery\**;Engine\Replication\Following\ChangesInOrderTests.cs;Engine\Replication\Closing\CloseWhileApplyingIsSuspendedTests.cs;Replication\DamagedFrames\DamagedFrameTests.cs;Replication\Handshakes\RefusedPeerTests.cs;Replication\Transactions\**" />
-  </ItemGroup>
-  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />

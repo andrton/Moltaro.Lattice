@@ -1,7 +1,7 @@
 namespace Moltaro.Lattice.Tests.Database;
 
 // A master and its children opened in one process. The tests in which a child only follows its master
-// run on both implementations (TestDatabases.ImplementationsWithFollowingChildren; Epic 1, sprint S11);
+// run on both implementations (TestDatabases.ImplementationsWithChildren; Epic 1, sprint S11);
 // the others run on the placeholder, through TestData.
 public sealed class MasterAndChildTests
 {
@@ -20,7 +20,7 @@ public sealed class MasterAndChildTests
     }
 
     [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithFollowingChildren), MemberType = typeof(TestDatabases))]
+    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
     public async Task Child_receives_later_changes_of_the_master(DatabaseImplementationEnum implementation)
     {
         await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
@@ -39,7 +39,7 @@ public sealed class MasterAndChildTests
     }
 
     [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithFollowingChildren), MemberType = typeof(TestDatabases))]
+    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
     public async Task Several_children_follow_one_master(DatabaseImplementationEnum implementation)
     {
         await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);

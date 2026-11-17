@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 // Loading has its capture —; once both are Ready it has none again. Until S33 captures are not limited.
 public sealed class ActiveCapturesTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_counts_a_capture_for_each_child_in_the_middle_of_its_load_and_none_once_they_are_ready()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

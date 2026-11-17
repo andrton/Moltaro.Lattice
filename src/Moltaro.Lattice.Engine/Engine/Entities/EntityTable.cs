@@ -1,5 +1,8 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -146,6 +149,9 @@ internal sealed class EntityTable
     // index does not grow, takes one round.
     private const int WordsPerRound = 256;
 
+    // UTF-8 that refuses bytes that are not well-formed, for the text of a received key (ReadKey).
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -289,6 +295,101 @@ internal sealed class EntityTable
         handle = default;
 
         return false;
+    }
+
+    // A key of the String key type from its text, hashed under the seed of this instance: for the loader
+    // of a child, which reads the text from a root it received before it places it
+    // (Loading.ReceivedChanges).
+    public EntityKey KeyOfText(string text) => EntityKey.OfText(text, TextHash(text));
+
+    // The bytes a key of this entity type takes in a Delete of the replication stream
+    // (Replication.Transactions.TransactionFormat), in the form WriteKey writes and ReadKey reads: an
+    // integer key as the 64 bits of EntityKey.Integer, a Guid key as its 16 bytes in the order of
+    // Guid.TryWriteBytes, a String key as the length of its UTF-8 (UInt32) and that UTF-8; numbers
+    // little-endian. The text of a key is well-formed, as the core checked it (Q41), so it has its UTF-8.
+    public int KeyLength(in EntityKey key) => KeyKind switch
+    {
+        KeyKindEnum.Integer => sizeof(long),
+        KeyKindEnum.Guid => 16,
+        _ => sizeof(uint) + Encoding.UTF8.GetByteCount(key.Text!),
+    };
+
+    // Writes the key into the place, which has KeyLength bytes (see KeyLength).
+    public void WriteKey(in EntityKey key, Span<byte> place)
+    {
+        switch (KeyKind)
+        {
+            case KeyKindEnum.Integer:
+                BinaryPrimitives.WriteInt64LittleEndian(place, key.Integer);
+                break;
+
+            case KeyKindEnum.Guid:
+                key.Guid.TryWriteBytes(place);
+                break;
+
+            default:
+                var written = Encoding.UTF8.GetBytes(key.Text!, place[sizeof(uint)..]);
+
+                BinaryPrimitives.WriteUInt32LittleEndian(place, (uint)written);
+                break;
+        }
+    }
+
+    // Reads a key that WriteKey wrote from the input, hashed under the seed of this instance, with the
+    // input advanced past it. ValidationFailed for bytes that are not a key of this entity type: too few
+    // of them, an integer outside the key type, text that is not well-formed UTF-8.
+    public EntityKey ReadKey(ref SequenceReader<byte> input)
+    {
+        switch (KeyKind)
+        {
+            case KeyKindEnum.Integer:
+                if (!input.TryReadLittleEndian(out long integer))
+                {
+                    throw InvalidKey($"{input.Remaining} bytes are fewer than an integer key takes.");
+                }
+
+                var type = EntityType.Key.Declaration.Type;
+
+                if (!IsInRange(type, integer))
+                {
+                    throw InvalidKey($"the integer {integer} is not a value of the key type {type}.");
+                }
+
+                return EntityKey.OfInteger(type, integer);
+
+            case KeyKindEnum.Guid:
+                Span<byte> guid = stackalloc byte[16];
+
+                if (!input.TryCopyTo(guid))
+                {
+                    throw InvalidKey($"{input.Remaining} bytes are fewer than a Guid key takes.");
+                }
+
+                input.Advance(guid.Length);
+
+                return EntityKey.OfGuid(new Guid(guid));
+
+            default:
+                if (!input.TryReadLittleEndian(out int length) || length < 0 || length > input.Remaining)
+                {
+                    throw InvalidKey("the bytes do not hold the text they announce.");
+                }
+
+                string text;
+
+                try
+                {
+                    text = StrictUtf8.GetString(input.UnreadSequence.Slice(0, length));
+                }
+                catch (DecoderFallbackException exception)
+                {
+                    throw InvalidKey($"its text is not well-formed UTF-8 ({exception.Message})");
+                }
+
+                input.Advance(length);
+
+                return KeyOfText(text);
+        }
     }
 
     // Makes room in the index for one more key before an insert is published, beside the inserts
@@ -560,6 +661,21 @@ internal sealed class EntityTable
     // which computes it before the read enters the protection of reads.
     public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(EntityType.Key, text, _seed);
 
+    // Whether an integer, held as EntityKey.Integer holds it, is a value of the key type.
+    private static bool IsInRange(LatticeFieldTypeEnum type, long integer) => type switch
+    {
+        LatticeFieldTypeEnum.Int8 => integer is >= sbyte.MinValue and <= sbyte.MaxValue,
+        LatticeFieldTypeEnum.UInt8 => integer is >= 0 and <= byte.MaxValue,
+        LatticeFieldTypeEnum.Int16 => integer is >= short.MinValue and <= short.MaxValue,
+        LatticeFieldTypeEnum.UInt16 => integer is >= 0 and <= ushort.MaxValue,
+        LatticeFieldTypeEnum.Int32 => integer is >= int.MinValue and <= int.MaxValue,
+        LatticeFieldTypeEnum.UInt32 => integer is >= 0 and <= uint.MaxValue,
+        _ => true,
+    };
+
+    private LatticeException InvalidKey(string reason) =>
+        new(LatticeErrorEnum.ValidationFailed, $"A key of {EntityType.Name} received from the master is not valid: {reason}");
+
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
     {
@@ -700,14 +816,15 @@ internal sealed class EntityTable
     }
 
     // For the capture of a load on a master (Children.Capture), inside the protection of reads the
-    // caller entered: takes the entry as one state, by its stamp, as a read does (TryCopy), and returns
-    // true with its root and the sequence of its last mutation when the root is live. The caller reaches
-    // the entry by its slot in the root table, not through an index (the planner's block of 17 November
-    // 2026, point 3), so it meets entries no read meets: a slot that was never published, that a write
-    // took for an insert and has not published yet, or that a write gave back when it was refused or
-    // withdrawn, is Free or Prepared, and its stamp is 0, the mark of a write in progress, which a slot
-    // given back keeps for good. Such an entry holds no live root, so its state is looked at first, and
-    // the stamp is taken only of an entry that holds one.
+    // caller entered, while the master goes on writing (brief of Epic 1, sprint S11): takes the entry as
+    // one state, by its stamp, as a read does (TryCopy), and returns true with its root and the sequence
+    // of its last mutation when the root is live. The caller reaches the entry by its slot in the root
+    // table, not through an index (the planner's block of 17 November 2026, point 3), so it meets entries
+    // no read meets: a slot that was never published, that a write took for an insert and has not
+    // published yet, or that a write gave back when it was refused or withdrawn, is Free or Prepared, and
+    // its stamp is 0, the mark of a write in progress, which a slot given back keeps for good. Such an
+    // entry holds no live root, so its state is looked at first, and the stamp is taken only of an entry
+    // that holds one.
     //
     // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
     // insert writes the root and the sequence of a new entry and only then stores the state Live, by a

@@ -41,7 +41,7 @@ public sealed class MalformedTransactionTests
         new("a valid Write followed by an invalid one in the same transaction"),
     ];
 
-    [Theory(Skip = ChildFollowing.NotImplemented)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Malformed_transaction_is_refused_whole_and_nothing_of_it_or_after_it_is_applied(string damage)
     {

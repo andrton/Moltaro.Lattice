@@ -14,7 +14,7 @@ public sealed class EveryTypeChangeTests
 {
     private static readonly string[] EntityTypes = ["Item", "Twin"];
 
-    [Theory(Skip = ChildFollowing.NotImplemented)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public async Task Child_applies_every_value_of_every_scalar_type_as_its_master_writes_it(string encoding)

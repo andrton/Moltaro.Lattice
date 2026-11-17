@@ -22,7 +22,7 @@ public sealed class LargeChangeTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Write_of_an_entity_of_32_MiB_on_the_master_reaches_a_child_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -42,7 +42,7 @@ public sealed class LargeChangeTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Transaction_larger_than_a_frame_is_applied_only_once_all_of_it_has_arrived()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -64,7 +64,7 @@ public sealed class LargeChangeTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Connection_cut_in_the_middle_of_a_transaction_applies_nothing_of_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -17,21 +17,12 @@ internal static class TestDatabases
     ];
 
     // The data of a theory that runs a master and its child on both implementations: on the engine a
-    // master that accepts children and its child, which loads the database over TCP (Epic 1, sprint S10).
+    // master that accepts children and its child, which loads the database over TCP (Epic 1, sprint S10)
+    // and follows the writes of its master after its load (S11).
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> ImplementationsWithChildren =>
     [
         new(DatabaseImplementationEnum.Placeholder),
         new(DatabaseImplementationEnum.Engine),
-    ];
-
-    // The data of a theory in which a child follows the writes of its master after its load. A child of
-    // the engine that follows its master comes with Epic 1, sprint S11, and until then the row of the
-    // engine is skipped. The implementer of S11 removes the skip; the theories then take
-    // ImplementationsWithChildren, and this member goes.
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> ImplementationsWithFollowingChildren =>
-    [
-        new(DatabaseImplementationEnum.Placeholder),
-        new(DatabaseImplementationEnum.Engine) { Skip = ChildFollowing.NotImplemented },
     ];
 
     // Creates a database without opening it, as LatticeDatabase.Create does.

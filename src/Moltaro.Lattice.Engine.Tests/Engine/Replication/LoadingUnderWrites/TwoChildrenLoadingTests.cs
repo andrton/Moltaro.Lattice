@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // equal to it as well.
 public sealed class TwoChildrenLoadingTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Two_children_that_load_at_the_same_time_under_writes_each_end_equal_to_the_master_at_their_own_readiness_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

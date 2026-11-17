@@ -20,7 +20,7 @@ public sealed class LoadUnderWritesSoakTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_that_loads_and_follows_while_one_writer_runs_a_random_sequence_of_writes_ends_equal_to_the_master()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

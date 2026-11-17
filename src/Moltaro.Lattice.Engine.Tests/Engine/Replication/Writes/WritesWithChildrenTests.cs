@@ -22,7 +22,7 @@ public sealed class WritesWithChildrenTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_publishes_every_write_while_a_child_is_connected_and_the_child_applies_each()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -48,7 +48,7 @@ public sealed class WritesWithChildrenTests
         Assert.NotNull(child.Set<PieceSchema.Piece>().Get(3L));
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_publishes_a_write_while_a_child_is_loading_and_the_child_has_it_once_ready()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -71,7 +71,7 @@ public sealed class WritesWithChildrenTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Writes_that_race_the_registration_of_a_child_are_all_published_and_all_reach_the_child()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // and a drain then frees everything those writes retired while the child is still Loading.
 public sealed class NothingPinnedTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Capture_that_waits_in_a_send_keeps_nothing_that_writes_retired_from_being_freed()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

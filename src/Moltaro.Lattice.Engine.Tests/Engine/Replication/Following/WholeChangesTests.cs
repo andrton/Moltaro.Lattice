@@ -23,7 +23,7 @@ public sealed class WholeChangesTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Readers_on_a_child_see_each_change_of_the_master_whole_and_in_order()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

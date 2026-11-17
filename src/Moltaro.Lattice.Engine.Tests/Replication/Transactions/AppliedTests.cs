@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 //   transaction and acknowledges it.
 public sealed class AppliedTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_acknowledges_the_sequences_it_has_applied_in_their_order_and_none_before_its_readiness_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -61,7 +61,7 @@ public sealed class AppliedTests
         Assert.Equal(acknowledged.Distinct(), acknowledged);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_acknowledges_nothing_it_has_received_while_its_application_is_suspended_and_acknowledges_it_once_it_resumes()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -14,7 +14,7 @@ public sealed class SlowChildTests
 
     private const int DataBytes = 64 * 1024;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_completes_its_writes_while_its_child_applies_nothing_and_holds_them_until_the_child_has_applied_them()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

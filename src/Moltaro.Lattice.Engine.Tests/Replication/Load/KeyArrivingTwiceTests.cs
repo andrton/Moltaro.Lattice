@@ -23,7 +23,7 @@ public sealed class KeyArrivingTwiceTests
         new("the newer state first"),
     ];
 
-    [Theory(Skip = ChildFollowing.NotImplemented)]
+    [Theory]
     [MemberData(nameof(Orders))]
     public async Task Key_that_arrives_twice_in_a_load_is_resolved_by_the_later_state_and_not_refused(string order)
     {

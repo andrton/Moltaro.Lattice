@@ -21,7 +21,7 @@ public sealed class ChildArenaFullTests
     // Long enough for a child that follows to apply a small change many times over.
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(1);
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_whose_arena_holds_a_change_once_what_was_retired_is_freed_applies_it_and_goes_on_following()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -39,7 +39,7 @@ public sealed class ChildArenaFullTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_whose_arena_cannot_hold_a_change_stops_following_and_keeps_serving_its_reads_at_its_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

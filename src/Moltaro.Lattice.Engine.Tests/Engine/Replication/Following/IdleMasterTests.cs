@@ -13,7 +13,7 @@ public sealed class IdleMasterTests
 {
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromMilliseconds(200);
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_whose_master_writes_nothing_for_longer_than_the_OpenTimeout_of_both_keeps_following()
     {
         var masterOptions = new LatticeDatabaseOptions

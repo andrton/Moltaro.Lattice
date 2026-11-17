@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 //   test of S10 in which the master published writes again once its child had closed.
 public sealed class PendingDeliveryTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_without_a_child_retains_nothing_for_delivery()
     {
         await using var listening = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -41,7 +41,7 @@ public sealed class PendingDeliveryTests
         }
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_counts_a_change_as_pending_until_its_child_has_applied_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -65,7 +65,7 @@ public sealed class PendingDeliveryTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_releases_a_change_only_once_every_child_has_applied_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -86,7 +86,7 @@ public sealed class PendingDeliveryTests
         await Eventually.HoldsAsync(() => master.Counters.PendingDeliveryBytes == 0, "The master still holds a change for delivery that both its children have applied.");
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Master_holds_nothing_for_a_child_once_it_has_closed()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // not valid applies none of them is stated by MalformedTransactionTests.
 public sealed class WholeTransactionTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Transaction_of_several_effects_is_applied_whole_at_its_one_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

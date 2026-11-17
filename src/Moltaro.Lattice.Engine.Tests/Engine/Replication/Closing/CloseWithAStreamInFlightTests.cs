@@ -16,7 +16,7 @@ public sealed class CloseWithAStreamInFlightTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Close_of_a_master_whose_stream_to_its_child_is_held_in_the_middle_of_a_transaction_completes_and_returns_its_native_memory()
     {
         var allocator = new CountingNativeAllocator();
@@ -40,7 +40,7 @@ public sealed class CloseWithAStreamInFlightTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Close_of_a_child_that_holds_a_part_of_a_transaction_completes_and_returns_its_native_memory()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

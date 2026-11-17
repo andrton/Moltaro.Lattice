@@ -15,7 +15,7 @@ public sealed class CloseWhileApplyingIsSuspendedTests
 
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Close_of_a_child_whose_application_is_suspended_completes_and_returns_its_native_memory()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -35,7 +35,7 @@ public sealed class CloseWhileApplyingIsSuspendedTests
         Assert.Null(Record.Exception(suspension.Dispose));
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Close_of_a_master_whose_child_has_suspended_its_application_completes_and_returns_its_native_memory()
     {
         var allocator = new CountingNativeAllocator();

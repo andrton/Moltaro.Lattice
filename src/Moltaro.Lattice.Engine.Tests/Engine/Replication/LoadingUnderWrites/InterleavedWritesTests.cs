@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // the master holds there.
 public sealed class InterleavedWritesTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_that_loads_while_the_master_inserts_replaces_deletes_and_recreates_ends_equal_to_the_master_at_its_readiness_position()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

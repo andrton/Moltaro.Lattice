@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 // its last values, the deleted one absent.
 public sealed class ChangesInOrderTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Child_that_receives_a_run_of_changes_at_once_applies_them_in_their_order()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

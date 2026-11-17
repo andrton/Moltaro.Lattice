@@ -4,14 +4,16 @@ using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Loading;
 
-// The connection of a child to its master, from the first attempt to reach it to the end of the load
-// (brief of Epic 1, sprint S10; the planner's blocks of 15 and 17 November 2026 and his decision after the
-// study, point 4). The child owns it, and keeps it open after the load, so that the master knows the
-// child is connected; until S11 nothing travels on it after the load.
+// The connection of a child to its master, from the first attempt to reach it to the end of the load and
+// on, while the child follows its master (brief of Epic 1, sprints S10 and S11; the planner's blocks of
+// 15 and 17 November 2026 and his decisions after the studies). The child owns it, and keeps it open
+// after the load: the stream of transactions arrives on it, and the child sends back what it applied
+// (Following.Follower).
 //
 // Reaching the master (ConnectAsync). While the master cannot be reached the child keeps trying, with
 // the back-off of the milestone contract — 100 ms, doubling, at most 5 s between two attempts —, until
@@ -28,8 +30,9 @@ namespace Moltaro.Lattice.Engine.Loading;
 // The waits, and how each ends: a connect and the reply to the Hello, at the end of the time left to
 // reach the master and be accepted by it; a pause between two attempts (Replication.RetryPause), at its
 // length or the end of that time, whichever comes first; a receive of the load, after OpenTimeout; a
-// send, when the master has taken the bytes — the Hello is small and the master reads it. The token of
-// the open ends each of them, and the close of the child is in that token.
+// send, when the master has taken the bytes — the Hello and an Applied are small and the master reads
+// them. The token of the open ends each of them, and the close of the child is in that token. The waits
+// of the stream after the load are the follower's.
 internal sealed class MasterLink : IDisposable
 {
     private readonly FrameConnection _connection;
@@ -157,10 +160,10 @@ internal sealed class MasterLink : IDisposable
         }
     }
 
-    // Receives the roots and places each as soon as it is whole, until LoadEnd, and ends the load with it
-    // (RootPlacement.End). A root announced beyond the memory the child may take for its database cannot
-    // be held: Unavailable with the reason.
-    public async Task ReceiveRootsAsync(RootPlacement placement, long memoryLimit, CancellationToken cancellationToken)
+    // Receives the roots and places each as soon as it is whole, until LoadEnd, ends the load with it
+    // (RootPlacement.End) and returns it. A root announced beyond the memory the child may take for its
+    // database cannot be held: Unavailable with the reason.
+    public async Task<LoadEndBody> ReceiveRootsAsync(RootPlacement placement, long memoryLimit, CancellationToken cancellationToken)
     {
         var assembler = new RootAssembler(memoryLimit);
         var completed = new List<ReadOnlySequence<byte>>();
@@ -183,9 +186,11 @@ internal sealed class MasterLink : IDisposable
                     break;
 
                 case FrameKindEnum.LoadEnd when !assembler.InProgress:
-                    placement.End(LoadEndBody.Read(frame.Payload.Span));
+                    var end = LoadEndBody.Read(frame.Payload.Span);
 
-                    return;
+                    placement.End(end);
+
+                    return end;
 
                 default:
                     throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master sent a {frame.Kind} frame in the middle of the roots of its load.");
@@ -193,8 +198,28 @@ internal sealed class MasterLink : IDisposable
         }
     }
 
-    // Ends the connection in order. The master sees the child go, and publishes writes again once no
-    // child is registered on it.
+    // After the load, for the child that follows its master (Following.Follower): the next frame of the
+    // stream, waited for at most the timeout, or until the master sends one, ends the connection, or the
+    // token ends the wait when it is null; as FrameConnection.ReceiveAsync.
+    public ValueTask<ReceivedFrame> ReceiveAsync(TimeSpan? timeout, CancellationToken cancellationToken) =>
+        _connection.ReceiveAsync(timeout, cancellationToken);
+
+    // Whether the next frame of the stream has arrived whole already (FrameConnection.HoldsFrame).
+    public bool HoldsFrame => _connection.HoldsFrame;
+
+    // Tells the master that the child has applied everything it received up to the sequence. The send
+    // waits until the master has taken the bytes, which it does as long as it serves the child; the token
+    // ends the wait.
+    public async ValueTask SendAppliedAsync(ulong sequence, CancellationToken cancellationToken)
+    {
+        Span<byte> payload = stackalloc byte[Protocol.AppliedPayloadSize];
+
+        TransactionFormat.WriteApplied(payload, sequence);
+        _connection.Add(FrameKindEnum.Applied, 0, payload);
+        await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Ends the connection in order. The master sees the child go, and holds nothing for it afterwards.
     public void Dispose() => _connection.Dispose();
 
     // The address of the master: an IP address, or a name that the system resolves when it connects.

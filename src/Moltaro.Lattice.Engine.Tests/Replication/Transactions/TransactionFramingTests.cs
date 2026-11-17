@@ -21,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 //   S.
 public sealed class TransactionFramingTests
 {
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Transaction_larger_than_a_frame_arrives_in_several_frames_and_its_first_announces_its_sequence_and_the_length_of_its_effects()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -42,7 +42,7 @@ public sealed class TransactionFramingTests
         Assert.Equal(effects, TransactionPayload.AnnouncedLengthOf(frames[0]));
     }
 
-    [Fact(Skip = ChildFollowing.NotImplemented)]
+    [Fact]
     public async Task Loading_child_is_sent_its_stream_after_LoadEnd_from_its_start_position_in_the_order_of_the_sequences()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
