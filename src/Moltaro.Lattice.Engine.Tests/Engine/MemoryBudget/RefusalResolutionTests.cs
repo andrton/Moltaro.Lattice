@@ -231,6 +231,7 @@ public sealed class RefusalResolutionTests
             await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => insert.WaitAsync(Bound));
+            Assert.False(replace.IsCompleted, "The replace held in the storage step completed before the cancelled insert ended.");
 
             storage.ReleaseAll();
             heldReplace.Release();

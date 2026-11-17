@@ -149,6 +149,7 @@ public sealed class DispatchTests
             await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replaces[1].WaitAsync(Bound));
+            Assert.False(replaces[0].IsCompleted, "The replace held in the storage step completed before the cancelled replace ended.");
             Assert.Equal(4, database.Counters.QueuedWrites);
             Assert.Equal(PieceTally.SlotBytesOf(states[0]) + PieceTally.SlotBytesOf(other), database.Counters.Arena.PreparedBytes);
 
@@ -198,6 +199,7 @@ public sealed class DispatchTests
             await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
+            Assert.False(firstWrite.IsCompleted, "The replace held in the storage step completed before the cancelled replace ended.");
 
             var counters = database.Counters;
 
@@ -249,6 +251,7 @@ public sealed class DispatchTests
 
             // Ended while the earlier write is still held in the storage step.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
+            Assert.False(earlierWrite.IsCompleted, "The write held in the storage step completed before the cancelled write ended.");
 
             var counters = database.Counters;
 

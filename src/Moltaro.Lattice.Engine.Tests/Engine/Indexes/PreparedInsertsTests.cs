@@ -90,6 +90,8 @@ public sealed class PreparedInsertsTests
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(() => write.WaitAsync(Bound));
             }
 
+            Assert.False(held.IsCompleted, "The replace held in the storage step completed before the withdrawn inserts ended.");
+
             var before = database.Counters;
 
             Assert.Equal(SlotBytes(1 + Inserts - withdrawn.Count + replaces.Count), before.Arena.PreparedBytes);

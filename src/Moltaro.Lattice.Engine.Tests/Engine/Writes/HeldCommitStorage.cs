@@ -12,13 +12,20 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // once and is not given there. Every call is recorded (HeldCommit), so that a test can state what
 // each group held.
 //
+// A held commit completes as a storage step completes that waits: its task completes later, and the
+// commit stage goes on where it completes. HoldNextInCall holds the next commit instead inside the
+// call of the storage step, on the thread of the commit stage, and the call then returns a task that
+// has completed, as a storage step does that completes at once: the commit stage goes on on the thread
+// that runs it, which may be the thread of a call.
+//
 // It assigns positions as the storage of MemoryOnly does: the first group of a new database takes the
 // sequence 1, and every group the sequences after the last one of the group before it, one for each
 // of its writes (CommitOutcome.FirstSequence).
 //
-// Every wait is bounded: NextAsync fails when no commit comes within the bound, and a commit that the
-// test never releases completes after the bound, so that a test that fails while it holds one leaves
-// a database that can close.
+// A held commit completes only when the test releases it, never by itself: a test that waits for what
+// a held commit holds back fails at the bound of its own wait, and cannot pass because the commit was
+// let go behind its back. Every test releases every commit when it ends (ReleaseAll), so that its
+// database can close. NextAsync fails when no commit comes within the bound.
 internal sealed class HeldCommitStorage : ICommitStorage
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
@@ -32,6 +39,8 @@ internal sealed class HeldCommitStorage : ICommitStorage
     private ulong _next = 1;
 
     private bool _holding;
+
+    private bool _holdNextInCall;
 
     // A storage that holds every commit from the start, or one that completes every commit at once
     // until Hold is called.
@@ -55,14 +64,17 @@ internal sealed class HeldCommitStorage : ICommitStorage
     public async ValueTask<CommitOutcome> CommitAsync(CommitGroup group, CancellationToken cancellationToken)
     {
         HeldCommit commit;
+        bool inCall;
 
         lock (_lock)
         {
             commit = new HeldCommit([.. group.Writes.Select(write => write.EncodedSize)], _next);
             _next += (ulong)commit.Count;
             _commits.Add(commit);
+            inCall = _holdNextInCall;
+            _holdNextInCall = false;
 
-            if (_holding)
+            if (_holding || inCall)
             {
                 _arrived.Writer.TryWrite(commit);
             }
@@ -72,14 +84,15 @@ internal sealed class HeldCommitStorage : ICommitStorage
             }
         }
 
-        // A commit the test does not release within the bound completes anyway; the test has failed by
-        // then, since it waits within the same bound.
-        try
+        if (inCall)
         {
-            await commit.Released.WaitAsync(Bound).ConfigureAwait(false);
+            // On the thread of the commit stage, until the test releases it; then the call returns a
+            // task that has completed. A failure the test gives the commit passes through.
+            commit.Released.GetAwaiter().GetResult();
         }
-        catch (TimeoutException)
+        else
         {
+            await commit.Released.ConfigureAwait(false);
         }
 
         return new CommitOutcome(commit.FirstSequence);
@@ -94,12 +107,23 @@ internal sealed class HeldCommitStorage : ICommitStorage
         }
     }
 
+    // The next commit waits inside the call of the storage step until the test releases it (see the
+    // class), whether or not the storage holds.
+    public void HoldNextInCall()
+    {
+        lock (_lock)
+        {
+            _holdNextInCall = true;
+        }
+    }
+
     // Releases every commit held now, and from now on every commit completes at once.
     public void ReleaseAll()
     {
         lock (_lock)
         {
             _holding = false;
+            _holdNextInCall = false;
 
             foreach (var commit in _commits)
             {

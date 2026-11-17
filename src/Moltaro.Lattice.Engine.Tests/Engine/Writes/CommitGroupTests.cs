@@ -29,6 +29,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   arena obtains no segment and holds no more capacity, the primary index does not grow, and the
 //   table of root entries gains no entry. Inserts that grow the primary index several times, replaces
 //   and deletes.
+// - No prepared write is left without a commit stage (Acceptance: writes submitted at once all
+//   complete; WriteCoordinator, "The threads"). A call that finds the stage free runs it on its own
+//   thread and gives it up once its own write is published; writes prepared meanwhile, whose calls have
+//   returned their tasks, are then taken by the stage on another thread. The storage of the test holds
+//   the commit of such a call inside its call of the storage step (HoldNextInCall), as a storage step
+//   that completes at once but takes its time, while eight writes of other entities are prepared and
+//   their calls return; then it lets the call go on. Its write is published alone, and the eight
+//   complete as well.
 // Every wait is bounded; the storage releases every commit when a test ends.
 public sealed class CommitGroupTests
 {
@@ -234,6 +242,49 @@ public sealed class CommitGroupTests
             Assert.True(CapacityOf(after) <= CapacityOf(before), $"The arena held more capacity after the publication of {write}.");
             Assert.True(after.PrimaryIndexBytes <= before.PrimaryIndexBytes, $"The primary index grew during the publication of {write}.");
             Assert.True(after.RootEntries <= before.RootEntries, $"The publication of {write} added a root entry.");
+        }
+    }
+
+    [Fact]
+    public async Task Writes_prepared_while_a_call_runs_the_commit_stage_complete_once_that_call_has_its_own_write_published_and_gives_the_stage_up()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await OpenAsync(storage);
+        var pieces = database.Set<PieceSchema.Piece>();
+
+        try
+        {
+            // The call that finds the stage free and runs it, on a thread of its own, since its commit
+            // is held inside its call.
+            storage.HoldNextInCall();
+
+            var first = PieceSchema.Of(0, name: 10);
+            var firstWrite = Task.Run(() => pieces.InsertAsync(first).AsTask());
+            var held = await storage.NextAsync();
+
+            // Prepared while the stage is taken; each call returns its task.
+            PieceSchema.Piece[] later = [.. Enumerable.Range(1, 8).Select(SmallOf)];
+            var writes = later.Select(piece => pieces.InsertAsync(piece).AsTask()).ToArray();
+            var counters = await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf([first, .. later]));
+
+            Assert.Equal(9, counters.QueuedWrites);
+            Assert.Equal(1, held.Count);
+            Assert.DoesNotContain(writes, write => write.IsCompleted);
+
+            held.Release();
+
+            Assert.True((await firstWrite.WaitAsync(Bound)).Changed);
+
+            var results = await Task.WhenAll(writes).WaitAsync(Bound);
+
+            Assert.All(results, result => Assert.True(result.Changed));
+            Assert.Equal(0, database.Counters.QueuedWrites);
+            PieceTally.Of([first, .. later]).ExpectHeldBy(database);
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 

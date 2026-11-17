@@ -176,6 +176,7 @@ public sealed class RefusedWriteTests
             await cancellation.CancelAsync();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => insert.WaitAsync(Bound));
+            Assert.False(replace.IsCompleted, "The replace held in the storage step completed before the cancelled insert ended.");
             Assert.Equal(1, database.Counters.QueuedWrites);
 
             held.Release();
