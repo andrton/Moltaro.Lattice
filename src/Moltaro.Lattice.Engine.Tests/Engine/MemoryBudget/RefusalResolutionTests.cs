@@ -73,6 +73,9 @@ public sealed class RefusalResolutionTests
 
             Assert.Equal(2, database.Counters.QueuedWrites);
 
+            // The replace is published, and the insert, which goes on as any write once it fits, has a
+            // commit of its own: the storage holds no commit from here on.
+            storage.ReleaseAll();
             heldReplace.Release();
 
             Assert.True((await replace.WaitAsync(Bound)).Changed);
