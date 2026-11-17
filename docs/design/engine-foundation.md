@@ -24,7 +24,7 @@ indexes, comparison rules, coherent publication or durability.
 - Durable success requires PostgreSQL commit and coherent publication in the
   master's arena/indexes. Accepted internal group commit can combine independent
   prepared changes in one PostgreSQL transaction without shared read atomicity.
-  Independent preparation runs concurrently; short bounded foreground groups commit
+  Changes are prepared one write at a time under the lock of the writes; short bounded foreground groups commit
   and publish sequentially through one ordered stage per instance. Readers retain
   access during storage I/O; root/index gates cover only protected memory work.
 - One instance owns one database: its schema, data, indexes, string dictionary,
@@ -236,9 +236,9 @@ is required.
 A pending mutation owns its place among conflicting writes to the same object while
 readers retain access to the published state. Prepared independent mutations may
 share a storage commit. Final state-dependent preparation must respect predecessor
-state. The accepted [ordered stage](../decisions/write-acknowledgment.md#ordered-commit-and-publication)
-preserves concurrent independent preparation and serializes saving/publication of
-short bounded foreground groups. The current group completes publication before the
+state. The accepted [ordered stage](../decisions/write-acknowledgment.md#ordered-commit-and-publication),
+as amended on 17 November 2026, prepares one write at a time and serializes
+saving/publication of short bounded foreground groups. The current group completes publication before the
 next proceeds through that stage. MemoryOnly omits the storage wait. See
 [coordination rationale](questions/master-write-order.md).
 
@@ -365,7 +365,7 @@ The [bounded correctness prototype](prototype-evidence.md#bounded-replica-bootst
 supports this mechanism; production shared-string, chunk, allocator and multi-child
 integration remain engineering work. It assumes a correct published transaction
 order. The later [commit/publication scheduling decision](../decisions/write-acknowledgment.md#ordered-commit-and-publication)
-accepts concurrent independent preparation and sequential bounded groups to supply
+accepts preparation of one write at a time and sequential bounded groups to supply
 that order. The prototype did not test this production pipeline; position assignment,
 capture registration and failure integration still require verification.
 
@@ -390,7 +390,7 @@ open-mechanism notes in this overview must be read against that subsequent speci
 | Arena | Relative blocks, concrete header/descriptors, paged root entries, class regions, chunked values and bounded Map/Set layouts; implement and validate every type |
 | Lifetime | Database/root-stripe/catalog/text/allocator ordering, claimed generations, bounded compaction; validate concurrent readers and retained references |
 | Indexes | Selected Arc containers, reserved growth/nodes, shared text, typed comparison and bounded traversal; verify complete integration and memory targets |
-| Writes | Root reservations, concurrent preparation, ordered commit/publication, full WriteBatch boundaries and concrete operation-result protocol; verify all failure transitions |
+| Writes | Root reservations, preparation of one write at a time, ordered commit/publication, full WriteBatch boundaries and concrete operation-result protocol; verify all failure transitions |
 | Persistence | Independent binary roots in 256-byte units, transactional base/cursor/journal, receipt retirement and offline recovery; integrated crash tests remain required |
 | Replication | Framed TCP, fenced capture/remapping, ordered applied ACK, bounded tail/full reload and session dependencies; real multi-process tests remain required |
 | Schema | Stable IDs/layouts, typed/dynamic binding and explicit disk-shadow migration with all writes paused and affected types unavailable; implement compatibility/recovery checks |

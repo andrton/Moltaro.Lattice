@@ -1,5 +1,7 @@
 # Object write coordination and internal group commit
 
+> Amended on 17 November 2026: preparation is one write at a time; see [ordered commit and publication](../../decisions/write-acknowledgment.md#ordered-commit-and-publication).
+
 > Historical discussion. The current status is in the [decision register](../questions.md); the [milestone 1 contract](../milestone-1-engine-contract.md) specifies the mechanisms left open here.
 
 **Accepted on 13 November 2026 for v1:** concurrent independent preparation followed

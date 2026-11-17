@@ -74,7 +74,7 @@ in the meantime.
 | **Found** | 17 November 2026, the study of Epic 1, sprint S09, part 2 |
 | **Question** | Writes are prepared one at a time under the lock of the writes, so several calling threads write less in total than one, and one write of a large entity holds the lock while it is encoded. The form that scales writers in established systems fixes the order first and lets each caller encode in parallel, which needs an arena that allocates on several threads. Does the write path need it? |
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
-| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers |
+| **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
 
 ## Answered
 

@@ -283,9 +283,14 @@ is handed to it at once; when that step completes at once, as in MemoryOnly, the
 publishes in the same hold and returns its result. While a group is in the storage step,
 later calls prepare under the lock and form the next group — at most 32 writes or 8 MiB,
 a larger write alone, never waiting to fill — and whoever completes the storage step
-publishes its group in order and hands over the next. A write to an entity that has a
-prepared, unpublished write waits behind it, first in first out, and holds nothing while
-it waits; so does a batch one of whose entities has one. Prepared blocks stay valid until
+publishes its group in order and hands over the next. A write to an entity that has an
+earlier write not yet completed — prepared and unpublished, or itself waiting — waits
+behind the latest such write, first in first out, and holds nothing while it waits; so
+does a batch one of whose entities has one. It is prepared when that write completes in
+any way, published, refused or cancelled, and is checked against the state published
+then. In MemoryOnly this happens only while a write refused for memory is being
+resolved. A write whose token is cancelled before its dispatch is never dispatched.
+Prepared blocks stay valid until
 they are published or abandoned, because nothing else can reach them. Everything is
 released on a failure before the commit.
 
