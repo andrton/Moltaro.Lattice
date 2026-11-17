@@ -1,13 +1,14 @@
 namespace Moltaro.Lattice.Engine.Protection;
 
-// What a close waits for besides the reads (ReadEpochs): the operations in progress that hold the
-// lock of the writes and may change the arena, the writes, the drains and the counters (brief of S06,
-// "States"; milestone contract: a close cannot free an arena until outstanding protected scopes
-// release it). Every such operation enters before it touches the database and exits when it is done.
-// After the close no operation enters, and Drained completes when the last operation in progress has
-// exited, or at once when none is in progress. Reads do not pass here: a count that every read
-// changes is memory every read writes, which ReadEpochs exists to avoid. Writes run one at a time
-// anyway, so the shared count costs them nothing that matters.
+// What a close waits for besides the reads (ReadEpochs): the operations in progress that may change
+// the arena — every write admitted, from its admission to its outcome, in whatever step it is
+// (Writes.WriteCoordinator), the drains and the counts of the counters (brief of S06, "States";
+// milestone contract: a close cannot free an arena until outstanding protected scopes release it).
+// Every such operation enters before it touches the database and exits when it is done. After the
+// close no operation enters, and Drained completes when the last operation in progress has exited, or
+// at once when none is in progress. Reads do not pass here: a count that every read changes is memory
+// every read writes, which ReadEpochs exists to avoid. A write passes here twice, at its admission and
+// at its outcome, beside the locks it takes anyway.
 //
 // The count and the mark of the close are one word that every change makes atomically, so an
 // operation is either counted before the close or refused after it.

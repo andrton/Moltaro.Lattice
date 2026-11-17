@@ -19,5 +19,8 @@ internal interface ICommitStorage
     // real outcome and its token is not looked at. The writes of the group take consecutive positions
     // from CommitOutcome.FirstSequence, in the order of the group, which for one entity is the order of
     // admission; a delete of an absent key takes a position as any write does.
+    //
+    // The group and its list belong to the commit stage and are reused: a storage reads them until its
+    // task completes and keeps no reference afterwards.
     ValueTask<CommitOutcome> CommitAsync(CommitGroup group, CancellationToken cancellationToken);
 }

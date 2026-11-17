@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -270,7 +269,7 @@ public sealed class DispatchTests
         }
     }
 
-    [Fact(Skip = OpenFindings.ReviewRound1)]
+    [Fact]
     public async Task Write_cancelled_while_it_is_being_prepared_and_then_refused_by_the_arena_ends_without_waiting_for_the_earlier_write()
     {
         const int Large = 3 * 1024 * 1024;

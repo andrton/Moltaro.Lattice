@@ -14,9 +14,14 @@ internal enum PendingWriteStateEnum
     // A thread prepares it.
     Preparing = 3,
 
-    // The arena refused it, and it waits for every write admitted before it to complete. It holds its
-    // identity and nothing in the engine.
+    // The arena refused it twice, and it waits for every write admitted before it to complete (step 1
+    // of its resolution). It holds its identity and nothing in the engine.
     WaitingForEarlier = 4,
+
+    // The arena refused it twice, it is the oldest write and the write being resolved: no later write
+    // begins to be prepared, and it waits for the writes in flight to complete (step 2 of its
+    // resolution). It holds its identity and nothing in the engine.
+    WaitingForFlight = 9,
 
     // Prepared, with everything its publication needs, and waiting for the commit stage.
     Prepared = 5,

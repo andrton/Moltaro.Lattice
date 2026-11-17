@@ -298,15 +298,15 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
-    // refused and that begins to wait runs hold, once, on the thread that prepares it and outside every
-    // lock, when it knows it has to wait and before it waits, so that a test can tell that the write
-    // waits instead of giving it a window of time. A refused write waits for the writes admitted before
-    // it, and then for the reads that hold retired memory (WriteCoordinator, "The refusal"); the switch
-    // runs when it begins either, whichever comes first, and the name keeps the second, which came
-    // first, in S08. When hold returns the write waits as it would have. Only a write the arena refused
-    // loads the switch: no other write and no read pays anything for it. Unavailable before the open,
-    // ObjectDisposedException after the close.
-    public void HoldNextWaitForReads(Action hold)
+    // refused twice runs hold, once, at the first wait of its resolution, on the thread that prepares it
+    // and outside every lock, when it knows it has to wait and before it waits, so that a test can tell
+    // that the write waits instead of giving it a window of time. A refused write is resolved alone: it
+    // waits for the writes admitted before it, then for the writes in flight while it holds back later
+    // ones, then for the reads that hold retired memory (WriteCoordinator, "The refusal"); the switch
+    // runs at the first of these waits that the write has to make. When hold returns the write waits as
+    // it would have. Only a write the arena refused loads the switch: no other write and no read pays
+    // anything for it. Unavailable before the open, ObjectDisposedException after the close.
+    public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();

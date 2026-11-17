@@ -248,7 +248,7 @@ internal sealed class WriteExecutor
         var table = write.Table;
         bool exists;
         bool expectedMatches;
-        var slot = _epochs.EnterForWrite();
+        var slot = _epochs.EnterForWrite(write.Token);
 
         try
         {

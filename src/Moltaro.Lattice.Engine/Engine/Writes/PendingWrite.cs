@@ -12,9 +12,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // ManualResetValueTaskSourceCore, used once and never reset).
 //
 // Who touches what. The inputs are set when it is made and never changed. State and the links are
-// changed under the lock of the coordinator alone. Refused, Refusal and Prepared are written by the
-// thread that prepares it and read by the next thread that does, or by the commit stage, each after the
-// lock of the coordinator has passed between them. The completion is set once, outside every lock, and
+// changed under the lock of the coordinator alone. Waited and Prepared are written by the thread that
+// prepares it and read by the next thread that does, or by the commit stage, each after the lock of
+// the coordinator has passed between them. The completion is set once, outside every lock, and
 // its continuations run on the thread pool, never on the thread that completes it, so that no code of
 // the application runs on a thread of the engine (RunContinuationsAsynchronously).
 //
@@ -87,12 +87,9 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     // The next write that the end of another made ready, while the coordinator starts them.
     public PendingWrite? NextToStart { get; set; }
 
-    // The arena refused the write once: from then on it waits, before it tries again, for what can give
-    // it room (WriteCoordinator, "The refusal").
-    public bool Refused { get; set; }
-
-    // The last refusal of the arena, which the write ends with when nothing can give it room.
-    public LatticeException? Refusal { get; set; }
+    // Whether the switch of the tests was offered at a wait of its resolution, which it is at the first
+    // only (WriteCoordinator.OfferWaitHold). Written by the thread that decides the wait.
+    public bool Waited { get; set; }
 
     // What the preparation made, from its end to the outcome.
     public PreparedWrite? Prepared { get; set; }
@@ -115,6 +112,6 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         _completion.OnCompleted(continuation, state, token, flags);
 
     // Prepared on a thread of the pool, once it holds its identity and a place among the writes being
-    // prepared.
-    public void Execute() => _coordinator.Prepare(this);
+    // prepared, or withdrawn there, once its token was cancelled while it waited for the commit stage.
+    public void Execute() => _coordinator.Run(this);
 }

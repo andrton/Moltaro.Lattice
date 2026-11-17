@@ -35,8 +35,10 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// Writes to one entity are executed in the order their calls were made: a call that is made
 /// after an earlier call has returned its task is executed after it, whether or not the earlier
-/// task was awaited. Calls that race on different threads have no order between them. Writes to
-/// different entities have no order beyond their positions.
+/// task was awaited. A write that first waits for the position of its session takes its place in
+/// that order when the wait ends, so a later call may be executed before it. Calls that race on
+/// different threads have no order between them. Writes to different entities have no order
+/// beyond their positions.
 /// </para>
 /// <para>
 /// A write that takes a <see cref="LatticeSession"/> is executed by the master after the

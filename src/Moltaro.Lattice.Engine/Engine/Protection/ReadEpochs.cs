@@ -151,8 +151,9 @@ internal sealed class ReadEpochs
     // not look at the close or at a fault: a write admitted before the close goes on to its outcome,
     // and the close waits for it through the barrier of the close (CloseBarrier) before it waits for
     // the reads and frees the arena; the coordinator ends a write after a fault. It waits for a free
-    // slot as Enter does.
-    public int EnterForWrite()
+    // slot as Enter does, and the token of the write ends that wait, with OperationCanceledException;
+    // it is looked at only while every slot is held.
+    public int EnterForWrite(CancellationToken cancellationToken)
     {
         var start = Thread.GetCurrentProcessorId();
         var spinner = default(SpinWait);
@@ -169,6 +170,7 @@ internal sealed class ReadEpochs
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             spinner.SpinOnce();
         }
     }
