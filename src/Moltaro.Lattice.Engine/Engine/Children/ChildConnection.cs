@@ -27,13 +27,13 @@ namespace Moltaro.Lattice.Engine.Children;
 //    connection; the end of either ends both.
 // Every end of the connection ends the registration, whatever the step and whatever the reason: the
 // child closed or vanished, a send or a receive failed, a frame was not valid, the child acknowledged what
-// it cannot have applied, the tail dropped the child, or the master closes.
+// it cannot have applied, or the master closes.
 //
 // The waits, and how each ends. The Hello: within OpenTimeout, or the close of the master. A send: until
 // the child has taken the bytes, which a child that does not read never does; it has no deadline until
 // S33, and the close of the master ends it (exception X6). The next transaction of the tail: until a
 // write of the master is published, which may never be; the close of the master, the end of the other
-// task of the connection and a drop of the cursor end it. The next Applied: until the child sends one,
+// task of the connection end it. The next Applied: until the child sends one,
 // closes or vanishes, which a child that applies nothing or is idle may take any time; the close of the
 // master and the end of the other task end it. A connection whose child stopped reading thus holds the
 // tail for it until S33 bounds it.
@@ -181,64 +181,71 @@ internal sealed class ChildConnection
     // worth at a time, so that a small transaction does not cost a send of its own while others wait.
     private async Task DeliverAsync(DeliveryCursor cursor, CancellationToken cancellationToken)
     {
-        var after = cursor.TakeStart();
+        var reader = new DeliveryReader(cursor);
 
         while (true)
         {
-            var next = after.Next;
-
-            if (next is null)
+            if (!reader.HasBytes())
             {
-                if (_connection.PendingBytes > 0)
-                {
-                    await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                await _capture.Tail.WaitForNextAsync(after, cursor, cancellationToken).ConfigureAwait(false);
-
-                if (cursor.Dropped)
-                {
-                    throw Dropped();
-                }
+                await WaitForMoreAsync(reader, cancellationToken).ConfigureAwait(false);
 
                 continue;
             }
 
-            // A transaction is released once every child has applied it, which this one cannot have done
-            // before it was sent; only a drop lets it go before (DeliveryTail.Drop).
-            var bytes = next.Bytes;
-
-            if (bytes is null || cursor.Dropped)
-            {
-                throw Dropped();
-            }
+            var (sequence, length) = reader.Transaction();
 
             // Before its frames are added: the child may apply and acknowledge the transaction as soon as
             // its last frame is sent, which can be before this task goes on.
-            cursor.Sent = next.Sequence;
-            await AddTransactionAsync(bytes, cancellationToken).ConfigureAwait(false);
-            after = next;
+            cursor.Sent = sequence;
+            await AddTransactionAsync(reader, length, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    // Cuts the transaction into Transaction frames, its last one marked, and sends whenever a frame's
-    // worth is waiting.
-    private async ValueTask AddTransactionAsync(byte[] bytes, CancellationToken cancellationToken)
+    // Cuts the transaction into Transaction frames, its last one marked, each within one block of the
+    // tail, and sends whenever a frame's worth is waiting. A transaction is appended whole, but the link
+    // to a block it continues in is stored after the end of the block before, so the rest may be a wait
+    // away.
+    private async ValueTask AddTransactionAsync(DeliveryReader reader, long length, CancellationToken cancellationToken)
     {
-        var offset = 0;
+        var remaining = length;
 
-        while (offset < bytes.Length)
+        while (remaining > 0)
         {
-            var part = Math.Min(bytes.Length - offset, Protocol.MaxDataPayload);
+            if (!reader.HasBytes())
+            {
+                await WaitForMoreAsync(reader, cancellationToken).ConfigureAwait(false);
 
-            _connection.Add(FrameKindEnum.Transaction, offset + part == bytes.Length ? Protocol.EndsARoot : 0, bytes.AsSpan(offset, part));
-            offset += part;
+                continue;
+            }
+
+            remaining -= AddFrame(reader, remaining);
 
             if (_connection.PendingBytes >= Protocol.MaxFrame)
             {
                 await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    // Adds the next frame of a transaction with the bytes given left; returns the bytes it took.
+    private int AddFrame(DeliveryReader reader, long remaining)
+    {
+        var part = reader.Take(Math.Min(remaining, Protocol.MaxDataPayload));
+
+        _connection.Add(FrameKindEnum.Transaction, part.Length == remaining ? Protocol.EndsARoot : 0, part);
+
+        return part.Length;
+    }
+
+    // Sends what is waiting, then waits for more of the tail.
+    private async ValueTask WaitForMoreAsync(DeliveryReader reader, CancellationToken cancellationToken)
+    {
+        if (_connection.PendingBytes > 0)
+        {
+            await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await _capture.Tail.WaitForMoreAsync(reader.Block, reader.Offset, cancellationToken).ConfigureAwait(false);
     }
 
     // Receives what the child has applied, until the connection ends (see the class). A frame that is
@@ -262,9 +269,6 @@ internal sealed class ChildConnection
             }
         }
     }
-
-    private static InvalidOperationException Dropped() =>
-        new("The tail dropped the child: it could not hold a transaction, and the child has to load again.");
 
     private void AddLoadEnd(LoadEndBody end)
     {

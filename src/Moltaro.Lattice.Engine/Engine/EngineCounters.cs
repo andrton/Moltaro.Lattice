@@ -70,9 +70,11 @@ namespace Moltaro.Lattice.Engine;
 // ActiveCaptures: the captures registered and not ended: one for each child from the hold that takes its
 // start position until its capture has copied its last root and taken its end position.
 //
-// PendingDeliveryBytes: the bytes of the committed transactions the master holds for its children: what
-// it appended to the tail less what it released once every child had applied it. Managed memory outside
-// the budget of the instance, without a bound of its own until S33.
+// PendingDeliveryBytes: the bytes of the committed transactions the master holds for its children that
+// some child has not applied: what it appended to the tail less what it released once every child had
+// applied it, in bytes of transactions, not of the capacity of the blocks that hold them; 0 once every
+// child has applied everything, and with no child. The blocks themselves are managed memory outside the
+// budget of the instance, without a bound of their own until S33.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,

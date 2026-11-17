@@ -7,32 +7,28 @@ internal sealed class DeliveryCursor
 {
     private ulong _sent;
 
-    private volatile bool _dropped;
+    private DeliveryBlock _block;
 
-    // The transaction after which the stream of the child begins, until the sender takes it (TakeStart).
-    private DeliveredTransaction? _start;
-
-    public DeliveryCursor(DeliveredTransaction start, ulong startPosition)
+    public DeliveryCursor(DeliveryBlock start, int startOffset, ulong startPosition)
     {
-        _start = start;
+        _block = start;
+        StartOffset = startOffset;
         Acknowledged = startPosition;
         _sent = startPosition;
         Capturing = true;
     }
 
-    // By the sender of the child, once: the transaction after which its stream begins, the last one of
-    // the tail when its capture was registered, at S, so that the first one after it is the transaction
-    // of S + 1. The cursor lets go of it, so that it holds no transaction for the life of the connection:
-    // each transaction links the next, so a reference to the first one would keep every one after it
-    // reachable, released or not, one object for every write of the master while the child is connected.
-    // From here on the sender holds only the one it has reached, and the tail those it keeps.
-    public DeliveredTransaction TakeStart()
+    // Where in its first block the stream of the child begins: the end of the current block when its
+    // capture was registered, at S, so that the first transaction after it is the one of S + 1.
+    public int StartOffset { get; }
+
+    // The block the sender of the child reads, its first block until the sender moves on: set by the
+    // sender before it reads a block, read under the lock of the writes, where a block a sender reads is
+    // not released (DeliveryTail.Release). The sender moves only forward.
+    public DeliveryBlock Block
     {
-        var start = _start!;
-
-        _start = null;
-
-        return start;
+        get => Volatile.Read(ref _block);
+        set => Volatile.Write(ref _block, value);
     }
 
     // Under the lock of the writes: the sequence up to which the child has applied the stream, S until
@@ -41,14 +37,6 @@ internal sealed class DeliveryCursor
 
     // Under the lock of the writes: whether its capture is still copying (EngineCounters.ActiveCaptures).
     public bool Capturing { get; set; }
-
-    // Whether the tail stopped delivering to the child, which then has to load again (DeliveryTail.Drop):
-    // set under the lock of the writes, read by the sender of the child without it.
-    public bool Dropped
-    {
-        get => _dropped;
-        set => _dropped = value;
-    }
 
     // The last sequence the sender of the child has handed to the connection; written by the sender,
     // read under the lock of the writes, where an Applied beyond it is refused: a child cannot have

@@ -25,7 +25,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //   and one caller replaces small entities beside it;
 // - in isolation, on an arena of its own: the copy the capture of a load makes of a root of 32 MiB inside
 //   the protection of reads (BlockExport.Write into the buffer of a connection), and the copy a write
-//   makes of it for the tail of the children under the lock of the writes (DeliveredTransaction.OfWrite),
+//   makes of it for the tail of the children under the lock of the writes (TransactionEncoder.Write),
 //   each 20 times, min, median and max, beside the same copy into an array allocated once, into one taken
 //   from ArrayPool, and a plain copy of 32 MiB between two managed arrays for scale.
 // Both sides run in one process.
@@ -109,6 +109,7 @@ internal static class LargeWriteChildScenario
         RootValues.Write(ref writer, entityType, [.. entityType.Fields.Select(field => user[field.Name])]);
 
         var root = writer.Complete();
+        var tail = new TailCopy();
         var times = new List<double>();
 
         for (var round = 0; round < 3; round++)
@@ -117,7 +118,7 @@ internal static class LargeWriteChildScenario
 
             for (var copy = 0; copy < Count; copy++)
             {
-                _ = DeliveredTransaction.OfWrite((ulong)copy + 1, table, arena, root);
+                tail.Copy(table, arena, root);
             }
 
             times.Add(Stopwatch.GetElapsedTime(started).TotalNanoseconds / Count);
@@ -125,7 +126,7 @@ internal static class LargeWriteChildScenario
 
         times.Sort();
 
-        return $"A write's copy of a small root for the tail (a user of the fixture, {BlockExport.Length(arena, layout, root)} bytes exported; DeliveredTransaction.OfWrite), {Count} times in each of 3 rounds: {string.Join(", ", times.Select(time => $"{time.ToString("F0", CultureInfo.InvariantCulture)} ns"))} each";
+        return $"A write's copy of a small root for the tail (a user of the fixture, {BlockExport.Length(arena, layout, root)} bytes exported; TransactionEncoder.Write into the blocks of the tail, released after each), {Count} times in each of 3 rounds: {string.Join(", ", times.Select(time => $"{time.ToString("F0", CultureInfo.InvariantCulture)} ns"))} each";
     }
 
     private static List<string> Series(EngineDatabase database, ILatticeSet blobs, LatticeRecord large, LatticeRecord[] small, string children)
@@ -176,6 +177,7 @@ internal static class LargeWriteChildScenario
         var root = writer.Complete();
         var buffer = new TransferBuffer();
         var reused = new byte[BlockExport.Length(arena, layout, root)];
+        var tail = new TailCopy();
         var capture = new List<TimeSpan>();
         var delivery = new List<TimeSpan>();
         var reusedCopy = new List<TimeSpan>();
@@ -192,7 +194,7 @@ internal static class LargeWriteChildScenario
             capture.Add(Stopwatch.GetElapsedTime(started));
 
             started = Stopwatch.GetTimestamp();
-            _ = DeliveredTransaction.OfWrite((ulong)copy + 1, table, arena, root);
+            tail.Copy(table, arena, root);
             delivery.Add(Stopwatch.GetElapsedTime(started));
 
             started = Stopwatch.GetTimestamp();
@@ -215,10 +217,44 @@ internal static class LargeWriteChildScenario
         return
         [
             $"The capture's copy of a root of 32 MiB inside the protection of reads (BlockExport.Write into a TransferBuffer), {Copies} times: {Spread(capture)}",
-            $"A write's copy of a root of 32 MiB for the tail of the children under the lock of the writes (DeliveredTransaction.OfWrite, one array allocated each time), {Copies} times: {Spread(delivery)}",
+            $"A write's copy of a root of 32 MiB for the tail of the children under the lock of the writes (TransactionEncoder.Write into the blocks of the tail, released after each), {Copies} times: {Spread(delivery)}",
             $"The same copy, for comparison, into one array allocated once: {Spread(reusedCopy)}; into an array taken from ArrayPool<byte>.Shared and returned: {Spread(pooledCopy)}",
             $"For scale, a copy of 32 MiB from one managed array into another: {Spread(plain)}",
         ];
+    }
+
+    // A tail of one child that applies each transaction at once: the copy a write makes for the tail, and
+    // its release, as the lock of the writes and the sender of the child do them.
+    private sealed class TailCopy
+    {
+        private readonly DeliveryTail _tail = new();
+
+        private readonly DeliveryCursor _cursor;
+
+        private readonly DeliveryReader _reader;
+
+        private ulong _sequence;
+
+        public TailCopy()
+        {
+            _cursor = _tail.Subscribe(startPosition: 0);
+            _reader = new DeliveryReader(_cursor);
+        }
+
+        public void Copy(EntityTable table, Arena arena, ArenaAddress root)
+        {
+            _sequence++;
+            TransactionEncoder.Write(_tail, _sequence, table, arena, root);
+            _tail.Commit();
+
+            while (_reader.HasBytes())
+            {
+                _reader.Take(long.MaxValue);
+            }
+
+            _cursor.Sent = _sequence;
+            _tail.Acknowledge(_cursor, _sequence);
+        }
     }
 
     private static string Spread(List<TimeSpan> times)

@@ -67,16 +67,16 @@ namespace Moltaro.Lattice.Engine.Writes;
 // - A delete of an absent key publishes only its sequence.
 // Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
 // look (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
-// defect, or when the managed heap cannot hold the copy of the write for the children (below); the
+// defect, or when the managed heap cannot hold a block of the tail of the children (below); the
 // write that failed and those after it stay unpublished, and the coordinator faults the database.
 //
 // The children (brief of Epic 1, sprint S11; the planner's decision of 17 November 2026 after the study,
 // point 5). While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
 // encoded for the children before its stores, from what it publishes — the root it prepared, the key it
 // deletes, or only its position — and appended to the tail after them, in the order of the sequences;
-// the senders of the children are woken once the lock is released (WakeDelivery). The copy is managed
-// memory, allocated here, under the lock: one array of the length of the transaction. With no child and
-// no capture nothing is encoded.
+// the senders of the children are woken once the lock is released (WakeDelivery). The copy is written
+// into the blocks of the tail, under the lock, which allocates only when the tail takes a block it has
+// no spare for. With no child and no capture nothing is encoded.
 //
 // A child (Loading.ReceivedChanges) publishes what it received from its master through the members
 // PublishReceived…, with the stores of a write of a master and the sequence of the master as the stamp,
@@ -107,7 +107,7 @@ internal sealed class WriteExecutor
 
     private int _skippedPasses;
 
-    // Whether a publication appended to the tail, or dropped its cursors, since the coordinator last
+    // Whether a publication appended to the tail since the coordinator last
     // looked (TakeDelivered).
     private bool _delivered;
 
@@ -395,7 +395,12 @@ internal sealed class WriteExecutor
 
         var write = prepared.Write;
         var table = write.Table;
-        var delivered = _delivery.Retains ? Deliver(prepared, sequence) : null;
+        var delivers = _delivery.Retains;
+
+        if (delivers)
+        {
+            Deliver(prepared, sequence);
+        }
 
         switch (prepared.Kind)
         {
@@ -416,33 +421,33 @@ internal sealed class WriteExecutor
                 break;
         }
 
-        if (delivered is not null)
+        if (delivers)
         {
-            _delivery.Append(delivered);
+            _delivery.Commit();
             _delivered = true;
         }
     }
 
-    // The transaction of the write for the children (see the class). A write whose transaction is longer
-    // than one array holds cannot be delivered: the children are dropped and load again (S34), and the
-    // write is published as any other, since no write of the master is refused because of a child.
-    private DeliveredTransaction? Deliver(PreparedWrite prepared, ulong sequence)
+    // The transaction of the write for the children, written into the tail and appended by Commit (see
+    // the class).
+    private void Deliver(PreparedWrite prepared, ulong sequence)
     {
         var write = prepared.Write;
-        var delivered = prepared.Kind switch
-        {
-            PublicationKindEnum.Insert or PublicationKindEnum.Replace => DeliveredTransaction.OfWrite(sequence, write.Table, _arena, prepared.Root),
-            PublicationKindEnum.Delete => DeliveredTransaction.OfDelete(sequence, write.Table, write.Key),
-            _ => DeliveredTransaction.OfUnchanged(sequence),
-        };
 
-        if (delivered is null)
+        switch (prepared.Kind)
         {
-            _delivery.Drop();
-            _delivered = true;
+            case PublicationKindEnum.Insert or PublicationKindEnum.Replace:
+                TransactionEncoder.Write(_delivery, sequence, write.Table, _arena, prepared.Root);
+                break;
+
+            case PublicationKindEnum.Delete:
+                TransactionEncoder.Delete(_delivery, sequence, write.Table, write.Key);
+                break;
+
+            default:
+                TransactionEncoder.Unchanged(_delivery, sequence);
+                break;
         }
-
-        return delivered;
     }
 
     // For a child (Loading.ReceivedChanges), under the lock of the writes: publishes a root the child
