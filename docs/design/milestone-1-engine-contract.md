@@ -551,7 +551,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
 | Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
-| Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered |
+| Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered. Built with S33; until then captures are not limited |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
 One root and one transaction may

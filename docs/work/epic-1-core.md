@@ -111,7 +111,11 @@ limit of the arena, and a write is refused for memory only when it does not fit 
 the stored data; a fault of a publication leaves the instance `Faulted`. The close of a
 database is one operation that every later call joins; the token of an asynchronous read
 is honored in every wait of its step; a key is given by name without a box. The public
-entry keeps the refusals of the placeholder until S12.
+entry keeps the refusals of the placeholder until S12. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
+connects over TCP, loads the schema and every entity with its revision, and becomes Ready;
+a frame carries a CRC32C and no address travels; `OpenTimeout` bounds reaching the master
+and the time without a frame. A master refuses writes while a child is connected, until
+S11 lets a child follow.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -304,6 +308,10 @@ documentation before this document is removed.
 | S09, part 2 | Reads by key in total on 16 threads, alone and beside 16 callers that replace | 17.5 to 19.6 M/s alone; 14.9 to 15.7 M/s beside the callers, against 15.1 to 15.3 on S08 and 13.9 to 14.4 on S09 | development-3 | 17 November 2026 |
 | S09, part 2 | One write of an entity of 32 MiB: how long it holds the lock of the writes | p50 2.6 to 2.7 ms, p99 5 to 7 ms | development-3 | 17 November 2026 |
 | S09, part 2 | Small writes of one caller beside a caller that writes entities of 32 MiB one after another | 1,500 to 4,300 writes/s, p99 from microseconds to 16 ms, the longest wait 100 to 112 ms; without the give-way of a large write 900 to 1,600 writes/s, p99 up to 64 ms; on S08 0.57 to 0.91 M/s with a longest wait of 3 to 7 ms, on S09 1.24 to 1.44 M/s with 0.2 to 0.4 ms | development-3 | 17 November 2026 |
+| S10 | Time from the open of a child to Ready, 100,000 users of the scalar form, master and child in one process over loopback; five loads | 58 to 301 ms, median 184 ms; the first loads include the compilation of the code | development-4 | 17 November 2026 |
+| S10 | Bytes of one such load on the wire, next to the stored bytes | 15,410,260 bytes from the master and 108 from the child: 154.1 bytes per entity, against 162 live and 176 retained per entity in the arena of the master; the child stores what the master stores | development-4 | 17 November 2026 |
+| S10 | Memory of one such load | an arena of 20 MiB on each side; 7.8 MiB of managed memory allocated during a load, 7.5 MiB held after it (the index and the root entries); the working set of the process 128 MiB before the first child and 166 MiB after the fifth | development-4 | 17 November 2026 |
+| S10 | Reads by key and writes of a master without a child, the branch against its base in alternating rounds | reads on 20 threads 17.2 to 17.6 M/s against 14.9 to 16.3; one caller replacing 1.38 to 1.48 M/s against 1.49 to 1.53; 16 callers inserting and deleting 1.58 to 1.70 M/s against 1.62 to 1.65: within the spread of the rounds | development-3 | 17 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -998,7 +1006,7 @@ Why this order:
 | S08, part 2 | Enumeration under change and the read limits | Full | Done |
 | S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Done |
-| S10 | A child loads the database | Full | In progress |
+| S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Not started |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
 | S13 | Text entries and Dictionary strings | Full | Not started |
@@ -5074,7 +5082,7 @@ stated otherwise here.
 
 #### S34 · Reconnect, reload and a restarted master
 
-**Carried from the review of S10:** the pauses between a child's attempts (100 ms,
+**Carried from the review of S10:** the pauses between a child's attempts and a master's accepts (100 ms,
 doubling, at most 5 s) are constants (X6) and become options here. The listener resolves
 a host name synchronously, binds its first address only and reports a wildcard address
 in `ListenUri` as it was given; decide each here.
