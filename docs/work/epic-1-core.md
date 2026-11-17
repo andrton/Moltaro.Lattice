@@ -2610,6 +2610,10 @@ contract author found. The tests state them.
 - **The allocation of a read.** "The returned copy" is the object or the record with
   everything reachable from it, and nothing else is allocated; a key boxed by a public
   signature that takes `object` is the caller's allocation, outside the measured read.
+  *Corrected on 17 November 2026:* that sentence was wrong. A signature that forces a box
+  on every call of a read path is a defect of the contract, and access by name is no
+  second-class path; S09, part 2 gives the sets by name a form that takes a key without
+  a box (Q51 of the open questions).
   The sets of the core box the key and pass an array, so the engine has sets of its own.
 - **The coherent read** is stated by a stress test with a bounded number of replaces and
   no sleep: a writer replaces one entity with states whose fields are derived from one
@@ -3605,6 +3609,48 @@ it is — the owner chose the first. S09 closes as it is.
   missed. If the study finds that no proven path gives more than S09 has under these
   guarantees, that is the result: it is reported with the evidence and the coordinator
   of S09 stays.
+- **Carried by this sprint under O16, tests first, as its first commits and independent
+  of the study: three findings of an outside review of `main` at `6564720`** (the owner ran
+  it on 17 November 2026; no P1, three P2; the planner agrees with all three, and the
+  owner said they are fixed in this sprint, and merged all the same if the sprint ends
+  with the coordinator of S09 staying).
+  1. *A second `CloseAsync` completes before the memory is freed.* The first call sets
+     `Closed` at once, so a second call returns a completed task while reads are still
+     inside and a segment is still allocated; after the wait of the first call was
+     cancelled, a `DisposeAsync` cannot wait for the release either. The rule: the close of
+     a database is one operation. Every call of `CloseAsync` and `DisposeAsync` after the
+     first joins it and completes when it completes; the token of a call ends the wait of
+     that call only and never the close. Tests: with a read held inside the protection the
+     first close waits, a second call is not completed, both complete after the read
+     leaves and the arena reports nothing allocated; a first call whose token is cancelled
+     ends in `OperationCanceledException` and a later `DisposeAsync` still waits for the
+     release. The same is checked on the `LatticeDatabase` wrapper if it keeps a state of
+     its own.
+  2. *The cancellation of an enumeration is lost inside the wait for an epoch slot.* The
+     token is checked before a step and not passed on; with every slot taken a cancelled
+     `MoveNextAsync` goes on waiting, and after a slot is free it reports
+     `ReadLimitExceeded` where the contract promises `OperationCanceledException`. The
+     rule: the token of an asynchronous enumeration is honored inside every wait of a step
+     — for the position of the session, for a slot of the protection — and between the
+     rounds of a step; a cancellation is reported before a limit is. Test: every slot held
+     through the internal switch, `MoveNextAsync` cancelled before `ReadTimeLimit` — it
+     ends in `OperationCanceledException` while the slots are still held. X6: the wait for
+     a slot has the token wherever the caller gave one; the synchronous forms have none.
+  3. *Reads by name box a numeric key:* 100,000 reads of absent Int64 keys allocate
+     2,400,000 bytes by name against 0 through a class. The contract changes; nothing is
+     released. Every member of `ILatticeSet`, and of the batch by name if it takes a key
+     as `object`, that takes a primary key gets a form that takes it without a box. The
+     shape is chosen by a figure between two plain ones, in the contract step: (a) the key
+     parameter becomes generic, `Get<TKey>(TKey key) where TKey : notnull` and so on,
+     replacing `object key` — a boxed key still works as `TKey` = `object`; one member per
+     operation, but a generic method of an interface is dispatched more slowly; (b)
+     overloads beside `object key` for the key families `long`, `ulong`, `Guid` and
+     `string` — more members, plain dispatch. Whichever reads by name with 0 bytes and is
+     not slower per call than the form through a class beyond noise is taken; if both are,
+     (a), for fewer members. The rule of the key stays: an integer of any width that fits,
+     a Guid, a string; nothing parsed. Tests: the allocation test of reads by key gains
+     the cases by name for Int64, Guid and String keys, present and absent, 0 bytes. The
+     measurement scenario of reads by key measures by name as well from now on.
 - **Out of scope.** The durable step (S27), the batch (S17), a second path for
   MemoryOnly.
 

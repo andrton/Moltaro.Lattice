@@ -484,3 +484,12 @@ in the meantime.
 | **Question** | The primary index hashed Int64 and Guid keys through a mixing function without a seed that can be inverted, so whoever chooses the keys could put many on one 32-bit hash: memory stayed bounded and every key was found, but a read of one of them walked the chain, 287 µs against 0.2 µs. Does the index get a seed of its own per instance? |
 | **Answer** | The planner, 16 November 2026, from standing rules: yes. The cost is one word of state and one operation per hash; nothing a node shares depends on the hash; and "nobody outside chooses the keys" is something the database cannot know of an application. Each instance draws a seed when it opens; every hash of the primary index uses it, for every key type and both comparisons; the seed is never stored, sent or shown; the order of an enumeration is unspecified |
 | **Where the rule lives** | The brief of S08, part 2 in the [document of Epic 1](epic-1-core.md), which carries the work |
+
+### Q51. A read by name boxes a numeric key
+
+| | |
+| --- | --- |
+| **Found** | 17 November 2026, an outside review of `main` after Epic 1, sprint S09 |
+| **Question** | The members of `ILatticeSet` take a primary key as `object`, so a read by name of an integer or a Guid key allocates a box on every call: 2,400,000 bytes for 100,000 reads of absent Int64 keys, against 0 through a class. The brief of S06 had left the box out of the measured read as the caller's allocation. Is that the contract? |
+| **Answer** | The planner, 17 November 2026, on the rules of `AGENTS.md`, reported to the owner: no. A signature that forces boxing per call on a read path is a defect of the contract, and access by name is not a second-class path. Every member by name that takes a primary key gets a form that takes it without a box; the shape — a generic key parameter, or overloads for the key families — is chosen by a figure in the contract step |
+| **Where the rule lives** | The brief of S09, part 2 in the [document of Epic 1](epic-1-core.md), which carries the change; the sentence of the brief of S06 is corrected |
