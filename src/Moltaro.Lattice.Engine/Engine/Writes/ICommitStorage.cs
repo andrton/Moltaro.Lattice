@@ -16,7 +16,10 @@ internal interface ICommitStorage
     // performs no I/O and runs no code that waits; whatever takes time is behind the task it returns. A
     // task that is already completed means the group is committed, and the caller publishes it in the
     // same hold. The group and its list belong to the commit stage and are reused: the storage reads
-    // them until its task completes and keeps no reference afterwards.
+    // them until its task completes and keeps no reference afterwards. The commit stage may call
+    // CommitAsync for the next group on the thread that completes the task of the previous one, from
+    // inside that completion, so a storage completes the task of a group outside every lock of its own
+    // and never from inside a call of CommitAsync.
     //
     // The call is the dispatch of the writes of the group: the moment the commit stage has taken them
     // into the group and hands it to storage (decision "Cancellation at the commit boundary"; brief of

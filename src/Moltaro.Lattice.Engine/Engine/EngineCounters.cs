@@ -43,8 +43,10 @@ namespace Moltaro.Lattice.Engine;
 // QueuedWrites: a current number, the writes admitted and not yet completed: being prepared, prepared
 // and waiting for the storage step, in the storage step, or waiting behind an earlier write of their
 // entity, held back or resolved after a refusal of the arena. It is 0 when every call of a write has
-// returned. LargestCommitGroup is 1 in MemoryOnly, whose storage step completes at once, so that every
-// write is published in the hold of its call (brief of S09, part 2, "Counters").
+// returned. In MemoryOnly, whose storage step completes at once, a write is published in the hold of
+// its call, in a group of one; the exception is the end of the resolution of a write the arena refused
+// twice, after which the writes it held back are prepared in one hold and published as one group, so
+// LargestCommitGroup can be above 1 there too (brief of S09, part 2, "Counters").
 //
 // LargestCommitGroup: the most writes one commit group held since the open, at most
 // CommitGroup.MaxOperations.

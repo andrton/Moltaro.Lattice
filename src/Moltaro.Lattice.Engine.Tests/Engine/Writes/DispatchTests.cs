@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Findings;
 using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
@@ -91,7 +90,7 @@ public sealed class DispatchTests
         }
     }
 
-    [Fact(Skip = OpenFindings.PartTwoReviewRound1)]
+    [Fact]
     public async Task Write_cancelled_while_the_completion_of_the_storage_step_holds_the_lock_is_never_dispatched()
     {
         var allocator = new CountingNativeAllocator();

@@ -37,8 +37,11 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // current table, which a step reads as they change, and not its version (Entities.EntityTable says
 // why a walk stays correct through both).
 //
-// Who calls what. Find and TableAndVersion from reads and from writes being prepared, each inside the
-// protection of reads; everything else only from the thread that holds the lock of the writes.
+// Who calls what. Find and TableAndVersion from reads, inside the protection of reads; Find also from a
+// write being prepared, under the lock of the writes and outside the protection of reads, which is
+// safe because only the holder of that lock changes the index and retires or frees what it held, so
+// nothing the write reads changes or is freed while it holds the lock (Writes.WriteCoordinator);
+// everything else only from the thread that holds the lock of the writes.
 internal sealed class PrimaryIndex
 {
     // The first table: two main buckets and a page of one overflow bucket.

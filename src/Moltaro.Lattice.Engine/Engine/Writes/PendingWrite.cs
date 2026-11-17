@@ -19,12 +19,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // another thread may still read it. It owns its PreparedWrite, which serves each write it holds in the
 // same way (Prepare).
 //
-// Who touches what. The inputs are set by Begin and not changed until the write has its outcome. Every other field is
-// written and read under the lock of the writes, except Outcome and Failure, which the thread that
-// decides the outcome writes under the lock and reads after it, and the completion, which is set once
-// for each write, outside every lock; its continuations run on the thread pool, never on the thread
-// that completes it, so that no code of the application runs on a thread of the engine
-// (RunContinuationsAsynchronously).
+// Who touches what. The inputs are set by Begin and not changed until the write has its outcome.
+// Every other field is written and read under the lock of the writes, except Outcome and Failure,
+// which the thread that decides the outcome writes under the lock and reads after it, and the
+// completion, which is set once for each write, outside every lock; its continuations run on the
+// thread pool, never on the thread that completes it, so that no code of the application runs on a
+// thread of the engine (RunContinuationsAsynchronously).
 //
 // It is a work item of the thread pool, so that its withdrawal after a cancellation, and the end of
 // its resolution after a refusal of the arena, run on a thread of the pool without another allocation
@@ -73,8 +73,9 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public PendingWriteStateEnum State { get; set; }
 
     // The writes of the same entity just before and just after it in the chain of that entity: the
-    // first of the chain is prepared and not published yet, the others wait behind it in the order of
-    // their admission (PendingWriteStateEnum.Chained).
+    // first of the chain has not completed — it is prepared and not published yet, held back, or in
+    // the resolution of a refusal of the arena — and the others wait behind it in the order of their
+    // admission (PendingWriteStateEnum.Chained).
     public PendingWrite? EarlierOfEntity { get; set; }
 
     public PendingWrite? LaterOfEntity { get; set; }
@@ -167,12 +168,16 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         return _record;
     }
 
-    // Ends a write that was prepared and published in the hold of its call, for the next write: what
-    // such a write set beyond its inputs, which Begin sets anew, is its state, its prepared state, its
-    // outcome and the hash of its key; no list, chain, registration or task was ever given it, so its
-    // links are null and its value source was never read (WriteCoordinator, "What a write allocates").
+    // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
+    // go of the inputs, so that the record keeps nothing of the caller alive, and clears its state, its
+    // prepared state, its outcome and the hash of its key; no list, chain, registration or task was
+    // ever given it, so its links are null and its value source was never read (WriteCoordinator, "What
+    // a write allocates").
     public void ResetAfterItsCall()
     {
+        Table = null!;
+        Key = default;
+        Token = default;
         Values = null;
         Session = null;
         ExpectedRevision = null;

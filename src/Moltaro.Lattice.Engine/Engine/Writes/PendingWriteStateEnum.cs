@@ -5,8 +5,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // passes through none of these but Completed: it never waits.
 internal enum PendingWriteStateEnum
 {
-    // Waits behind a prepared, unpublished write of its entity, first in first out: it is in the chain
-    // of that entity (PendingWrite.EarlierOfEntity) and holds nothing in the engine.
+    // Waits behind an earlier write of its entity that has not completed, first in first out: it is in
+    // the chain of that entity (PendingWrite.EarlierOfEntity), whose first write is prepared and not
+    // published yet, or itself waits — held back, or in the resolution of a refusal of the arena — and
+    // it holds nothing in the engine.
     Chained = 1,
 
     // Held back while an earlier write the arena refused is resolved: it is in the held list, first in

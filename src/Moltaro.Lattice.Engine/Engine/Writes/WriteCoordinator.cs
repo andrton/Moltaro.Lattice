@@ -44,8 +44,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // out, in the chain of that entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so
 // it is prepared only once every earlier write of its entity has completed, and its condition is
 // checked against the state they left. Those writes are found in the list of the writes admitted that
-// waited (FindLastOfEntity, and "The refusal" below); when that list is empty, as always in
-// MemoryOnly, nothing is looked at and no key is hashed for it. The wait ends: the write it waits
+// waited (FindLastOfEntity, and "The refusal" below); when that list is empty, as in MemoryOnly
+// except while the writes a resolution held back are started, nothing is looked at and no key is
+// hashed for it. The wait ends: the write it waits
 // behind completes — published when its storage step completes (the timeout of that step belongs to
 // S27), refused, cancelled, failed, or ended by a fault — and every way a write completes starts the
 // next write of its chain under the same lock (AdvanceChain). A write with a session takes its place
@@ -82,9 +83,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 // cancellation of a write that waits in a list or in a resolution hands its withdrawal to the thread
 // pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never takes the lock of the
 // writes: there it leaves its list, gives back what it prepared, starts the next write of its chain,
-// and its call ends in OperationCanceledException. A write whose resolution waits for reads looks at
-// its token in that wait itself. From the dispatch on the token is not looked at, and the call returns
-// the real outcome.
+// and its call ends in OperationCanceledException. Until that thread of the pool runs, the write is
+// where it was, with what it prepared; the coordinator never makes it run meanwhile: a prepared write
+// whose token is cancelled is withdrawn when a group is formed instead of being taken into it
+// (FormGroup), and a write that waited in a chain or in the held list is ended instead of being
+// prepared when its turn comes (Start), so the work item finds it ended and does nothing. A write
+// whose resolution waits for reads looks at its token in that wait itself. From the dispatch on the
+// token is not looked at, and the call returns the real outcome.
 //
 // The refusal (brief of S09, "When a write is refused for memory: the rule after review round 1";
 // decision Q14 as amended; brief of S09, part 2, "The path, decided after the study"). A write is
@@ -114,9 +119,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // 4. If the arena has room it goes on as any write; if not, it is refused with WriteRejected and Limit
 //    Memory, has had no effect and never runs later. Either way the resolution ends, and the held
 //    writes start at once, in their order.
-// In MemoryOnly every other write completes in the hold of its call, so a refused write is always the
-// oldest, nothing is prepared and unpublished, and the resolution is the path of S08: free what is
-// retired, wait for the reads that hold it, retry, refuse. Only the oldest write is resolved, so two
+// In MemoryOnly a write completes in the hold of its call, so a refused write is the oldest and nothing
+// is prepared and unpublished, and the resolution is the path of S08: free what is retired, wait for
+// the reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held
+// back are prepared in one hold and published as one group, and one of them that the arena refuses
+// there may find writes before it not completed and writes prepared beside it, and goes through steps
+// 1 and 2 as in a database whose storage step is busy. Only the oldest write is resolved, so two
 // writes refused at the same time are resolved one after the other in the order of their admission.
 // The wait is finite (exception X6): the writes admitted before it are finite and none of them waits
 // for it; the writes it waits for in step 2 are finite, no later one begins, and each ends with its
@@ -361,7 +369,8 @@ internal sealed class WriteCoordinator
     private static LatticeException Unavailable() =>
         new(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
 
-    // Takes the write out of a list linked by Next, which holds it.
+    // Takes the write out of a list linked by Next, which holds it; linear in the list (see
+    // FindLastOfEntity).
     private static void Unlink(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
     {
         PendingWrite? before = null;
@@ -602,6 +611,16 @@ internal sealed class WriteCoordinator
             return;
         }
 
+        // A write whose token was cancelled while it waited ends here, before anything is prepared for
+        // it, whether or not the thread of the pool its cancellation went to has run.
+        if (write.Token.IsCancellationRequested)
+        {
+            End(write, new OperationCanceledException(write.Token), ref pass);
+            AdvanceChain(write, ref pass);
+
+            return;
+        }
+
         if (FindLastOfEntity(write) is { } last)
         {
             // The latest earlier write of the entity has no write behind it: one admitted after it would
@@ -629,7 +648,11 @@ internal sealed class WriteCoordinator
     // there is none. The write waits behind it. Every such write is in the list of the writes admitted
     // that waited (see the class, "The refusal"), and a write of the call that holds the lock is the only
     // one not in it yet, so the list is searched, from the newest write admitted before this one back.
-    // Nothing is looked at, and no key is hashed, when the list is empty, as always in MemoryOnly.
+    // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
+    // resolution. The search is linear in the writes that wait, and so is Unlink in the queue and the
+    // held list: with 40,000 writes waiting behind a busy storage step an admission took 0.6 to 0.8 ms
+    // in review round 1 of S09, part 2. It never runs while the storage step completes at once; whether
+    // a busy durable step needs a structure that finds them faster is settled in the brief of S27.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
         for (var listed = write.Listed ? write.Older : _newest; listed is not null; listed = listed.Older)
@@ -961,7 +984,7 @@ internal sealed class WriteCoordinator
                 continue;
             }
 
-            if (!_storing && !_faulted && FormGroup())
+            if (!_storing && !_faulted && FormGroup(ref pass))
             {
                 Commit(ref pass);
 
@@ -978,14 +1001,32 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: the next group, from the head of the queue of the prepared writes; false when the
-    // queue is empty. Its writes are dispatched from here on: the group is handed to the storage step
-    // next, and no token is looked at any more.
-    private bool FormGroup()
+    // queue is empty. A prepared write whose token is cancelled is withdrawn here instead of being taken
+    // into the group, whether or not the thread of the pool its cancellation went to has run (see the
+    // class, "Cancellation"). The writes taken are dispatched from here on: the group is handed to the
+    // storage step next, and no token is looked at any more.
+    private bool FormGroup(ref Pass pass)
     {
         _group.Clear();
 
-        while (_preparedFirst is { } write && _group.TryAdd(write.Prepared!))
+        while (_preparedFirst is { } write)
         {
+            if (write.Token.IsCancellationRequested)
+            {
+                _preparedFirst = write.Next;
+                write.Next = null;
+                _executor.Release(write.Prepared!);
+                End(write, new OperationCanceledException(write.Token), ref pass);
+                AdvanceChain(write, ref pass);
+
+                continue;
+            }
+
+            if (!_group.TryAdd(write.Prepared!))
+            {
+                break;
+            }
+
             write.State = PendingWriteStateEnum.Dispatched;
             _preparedFirst = write.Next;
             write.Next = null;

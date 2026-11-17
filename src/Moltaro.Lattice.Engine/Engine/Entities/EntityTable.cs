@@ -51,8 +51,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // primary index that finds them, and the reads by key and by enumeration, inside the protection of
 // reads by epochs (Protection.ReadEpochs; arena protocol, "Deferred reclamation, 16 November 2026").
 // The write executor changes the index and the root entries under the lock of the writes; this class
-// says how they are read while it does, by reads and by the writes it prepares, which look their key
-// up as a read does (TryFind).
+// says how reads read them while it does. A write being prepared looks its key up under that lock
+// (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
 //
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
@@ -477,9 +477,12 @@ internal sealed class EntityTable
                     _epochs.Exit(protection);
                 }
 
-                // Outside the protection: the room is counted against the memory limit, then made.
+                // Outside the protection: the room is counted against the memory limit, then made; a
+                // cancellation is reported before the limit is.
                 if (room >= 0)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     if (pass.LimitsMemory)
                     {
                         pass.CheckMemory(pass.Returned.BytesWithRoomFor(room));
