@@ -49,7 +49,10 @@ stages, which the plan names, the brief gives the types and members exactly, wit
 signatures. For a later stage
 it says what the contract has to be able to do, and the planner writes the types and
 members into those briefs before the stage begins, with what the earlier stages have
-taught. The owner approves the contract of each stage before its first sprint starts. A
+taught. The owner approves the contract of each stage before its first sprint starts. For a
+sprint that begins with a study, its internal types and members are written in its
+contract step, after the study; before the stage the owner approves its public contract
+and what each sprint must be able to do. A
 sprint never starts from a brief whose contract is not written out and approved: an
 interface designed twenty sprints ahead would be changed anyway, and every change of a
 contract goes through the owner.
