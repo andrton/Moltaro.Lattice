@@ -42,13 +42,13 @@ namespace Moltaro.Lattice.Engine;
 // form of the transport; then NotSupportedException for Durable persistence (until S27). A master that
 // cannot listen at its address fails its open with InvalidConfiguration.
 //
-// States. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child is Connecting
-// while it has no connection to its master, the pauses between its attempts included, and Loading from
-// the accepted handshake until its load is complete, the transactions up to its readiness position
-// applied; in both every operation is Unavailable (the coordinator's reading of 17 November 2026).
-// CatchingUp does not occur: catching up to R is part of Loading. OpenAsync compiles the root
-// layout of every entity type before any data is admitted: a fixed
-// part larger than one block fails the open with InvalidSchema, and an entity type with a field the
+// States. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child goes
+// Connecting, Loading, CatchingUp, Ready (docs/decisions/replication-and-hosting.md, option A): it is
+// Connecting while it has no connection to its master, the pauses between its attempts included,
+// Loading from the accepted handshake until the last root of its load is placed, and CatchingUp from
+// then until it has applied the transactions up to its readiness position R; in each every operation
+// is Unavailable. OpenAsync compiles the root layout of every entity type before any data is admitted:
+// a fixed part larger than one block fails the open with InvalidSchema, and an entity type with a field the
 // engine cannot store yet gets no layout (the planner's answer to point 1 of Q35). A failed open
 // closes the instance. Before the open an operation is Unavailable; after a close it is
 // ObjectDisposedException. A failed publication makes the instance Faulted (Fault; brief of S09,
@@ -404,9 +404,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // giving it a window of time. A refused write is resolved alone: while it holds back the preparation
     // of later writes it waits for the writes prepared and not published yet, then for the reads that
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
-    // that the write has to make. When hold returns the write waits as
-    // it would have. Only a write the arena refused loads the switch: no other write and no read pays
-    // anything for it. Unavailable before the open, ObjectDisposedException after the close.
+    // that the write has to make. On a child, which admits no write, the switch runs for the next
+    // transaction its arena refused twice, once its applier knows it waits for the reads that hold
+    // retired memory and before it waits (Following.Follower). When hold returns the write or the
+    // transaction waits as it would have. Only a write or a transaction the arena refused loads the
+    // switch: no other write and no read pays anything for it. Unavailable before the open,
+    // ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
@@ -904,8 +907,19 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
             var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, Fault, tables), memoryLimit, token).ConfigureAwait(false);
 
-            // The transactions of (S, R] follow LoadEnd: the child is Ready once it has applied R.
-            var follower = new Follower(master, _forwarder!, _clock!.History, _writes!, _executor!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
+            // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
+            // until it has applied R, and then Ready.
+            lock (_stateLock)
+            {
+                if (_state == LatticeDatabaseStateEnum.Closed)
+                {
+                    throw new ObjectDisposedException(GetType().FullName);
+                }
+
+                _state = LatticeDatabaseStateEnum.CatchingUp;
+            }
+
+            var follower = new Follower(master, _forwarder!, _clock!.History, _writes!, _executor!, _coordinator!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 

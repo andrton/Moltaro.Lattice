@@ -100,6 +100,10 @@ internal sealed class Follower
 
     private readonly WriteExecutor _executor;
 
+    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
+    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
+    private readonly WriteCoordinator _coordinator;
+
     private readonly CloseBarrier _barrier;
 
     private readonly ReceivedChanges _changes;
@@ -125,7 +129,7 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
@@ -133,6 +137,7 @@ internal sealed class Follower
         _sender = new ChildSender(link, _pending);
         _writes = writes;
         _executor = executor;
+        _coordinator = coordinator;
         _barrier = barrier;
         _changes = changes;
         _fault = fault;
@@ -361,6 +366,7 @@ internal sealed class Follower
 
             if (retired && epoch != 0)
             {
+                _coordinator.RunWaitHold();
                 _executor.WaitForReads(epoch, cancellationToken);
 
                 lock (_writes)

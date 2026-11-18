@@ -4,7 +4,6 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -58,7 +57,7 @@ public sealed class ChildArenaFullTests
     // (EngineDatabase.HoldNextRefusedWriteWait) runs, on a child, once for the next change its arena
     // refused twice, when its applier knows it has to wait for the reads that hold retired memory and
     // before it waits; the child has not applied the insert then, and applies it once the read has left.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Child_whose_arena_holds_a_change_once_a_read_that_held_retired_memory_has_left_applies_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

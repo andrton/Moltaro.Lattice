@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Replication;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -63,7 +62,7 @@ public sealed class NotReadyTests
     // before R and holds back the transaction at R, which it makes itself, a write that changed nothing:
     // it passes it before the first transaction of the master, which a write of the test brings once the
     // test has seen the child CatchingUp. The relay numbers every frame after it again.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Child_that_applies_the_changes_up_to_its_readiness_position_is_CatchingUp_and_every_operation_is_Unavailable_until_it_is_ready()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

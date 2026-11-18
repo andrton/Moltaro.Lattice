@@ -259,8 +259,9 @@ internal sealed class WriteCoordinator
     private PendingWrite? _spare;
 
     // What the next write the arena refused runs at the first wait of its resolution, for the tests of
-    // the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it. Only a refused
-    // write loads it.
+    // the engine (EngineDatabase.HoldNextRefusedWriteWait); on a child, what the next transaction its arena
+    // refused twice runs before its applier waits for the reads (RunWaitHold). Null when no test armed it.
+    // Only a refused write or transaction loads it.
     private Action? _waitHold;
 
     // The coordinator of a master. A child has one as well, which admits no write: its writes are
@@ -353,6 +354,18 @@ internal sealed class WriteCoordinator
     // Arms the switch of the tests: the next write the arena refused runs hold once, at the first wait of
     // its resolution (EngineDatabase.HoldNextRefusedWriteWait).
     public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
+
+    // Runs the switch of the tests once, when one is armed, outside every lock: for a write at the first
+    // wait of its resolution (OfferWaitHold), and on a child, whose coordinator admits no write, for a
+    // transaction its arena refused twice, once its applier knows it waits for the reads that hold
+    // retired memory and before it waits (Following.Follower).
+    public void RunWaitHold()
+    {
+        if (_waitHold is not null)
+        {
+            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+        }
+    }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
     public void ArmFault(EngineFaultPointEnum point, int skippedPasses)
@@ -1509,11 +1522,7 @@ internal sealed class WriteCoordinator
         }
 
         write.Waited = true;
-
-        if (_waitHold is not null)
-        {
-            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
-        }
+        RunWaitHold();
     }
 
     // What one hold of the lock of the writes decided, to be carried out after it (Finish), and the
