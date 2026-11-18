@@ -76,4 +76,66 @@ figures beside a tuning constant.
 
 ## Architect's review of stages 2 and 3, 18 November 2026
 
-Running; its entries are added here when it returns.
+The first review in the role of the architect, over the whole engine. Its judgement: the
+mechanisms are sound and plain where it matters — the arena, the stamp of an entry, the
+epochs, the index table and the frame codec are each one job in one type. The debt is in
+three places: several jobs crammed into one file; the master and the child each with an
+implementation of their own of "a prepared change", which every sprint from S13 to S19
+would have to extend twice; and the comments. Over-engineering is limited: the waiting
+machinery of the write coordinator is reached in production only through a write refused
+for memory until the durable storage step exists; it was built ahead on a decision and is
+tested, so it stays.
+
+| # | What | The simpler form | Cost | What must be shown unchanged | Status |
+| --- | --- | --- | --- | --- | --- |
+| A1 | A child applies what it receives in three types of two folders: entering the barrier, the lock, try–drain–retry and the fault are written twice (`Engine/Loading/RootPlacement.cs` 90–112, `Engine/Following/Follower.cs` 329–387); the effects of a transaction are decoded inside `Follower` (421–467), far from their encoder; its constructor takes twelve parameters | `ReceivedChanges` owns the lock, the barrier and the fault, with two operations: place a root, apply a transaction. The decoding of effects moves beside `TransactionFormat`. `Follower` keeps receive, order check, suspension, apply, acknowledge. The three-step publication of several effects moves verbatim: it is reasoned, not tested, until S17 | M | A transaction is applied whole or not at all; a failed publication faults; the child scenarios of the measurement program | open |
+| A2 | `Engine/Writes/WriteExecutor.cs`: thirteen members only pass a call on (244–276, 594–629), and the child's loader depends on the master's executor to reach the publication stores (643–731) | The five store sequences (install, mark and stamp of a replace and of a delete) move verbatim, with their comments, into one small sealed type that the master's publication and the child's application both call. No statement inside them moves: tests cannot see a reordering of those stores on x64 | M | The order of the stores and the fault points; the write scenario; the allocation tests of the writes | open |
+| A3 | `Engine/EngineDatabase.cs`: twelve nullable fields set together and read with `!` about forty times; facade, life cycle, composition, the master's network, the child's load and test access in one file (with U6) | One immutable object of the parts, built by one method and published as one field; the body of the child's load into a type of `Engine/Loading`. The state transitions and the close stay | M | The order of refusals; the lock order; the close completing only after the arena is freed | open |
+| A4 | Fourteen loops in six files walk the blocks a root owns and derive offset and kind again (`Storage/RootStorage.cs`, `RootWriter.cs`, `WriteExecutor.cs` 506–517, `Replication/Load/BlockExport.cs`, `BlockImport.cs`) | One enumerator in `Storage`, a ref struct with no allocation and no virtual call; free, publish, retire, the byte counts, export and import become its users | M | Counters equal the tally; no managed allocation; the write, load and root-bytes scenarios | open |
+| A5 | Three frame assemblers repeat one algorithm with the same checks and messages (`Replication/Load/RootAssembler.cs`, `Transactions/TransactionAssembler.cs`, `Forwarding/MessageAssembler.cs`) | One small struct for a body of an announced length; the three keep their headers | M | Every malformed frame refused as today, and the refusals for memory | open |
+| A6 | About 300 of the 917 lines of `Engine/Entities/EntityTable.cs` are "the primary key of a type" and its wire format; its range check repeats `IntegerRange` of the core (with U4) | A sealed type for the keys of an entity type (kind, hash, equality, stored key) held in a readonly field; direct calls, no interface. The private copy of the range check goes | M | The read-by-key and enumeration scenarios; the allocation tests of a read by key | open |
+| A7 | Four identical dictionaries from type id to table and three arrays of tables; `Engine/Children/ForwardedWrites.cs` exists only to carry three objects | One object for the tables of the database, built once; `ForwardedWrites` is deleted | S–M | An unknown or unstored type id refused as today | open |
+| A8 | The envelope of a root on the wire (type id, last mutation) is read or written by hand in six places, and `Storage/RootWriter.cs` 493–525 writes a format of `Replication`; `ForwardEncoding.WriteRootLength` is called by nothing | One type for the envelope in `Replication/Load`; the export of `RootWriter` writes only what the block export writes | S | The bytes on the wire identical; the wire format stays 3 | open |
+| A9 | `Engine/Writes/WriteCoordinator.cs`: four hand-linked lists, a block written twice (843–855, 1089–1101), and the pair "end, advance the chain" thirteen times (with U2) | A private struct for a queue of writes; one method for the pair; one for the block. No state, order or lock changes | S | A MemoryOnly write allocates nothing; the write scenarios | open |
+| A10 | Comments (with C1 and C2): "brief of" 82 times, the planner 95, a date 65, a question id 67, a sprint number 237; the long class heads retell `docs/design/write-path.md` and `epoch-protection.md` | The convention of C1, applied to a file when an entry above touches it, never as one sweep; reasoning that exists nowhere else moves into `docs/design` in the same change | L in lines, none in behavior | — | open |
+| A11 | `Storage`: the arena and the roots in one folder with `Values` between them, and `Values` uses `RootLayout` for three constants while the roots use `Values` | The roots into `Storage/Roots`; the three constants to `ValueBlocks`. Mechanical, touches about sixty files: scheduled alone | M | — | open |
+| A12 | The child's side is spread over `Loading`, `Following`, `Forwarding` with `MasterLink` in `Loading`; the names do not say the side (with N4, N7) | One folder for the child's side with those three below it; the master's side stays `Children` and `Delivery`. After A1 and A3 | M | — | open |
+| A13 | Members of the product that only tests use: the allocation that is live at once and `Arena.IsValid`, the unprepared mode of `RootWriter` and `ValueBlocks`, `IndexTable.cs` 312 | One allocation (prepared) and one constructor; the tests that want a live block publish it. About twenty test files change how they set up, not what they assert: the test author's work | M | The assertions of those tests | open |
+| A14 | `Engine/Writes/RootValues.cs` is used by a read of a record and by the forwarder | It moves to `Engine/Entities` | S | — | open |
+| A15 | Small duplicates: the strict UTF-8 decoder three times; a local `Invalid(string)` nine times; the message of a faulted database three times; a span copy loop twice that is `IBufferWriter.Write`; the wake pulse twice | One place each, in the type that owns the thing; messages unchanged | S | — | open |
+| A16 | `EndsARoot` (N2) | `EndsABody`; the value on the wire unchanged | S | — | open |
+| A17 | `src/Moltaro.Lattice/Storage/WriteKindEnum.cs`: one internal enum in a folder left from the placeholder, in a namespace the engine also uses | It moves to `Access`, where its users are; internal, so the contract does not change | S | — | open |
+
+### What the coming sprints will find hard
+
+- **S14, S17:** "an entity and all its index entries in one publication" and "prepared
+  before the commit" have to be added on the master and on the child; A1 and A2 make that
+  one place each, and a batch then reuses the three steps the child already has instead
+  of a third copy. A6 first, because the entity table gets a second kind of index.
+- **S16:** a write that waits behind a write holding its unique value is a second reason
+  to chain, and a pending write has one pair of chain links. A9 only; the chain model is
+  for that sprint's study, and its brief should say so.
+- **S18, S19, S23:** blocks will own blocks, so every walk of A4 becomes recursive, and
+  compaction has to find every holder of an address; A4 is the important preparation.
+- **S24:** memory is counted in several places and summed in one method of
+  `EngineDatabase`; "try, drain, retry, wait for the reads, refuse" exists three times.
+  A3 and A1.
+- **S13 to S19:** "an entity type the engine cannot store yet" is checked 52 times in 14
+  files. Right today; deleted, not kept, when the last type becomes storable.
+
+### Sound, leave as it is
+
+`Arena` with `Storage/Allocation`; the stamp of an entry — do not restructure it;
+`Engine/Protection`; `Engine/Indexes`; `PositionClock`; the struct copies behind
+`IRootCopy`; `SetOperations`; the frame codec, the connection and the protocol;
+`ICommitStorage`, a real boundary; the test hooks as a mechanism. No test names the write
+coordinator, the executor, the follower, the received changes, the placement, the capture,
+the connections, the assemblers or the block import — which is what makes A1, A2, A5, A7
+and A9 cheap.
+
+### Not examined by this review
+
+The text of most comments against the code; many types by their signatures only; the
+content of the tests (coverage is judged by folders and by which types the tests name);
+the measured figures themselves. A refactoring sprint verifies each before it relies on it.
+
