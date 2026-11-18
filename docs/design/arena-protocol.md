@@ -95,13 +95,15 @@ length of one step. A read of an absent key repeats its lookup when a write was 
 during it; the step ends with the first lookup no write crossed. The publishing thread
 looks at the readers when the items retired since its last look reach the number of slots
 or their bytes reach one segment, and whenever memory is short, a drain is asked for or
-the database closes. While anything retired waits, a published write that retires nothing
-counts as one item toward the next look; with nothing retired waiting it counts nothing,
-so a load that retires nothing never looks. What a look leaves behind, because reads still
-hold it, stays retired and counted in the retired bytes, and a later look frees it; the
-count toward the next look starts at the look, so that a read held long does not make
-every write look. So the next look comes within one window of writes of any kind, and
-what waits between two looks is bounded by those two thresholds beside what reads hold.
+the database closes. What a look leaves behind, because reads still hold it, stays retired
+and counted in the retired bytes, and a later look frees it; the count toward the next
+look starts at the look, so that a read held long does not make every write look. A look
+that leaves retired items behind arms a second trigger: until a look leaves nothing
+behind, a published write that retires nothing counts as one item, so the next look comes
+within one window of writes of any kind. Without such a look a write that retires nothing
+counts nothing, so a load without a held read looks as often as it did without that
+trigger. What waits between two looks is bounded by those two thresholds beside what
+reads hold.
 The bytes of a retired root are the slots of its
 own blocks and those of the entry of every Dictionary text it names: an entry whose last
 reference lies in retired roots stays live until the drain frees them and is freed with

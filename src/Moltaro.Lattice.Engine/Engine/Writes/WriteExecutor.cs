@@ -80,8 +80,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //   entry are retired. The entry keeps the address of the retired root.
 // - A delete of an absent key publishes only its sequence.
 // Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
-// look, a write that retired nothing counting as one thing while something retired waits
-// (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
+// look, a write that retired nothing counting as one thing from a look that left something behind
+// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
 // defect, or when the managed heap cannot hold a block of the tail of the children (below); the
 // write that failed and those after it stay unpublished, and the coordinator faults the database.
 //

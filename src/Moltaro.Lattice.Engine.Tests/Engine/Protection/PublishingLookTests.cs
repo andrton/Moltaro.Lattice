@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -146,7 +145,7 @@ public sealed class PublishingLookTests
     // retires one root, far below both thresholds, and no look has left anything behind: 2,000 deletes of a
     // key that is absent bring no look, and the root stays retired through them; then replaces up to one
     // window of retirements, the first replace counted, bring the look that frees everything.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Writes_that_retire_nothing_count_nothing_while_no_look_has_left_retired_memory_behind()
     {
         var slots = new ReadEpochs(new object()).SlotCount;
