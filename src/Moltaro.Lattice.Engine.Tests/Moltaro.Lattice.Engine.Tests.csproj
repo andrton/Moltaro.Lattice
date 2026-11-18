@@ -16,6 +16,11 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Tests that name an internal member that is not built yet: they compile once it exists, and
+         whoever builds it removes this group with it. -->
+    <Compile Remove="Engine\Text\SlotGrowthTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
     <Using Include="Xunit" />
