@@ -4843,6 +4843,13 @@ child stores received bytes through its own allocation.
 
 #### S14 · Secondary indexes and exact search
 
+**Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
+close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). One criterion is added to the study: an entity may
+contribute more than one entry to one index. Entries are already unique by (index key,
+entity identity); the maintenance of an index on a write is stated as "the set of keys
+the old state contributed against the set the new state contributes", which for a scalar
+field is one against one. Not built: no index on the members of a collection in Epic 1.
+
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
 sentence above or below says otherwise, these replace it. The owner asked for this check
 of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
@@ -5078,6 +5085,12 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
+
+**Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
+close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). One line is added to the Acceptance: an index
+declared on a reference field finds the entities whose reference holds a given key; an
+entity whose reference is null is found by a search for null. It uses only S14 and the
+reference of this sprint, and is the first half of R2 of Epic 3.
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
 child stores received bytes through its own allocation.
@@ -5590,6 +5603,14 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
+close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). On every node there stays one place where a
+transaction becomes visible, at which its effects are known as (entity type, key, written
+or deleted, sequence): on a master the publishing hold, on a child its application; a
+child that reloads knows the moment after which it cannot say what changed. Nothing is
+called from there in Epic 1 and no code of an application ever runs under the lock of the
+writes; the note only forbids a design that loses that list or that moment.
+
 **Carried from S12:** a forwarded write of 32 MiB delays small forwarded writes of the
 same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
 connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
@@ -5649,6 +5670,14 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
+close the way to it** ([Epic 3](epic-3-after-the-first-milestone.md)). On every node there stays one place where a
+transaction becomes visible, at which its effects are known as (entity type, key, written
+or deleted, sequence): on a master the publishing hold, on a child its application; a
+child that reloads knows the moment after which it cannot say what changed. Nothing is
+called from there in Epic 1 and no code of an application ever runs under the lock of the
+writes; the note only forbids a design that loses that list or that moment.
 
 **Carried from S12:** a forwarded write that waits for its reply waits without an end
 when its master vanishes without closing the connection (X6); the detection of a lost

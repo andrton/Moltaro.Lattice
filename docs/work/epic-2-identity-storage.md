@@ -165,7 +165,8 @@ in `Moltaro.Lattice.Tests`.
 
 **Not required by this epic:** a query language, joins, sorting or paging inside the
 database; referential integrity between entities; notifications about changes;
-participation in transactions of another database.
+participation in transactions of another database. Notifications about changes are a
+requirement of [Epic 3](epic-3-after-the-first-milestone.md).
 
 ## Acceptance
 
