@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Positions;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 
@@ -90,5 +91,42 @@ public sealed class PositionClockTests
         var exception = Assert.Throws<LatticeException>(() => clock.WaitAsync(other.At(0), Long, CancellationToken.None));
 
         Assert.Equal(LatticeErrorEnum.HistoryMismatch, exception.Error);
+    }
+
+    // A session belongs to one database history (LatticeSession), and a write binds its session to the
+    // history of its database before it is executed (decision on session consistency,
+    // docs/decisions/session-consistency.md, point 4). The clock binds: an empty session it binds to its
+    // history; a session of its history it leaves as it is; a session another history has bound — also
+    // one another database bound after the write found it empty, which is how a write that loses that
+    // race learns it — it refuses with HistoryMismatch and leaves as it was.
+    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    public void Binding_refuses_a_session_another_history_bound_binds_an_empty_one_and_leaves_one_of_its_history_as_it_is()
+    {
+        var clock = new PositionClock(History, this);
+        var other = new PositionClock(History + 1, this);
+        clock.Publish(3);
+        other.Publish(5);
+
+        var foreign = new LatticeSession(other.At(5));
+        var refused = Assert.Throws<LatticeException>(() => clock.Bind(foreign));
+
+        Assert.Equal(LatticeErrorEnum.HistoryMismatch, refused.Error);
+        Assert.Equal(other.At(5), foreign.MinPosition);
+
+        var empty = new LatticeSession();
+
+        clock.Bind(empty);
+
+        var bound = empty.MinPosition;
+
+        Assert.NotNull(bound);
+        clock.CheckHistory(bound.Value);
+        Assert.Equal(LatticeErrorEnum.HistoryMismatch, Assert.Throws<LatticeException>(() => other.CheckHistory(bound.Value)).Error);
+
+        var own = new LatticeSession(clock.At(1));
+
+        clock.Bind(own);
+
+        Assert.Equal(clock.At(1), own.MinPosition);
     }
 }

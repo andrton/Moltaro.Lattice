@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -373,6 +374,103 @@ public sealed class ConsistencyTests
 
         Assert.Equal(written.Position, session.MinPosition);
         Assert.Equal("Ada", child.Set<User>().Get(1)?.Name);
+    }
+
+    // A guard beside the deterministic tests of the same rule (the test above, the refusal of a session of
+    // another database below, and the binding of the clock in the tests of the engine): a write through a
+    // child and a write on another database race for one empty session, round after round, each round with
+    // a session of its own and a key of its own on each side. Whichever binds the session first, the other
+    // is refused with HistoryMismatch before it is executed, so no write through the child whose entity the
+    // master holds ends in HistoryMismatch. The losing write finds out between two reads inside its call,
+    // which no test can hold open, so a wrong order shows itself only now and then; the test races for as
+    // many rounds as fit a budget of time, at most MostRounds. The barrier decides the next round and its
+    // session, once for both sides; a side that fails otherwise leaves it, so that the other ends, and its
+    // failure is what the test reports. Both sides are threads of their own (OwnThread).
+    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    public async Task Write_through_a_child_that_races_another_database_for_an_empty_session_is_never_executed_and_refused()
+    {
+        const int MostRounds = 5_000;
+        var budget = TimeSpan.FromSeconds(3);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
+        await using var other = await TestData.OpenMasterAsync();
+        var racing = System.Diagnostics.Stopwatch.StartNew();
+        var refusedThroughTheChild = new List<long>();
+        var rounds = 0;
+        var ended = false;
+        LatticeSession? session = null;
+        Exception? failure = null;
+
+        using var barrier = new Barrier(2, _ =>
+        {
+            ended = Volatile.Read(ref failure) is not null || rounds == MostRounds || racing.Elapsed >= budget;
+
+            if (!ended)
+            {
+                session = new LatticeSession();
+                rounds++;
+            }
+        });
+
+        var throughTheChild = OwnThread.Run(() => Race(id =>
+        {
+            if (Refused(() => child.Set<User>().InsertAsync(new User { Id = id, Name = "child" }, session!)))
+            {
+                refusedThroughTheChild.Add(id);
+            }
+        }));
+        var onTheOther = OwnThread.Run(() => Race(id => Refused(() => other.Set<User>().InsertAsync(new User { Id = id, Name = "other" }, session!))));
+
+        await Task.WhenAll(throughTheChild, onTheOther).WaitAsync(TimeSpan.FromMinutes(1));
+
+        if (failure is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+
+        var executedAndRefused = refusedThroughTheChild.Where(id => master.Set<User>().Get(id) is not null).ToList();
+
+        Assert.True(rounds > 0, "The two sides raced no round.");
+        Assert.True(executedAndRefused.Count == 0, $"{executedAndRefused.Count} of {rounds} writes through the child were executed by the master and ended in HistoryMismatch.");
+
+        // One side of the race: a write of the key of every round after the barrier lets it pass.
+        void Race(Action<long> round)
+        {
+            try
+            {
+                while (true)
+                {
+                    barrier.SignalAndWait();
+
+                    if (Volatile.Read(ref ended))
+                    {
+                        return;
+                    }
+
+                    round(rounds);
+                }
+            }
+            catch (Exception exception)
+            {
+                Interlocked.CompareExchange(ref failure, exception, null);
+                barrier.RemoveParticipant();
+            }
+        }
+
+        // Whether the write was refused because another history had its session.
+        static bool Refused(Func<ValueTask<LatticeWriteResult>> write)
+        {
+            try
+            {
+                OwnThread.Wait(write());
+
+                return false;
+            }
+            catch (LatticeException exception) when (exception.Error == LatticeErrorEnum.HistoryMismatch)
+            {
+                return true;
+            }
+        }
     }
 
     [Fact]
