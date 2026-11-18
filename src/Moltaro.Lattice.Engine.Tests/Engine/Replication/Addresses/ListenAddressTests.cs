@@ -79,6 +79,26 @@ public sealed class ListenAddressTests
         allocator.ExpectEverythingReturned();
     }
 
+    // From Epic 1, sprint S12 an address already in use is InvalidConfiguration, whose message gives the
+    // reason the system reports (settled by the planner with the contract commit of S12; the remarks of
+    // ListenUri and ILatticeDatabase.OpenAsync): the message of the SocketException of an address in use.
+    [Fact(Skip = SkipReason.BeforeSprint12)]
+    public async Task Master_whose_address_is_in_use_fails_its_open_with_InvalidConfiguration_that_gives_the_reason_of_the_system_and_is_closed()
+    {
+        using var other = new TcpListener(IPAddress.Loopback, 0);
+        other.Start();
+        var address = new Uri($"lattice://127.0.0.1:{((IPEndPoint)other.LocalEndpoint).Port}");
+        var allocator = new CountingNativeAllocator();
+        var master = EngineDatabase.Create(ReplicationNodes.MasterOptions(PieceSchema.Schema, address), new EngineTestInputs { Allocator = allocator });
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => master.OpenAsync().AsTask().WaitAsync(Bound));
+
+        Assert.Equal(LatticeErrorEnum.InvalidConfiguration, exception.Error);
+        Assert.Contains(new SocketException((int)SocketError.AddressAlreadyInUse).Message, exception.Message, StringComparison.Ordinal);
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, master.State);
+        allocator.ExpectEverythingReturned();
+    }
+
     private static Uri AddressOf(string form, int port) => form switch
     {
         "another scheme" => new Uri($"tcp://127.0.0.1:{port}"),

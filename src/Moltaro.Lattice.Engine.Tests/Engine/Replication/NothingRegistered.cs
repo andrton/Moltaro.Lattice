@@ -8,19 +8,22 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // planner's block of 15 November 2026 and his decision after the study, points 2 and 5). It is what "the
 // child left nothing registered on the master" means from S11 on, when a master no longer refuses a write
 // because of a child. The master learns that a child has gone only when its connection ends, a moment
-// after the child closed, failed or vanished, so the test upserts the piece of the id given and reads the
-// counters about once a millisecond until both are 0, and fails when they are not within the bound. Each
-// attempt publishes its write; between two attempts the thread waits outside every lock of the engine.
+// after the child closed, failed or vanished, so the test upserts the piece of the id given, or makes the
+// write it gives on a master of another schema, and reads the counters about once a millisecond until both
+// are 0, and fails when they are not within the bound. Each attempt publishes its write; between two
+// attempts the thread waits outside every lock of the engine.
 internal static class NothingRegistered
 {
-    public static async Task ExpectAsync(EngineDatabase master, long id)
+    public static Task ExpectAsync(EngineDatabase master, long id) =>
+        ExpectAsync(master, async () => await master.Set<PieceSchema.Piece>().UpsertAsync(PieceSchema.Of(id, name: 8)));
+
+    public static async Task ExpectAsync(EngineDatabase master, Func<Task> write)
     {
-        var pieces = master.Set<PieceSchema.Piece>();
         var waited = Stopwatch.StartNew();
 
         while (true)
         {
-            await pieces.UpsertAsync(PieceSchema.Of(id, name: 8));
+            await write();
 
             var counters = master.Counters;
 

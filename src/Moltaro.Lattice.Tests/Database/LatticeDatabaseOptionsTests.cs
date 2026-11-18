@@ -162,6 +162,71 @@ public sealed class LatticeDatabaseOptionsTests
         });
     }
 
+    // The form of an address (brief of Epic 1, sprint S12; the remarks of ListenUri and MasterUri): the
+    // scheme lattice, a host and a port, and nothing else. Validate refuses every other form of a
+    // ListenUri and of a MasterUri with InvalidConfiguration, and port 0 in a MasterUri, where the port is
+    // the one the master listens at.
+    public static IEnumerable<TheoryDataRow<string>> OtherForms =>
+    [
+        new("another scheme"),
+        new("no host"),
+        new("no port"),
+        new("a path"),
+        new("a query"),
+        new("a fragment"),
+        new("user info"),
+    ];
+
+    [Fact]
+    public void Address_with_the_scheme_lattice_a_host_and_a_port_is_valid()
+    {
+        MemoryOnlyMaster(listenUri: new Uri("lattice://127.0.0.1:7400")).Validate();
+        MemoryOnlyMaster(listenUri: new Uri("lattice://localhost:7400")).Validate();
+        MemoryOnlyMaster(listenUri: new Uri("lattice://127.0.0.1:0")).Validate();
+        Child(new Uri("lattice://127.0.0.1:7400")).Validate();
+        Child(new Uri("lattice://localhost:7400")).Validate();
+    }
+
+    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [MemberData(nameof(OtherForms))]
+    public void ListenUri_of_another_form_is_refused(string form)
+    {
+        AssertInvalid(MemoryOnlyMaster(listenUri: AddressOf(form)));
+    }
+
+    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [MemberData(nameof(OtherForms))]
+    public void MasterUri_of_another_form_is_refused(string form)
+    {
+        AssertInvalid(Child(AddressOf(form)));
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint12)]
+    public void MasterUri_with_port_0_is_refused()
+    {
+        AssertInvalid(Child(new Uri("lattice://127.0.0.1:0")));
+    }
+
+    private static Uri AddressOf(string form) => form switch
+    {
+        "another scheme" => new Uri("tcp://127.0.0.1:7400"),
+        "no host" => new Uri("lattice:///"),
+        "no port" => new Uri("lattice://127.0.0.1"),
+        "a path" => new Uri("lattice://127.0.0.1:7400/database"),
+        "a query" => new Uri("lattice://127.0.0.1:7400?database=users"),
+        "a fragment" => new Uri("lattice://127.0.0.1:7400#users"),
+        "user info" => new Uri("lattice://admin@127.0.0.1:7400"),
+        _ => throw new ArgumentOutOfRangeException(nameof(form), form, "No such form of an address."),
+    };
+
+    private static LatticeDatabaseOptions MemoryOnlyMaster(Uri listenUri) =>
+        new()
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = Schema,
+            ListenUri = listenUri,
+        };
+
     private static LatticeDatabaseOptions MemoryOnlyMaster(long? memoryLimit) =>
         new()
         {

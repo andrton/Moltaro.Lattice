@@ -18,6 +18,7 @@
   <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
+    <Using Include="Moltaro.Lattice.TestSupport.Skips" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

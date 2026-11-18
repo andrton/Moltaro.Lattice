@@ -3,7 +3,9 @@ using Moltaro.Lattice.Placeholder;
 namespace Moltaro.Lattice.Tests.Database;
 
 // Positions and sessions: an operation that depends on earlier ones waits until the node
-// that serves it has caught up, and never answers from older data.
+// that serves it has caught up, and never answers from older data. A write through a child
+// returns once that child has applied it, without waiting for another child, and a timeout
+// after the master committed it does not undo it (Q08.1.2; brief of Epic 1, sprint S12).
 public sealed class ConsistencyTests
 {
     // The placeholder keeps the position it had for a delete that deleted nothing (Q39), so this test
@@ -71,6 +73,49 @@ public sealed class ConsistencyTests
             Assert.NotNull(childUsers.Get(id));
             Assert.Equal(written.Position, child.Position);
         }
+    }
+
+    [Fact]
+    public async Task Write_through_a_child_does_not_wait_for_another_child()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var writing = await TestData.OpenChildAsync(address);
+        await using var lagging = await TestData.OpenChildAsync(address);
+
+        using (Lagging(lagging))
+        {
+            var written = await writing.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
+
+            Assert.Equal(written.Position, writing.Position);
+            Assert.NotNull(writing.Users().Get(1));
+            Assert.Null(lagging.Users().Get(1));
+        }
+
+        await MasterAndChild.EventuallyAsync(() => lagging.Users().Get(1) is not null);
+    }
+
+    [Fact]
+    public async Task Write_through_a_child_cancelled_after_its_master_executed_it_returns_its_real_outcome()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await TestData.OpenChildAsync(address);
+        using var cancellation = new CancellationTokenSource();
+        Task<LatticeWriteResult> writing;
+
+        using (Lagging(child))
+        {
+            writing = child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, cancellation.Token).AsTask();
+            await MasterAndChild.EventuallyAsync(() => master.Users().Get(1) is not null);
+
+            // The write was sent, and the master has executed it: the token is not looked at any more.
+            await cancellation.CancelAsync();
+        }
+
+        var written = await writing;
+        Assert.True(written.Changed);
+        Assert.NotNull(child.Users().Get(1));
     }
 
     [Fact]
@@ -158,6 +203,80 @@ public sealed class ConsistencyTests
         Assert.True((await child.Set<User>().GetAsync(1, patient)).Found);
     }
 
+    // The timeout of a session that sets one bounds the wait of a write through a child for its
+    // application there, in place of the option of the child (brief of Epic 1, sprint S12, settled with
+    // the contract commit): a shorter one ends the wait before the option would, a longer one lets it
+    // last beyond the option. The option of an hour is far beyond the bound of the test.
+    [Fact]
+    public async Task Timeout_of_the_session_ends_the_wait_of_a_write_through_a_child_before_the_timeout_of_the_options()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await OpenChildAsync(address, TimeSpan.FromHours(1));
+        var session = new LatticeSession { SynchronizationTimeout = TimeSpan.FromMilliseconds(100) };
+
+        using (Lagging(child))
+        {
+            var exception = await TestData.ExpectErrorAsync(
+                LatticeErrorEnum.SynchronizationTimeout,
+                () => child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session)).WaitAsync(TimeSpan.FromMinutes(1));
+
+            Assert.Equal(master.Position, exception.CommittedPosition);
+        }
+    }
+
+    [Fact]
+    public async Task Timeout_of_the_session_lets_a_write_through_a_child_wait_beyond_the_timeout_of_the_options()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await OpenChildAsync(address, TimeSpan.FromMilliseconds(100));
+        var session = new LatticeSession { SynchronizationTimeout = TimeSpan.FromMinutes(1) };
+        Task<LatticeWriteResult> writing;
+
+        using (Lagging(child))
+        {
+            writing = child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session).AsTask();
+
+            // Five times the timeout of the options.
+            await Task.Delay(500);
+            Assert.False(writing.IsCompleted, $"The write ended while its child held back its application: {writing.Exception?.InnerException?.Message}");
+        }
+
+        var written = await writing;
+        Assert.Equal(written.Position, session.MinPosition);
+        Assert.NotNull(child.Users().Get(1));
+    }
+
+    // Two writes with one session, the earlier through a child that holds back its application, the
+    // later on the master: the answer of the later arrives first, and the earlier one's, when it arrives,
+    // does not take the session back.
+    [Fact]
+    public async Task Session_only_moves_forward_when_the_answer_of_an_earlier_write_arrives_after_that_of_a_later_one()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await TestData.OpenChildAsync(address);
+        var session = new LatticeSession();
+        Task<LatticeWriteResult> earlier;
+        LatticeWriteResult later;
+
+        using (Lagging(child))
+        {
+            earlier = child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session).AsTask();
+            await MasterAndChild.EventuallyAsync(() => master.Users().Get(1) is not null);
+
+            later = await master.Users().InsertAsync(new User { Id = 2, Name = "Grace" }, session);
+
+            Assert.Equal(later.Position, session.MinPosition);
+            Assert.False(earlier.IsCompleted);
+        }
+
+        var answer = await earlier;
+        Assert.NotEqual(later.Position, answer.Position);
+        Assert.Equal(later.Position, session.MinPosition);
+    }
+
     [Fact]
     public async Task Enumeration_with_a_session_waits_and_has_a_position_even_when_empty()
     {
@@ -218,6 +337,25 @@ public sealed class ConsistencyTests
         Assert.True(deleted.Changed);
         Assert.Equal(deleted.Position, session.MinPosition);
         Assert.False((await childSettings.GetAsync("theme", session)).Found);
+    }
+
+    [Fact]
+    public async Task Write_through_a_child_with_a_position_of_another_database_is_rejected_and_changes_nothing()
+    {
+        await using var other = await TestData.OpenMasterAsync();
+        var session = new LatticeSession();
+        await other.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session);
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await TestData.OpenChildAsync(address);
+        var before = master.Position;
+
+        await TestData.ExpectErrorAsync(
+            LatticeErrorEnum.HistoryMismatch,
+            () => child.Users().InsertAsync(new User { Id = 2, Name = "Grace" }, session));
+
+        Assert.Equal(before, master.Position);
+        Assert.Null(master.Users().Get(2));
     }
 
     [Fact]

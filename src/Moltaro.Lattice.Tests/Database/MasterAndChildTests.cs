@@ -1,7 +1,12 @@
 namespace Moltaro.Lattice.Tests.Database;
 
 // A master and its children opened in one process. The tests in which a child only follows its master
-// open them through TestDatabases (Epic 1, sprint S11); the others through TestData.
+// open them through TestDatabases (Epic 1, sprint S11); the others through TestData. A write through a
+// child (brief of S12): the master executes it, and its refusal reaches the caller of the child as the
+// master gave it; a cancellation before the child sends it withdraws it; after the close of the child a
+// write is ObjectDisposedException, as every operation is. How a write through a child completes on that
+// child is stated by ConsistencyTests; what the scenario tests cannot hold still, a write in the middle
+// of being sent or a reply on its way, by the tests of the engine.
 public sealed class MasterAndChildTests
 {
     [Fact]
@@ -100,6 +105,110 @@ public sealed class MasterAndChildTests
         await TestData.ExpectErrorAsync(
             LatticeErrorEnum.DuplicateKey,
             () => childUsers.InsertAsync(new User { Id = 1, Name = "Impostor" }));
+    }
+
+    [Fact]
+    public async Task Write_of_an_entity_of_32_MiB_through_a_child_succeeds_and_is_read_back_on_that_child()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await TestData.OpenChildAsync(address);
+        var settings = child.Set("Setting");
+        var payload = new byte[32 * 1024 * 1024];
+        new Random(12).NextBytes(payload);
+
+        await settings.InsertAsync(new LatticeRecord(settings.EntityType) { ["Name"] = "large", ["Value"] = "v", ["Priority"] = 1, ["Payload"] = payload });
+
+        // The child has it as soon as the write returns.
+        Assert.True(payload.AsSpan().SequenceEqual(settings.Get("large")?.Get<byte[]>("Payload")));
+        Assert.True(payload.AsSpan().SequenceEqual(master.Set("Setting").Get("large")?.Get<byte[]>("Payload")));
+    }
+
+    // A refusal of the master reaches the caller of the child as the master gave it (brief of Epic 1,
+    // sprint S12, the planner's block of 15 November 2026): the same error, message, limit, operation
+    // index and committed position as the same write made on the master. In the memory case the master
+    // holds 3 MiB of its budget of 8 MiB, and the write of 6 MiB, which announces less than the budget,
+    // is refused by its write path in both; the placeholder enforces no budget.
+    public static IEnumerable<TheoryDataRow<string>> Refusals =>
+    [
+        new("a duplicate key"),
+        new("a key that is not found"),
+        new("a revision the entity no longer has"),
+        new("an entity the memory of the master cannot hold") { Skip = SkipReason.BeforeSprint12 },
+    ];
+
+    [Theory]
+    [MemberData(nameof(Refusals))]
+    public async Task Refusal_of_the_master_reaches_the_caller_of_the_child_equal_in_error_message_and_details(string refusal)
+    {
+        const int Mebibyte = 1024 * 1024;
+        var address = MasterAndChild.NewAddress();
+        await using var master = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = TestData.Schema,
+            ListenUri = address,
+            MemoryLimit = 8L * Mebibyte,
+        });
+        await using var child = await TestData.OpenChildAsync(address);
+        static LatticeRecord Setting(ILatticeSet settings, string name, int payload) =>
+            new(settings.EntityType) { ["Name"] = name, ["Value"] = "v", ["Priority"] = 1, ["Payload"] = new byte[payload] };
+
+        var settings = master.Set("Setting");
+        await settings.InsertAsync(Setting(settings, "theme", 16));
+        Assert.True(settings.TryGet("theme", out _, out var revision));
+        await settings.ReplaceAsync(Setting(settings, "theme", 16));
+        await settings.InsertAsync(Setting(settings, "filler", 3 * Mebibyte));
+
+        Func<ILatticeSet, ValueTask<LatticeWriteResult>> write = refusal switch
+        {
+            "a duplicate key" => set => set.InsertAsync(Setting(set, "theme", 16)),
+            "a key that is not found" => set => set.ReplaceAsync(Setting(set, "absent", 16)),
+            "a revision the entity no longer has" => set => set.ReplaceAsync(Setting(set, "theme", 16), revision),
+            _ => set => set.InsertAsync(Setting(set, "large", 6 * Mebibyte)),
+        };
+
+        var onTheMaster = await Assert.ThrowsAsync<LatticeException>(async () => await write(master.Set("Setting")));
+        var throughTheChild = await Assert.ThrowsAsync<LatticeException>(async () => await write(child.Set("Setting")));
+
+        Assert.Equal(onTheMaster.Error, throughTheChild.Error);
+        Assert.Equal(onTheMaster.Message, throughTheChild.Message);
+        Assert.Equal(onTheMaster.Limit, throughTheChild.Limit);
+        Assert.Equal(onTheMaster.OperationIndex, throughTheChild.OperationIndex);
+        Assert.Equal(onTheMaster.CommittedPosition, throughTheChild.CommittedPosition);
+    }
+
+    [Fact]
+    public async Task Write_through_a_child_whose_token_is_cancelled_before_it_is_sent_is_withdrawn()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        await using var child = await TestData.OpenChildAsync(address);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, cancellation.Token));
+
+        // A write after it is executed, and the cancelled one is not.
+        await child.Users().InsertAsync(new User { Id = 2, Name = "Grace" });
+
+        Assert.Null(master.Users().Get(1));
+        Assert.Null(child.Users().Get(1));
+        Assert.NotNull(master.Users().Get(2));
+    }
+
+    [Fact]
+    public async Task Write_through_a_child_after_its_close_is_ObjectDisposedException()
+    {
+        var address = MasterAndChild.NewAddress();
+        await using var master = await TestData.OpenMasterAsync(address);
+        var child = await TestData.OpenChildAsync(address);
+        var users = child.Users();
+
+        await child.CloseAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await users.InsertAsync(new User { Id = 1, Name = "Ada" }));
+        Assert.Null(master.Users().Get(1));
     }
 
     [Fact]
