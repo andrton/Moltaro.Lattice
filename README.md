@@ -436,9 +436,11 @@ dotnet run --project Moltaro.Lattice.Samples
 
 ## Package
 
-Two NuGet packages are published to the GitHub Packages feed of the repository owner:
-`Moltaro.Lattice`, the core with no dependencies, and
-`Moltaro.Lattice.DependencyInjection`, the dependency injection support.
+Three NuGet packages are published to [nuget.org](https://www.nuget.org) when a version
+is released: `Moltaro.Lattice`, the public contract with no dependencies;
+`Moltaro.Lattice.Engine`, the engine with `LatticeDatabase`, the entry point, which brings
+the contract with it; and `Moltaro.Lattice.DependencyInjection`, the dependency injection
+support. No version has been released yet.
 
 **Releasing a version.** Tag a commit of `main` and push the tag; the version is the tag
 without the leading `v`. The [Publish](.github/workflows/publish.yml) workflow builds,
@@ -453,19 +455,16 @@ git tag v0.1.0-alpha.1
 git push origin v0.1.0-alpha.1
 ```
 
-**Using the package.** Register the feed once per machine with a GitHub personal access
-token that has the `read:packages` scope, then reference the package as usual.
+**Using the package.** Reference the engine; an application that registers the database
+in a container references the dependency injection support as well.
 
 ```bash
-dotnet nuget add source "https://nuget.pkg.github.com/andrton/index.json" --name github-andrton --username YOUR_GITHUB_LOGIN --password YOUR_TOKEN --store-password-in-clear-text
+dotnet add package Moltaro.Lattice.Engine --prerelease
 ```
 
 ```bash
-dotnet add package Moltaro.Lattice --prerelease
+dotnet add package Moltaro.Lattice.DependencyInjection --prerelease
 ```
-
-Never commit a token: keep the feed registration in the user-level NuGet configuration,
-or pass the token through an environment variable in CI.
 
 ## License
 
