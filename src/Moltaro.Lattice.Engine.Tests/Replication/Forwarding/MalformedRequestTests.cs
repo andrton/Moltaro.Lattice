@@ -6,21 +6,15 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
 // What a master receives in a request is checked before it is used (brief of Epic 1, sprint S12, decided
-// after the study, point 1): a body that ForwardEncoding.ReadRequest refuses with ValidationFailed — one
-// that ends before its fields, an unknown kind, an unknown type id —, a key that is not the key in the
-// root, and a root that fails the check a child makes of a root received in a load (its layout version, a
-// descriptor against its length). Such a request is never executed. Whether the master then answers it
-// with the refusal, ValidationFailed, and serves the next request of the connection, or ends the
-// connection, the brief does not say (a question to the coordinator); the tests state what is decided and
-// accept either: a reply is a refusal with ValidationFailed and the connection then serves the next
-// request; an end leaves nothing registered. Either way "code" keeps its revision.
-//
-// The correlation id pairs a reply with its request, and 0 stays the load and the stream (decided after
-// the study, point 3): a request with the id 0, and one with the id of a request of the connection that has
-// not been answered, cannot be answered so that the child can tell the two apart. The master ends the
-// connection and executes nothing of that request; the request received whole before it still runs
-// (point 12). The master holds the commit of the earlier one (HeldCommitStorage), so that it is not
-// answered when the second arrives.
+// after the study, point 1): a body that ends before its fields, an unknown kind, an unknown type id, a
+// key that is not the key in the root, and a root that fails the check a child makes of a root received
+// in a load (its layout version, a descriptor against its length). A malformed request is a defect of
+// the peer: the master executes nothing of it and ends the connection, without a reply (settled by the
+// planner with the tests of S12); once it holds nothing for the child any more, "code" has the revision
+// it had. So it is with the correlation id 0, which stays the load and the stream, and with the id of a
+// request of the connection that has not been answered (decided after the study, point 3); the request
+// received whole before it still runs (point 12). The master holds the commit of the earlier one
+// (HeldCommitStorage), so that it is not answered when the second arrives.
 public sealed class MalformedRequestTests
 {
     public static IEnumerable<TheoryDataRow<string>> Damages =>
@@ -35,30 +29,17 @@ public sealed class MalformedRequestTests
 
     [Theory(Skip = SkipReason.BeforeSprint12)]
     [MemberData(nameof(Damages))]
-    public async Task Request_that_is_not_valid_is_never_executed(string damage)
+    public async Task Request_that_is_not_valid_ends_the_connection_and_is_never_executed(string damage)
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
         var revision = LoadedPeer.RevisionOfCode(master);
         using var child = await LoadedPeer.ConnectAsync(master);
 
         await child.SendRequestAsync(1, Damaged(child, damage));
-        var reply = await child.ReceiveReplyOrTheEndAsync(1);
 
+        Assert.Null(await child.ReceiveReplyOrTheEndAsync(1));
+        await LoadedPeer.ExpectNothingRegisteredAsync(master);
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
-
-        if (reply is null)
-        {
-            await LoadedPeer.ExpectNothingRegisteredAsync(master);
-            Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
-
-            return;
-        }
-
-        Assert.Equal(LatticeErrorEnum.ValidationFailed, reply.Refusal?.Error);
-
-        await child.SendRequestAsync(2, LoadedPeer.DeleteOfCode());
-        Assert.True((await child.ReceiveReplyAsync(2)).Changed);
-        Assert.Null(LoadedPeer.RevisionOfCode(master));
     }
 
     [Fact(Skip = SkipReason.BeforeSprint12)]

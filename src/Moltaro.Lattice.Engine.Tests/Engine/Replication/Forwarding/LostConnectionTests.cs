@@ -15,6 +15,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   not known to the child, IndeterminateOutcome, never Unavailable; the request, received whole, runs
 //   although its connection ended. The storage step of the master holds it (HeldCommitStorage) while a
 //   link between the two (LoopbackLink) is cut; released, the master has executed it.
+// - The connection ends while a write holds its reply and waits for its application: the call ends at
+//   once in SynchronizationTimeout with the committed position.
 // - A child without a connection to its master refuses a write with Unavailable: here
 //   one that stopped following because a transaction it received was not valid, which a relay
 //   (FrameRelay) damaged; it ends its connection, and a write through it afterwards changes nothing on the
@@ -68,6 +70,52 @@ public sealed class LostConnectionTests
         {
             storage.ReleaseAll();
         }
+    }
+
+    // A write that holds its reply and waits for its application when the connection ends: the position
+    // cannot arrive any more, so the wait ends at once, with SynchronizationTimeout and the position the
+    // master committed the write at, long before the timeout of an hour (settled by the planner with the
+    // tests of S12). A relay holds back the transaction of the write, so that the child takes the reply and
+    // waits; the next transaction of the master then does not follow the one the child applied last, the
+    // child refuses it and ends its connection.
+    [Fact(Skip = SkipReason.BeforeSprint12)]
+    public async Task Write_that_has_its_reply_ends_at_once_in_SynchronizationTimeout_with_its_committed_position_when_the_connection_ends()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+        var dropsTheNextTransaction = false;
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+        {
+            if (frame.Kind != FrameKindEnum.Transaction || !Volatile.Read(ref dropsTheNextTransaction))
+            {
+                return [frame];
+            }
+
+            Volatile.Write(ref dropsTheNextTransaction, false);
+            return [];
+        });
+        await using var child = await ReplicationNodes.OpenChildAsync(
+            new LatticeDatabaseOptions
+            {
+                Role = LatticeRoleEnum.Child,
+                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+                MasterUri = relay.Address,
+                SynchronizationTimeout = TimeSpan.FromHours(1),
+            },
+            new EngineTestInputs());
+
+        Volatile.Write(ref dropsTheNextTransaction, true);
+        var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
+        await Eventually.HoldsAsync(() => master.Set<PieceSchema.Piece>().Get(1L) is not null, "The master did not execute the write.");
+        var committed = master.Position;
+
+        await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8));
+        await relay.ChildEndedAsync();
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+
+        Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, exception.Error);
+        Assert.Equal(committed, exception.CommittedPosition);
+        Assert.Null(child.Set<PieceSchema.Piece>().Get(1L));
     }
 
     [Fact(Skip = SkipReason.BeforeSprint12)]

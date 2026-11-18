@@ -8,8 +8,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // malformed with ValidationFailed; decided after the study, point 3: the correlation id pairs a reply with
 // its request, and 0 stays the load and the stream). A reply that is not valid is a frame of the master
 // that is not valid, so the child ends its connection, as it does for a frame or a transaction that is
-// not valid (S10, S11), and keeps serving its reads, Ready. A write it had sent whole and whose reply it
-// did not take ends in IndeterminateOutcome. A relay (FrameRelay) changes the reply of the master on its
+// not valid (S10, S11), and keeps serving its reads, Ready; its writes end by the two moments of point 7
+// (settled by the planner with the tests of S12): a write it had sent whole and whose reply it did not
+// take ends in IndeterminateOutcome. A relay (FrameRelay) changes the reply of the master on its
 // way: another correlation id, the id 0, a body one byte short; or it passes a reply twice, after which
 // the second is the reply of a request already answered. The relay numbers the frames it passes again
 // where it adds one.
