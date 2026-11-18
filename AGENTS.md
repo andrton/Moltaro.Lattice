@@ -24,7 +24,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
 | `src/Moltaro.Lattice` | The core library: the public contract except its entry point. No package dependencies |
-| `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library. It holds the reference to `Arc.Collections`, which no code uses yet |
+| `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library and on no package |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
@@ -99,9 +99,9 @@ These hold across the contract and the engine.
     several. No static mutable state, except where a comment says why.
 11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
     the public contract, depends on nothing outside .NET. `Moltaro.Lattice.Engine` depends
-    on the contract and owns the index package. `Moltaro.Lattice.PostgreSql` depends on
-    the engine and owns the PostgreSQL driver. No other shipped assembly references those
-    two packages.
+    on the contract and on no package: its structures are its own.
+    `Moltaro.Lattice.PostgreSql` depends on the engine and owns the PostgreSQL driver. No
+    other shipped assembly references the PostgreSQL driver.
     Inside an assembly a folder is a namespace and one responsibility, and folders depend
     on each other in one direction. A folder that holds several layers of one
     responsibility has a sub-folder for each: the sub-folders are parts of that

@@ -95,8 +95,9 @@ and not by the runtime: keys, Map keys, Set members and the identity of a batch 
 through one rule. From S08, part 1, a read of the engine is protected by an epoch and
 takes no lock; what a write replaces or removes is retired and freed once the reads that
 could reach it have left; the primary index is a hash table of the engine's own that is
-read while a write is published, and `Arc.Collections` is referenced by the engine and
-used by none of its code until the ordered indexes of S14 settle it. From S08, part 2,
+read while a write is published; the package `Arc.Collections`, referenced by the engine
+and used by none of its code, was removed in S13 by the owner's decision of 18 November
+2026, and the ordered indexes of S14 are decided by their study. From S08, part 2,
 an enumeration of the engine goes on while entities change and the index grows: it
 remembers the keys it has returned, returns no identity twice and every entity nobody
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
@@ -165,7 +166,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | # | Requirement | Decided in | Level | Today | Sprints |
 | --- | --- | --- | --- | --- | --- |
 | R1 | One database per instance, no partitions. Embedded and hosted masters use the same engine. Many callers submit writes; only the configured master executes them | [Q11, Q15](../decisions/replication-and-hosting.md), [Q12](../decisions/database-scope.md) | Must | Works | S06–S12 |
-| R2 | The public library keeps no package dependency. Arc.Collections and the PostgreSQL driver each have one owning assembly, and dependencies point one way | [Handoff](../design/planning-handoff.md#planning-obligations) | Must | Holds; no engine yet | S01, S27 |
+| R2 | The public library keeps no package dependency. The PostgreSQL driver has one owning assembly, and dependencies point one way. The engine references no package since S13: `Arc.Collections` was removed by the owner's decision of 18 November 2026 | [Handoff](../design/planning-handoff.md#planning-obligations) | Must | Holds | S01, S13, S27 |
 | R3 | The schema catalog owns stable positive identities of entity types, fields and indexes, a catalog version and deterministic layout fingerprints; one compiler serves every input | [Engine contract](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration), [Q03.9](../decisions/schema-and-types.md) | Must | Partly: indexes have no identity, no fingerprint | S02 |
 | R4 | The accepted scalar catalog and its rules: eight integers, Float32, Float64, Decimal, Boolean, String, Guid, the temporal types, Binary; enum and Flags; explicit nullability; String comparison Ordinal or OrdinalIgnoreCase per field | [Q03.1–Q03.8](../decisions/schema-and-types.md), [Q04](../decisions/strings.md) | Must | Field types work; enums and text policies absent | S02, S05, S06–S08 |
 | R5 | Owned entity trees, ordered Lists, Maps, Sets and references by key without integrity enforcement, with the accepted input, null and comparer rules | [Q02, Q02.1, Q02.2](../decisions/document-model.md), [Q03.3, Q03.4.2](../decisions/schema-and-types.md) | Must | Absent | S03, S18, S19 |
@@ -547,8 +548,8 @@ on the one before it. `Moltaro.Lattice` is the public contract and what needs no
 options, errors, the schema and its compiler, the access interfaces and values; it has no
 package dependency. `Moltaro.Lattice.Engine` holds arena, indexes, coordinator,
 replication, MemoryOnly and the entry point `LatticeDatabase`, which keeps its namespace;
-it owns `Arc.Collections`, pinned to exactly 2.2.0, the version the evidence was measured
-on. `Moltaro.Lattice.PostgreSql` is the Durable provider and owns `Npgsql`; a child never
+it owned `Arc.Collections`, pinned to exactly 2.2.0, the version the evidence was measured
+on, until the owner removed the unused reference on 18 November 2026 (S13). `Moltaro.Lattice.PostgreSql` is the Durable provider and owns `Npgsql`; a child never
 loads it. Dependency injection references the engine, because it opens the database; the
 Identity package references only the contract. The options take the storage as an object
 of the provider package, and `StorageConnectionString` is removed. *Not chosen:* the
@@ -4980,6 +4981,13 @@ Common to S13, S14 and S15:
 
 For this sprint:
 
+0. **The package reference is gone** (the owner's decision of 18 November 2026, made with
+   S13: a first release on nuget.org would have carried a dependency no code uses). The
+   study still measures `OrderedMultiMap` of `Arc.Collections` behind a reader-writer
+   protection for contrast, in a prototype or in the measurement program with a pinned
+   reference of its own. If the study chose the package after all, the reference would
+   come back with the code that uses it, and principle 11 of `AGENTS.md` ("depends on the
+   contract and on no package: its structures are its own") would go back to the owner.
 1. **The structure is not decided.** The milestone contract names `Arc.Collections`
    `OrderedMultiMap` "until the contract of S14 reviews it"; that structure needs a lock
    around every reader, which the rule above excludes. By the owner's word of 16 November
