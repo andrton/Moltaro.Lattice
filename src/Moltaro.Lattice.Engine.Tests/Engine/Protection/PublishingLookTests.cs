@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -90,15 +91,16 @@ public sealed class PublishingLookTests
 
     // What waits between two looks is bounded by the two thresholds (docs/design/arena-protocol.md,
     // "Deferred reclamation, 16 November 2026"), beside what reads hold. What a look leaves behind, because
-    // a read still holds it, stays retired and is freed by a later look; the count toward the next look
-    // starts at the look, and while anything retired waits, a published write that retires nothing counts
-    // as one item. So the next look comes one window of writes of any kind after the last: as many as the
-    // epoch table has slots, or fewer when the bytes retired reach one segment first. A read is held
-    // (HeldRead) while four replaces of a piece with a Name of one segment's length retire 16 MiB: each
-    // retires a segment of bytes or more, so each ends in a look, which frees nothing. Once the read has left, deletes of a
-    // key that is absent, which retire nothing, count one item each: a window holds more than one item, so
-    // the first delete frees nothing, and the look within the window, as many deletes as the epoch table
-    // has slots, frees everything, of the 2,000 the test is ready to make.
+    // a read still holds it, stays retired and is freed by a later look, and the count toward the next look
+    // starts at the look. Such a look arms a second trigger: until a look leaves nothing behind, a published
+    // write that retires nothing counts as one item. So the next look comes one window of writes of any kind
+    // after the last: as many as the epoch table has slots, or fewer when the bytes retired reach one
+    // segment first. A read is held (HeldRead) while four replaces of a piece with a Name of one segment's
+    // length retire 16 MiB: each retires a segment of bytes or more, so each ends in a look, which frees
+    // nothing and leaves everything behind. Once the read has left, deletes of a key that is absent, which
+    // retire nothing, count one item each: a window holds more than one item, so the first delete frees
+    // nothing, and the look within the window, as many deletes as the epoch table has slots, frees
+    // everything, of the 2,000 the test is ready to make.
     [Fact]
     public async Task Memory_a_held_read_kept_from_looks_is_freed_within_one_window_of_writes_after_it_left_also_when_they_retire_nothing()
     {
@@ -136,6 +138,45 @@ public sealed class PublishingLookTests
         Assert.True(
             database.Counters.Arena.RetiredBytes == 0 && deletes <= slots,
             $"After {deletes} deletes of an absent key the arena holds {database.Counters.Arena.RetiredBytes} retired bytes; one window of writes is {slots} of them.");
+    }
+
+    // Only a look that leaves retired items behind arms the count of writes that retire nothing; without
+    // one, also while something retired waits below both thresholds, such a write counts nothing, so a load
+    // without a held read looks as often as it would without that count. With no read held, one replace
+    // retires one root, far below both thresholds, and no look has left anything behind: 2,000 deletes of a
+    // key that is absent bring no look, and the root stays retired through them; then replaces up to one
+    // window of retirements, the first replace counted, bring the look that frees everything.
+    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    public async Task Writes_that_retire_nothing_count_nothing_while_no_look_has_left_retired_memory_behind()
+    {
+        var slots = new ReadEpochs(new object()).SlotCount;
+
+        await using var database = await StampSchema.OpenAsync();
+        var stamps = database.Set<StampSchema.Stamp>();
+        await stamps.InsertAsync(StampSchema.StampOf(1, Numbers));
+        database.DrainRetired();
+        var root = HeldBytes(database);
+        var window = (int)Math.Min(slots, (Segment + root - 1) / root);
+
+        Assert.True(window > 1, $"One retired root of {root} bytes fills a window of retirements.");
+
+        await stamps.ReplaceAsync(StampSchema.StampOf(1, Numbers + 1));
+
+        for (var write = 0; write < AbsentDeletes; write++)
+        {
+            Assert.False((await stamps.DeleteAsync(404L)).Changed);
+        }
+
+        Assert.True(
+            database.Counters.Arena.RetiredBytes == root,
+            $"After one replace and {AbsentDeletes} deletes of an absent key the arena holds {database.Counters.Arena.RetiredBytes} retired bytes, not the {root} of the replaced root: the deletes brought a look although no look had left anything behind.");
+
+        for (var write = 2; write <= window; write++)
+        {
+            await stamps.ReplaceAsync(StampSchema.StampOf(1, Numbers + write));
+        }
+
+        Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
     // With nothing retired waiting, a write that retires nothing counts nothing toward the next look, so a
