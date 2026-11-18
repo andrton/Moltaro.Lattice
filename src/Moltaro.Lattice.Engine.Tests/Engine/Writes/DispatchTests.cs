@@ -505,8 +505,8 @@ public sealed class DispatchTests
         });
 
     // Entities 1 to 4 and 6 to 9, small: the first table of the primary index, of two buckets, holds
-    // eight entries, so the preparation of an insert of entity 5 grows it (Indexes.IndexTable, "The
-    // capacity policy").
+    // eight entries, so the preparation of an insert of entity 5 grows it (Storage.Hashing.IndexTable,
+    // "The capacity policy").
     private static PieceSchema.Piece[] EightPieces() =>
         [.. new long[] { 1, 2, 3, 4, 6, 7, 8, 9 }.Select(id => PieceSchema.Of(id, name: 10))];
 

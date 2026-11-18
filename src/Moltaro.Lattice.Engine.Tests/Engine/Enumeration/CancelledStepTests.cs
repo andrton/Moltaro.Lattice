@@ -44,7 +44,7 @@ public sealed class CancelledStepTests
     private const int Keys = 4;
 
     // As many entities as a main table of 2^14 buckets holds before the next insert grows it
-    // (Indexes.IndexTable, "The capacity policy").
+    // (Storage.Hashing.IndexTable, "The capacity policy").
     private const int Long = 4 << 14;
 
     private const ulong Seed = 0x9E3779B97F4A7C15;
