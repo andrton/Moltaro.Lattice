@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -29,8 +30,34 @@ internal static class MarkedRoot
 
     public const long Marker = 0x0123456789ABCDEF;
 
-    public static LatticeSchema Schema { get; } = LatticeSchema.Compile($$"""
+    public static LatticeSchema Schema { get; } = Compile("Utf8");
+
+    // The same entity type in a database that stores its text in UTF-16.
+    public static LatticeSchema Utf16Schema { get; } = Compile("Utf16");
+
+    public static LatticeEntityType EntityType => Schema.EntityTypes.Single();
+
+    public static LatticeRecord Record() => Record("code");
+
+    public static LatticeRecord Record(string code) => RecordOf(EntityType, code);
+
+    public static LatticeRecord RecordOf(LatticeEntityType entityType, string code) => new(entityType)
+    {
+        ["Code"] = code,
+        ["Marker"] = Marker,
+        ["Name"] = "name",
+        ["Note"] = "a note",
+        ["Data"] = new byte[1_000],
+    };
+
+    // Where the stored text of the key, inline in the root payload, stands in the bytes: the code in the
+    // encoding of the database.
+    public static int KeyAt(ReadOnlySpan<byte> bytes, string code, Encoding encoding) =>
+        OnlyPlaceOf(bytes, encoding.GetBytes(code), "the key");
+
+    private static LatticeSchema Compile(string encoding) => LatticeSchema.Compile($$"""
         {
+          "StringEncoding": "{{encoding}}",
           "EntityTypes": [
             {
               "Id": {{TypeId}}, "Name": "Marked",
@@ -46,19 +73,6 @@ internal static class MarkedRoot
           ]
         }
         """);
-
-    public static LatticeEntityType EntityType => Schema.EntityTypes.Single();
-
-    public static LatticeRecord Record() => Record("code");
-
-    public static LatticeRecord Record(string code) => new(EntityType)
-    {
-        ["Code"] = code,
-        ["Marker"] = Marker,
-        ["Name"] = "name",
-        ["Note"] = "a note",
-        ["Data"] = new byte[1_000],
-    };
 
     // Where the type id of the root stands in the bytes.
     public static int TypeIdAt(ReadOnlySpan<byte> bytes)

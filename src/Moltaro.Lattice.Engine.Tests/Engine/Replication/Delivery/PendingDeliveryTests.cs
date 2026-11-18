@@ -1,4 +1,7 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Tests.Replication;
+using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
@@ -13,7 +16,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 // - The master counts a change as acknowledged only when the child has applied it: while the child holds
 //   back its application (EngineDatabase.SuspendApplying) the change stays pending, and once the child
 //   has applied it, it is released and PendingDeliveryBytes falls to 0.
-// - Of two children, the tail is released only up to the one that has applied least.
+// - Of two children, the tail is released only up to the one that has applied least: while one holds
+//   back its application, the change stays pending after the other has acknowledged it. The other is a
+//   child made by hand (Peer), so that the test knows the master has taken its acknowledgment: it then
+//   sends one the master refuses, and the master ends its connection only after it has taken the one
+//   before, since it takes the frames of a connection in their order.
 // - Once its child has closed, the master holds nothing for it (NothingRegistered): this restates the
 //   test of S10 in which the master published writes again once its child had closed.
 public sealed class PendingDeliveryTests
@@ -70,15 +77,25 @@ public sealed class PendingDeliveryTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
-        await using var following = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+        var handshake = await Handshake.RecordAsync(master);
         await using var holding = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+        using var following = await Peer.ConnectAsync(master.ListenUri!);
         LatticeWriteResult written;
+
+        await following.SendAsync(handshake.Hello);
+        await following.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
 
         using (holding.SuspendApplying())
         {
             written = await master.Set<PieceSchema.Piece>().InsertAsync(Pieces.Versioned(2, version: 1, dataBytes: 10_000));
 
-            await Eventually.AtAsync(following, written.Position);
+            var sequence = PositionSequence.Of(written.Position);
+
+            await following.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.Transaction && TransactionPayload.SequenceOf(frame) == sequence);
+            await following.SendAppliedAsync(sequence);
+            await following.SendAppliedAsync(0);
+            await following.ReceiveUntilTheEndAsync();
+
             Assert.True(master.Counters.PendingDeliveryBytes > 0, "The master released a change that one of its children has not applied.");
         }
 

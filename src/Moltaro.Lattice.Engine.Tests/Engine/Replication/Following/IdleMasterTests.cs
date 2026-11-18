@@ -11,7 +11,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 // connection that was wrongly ended, and the behavior is about time.
 public sealed class IdleMasterTests
 {
-    private static readonly TimeSpan OpenTimeout = TimeSpan.FromMilliseconds(200);
+    // Long enough for an open of a small database on a loaded machine, short enough to wait for three
+    // times over: a timeout of 200 ms ended the open itself when two runs of the tests shared the machine.
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task Child_whose_master_writes_nothing_for_longer_than_the_OpenTimeout_of_both_keeps_following()
@@ -28,7 +30,7 @@ public sealed class IdleMasterTests
         await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(master.ListenUri!, OpenTimeout), new EngineTestInputs());
 
-        await Task.Delay(5 * OpenTimeout);
+        await Task.Delay(3 * OpenTimeout);
         var written = await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8));
 
         await Eventually.AtAsync(child, written.Position);

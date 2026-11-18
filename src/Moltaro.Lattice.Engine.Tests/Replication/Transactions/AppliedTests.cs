@@ -17,8 +17,56 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // - While a child holds back the application of what it receives (EngineDatabase.SuspendApplying), it
 //   sends no Applied for a transaction the relay has passed to it; once it resumes, it applies the
 //   transaction and acknowledges it.
+// - A master ends the connection of a child that acknowledges what it cannot have applied: a sequence
+//   beyond what it was sent, one before its readiness position, or one before what it acknowledged
+//   already; and holds nothing for it afterwards (NothingRegistered). The child is made by hand (Peer):
+//   the Hello of a real child (Handshake), then the Applied the row gives.
 public sealed class AppliedTests
 {
+    public static IEnumerable<TheoryDataRow<string>> WrongAcknowledgments =>
+    [
+        new("a sequence beyond what it was sent"),
+        new("a sequence before its readiness position"),
+        new("a sequence before what it acknowledged already"),
+    ];
+
+    [Theory]
+    [MemberData(nameof(WrongAcknowledgments))]
+    public async Task Master_ends_the_connection_of_a_child_that_acknowledges_what_it_cannot_have_applied(string acknowledgment)
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+        await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
+        var handshake = await Handshake.RecordAsync(master);
+        using var child = await Peer.ConnectAsync(master.ListenUri!);
+
+        await child.SendAsync(handshake.Hello);
+
+        var load = await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
+        var readiness = LoadEndPayload.Of(load[^1]).End;
+
+        switch (acknowledgment)
+        {
+            case "a sequence beyond what it was sent":
+                await child.SendAppliedAsync(readiness + 1);
+                break;
+
+            case "a sequence before its readiness position":
+                await child.SendAppliedAsync(readiness - 1);
+                break;
+
+            default:
+                var written = PositionSequence.Of((await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8))).Position);
+
+                await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.Transaction && TransactionPayload.SequenceOf(frame) == written);
+                await child.SendAppliedAsync(written);
+                await child.SendAppliedAsync(readiness);
+                break;
+        }
+
+        await child.ReceiveUntilTheEndAsync();
+        await NothingRegistered.ExpectAsync(master, 100);
+    }
+
     [Fact]
     public async Task Child_acknowledges_the_sequences_it_has_applied_in_their_order_and_none_before_its_readiness_position()
     {

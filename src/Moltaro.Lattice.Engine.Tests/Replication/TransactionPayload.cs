@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using Moltaro.Lattice.Replication;
 
-namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
+namespace Moltaro.Lattice.Engine.Tests.Replication;
 
 // The payload of a Transaction frame and of an Applied frame as the tests of Epic 1, sprint S11 assume
 // them, apart from the codec of the engine. The shapes, from the brief of S11 ("Types and members of
@@ -18,8 +18,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // - Its effects follow one another until the announced length, each a kind (one byte, EffectKindEnum)
 //   and what that kind carries: a Write (1) the root as a load sends it, its length (UInt64) and then its
 //   bytes — type id (UInt32), last mutation sequence (UInt64), layout version (UInt32), root payload,
-//   values out of line —; a Delete (2) the type id (UInt32) and then the key, in a form the tests do not
-//   read; a write that changed nothing, Unchanged (3), nothing more.
+//   values out of line —; a Delete (2) the type id (UInt32) and then the key in the form the implementer
+//   of S11 chose (Replication.Transactions.TransactionFormat): an integer key as an Int64, a String key
+//   as the length of its UTF-8 (UInt32) and that UTF-8; a write that changed nothing, Unchanged (3),
+//   nothing more.
 // - The root of a Write carries the sequence of its transaction as its last mutation (the planner's
 //   block of 17 November 2026, point 3), and a child checks it on receipt: a Write whose root carries
 //   another sequence is a malformed transaction, refused whole (the coordinator's decision of
