@@ -33,10 +33,6 @@ internal static class TransactionFormat
     // The kind and the length of the root at the start of a Write.
     public const int WriteEnvelopeSize = 1 + sizeof(ulong);
 
-    // The type id and the last mutation sequence at the start of the root of a Write, as at the start of
-    // a root of a load.
-    public const int RootEnvelopeSize = sizeof(uint) + sizeof(ulong);
-
     // The kind and the type id at the start of a Delete.
     public const int DeleteEnvelopeSize = 1 + sizeof(uint);
 
@@ -72,10 +68,7 @@ internal static class TransactionFormat
 
                 root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, rootLength));
                 effects.Advance(rootLength);
-                root.TryReadLittleEndian(out int writtenId);
-                root.TryReadLittleEndian(out long writtenMutation);
-                typeId = (uint)writtenId;
-                lastMutation = (ulong)writtenMutation;
+                RootEnvelope.TryRead(ref root, out typeId, out lastMutation);
 
                 return EffectKindEnum.Write;
 

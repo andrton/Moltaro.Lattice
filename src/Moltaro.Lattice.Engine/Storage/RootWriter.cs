@@ -495,11 +495,13 @@ internal ref struct RootWriter
         return root;
     }
 
-    // Ends a root for a forwarded write (see the class) and writes it into the output: the length of what
-    // follows (UInt64), the type id of its entity type (UInt32) and a last mutation sequence of 0 (UInt64),
-    // little-endian, then the root as BlockExport writes a stored one — the layout version, the root
-    // payload, and each value out of line in the order of its descriptor. Refuses with ValidationFailed,
-    // as Complete does, a field that is not nullable and was not set; the writer has ended either way.
+    // The bytes Export writes for a root for a forwarded write, once its values are set.
+    public readonly long ExportLength => sizeof(uint) + (_rootBytes - BlockHeader.Size) + _exported!.Length;
+
+    // Ends a root for a forwarded write (see the class) and writes it into the output as BlockExport writes
+    // a stored one: the layout version (UInt32, little-endian), the root payload, and each value out of
+    // line in the order of its descriptor. Refuses with ValidationFailed, as Complete does, a field that is
+    // not nullable and was not set; the writer has ended either way.
     public void Export(IBufferWriter<byte> output)
     {
         ThrowIfEnded();
@@ -511,17 +513,10 @@ internal ref struct RootWriter
 
         CheckRequiredFields();
 
-        const int Envelope = sizeof(ulong) + sizeof(uint) + sizeof(ulong) + sizeof(uint);
-
         var payload = Image[BlockHeader.Size.._rootBytes];
-        var length = Envelope - sizeof(ulong) + payload.Length + _exported.Length;
-        var start = output.GetSpan(Envelope);
 
-        BinaryPrimitives.WriteUInt64LittleEndian(start, (ulong)length);
-        BinaryPrimitives.WriteUInt32LittleEndian(start[sizeof(ulong)..], (uint)_layout.EntityType.Id);
-        BinaryPrimitives.WriteUInt64LittleEndian(start[(sizeof(ulong) + sizeof(uint))..], 0);
-        BinaryPrimitives.WriteUInt32LittleEndian(start[(2 * sizeof(ulong) + sizeof(uint))..], _layout.LayoutVersion);
-        output.Advance(Envelope);
+        BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), _layout.LayoutVersion);
+        output.Advance(sizeof(uint));
 
         // The payload fits one span: it is at most the payload of one block.
         payload.CopyTo(output.GetSpan(payload.Length));

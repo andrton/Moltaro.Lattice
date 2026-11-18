@@ -47,14 +47,14 @@ internal sealed class RootPlacement
     {
         var reader = new SequenceReader<byte>(bytes);
 
-        if (!reader.TryReadLittleEndian(out int typeId) || !reader.TryReadLittleEndian(out long lastMutation))
+        if (!RootEnvelope.TryRead(ref reader, out var typeId, out var lastMutation))
         {
             throw Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
         }
 
-        if (!_tables.TryGetStored((uint)typeId, out var table) || table.Layout is not { } layout)
+        if (!_tables.TryGetStored(typeId, out var table) || table.Layout is not { } layout)
         {
-            throw Invalid($"A root names the entity type {(uint)typeId}, which the schema of the child does not store.");
+            throw Invalid($"A root names the entity type {typeId}, which the schema of the child does not store.");
         }
 
         if (lastMutation == 0)
@@ -62,10 +62,10 @@ internal sealed class RootPlacement
             throw Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
         }
 
-        _changes.Place(table, (ulong)lastMutation, reader, _received);
+        _changes.Place(table, lastMutation, reader, _received);
 
         _received++;
-        _latest = Math.Max(_latest, (ulong)lastMutation);
+        _latest = Math.Max(_latest, lastMutation);
     }
 
     // Ends the load (see the class).

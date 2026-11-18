@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Forwarding;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 
@@ -169,6 +170,8 @@ internal sealed class Forwarder
             try
             {
                 RootValues.Write(ref writer, table.EntityType, values!);
+                ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + writer.ExportLength);
+                RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0);
                 writer.Export(request);
             }
             catch

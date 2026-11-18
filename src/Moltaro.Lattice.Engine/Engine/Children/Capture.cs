@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
@@ -125,12 +124,8 @@ internal sealed class Capture
 
             // The type id of a lifetime found live, which stays that lifetime while the protection is held.
             var typeId = entry.TypeId;
-            var envelope = buffer.GetSpan(sizeof(uint) + sizeof(ulong));
 
-            BinaryPrimitives.WriteUInt32LittleEndian(envelope, typeId);
-            BinaryPrimitives.WriteUInt64LittleEndian(envelope[sizeof(uint)..], lastMutation);
-            buffer.Advance(sizeof(uint) + sizeof(ulong));
-
+            RootEnvelope.Write(buffer, typeId, lastMutation);
             BlockExport.Write(buffer, _arena, _tables.Stored(typeId).Layout!, root);
 
             return true;

@@ -23,9 +23,9 @@ internal static class TransactionEncoder
     public static void Write(DeliveryTail tail, ulong sequence, EntityTable table, Arena arena, ArenaAddress root)
     {
         var layout = table.Layout!;
-        var rootLength = TransactionFormat.RootEnvelopeSize + BlockExport.Length(arena, layout, root);
+        var rootLength = RootEnvelope.Size + BlockExport.Length(arena, layout, root);
         var effects = TransactionFormat.WriteEnvelopeSize + rootLength;
-        const int Start = TransactionFormat.HeaderSize + TransactionFormat.WriteEnvelopeSize + TransactionFormat.RootEnvelopeSize;
+        const int Start = TransactionFormat.HeaderSize + TransactionFormat.WriteEnvelopeSize + RootEnvelope.Size;
 
         tail.Begin(sequence, effects);
 
@@ -35,8 +35,7 @@ internal static class TransactionEncoder
         TransactionFormat.WriteHeader(start, sequence, effects);
         envelope[0] = (byte)EffectKindEnum.Write;
         BinaryPrimitives.WriteUInt64LittleEndian(envelope[1..], (ulong)rootLength);
-        BinaryPrimitives.WriteUInt32LittleEndian(envelope[TransactionFormat.WriteEnvelopeSize..], (uint)table.EntityType.Id);
-        BinaryPrimitives.WriteUInt64LittleEndian(envelope[(TransactionFormat.WriteEnvelopeSize + sizeof(uint))..], sequence);
+        RootEnvelope.Write(envelope[TransactionFormat.WriteEnvelopeSize..], (uint)table.EntityType.Id, sequence);
         tail.Advance(Start);
 
         BlockExport.Write(tail, arena, layout, root);

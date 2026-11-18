@@ -26,7 +26,7 @@ namespace Moltaro.Lattice.Replication.Load;
 internal sealed class RootAssembler
 {
     // The type id, the last mutation sequence and the layout version that begin every root.
-    public const int EnvelopeSize = sizeof(uint) + sizeof(ulong) + sizeof(uint);
+    public const int EnvelopeSize = RootEnvelope.Size + sizeof(uint);
 
     private readonly TransferBuffer _large = new();
 

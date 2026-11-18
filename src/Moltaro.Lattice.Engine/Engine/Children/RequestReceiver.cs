@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Buffers.Binary;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
@@ -137,22 +136,19 @@ internal sealed class RequestReceiver
     // of the request. Returns the rest, which the write path places.
     private ReadOnlySequence<byte> CheckRoot(EntityTable table, uint typeId, in EntityKey key, ReadOnlySequence<byte> root)
     {
-        Span<byte> envelope = stackalloc byte[sizeof(uint) + sizeof(ulong)];
+        var reader = new SequenceReader<byte>(root);
 
-        if (root.Length < envelope.Length)
+        if (!RootEnvelope.TryRead(ref reader, out var rootTypeId, out var lastMutation))
         {
             throw Invalid("The root of a forwarded write ends before its type id and its last mutation.");
         }
 
-        root.Slice(0, envelope.Length).CopyTo(envelope);
-
-        if (BinaryPrimitives.ReadUInt32LittleEndian(envelope) != typeId || BinaryPrimitives.ReadUInt64LittleEndian(envelope[sizeof(uint)..]) != 0)
+        if (rootTypeId != typeId || lastMutation != 0)
         {
             throw Invalid("The root of a forwarded write names another entity type than the write, or a last mutation that is not 0.");
         }
 
-        var rest = root.Slice(envelope.Length);
-        var reader = new SequenceReader<byte>(rest);
+        var rest = reader.UnreadSequence;
         var received = _import.Check(ref reader, table.Layout!);
 
         if (!HoldsKey(table, received, key))
