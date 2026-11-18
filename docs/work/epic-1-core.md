@@ -1033,7 +1033,7 @@ Why this order:
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
-| S12 | Writes through a child, sessions; the placeholder is removed | Full | In progress |
+| S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
@@ -4725,8 +4725,9 @@ P1). Both confirmed that a closing master left writes it had not executed as
    without a master and ends its side. A connection that ends without `Closed` — a reset,
    a crash, a vanished master, the 5 s elapsed — leaves a sent and unanswered request
    `IndeterminateOutcome`. An end in order of a connection alone is not a statement about
-   execution: a killed process can produce one. `Closed` has no body; a reply after it,
-   or a second `Closed`, is malformed. The wire format stays 3.
+   execution: a killed process can produce one. `Closed` has no body, and a child reads nothing
+   after it: a reply after it, or a second `Closed`, changes nothing. The wire format
+   stays 3.
 3. Invariants with tests: after a master's close in order no write through a reading
    child ends in `IndeterminateOutcome`; a write whose reply was lost without `Closed` is
    never reported "not executed".
@@ -4739,6 +4740,14 @@ P1). Both confirmed that a closing master left writes it had not executed as
    `LatticeRecord`, `FieldValues.Copy`) is removed.
 5. Left as is: a child refuses a closed instance before a session of another history and
    a master the other way round; no order is decided.
+6. The second round (two reviewers on commit 929fe60) found no P1 and no P2 and every
+   item above closed; a faulted master sends `Closed` too, because its fault ends every
+   admitted write with its reply recorded. Tests were added for what was right and
+   untested: the wait of a forwarded write on the master for the position of its
+   session, a master that faults and closes, and `Closed` before Ready. The sentence of
+   the contract of point 1 above the review was made exact: a wait for a position on a
+   faulted child is `Unavailable`; only a write through a child that faulted after its
+   master committed the write ends in `SynchronizationTimeout` with its position.
 
 ### Stage 4. Indexes and batches
 
@@ -5576,7 +5585,9 @@ second per storage commit.
 same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
 connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
 master's close (X6) becomes the option that bounds a send to a child that does not read.
-Not tested, because nothing can fault the publication of a child: a faulted child ends a
+A call withdrawn by its token stays in the queue of the child's sender, with its encoded
+request, until the sender takes it out; judged here with the allocation of a forwarded
+write. Not tested, because nothing can fault the publication of a child: a faulted child ends a
 forwarded write that holds its reply in `SynchronizationTimeout` with its committed
 position; the test comes with the fault point of a child's publication.
 
