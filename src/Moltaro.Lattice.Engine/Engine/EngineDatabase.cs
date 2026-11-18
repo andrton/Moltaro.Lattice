@@ -863,14 +863,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, refusesEveryWrite: "Writes through a child of the engine come with Epic 1, sprint S12: write to its master.");
 
             var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
-            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, _epochs.Fault);
 
             PresizeIndexes(tables, counts, memoryLimit);
 
-            var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, tables), memoryLimit, token).ConfigureAwait(false);
+            var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, Fault, tables), memoryLimit, token).ConfigureAwait(false);
 
             // The transactions of (S, R] follow LoadEnd: the child is Ready once it has applied R.
-            var follower = new Follower(master, _writes!, _executor!, _barrier, changes, tables, memoryLimit, _options.OpenTimeout);
+            var follower = new Follower(master, _writes!, _executor!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
@@ -1036,9 +1036,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // A publication failed (WriteCoordinator, "A fault"): the instance is Faulted unless a close came
-    // first. The reads are marked first, so that a read that retries on the mark of the write that
-    // failed gives up at once, then the state, then the waits for a position end.
+    // A publication failed (WriteCoordinator, "A fault"; on a child Loading.ReceivedChanges): the instance
+    // is Faulted unless a close came first. The reads are marked first, so that a read that retries on the
+    // mark of the write that failed gives up at once, then the state, then the waits for a position end.
+    // Called after the lock of the writes, since it takes the lock of the state; a child marks the reads
+    // under the lock of the writes already (ReadEpochs.Fault, which takes no lock) and calls this after
+    // it.
     private void Fault()
     {
         _epochs.Fault();

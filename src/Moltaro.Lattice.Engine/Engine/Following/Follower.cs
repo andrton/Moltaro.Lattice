@@ -71,6 +71,9 @@ internal sealed class Follower
 
     private readonly ReceivedChanges _changes;
 
+    // Faults the instance, after the lock, when a publication failed between its stores.
+    private readonly Action _fault;
+
     private readonly TransactionAssembler _assembler;
 
     private readonly TimeSpan _openTimeout;
@@ -93,13 +96,14 @@ internal sealed class Follower
 
     private bool _acknowledgedOnce;
 
-    public Follower(MasterLink link, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _writes = writes;
         _executor = executor;
         _barrier = barrier;
         _changes = changes;
+        _fault = fault;
         _assembler = new TransactionAssembler(memoryLimit);
         _openTimeout = openTimeout;
         _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
@@ -298,6 +302,17 @@ internal sealed class Follower
             }
 
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The memory limit of this child cannot hold the transaction {sequence} of its master.");
+        }
+        catch
+        {
+            // After the lock, which TryApply takes and leaves: the reads were marked faulted under it
+            // (ReceivedChanges).
+            if (_changes.PublicationFailed)
+            {
+                _fault();
+            }
+
+            throw;
         }
         finally
         {

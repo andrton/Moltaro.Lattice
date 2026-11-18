@@ -55,9 +55,11 @@ namespace Moltaro.Lattice.Engine.Loading;
 // stamp s reads the new root, or the state Deleted at s, with the position s or later; a read that misses
 // a deleted key does so after step 3, at s or later. With one effect this is the order of the write of a
 // master. Once step 1 has begun nothing can fail: every store goes to what the preparation took and
-// reserved, and nothing allocates. Should one fail anyway, a defect, the instance faults (the action given
-// to the constructor), so that a read that backs off on a mark gives up with Unavailable instead of waiting
-// for a stamp that will never come, as on a master.
+// reserved, and nothing allocates. Should one fail anyway, a defect, the reads are marked faulted at once,
+// under the lock (the action given to the constructor, which takes no lock), so that a read that backs off
+// on a mark gives up with Unavailable instead of waiting for a stamp that will never come, as on a master;
+// the caller faults the rest of the instance, its state and its clock, once it has left the lock
+// (PublicationFailed; EngineDatabase, the order of the locks).
 //
 // Memory. A root the arena refuses returns false: the caller applies the rule of a write refused for
 // memory before it gives up (RootPlacement, Following.Follower).
@@ -71,8 +73,8 @@ internal sealed class ReceivedChanges
 
     private readonly BlockImport _import;
 
-    // Faults the instance, when a publication fails between its stores (see the class).
-    private readonly Action _fault;
+    // Marks the reads faulted, when a publication fails between its stores (see the class).
+    private readonly Action _faultReads;
 
     // The changes prepared and not published yet, in the order they were received.
     private readonly List<Change> _prepared = [];
@@ -88,12 +90,16 @@ internal sealed class ReceivedChanges
 
     public long SkippedStates { get; private set; }
 
-    public ReceivedChanges(Arena arena, RootTable roots, WriteExecutor executor, LatticeSchema schema, Action fault)
+    // Whether a publication failed between its stores, so that the caller faults the instance after the
+    // lock (see the class); it stays so.
+    public bool PublicationFailed { get; private set; }
+
+    public ReceivedChanges(Arena arena, RootTable roots, WriteExecutor executor, LatticeSchema schema, Action faultReads)
     {
         _arena = arena;
         _roots = roots;
         _executor = executor;
-        _fault = fault;
+        _faultReads = faultReads;
         _import = new BlockImport(arena, schema);
     }
 
@@ -263,7 +269,8 @@ internal sealed class ReceivedChanges
         }
         catch
         {
-            _fault();
+            PublicationFailed = true;
+            _faultReads();
             throw;
         }
 

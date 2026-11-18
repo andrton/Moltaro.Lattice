@@ -45,6 +45,9 @@ internal sealed class RootPlacement
 
     private readonly ReceivedChanges _changes;
 
+    // Faults the instance, after the lock, when a publication failed between its stores.
+    private readonly Action _fault;
+
     // The tables of the entity types of the schema, by the identity of their entity type.
     private readonly Dictionary<uint, EntityTable> _byTypeId;
 
@@ -53,12 +56,13 @@ internal sealed class RootPlacement
 
     private ulong _latest;
 
-    public RootPlacement(Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, IEnumerable<EntityTable> tables)
+    public RootPlacement(Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables)
     {
         _writes = writes;
         _executor = executor;
         _barrier = barrier;
         _changes = changes;
+        _fault = fault;
         _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
     }
 
@@ -91,6 +95,16 @@ internal sealed class RootPlacement
             {
                 PlaceUnderTheLock(reader, table, (ulong)lastMutation);
             }
+        }
+        catch
+        {
+            // After the lock: the reads were marked faulted under it (ReceivedChanges).
+            if (_changes.PublicationFailed)
+            {
+                _fault();
+            }
+
+            throw;
         }
         finally
         {
