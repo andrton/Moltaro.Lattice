@@ -24,7 +24,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // which the thread that decides the outcome writes under the lock and reads after it, and the
 // completion, which is set once for each write, outside every lock; its continuations run on the
 // thread pool, never on the thread that completes it, so that no code of the application runs on a
-// thread of the engine (RunContinuationsAsynchronously).
+// thread of the engine (RunContinuationsAsynchronously). A write a child forwarded has no caller: its
+// outcome is its reply, and its completion is never set (WriteCoordinator, "Forwarded writes").
 //
 // It is a work item of the thread pool, so that its withdrawal after a cancellation, and the end of
 // its resolution after a refusal of the arena, run on a thread of the pool without another allocation

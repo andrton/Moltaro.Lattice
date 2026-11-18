@@ -56,12 +56,12 @@ namespace Moltaro.Lattice.Engine.Following;
 // valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender
 // that failed, the close of the child — ends its connection and keeps serving its reads at the position it
 // has, Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
-// together is applied. In this order (S12): it marks itself without a master (Forwarding.Forwarder.
-// LoseMaster), so that a write through it is Unavailable and a wait for a position it has not reached ends
-// at once; it ends its side of the connection, and with it the sender; and once the sender has ended,
-// every write it had sent whole and that has no reply ends in IndeterminateOutcome (PendingRequests.Close):
-// the master may have executed it. So the close of a master, which waits until its children have ended
-// their side, finds each child that reads marked.
+// together is applied. In this order (S12): it marks itself without a master
+// (Forwarding.Forwarder.LoseMaster), so that a write through it is Unavailable and a wait for a position
+// it has not reached ends at once; it ends its side of the connection, and with it the sender; and once
+// the sender has ended, every write it had sent whole and that has no reply ends in IndeterminateOutcome
+// (PendingRequests.Close): the master may have executed it. So the close of a master, which waits until
+// its children have ended their side, finds each child that reads marked.
 //
 // The frame Closed (decided at the review of S12, point 2). A master that closes in order sends it after
 // every reply it owes and every transaction of its tail: every request not answered before it was not
