@@ -246,7 +246,8 @@ the system chooses a free port, and the open master reports it in its `ListenUri
 which is the address to give its children. A child that cannot reach its master, or
 receives nothing from it, for `OpenTimeout`, 30 seconds by default, fails its open with
 `Unavailable`; until then it keeps trying, so it may be started before its master. A load
-that keeps arriving is not ended by the timeout, however long it takes.
+that keeps arriving is not ended by the timeout, however long it takes, as long as each of
+its frames, at most 64 KiB, arrives whole within the timeout.
 
 **The replication port must be reachable only from the nodes of the database.** This is a
 precondition of every deployment with children. The engine authenticates nobody at that

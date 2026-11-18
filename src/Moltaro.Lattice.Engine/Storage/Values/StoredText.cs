@@ -9,8 +9,14 @@ namespace Moltaro.Lattice.Storage.Values;
 // (Engine.Comparison.ValueComparer), which reads it through StoredTextReader. Only well-formed text is
 // stored, in both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check
 // of the core, WellFormedText), so decoding stored text needs no check of its own and finds no
-// malformed sequence. A UTF-16 database keeps the code units in the byte order of the machine, as
-// everything in native memory is.
+// malformed sequence. That holds on the assumption the nodes of one database make of each other
+// (docs/decisions/replication-and-hosting.md, "Trust between the nodes of one database"): the text a
+// node received in a load, in the stream or in a forwarded write is stored as it arrived, checked for
+// its structure and not for its values, and a peer is the same engine, which validated it before it
+// sent it. Text a peer sends that is not well-formed is refused with the root that holds it or stored
+// as it came; a read of it then throws a managed exception or shows replacement characters, and never
+// reads outside the bytes stored. A UTF-16 database keeps the code units in the byte order of the
+// machine, as everything in native memory is.
 internal static class StoredText
 {
     // The bytes of well-formed text in the encoding of the database: its UTF-8, or two bytes for each
