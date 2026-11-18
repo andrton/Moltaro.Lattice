@@ -10,6 +10,7 @@ using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Following;
+using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -29,7 +30,8 @@ namespace Moltaro.Lattice.Engine;
 // inserts, reads, replaces, upserts and deletes entities of scalar fields by primary key, by class
 // and by name (brief of Epic 1, sprint S06), for many callers at once through its write coordinator
 // (S09), and that accepts children at a ListenUri; or a child that loads the whole database of its
-// master over TCP, serves its reads (S10), and follows the writes of its master (S11).
+// master over TCP, serves its reads (S10), follows the writes of its master (S11), and forwards its own
+// writes to its master, each returning once this child has applied it (S12).
 //
 // How a test reaches it. Until S12 LatticeDatabase still opens the placeholder, and a test opens
 // the engine through Create, the internal entry of exception X4 (docs/work/exceptions.md): only
@@ -66,12 +68,15 @@ namespace Moltaro.Lattice.Engine;
 // carries): the first call of CloseAsync or DisposeAsync begins it and keeps its task, and every
 // later call waits for that same task, so no call completes before the arena is freed, whichever
 // call it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread
-// until then. The close covers the network (the planner's block of 17 November 2026, point 7): on a
-// master it stops accepting children, ends every connection to them and completes only when no task of
-// the listener runs and its port is free (Children.ChildListener), whatever its streams to its children
-// hold in flight; on a child it ends the open in progress and the following of its master, waits for
-// their tasks, and closes the connection to the master. A suspension of the application held at the
-// close does not keep it from completing.
+// until then. The close covers the network (the planner's block of 17 November 2026, point 7, and his
+// decision after the study of S12, point 4): on a master, once its admitted writes have ended, it stops
+// accepting children, has each connection send its child what it owes it and end its side in order,
+// waits for the children to end theirs, all together and at most a fixed time, resets those still open,
+// and completes only when no task of the listener runs and its port is free (Children.ChildListener); on
+// a child it ends the open in progress and the following of its master, waits for their tasks, and
+// closes the connection to the master, without waiting for the master: its writes in flight end as the
+// forwarding says (Forwarding). A suspension of the application held at the close does not keep it from
+// completing; a master whose child holds one waits out the fixed time for that child.
 //
 // Master and children (briefs of S10 and S11). A master with a ListenUri listens at it from its open and
 // serves every node that connects (Children): it checks its Hello, registers its capture under the lock
@@ -84,8 +89,11 @@ namespace Moltaro.Lattice.Engine;
 // under its own lock of the writes (Loading.RootPlacement), applies the transactions of (S, R] by the
 // same rule (Loading.ReceivedChanges, Following.Follower), and becomes Ready at R. It then follows its
 // master, and tells it what it applied, until the connection ends or it cannot apply a transaction; then
-// it stops following and stays Ready at its position (reconnection is S34). Until S12 it refuses every
-// write. What travels, and how it is checked, is the protocol of Replication. The open of a child that
+// it stops following and stays Ready at its position (reconnection is S34). It forwards its writes to its
+// master on the same connection, and the master submits them to its write path as its own (S12;
+// Forwarding.Forwarder, Children.RequestReceiver); a write through a child returns once that child has
+// applied it, and a child without its master refuses a write with Unavailable. What travels, and how it
+// is checked, is the protocol of Replication. The open of a child that
 // fails, times out or is cancelled closes the instance and completes only once the close has: no
 // connection, no task and no memory of it is left.
 //
@@ -95,7 +103,8 @@ namespace Moltaro.Lattice.Engine;
 // for the storage step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
 // Protection, the history and the sequence in Positions (PositionClock), the sets of the public
 // interfaces in Sets, what a master gives its children in Children, the tail of the transactions it
-// holds for them in Delivery, how a child loads in Loading, and how it follows its master in Following.
+// holds for them in Delivery, how a child loads in Loading, how it follows its master in Following, and
+// how it forwards its writes in Forwarding.
 //
 // The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
 // for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
@@ -104,8 +113,9 @@ namespace Moltaro.Lattice.Engine;
 // starts and ends and its acknowledgments release the tail on a master, and under which a root is
 // placed and a transaction applied on a child, held for synchronous work in memory only. The lock of
 // the state is taken alone; no thread that holds a lock takes the other one. The listener of a master
-// has a lock of its own for its connections, and the follower of a child one for its suspensions, each
-// taken alone as well. No lock is held while bytes are sent or received.
+// has a lock of its own for its connections; the follower of a child has one for its suspensions, its
+// sender one for its queue and the table of its pending requests one; each is taken alone as well. No
+// lock is held while bytes are sent or received.
 // A read takes none: it enters the protection of reads, which is no lock and never waits for the writer, and
 // nothing is taken inside it. What a read can reach lives at least as long as the read: a write
 // unlinks it and retires it, and the writer frees it only once the reads that entered before have
@@ -138,7 +148,7 @@ namespace Moltaro.Lattice.Engine;
 // Sessions and the write batch. On a master the members that take a session, and
 // WaitForPositionAsync, are served: a master has applied every position it gave out; a child has
 // applied every position of its history up to the one it is at, and a wait for a later one ends when it
-// applies it or at its timeout, the timeout as well on a child that stopped following.
+// applies it or at its timeout, and at once on a child that has lost its master (Positions.PositionClock).
 // CreateWriteBatch returns the batch of the core: building it works, and its commit is
 // NotSupportedException until S17.
 internal sealed class EngineDatabase : ILatticeDatabase
@@ -187,6 +197,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // The tail of the transactions a master holds for its children; on a child it never retains.
     private DeliveryTail? _delivery;
+
+    // On a child: where its writes go, to its master (Forwarding.Forwarder); null on a master.
+    private Forwarder? _forwarder;
 
     private Dictionary<LatticeEntityType, SetOperations>? _operations;
 
@@ -767,7 +780,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             // A new history at every open: nothing of a MemoryOnly database survives it, so no position
             // of an earlier run may be taken for one of this run.
-            Build(schema, (ulong)Random.Shared.NextInt64(1, long.MaxValue), refusesEveryWrite: null);
+            Build(schema, (ulong)Random.Shared.NextInt64(1, long.MaxValue), child: false);
 
             if (listenUri is not null)
             {
@@ -776,7 +789,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
                 var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
                 var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, tables, hello, SchemaTransfer.Saved(schema));
-                var listener = ChildListener.Start(listenUri, capture, _options.OpenTimeout);
+                var forwarded = new ForwardedWrites(_coordinator!, tables, _arena!, schema);
+                var listener = Listen(listenUri, capture, forwarded);
 
                 lock (_stateLock)
                 {
@@ -797,6 +811,21 @@ internal sealed class EngineDatabase : ILatticeDatabase
             }
 
             _state = LatticeDatabaseStateEnum.Ready;
+        }
+    }
+
+    // Starts the listener of a master at its address. A master that cannot listen there, because the
+    // address is in use for one, fails its open with InvalidConfiguration, whose message gives the reason
+    // the system reports (settled by the planner with the contract commit of S12).
+    private ChildListener Listen(Uri listenUri, Capture capture, ForwardedWrites forwarded)
+    {
+        try
+        {
+            return ChildListener.Start(listenUri, capture, forwarded, _options.OpenTimeout);
+        }
+        catch (SocketException exception)
+        {
+            throw new LatticeException(LatticeErrorEnum.InvalidConfiguration, $"The master cannot listen at {listenUri}: {exception.Message}", exception);
         }
     }
 
@@ -860,7 +889,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} sent a schema whose fingerprint {schema.Fingerprint} is not the {master.Master.SchemaFingerprint} its HelloReply announced.");
             }
 
-            Build(schema, master.Master.History, refusesEveryWrite: "Writes through a child of the engine come with Epic 1, sprint S12: write to its master.");
+            Build(schema, master.Master.History, child: true);
 
             var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
             var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, _epochs.Fault);
@@ -870,7 +899,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, Fault, tables), memoryLimit, token).ConfigureAwait(false);
 
             // The transactions of (S, R] follow LoadEnd: the child is Ready once it has applied R.
-            var follower = new Follower(master, _writes!, _executor!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
+            var follower = new Follower(master, _forwarder!, _clock!.History, _writes!, _executor!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
@@ -934,9 +963,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // What the open of a child reports for what ended it (the planner's block of 15 November 2026, "What
-    // the child's caller sees"): its own token, OperationCanceledException; a close, as every operation
-    // after a close, ObjectDisposedException; an address it cannot use, InvalidConfiguration; everything
-    // that ends the open because of the master, Unavailable with the reason in the message.
+    // the child's caller sees", and what he settled with the tests of S12): its own token, and a close
+    // that came while the open waited, OperationCanceledException — the caller has no instance yet that
+    // could be unavailable, and closing it withdraws the request to open; an address it cannot use,
+    // InvalidConfiguration; everything that ends the open because of the master, Unavailable with the
+    // reason in the message.
     private Exception OpenFailure(Exception exception, CancellationToken cancellationToken)
     {
         var masterUri = _options.MasterUri;
@@ -944,7 +975,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return exception switch
         {
             OperationCanceledException when cancellationToken.IsCancellationRequested => exception,
-            OperationCanceledException => new ObjectDisposedException(GetType().FullName),
+            OperationCanceledException or ObjectDisposedException when _closing.IsCancellationRequested =>
+                new OperationCanceledException("The instance was closed while it opened.", exception),
             LatticeException { Error: LatticeErrorEnum.Unavailable or LatticeErrorEnum.InvalidConfiguration } => exception,
             LatticeException { Error: LatticeErrorEnum.ValidationFailed or LatticeErrorEnum.InvalidSchema } invalid =>
                 new LatticeException(LatticeErrorEnum.Unavailable, $"What the master at {masterUri} sent is not valid: {invalid.Message}", invalid),
@@ -963,10 +995,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ?? _options.MemoryLimit
         ?? Math.Max(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2, LatticeDatabaseOptions.ArenaSegmentSize);
 
-    // Builds the parts of an empty database of the schema in the history given, and publishes them; the
-    // caller makes the instance Ready. A close that came meanwhile wins: what was built is freed, and the
+    // Builds the parts of an empty database of the schema in the history given, and publishes them, with
+    // the forwarder of its writes on a child; the caller makes the instance Ready. A close that came meanwhile wins: what was built is freed, and the
     // open fails with ObjectDisposedException.
-    private void Build(LatticeSchema schema, ulong history, string? refusesEveryWrite)
+    private void Build(LatticeSchema schema, ulong history, bool child)
     {
         var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
         var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator());
@@ -985,7 +1017,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var seed = _testInputs?.IndexSeed ?? DrawSeed();
             var writes = new Lock();
             var delivery = new DeliveryTail();
-            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs, delivery);
+            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs, delivery, schema);
             var coordinator = new WriteCoordinator(
                 writes,
                 executor,
@@ -993,15 +1025,15 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _barrier,
                 clock,
                 _options.SynchronizationTimeout,
-                Fault,
-                refusesEveryWrite);
+                Fault);
+            var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
             foreach (var entityType in schema.EntityTypes)
             {
                 var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed);
-                var forType = new SetOperations(table, coordinator, clock, _options);
+                var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
 
                 operations.Add(entityType, forType);
                 recordSets.Add(entityType, new RecordSet(forType));
@@ -1023,6 +1055,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _coordinator = coordinator;
                 _executor = executor;
                 _delivery = delivery;
+                _forwarder = forwarder;
                 _operations = operations;
                 _recordSets = recordSets;
             }

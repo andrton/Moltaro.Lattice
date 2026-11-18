@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // meanwhile, never one before its readiness position (the rule of S11, AppliedTests).
 public sealed class AcknowledgmentDuringARequestTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Child_acknowledges_what_it_applied_between_the_frames_of_a_request_of_32_MiB()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

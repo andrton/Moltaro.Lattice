@@ -10,7 +10,9 @@ namespace Moltaro.Lattice.Engine.Positions;
 //
 // A master has applied every position it gave out, so a wait for one completes at once. A position
 // of its history with a later sequence, which only a caller can make up, is waited for until writes
-// reach it, within the timeout of the wait; a close ends every wait.
+// reach it, within the timeout of the wait; a close ends every wait. A child waits until it has applied
+// the position; once it has lost its master (Lose), no later position can arrive, and a wait for one ends
+// at once (brief of Epic 1, sprint S12, settled by the planner with the tests).
 //
 // One thread at a time publishes, the one that holds the lock of the writes and publishes a group of
 // writes (Writes.WriteExecutor); any thread reads the sequence.
@@ -24,6 +26,10 @@ internal sealed class PositionClock
     private TaskCompletionSource? _published;
 
     private volatile bool _closed;
+
+    // Set when a child lost its master: a wait in progress, and every later one that is not complete at
+    // once, ends in SynchronizationTimeout.
+    private volatile bool _lost;
 
     // Set when a publication failed and the database faulted: a wait in progress, and every later one
     // that is not complete at once, fails with Unavailable.
@@ -49,6 +55,23 @@ internal sealed class PositionClock
     // The position of a sequence of this history.
     public LatticePosition At(ulong sequence) => new(History, sequence);
 
+    // Whether the database has been closed: every wait has ended.
+    public bool IsClosed => _closed;
+
+    // ObjectDisposedException once the database has been closed, as every operation after a close.
+    public void ThrowIfClosed() => ObjectDisposedException.ThrowIf(_closed, _owner);
+
+    // HistoryMismatch for a position of another history than this database's, which no wait can reach.
+    public void CheckHistory(LatticePosition position)
+    {
+        if (position.History != History)
+        {
+            throw new LatticeException(
+                LatticeErrorEnum.HistoryMismatch,
+                "The required position belongs to another database history than this database. Start a new session.");
+        }
+    }
+
     // Publishes a sequence. The write calls it while it holds the gates under which its change is
     // seen, so that a read that sees the change reads this sequence or a later one; it wakes the
     // waiters with Wake after it has released them.
@@ -65,6 +88,14 @@ internal sealed class PositionClock
         Wake();
     }
 
+    // Ends every wait of a child that lost its master: no later position will arrive, so a wait in
+    // progress ends in SynchronizationTimeout at once, as does a later one that is not complete at once.
+    public void Lose()
+    {
+        _lost = true;
+        Wake();
+    }
+
     // Ends every wait after a failed publication, which faulted the database: no later position will
     // be published, so a wait in progress fails with Unavailable, as does a later one that is not
     // complete at once.
@@ -76,8 +107,8 @@ internal sealed class PositionClock
 
     // Completes when the position is published: at once for a position up to the last published one.
     // Refuses a position of another history with HistoryMismatch. Fails with SynchronizationTimeout
-    // when the position is not reached within the timeout, and is cancelled by the token; both end
-    // only the wait.
+    // when the position is not reached within the timeout, or at once on a child that lost its master,
+    // and is cancelled by the token; each ends only the wait.
     public ValueTask WaitAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -86,17 +117,16 @@ internal sealed class PositionClock
         }
 
         ObjectDisposedException.ThrowIf(_closed, _owner);
-
-        if (position.History != History)
-        {
-            throw new LatticeException(
-                LatticeErrorEnum.HistoryMismatch,
-                "The required position belongs to another database history than this database. Start a new session.");
-        }
+        CheckHistory(position);
 
         if (position.Sequence <= Sequence)
         {
             return ValueTask.CompletedTask;
+        }
+
+        if (_lost)
+        {
+            throw Lost(position);
         }
 
         return new ValueTask(WaitForLaterAsync(position, timeout, cancellationToken));
@@ -146,6 +176,11 @@ internal sealed class PositionClock
                 return;
             }
 
+            if (_lost)
+            {
+                throw Lost(position);
+            }
+
             var remaining = timeout - Stopwatch.GetElapsedTime(started);
 
             try
@@ -163,4 +198,7 @@ internal sealed class PositionClock
             }
         }
     }
+
+    private static LatticeException Lost(LatticePosition position) =>
+        new(LatticeErrorEnum.SynchronizationTimeout, $"This child has lost its master and cannot reach position {position}.");
 }

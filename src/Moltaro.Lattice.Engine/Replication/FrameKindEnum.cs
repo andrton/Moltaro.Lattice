@@ -31,4 +31,10 @@ internal enum FrameKindEnum : ushort
     // From a child to its master: the sequence up to which the child has applied all it has received
     // (Transactions.TransactionFormat).
     Applied = 9,
+
+    // From a child to its master: a write the child forwards, or a part of one (Forwarding.ForwardEncoding).
+    WriteRequest = 10,
+
+    // From a master to a child: the answer to a forwarded write, or a part of one (Forwarding.ForwardEncoding).
+    WriteReply = 11,
 }

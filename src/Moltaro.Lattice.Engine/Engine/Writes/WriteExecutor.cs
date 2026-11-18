@@ -1,10 +1,15 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -48,6 +53,15 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    false with everything freed, and the coordinator decides what the write waits for before it tries
 //    again (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
+//
+// A write a child forwarded (brief of Epic 1, sprint S12, the planner's decision after the study, point 1)
+// brings the root the child wrote, in the load format, instead of values (ForwardedOrigin). Its
+// preparation places that root as a child places a root of its load (Replication.Load.BlockImport), for
+// the lifetime it goes to; the receiver checked it as a child checks one, and that the key in it is the key
+// of the request (Children.ChildConnection), so the check that placing repeats cannot fail. Its last
+// mutation is the sequence the write is published at, as for every write. One case writes the root again
+// from its values: a replace through another spelling of a String key compared without case, which keeps
+// the spelling the entity was created with, as KeepStoredKey does for a write of values.
 //
 // A publication (Publish), of the writes of a group in its order, after the storage step: it only
 // installs what was prepared: the stores of S08 in their order, the position, the retirement of what
@@ -103,6 +117,12 @@ internal sealed class WriteExecutor
 
     private readonly DeliveryTail _delivery;
 
+    private readonly LatticeSchema _schema;
+
+    // Places the roots that children forward; made by the first of them, since only a master with
+    // children receives one, and used under the lock of the writes alone.
+    private BlockImport? _import;
+
     // The fault point a test armed, with the passes it lets through first (Arm); default when none is
     // armed, which is all a pass loads.
     private EngineFaultPointEnum _armedPoint;
@@ -113,7 +133,7 @@ internal sealed class WriteExecutor
     // looked (TakeDelivered).
     private bool _delivered;
 
-    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ReadEpochs epochs, DeliveryTail delivery)
+    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ReadEpochs epochs, DeliveryTail delivery, LatticeSchema schema)
     {
         _arena = arena;
         _roots = roots;
@@ -121,6 +141,7 @@ internal sealed class WriteExecutor
         _clock = clock;
         _epochs = epochs;
         _delivery = delivery;
+        _schema = schema;
     }
 
     // Prepares the write (see the class): true with what its publication installs, or false, with the
@@ -277,11 +298,20 @@ internal sealed class WriteExecutor
     private bool TryPrepareReplace(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
-        var values = write.Values!;
+        ArenaAddress root;
+        long size;
 
-        table.KeepStoredKey(handle, values);
+        if (write.Forwarded is { } forwarded)
+        {
+            root = PlaceForwarded(table, handle, forwarded, replaces: true, out size, out refusal);
+        }
+        else
+        {
+            var values = write.Values!;
 
-        var root = Encode(table, handle, values, out var size, out refusal);
+            table.KeepStoredKey(handle, values);
+            root = Encode(table, handle, values, out size, out refusal);
+        }
 
         if (root.IsNull)
         {
@@ -319,7 +349,11 @@ internal sealed class WriteExecutor
 
         try
         {
-            root = Encode(table, handle, write.Values!, out var size, out refusal);
+            long size;
+
+            root = write.Forwarded is { } forwarded
+                ? PlaceForwarded(table, handle, forwarded, replaces: false, out size, out refusal)
+                : Encode(table, handle, write.Values!, out size, out refusal);
 
             if (root.IsNull)
             {
@@ -388,6 +422,100 @@ internal sealed class WriteExecutor
         }
     }
 
+    // Places the root a child forwarded for the lifetime the handle names (see the class), in prepared
+    // blocks, with the bytes of the slots it takes: the root block and every block of its values out of
+    // line. For a replace, a key of another spelling than the stored one is written again with the
+    // stored spelling. The null address, with the refusal, when the arena has no room for the entity;
+    // then nothing of it is left allocated.
+    private ArenaAddress PlaceForwarded(EntityTable table, RootHandle handle, ForwardedOrigin forwarded, bool replaces, out long size, out LatticeException? refusal)
+    {
+        var layout = table.Layout!;
+        var import = _import ??= new BlockImport(_arena, _schema);
+        var reader = new SequenceReader<byte>(forwarded.Root);
+        var received = import.Check(ref reader, layout);
+
+        refusal = null;
+        size = 0;
+
+        if (replaces && KeepsAnotherSpelling(table, handle, import, received))
+        {
+            return Respell(table, handle, import.Place(received, handle), out size, out refusal);
+        }
+
+        var root = import.Place(received, handle);
+
+        if (root.IsNull)
+        {
+            refusal = RootWriter.RefusalForMemory(layout);
+
+            return default;
+        }
+
+        size = SlotBytes(layout, root);
+
+        return root;
+    }
+
+    // Whether the entity of the handle stores its String key, compared without case, in another spelling
+    // than the root received.
+    private bool KeepsAnotherSpelling(EntityTable table, RootHandle handle, BlockImport import, in ReceivedRoot received)
+    {
+        var key = table.EntityType.Key;
+
+        if (key.Declaration.TextComparison is not { IgnoresCase: true })
+        {
+            return false;
+        }
+
+        var stored = new RootReader(_arena, table.Layout!, _roots.Entry(handle).Root);
+
+        return !ValueComparer.SameText(stored, key, import.Text(received, key));
+    }
+
+    // Writes the placed root again from its values with the key as the entity stores it, and frees the
+    // placed one; the null address with the refusal when the arena has no room for either.
+    private ArenaAddress Respell(EntityTable table, RootHandle handle, ArenaAddress placed, out long size, out LatticeException? refusal)
+    {
+        var layout = table.Layout!;
+
+        if (placed.IsNull)
+        {
+            refusal = RootWriter.RefusalForMemory(layout);
+            size = 0;
+
+            return default;
+        }
+
+        var values = new object?[table.EntityType.Fields.Count];
+
+        try
+        {
+            RootValues.Read(new RootReader(_arena, layout, placed), table.EntityType, values);
+        }
+        finally
+        {
+            RootStorage.Free(_arena, layout, placed);
+        }
+
+        table.KeepStoredKey(handle, values);
+
+        return Encode(table, handle, values, out size, out refusal);
+    }
+
+    // The bytes of the slots of a root and of its values out of line.
+    private long SlotBytes(RootLayout layout, ArenaAddress root)
+    {
+        var payload = layout.RootPayload(_arena, root);
+        var size = (long)Arena.BlockSizeFor(payload.Length);
+
+        for (var index = 0; index < layout.DescriptorCount; index++)
+        {
+            size += ValueBlocks.SlotBytes(ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+        }
+
+        return size;
+    }
+
     // The stores of the publication of one write (see the class), with the fault points of the tests,
     // and its transaction for the children while one is registered: encoded before the stores, so that a
     // failure to hold it leaves the write unpublished, and appended after them.
@@ -421,6 +549,13 @@ internal sealed class WriteExecutor
             default:
                 _clock.Publish(sequence);
                 break;
+        }
+
+        // The reply of a write a child forwarded, before its transaction is appended, so that the child
+        // takes the reply first (Delivery.RecordedReplies).
+        if (write.Forwarded is { } forwarded)
+        {
+            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.Kind != PublicationKindEnum.NothingToDelete));
         }
 
         if (delivers)

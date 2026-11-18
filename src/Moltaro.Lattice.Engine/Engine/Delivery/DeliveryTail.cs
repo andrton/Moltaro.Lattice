@@ -244,14 +244,15 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     public void Wake() => Interlocked.Exchange(ref _signal, null)?.TrySetResult();
 
     // Outside every lock: completes once bytes are there to read after the place given, in the block or
-    // in a block after it. The token ends the wait, with OperationCanceledException; the close of the
-    // master is in it.
-    public async ValueTask WaitForMoreAsync(DeliveryBlock block, int offset, CancellationToken cancellationToken)
+    // in a block after it, or a reply of the sender's connection waits (RecordedReplies, whose refusals
+    // wake the senders as an append does). The token ends the wait, with OperationCanceledException; the
+    // close of the master is in it.
+    public async ValueTask WaitForMoreAsync(DeliveryBlock block, int offset, RecordedReplies replies, CancellationToken cancellationToken)
     {
         while (true)
         {
-            // The signal is taken before the block is read: an append after the read completes this
-            // signal, one before it is seen in the block.
+            // The signal is taken before the block and the replies are read: an append or a reply after
+            // the read completes this signal, one before it is seen.
             var signal = Volatile.Read(ref _signal);
 
             if (signal is null)
@@ -261,7 +262,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
                 signal = Interlocked.CompareExchange(ref _signal, made, null) ?? made;
             }
 
-            if (offset < block.Used || block.Next is not null)
+            if (offset < block.Used || block.Next is not null || replies.HasReplies)
             {
                 return;
             }

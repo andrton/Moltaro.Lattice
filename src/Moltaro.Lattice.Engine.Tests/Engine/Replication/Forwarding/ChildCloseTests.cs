@@ -25,7 +25,7 @@ public sealed class ChildCloseTests
 {
     private const int ThirtyTwoMebibytes = 32 * 1024 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_whose_reply_has_arrived_returns_its_result_when_the_child_closes_before_applying_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -47,7 +47,7 @@ public sealed class ChildCloseTests
         Assert.Equal(sequence, PositionSequence.Of(written.Position));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_sent_whole_and_not_answered_ends_in_IndeterminateOutcome_and_the_close_does_not_wait_for_the_master()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -72,7 +72,7 @@ public sealed class ChildCloseTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Writes_not_taken_by_the_sender_or_sent_only_in_part_end_in_Unavailable_when_the_child_closes()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

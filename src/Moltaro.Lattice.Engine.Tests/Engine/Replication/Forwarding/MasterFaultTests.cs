@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // A test arms the fault point of the master (EngineDatabase.ArmFault, exception X3).
 public sealed class MasterFaultTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Fault_of_the_master_during_the_publication_of_a_forwarded_write_reaches_the_caller_of_the_child_with_its_code()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

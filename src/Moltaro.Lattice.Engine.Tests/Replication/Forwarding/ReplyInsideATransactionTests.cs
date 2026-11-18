@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // and its write completes once it has applied it too.
 public sealed class ReplyInsideATransactionTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Child_takes_a_reply_between_the_frames_of_a_transaction_and_applies_the_transaction_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

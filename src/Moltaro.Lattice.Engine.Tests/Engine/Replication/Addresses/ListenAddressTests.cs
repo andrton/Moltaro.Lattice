@@ -39,7 +39,7 @@ public sealed class ListenAddressTests
 
     // The reason the system reports is the message of the SocketException of an address in use (the
     // remarks of ListenUri and ILatticeDatabase.OpenAsync).
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Master_whose_address_is_in_use_fails_its_open_with_InvalidConfiguration_that_gives_the_reason_of_the_system_and_is_closed()
     {
         using var other = new TcpListener(IPAddress.Loopback, 0);

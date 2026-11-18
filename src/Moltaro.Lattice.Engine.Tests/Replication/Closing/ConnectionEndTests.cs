@@ -19,7 +19,7 @@ public sealed class ConnectionEndTests
 {
     private const string Slow = "Slow";
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     [Trait("Duration", Slow)]
     public async Task Close_of_a_master_ends_its_side_in_order_and_resets_connections_whose_children_do_not_end_theirs_after_5_seconds_together()
     {

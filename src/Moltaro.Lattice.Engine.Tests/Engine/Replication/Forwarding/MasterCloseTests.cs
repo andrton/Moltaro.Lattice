@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // MasterAndChildTests.Child_keeps_serving_reads_after_the_master_closes states.
 public sealed class MasterCloseTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_dispatched_on_a_master_that_closes_is_applied_by_its_child_and_returns_the_success()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -53,7 +53,7 @@ public sealed class MasterCloseTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_that_reaches_a_master_while_it_closes_is_answered_Unavailable_and_not_executed()
     {
         var storage = new HeldCommitStorage(holding: false);

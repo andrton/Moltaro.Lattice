@@ -59,9 +59,14 @@ internal sealed class FrameConnection : IDisposable
         _socket.NoDelay = true;
     }
 
-    // Writes a frame of the kind, with the flags and the payload, into the frames waiting to be sent.
+    // Writes a frame of the kind, with the flags and the payload, into the frames waiting to be sent; its
+    // correlation id is 0, as in every frame of the load and of the stream.
     public void Add(FrameKindEnum kind, uint flags, ReadOnlySpan<byte> payload) =>
         FrameCodec.Write(_outgoing, kind, flags, correlationId: 0, ++_added, payload);
+
+    // The same, for a frame of a forwarded write or of its reply, with the id that pairs the two.
+    public void Add(FrameKindEnum kind, uint flags, ulong correlationId, ReadOnlySpan<byte> payload) =>
+        FrameCodec.Write(_outgoing, kind, flags, correlationId, ++_added, payload);
 
     // Writes a Hello or a HelloReply.
     public void AddHello(FrameKindEnum kind, in HelloBody hello)
@@ -172,6 +177,22 @@ internal sealed class FrameConnection : IDisposable
         }
 
         _socket.Dispose();
+    }
+
+    // Ends the sending side in order: what was sent arrives, then the end of the stream, which the peer
+    // reads as the end of the connection; this side goes on receiving until the peer ends its own (the
+    // close of a master, Engine.Children.ChildConnection). A socket that has ended already is left as it
+    // is.
+    public void EndSending()
+    {
+        try
+        {
+            _socket.Shutdown(SocketShutdown.Send);
+        }
+        catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
+        {
+            // The socket is not connected any more, or has ended already.
+        }
     }
 
     // Ends the connection in order: what was sent arrives, then the end.

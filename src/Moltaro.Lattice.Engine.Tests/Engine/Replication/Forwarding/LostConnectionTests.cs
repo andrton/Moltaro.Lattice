@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   master.
 public sealed class LostConnectionTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Connection_that_ends_while_the_child_sends_a_request_gives_Unavailable_and_the_master_executes_nothing()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -43,7 +43,7 @@ public sealed class LostConnectionTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Connection_that_ends_after_the_master_received_the_whole_request_gives_IndeterminateOutcome_and_the_write_runs()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -78,7 +78,7 @@ public sealed class LostConnectionTests
     // tests of S12). A relay holds back the transaction of the write, so that the child takes the reply and
     // waits; the next transaction of the master then does not follow the one the child applied last, the
     // child refuses it and ends its connection.
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_that_has_its_reply_ends_at_once_in_SynchronizationTimeout_with_its_committed_position_when_the_connection_ends()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -118,7 +118,7 @@ public sealed class LostConnectionTests
         Assert.Null(child.Set<PieceSchema.Piece>().Get(1L));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Child_that_stopped_following_refuses_a_write_with_Unavailable_and_the_master_changes_nothing()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

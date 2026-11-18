@@ -97,4 +97,71 @@ internal static class RootValues
             }
         }
     }
+
+    // Reads every field of the root into the values, by LatticeField.Ordinal, in the form a write takes
+    // and a record holds (LatticeValueDeclaration.ValueType): null for a field that is null, a scalar
+    // boxed in its exact type — for an Enum field the integer of the underlying type of its enum type —
+    // and a new string or array for a String or Binary value. The reverse of Write, for a read that copies
+    // a root as a record (Sets.RecordCopy) and for a forwarded write a master writes again
+    // (WriteExecutor).
+    public static void Read(in RootReader reader, LatticeEntityType entityType, object?[] values)
+    {
+        var fields = entityType.Fields;
+
+        // By index: a foreach over the list of the schema would allocate its enumerator.
+        for (var index = 0; index < fields.Count; index++)
+        {
+            var field = fields[index];
+
+            values[field.Ordinal] = reader.IsNull(field) ? null : Value(field, reader);
+        }
+    }
+
+    // The value of a field that is not null, boxed in the exact type a record holds for it.
+    private static object Value(LatticeField field, in RootReader reader)
+    {
+        switch (field.Declaration.ScalarType)
+        {
+            case LatticeFieldTypeEnum.Boolean:
+                return reader.GetBoolean(field);
+            case LatticeFieldTypeEnum.Int8:
+                return (sbyte)reader.GetInteger(field);
+            case LatticeFieldTypeEnum.Int16:
+                return (short)reader.GetInteger(field);
+            case LatticeFieldTypeEnum.Int32:
+                return (int)reader.GetInteger(field);
+            case LatticeFieldTypeEnum.Int64:
+                return reader.GetInteger(field);
+            case LatticeFieldTypeEnum.UInt8:
+                return (byte)reader.GetUnsigned(field);
+            case LatticeFieldTypeEnum.UInt16:
+                return (ushort)reader.GetUnsigned(field);
+            case LatticeFieldTypeEnum.UInt32:
+                return (uint)reader.GetUnsigned(field);
+            case LatticeFieldTypeEnum.UInt64:
+                return reader.GetUnsigned(field);
+            case LatticeFieldTypeEnum.Float32:
+                return reader.GetFloat32(field);
+            case LatticeFieldTypeEnum.Float64:
+                return reader.GetFloat64(field);
+            case LatticeFieldTypeEnum.Decimal:
+                return reader.GetDecimal(field);
+            case LatticeFieldTypeEnum.Guid:
+                return reader.GetGuid(field);
+            case LatticeFieldTypeEnum.DateTimeOffset:
+                return reader.GetDateTimeOffset(field);
+            case LatticeFieldTypeEnum.DateOnly:
+                return reader.GetDateOnly(field);
+            case LatticeFieldTypeEnum.TimeOnly:
+                return reader.GetTimeOnly(field);
+            case LatticeFieldTypeEnum.TimeSpan:
+                return reader.GetTimeSpan(field);
+            case LatticeFieldTypeEnum.String:
+                return reader.GetString(field);
+            case LatticeFieldTypeEnum.Binary:
+                return reader.GetBinary(field);
+            default:
+                throw new UnreachableException($"The field {field.Name} is {field.Declaration.Type}, which the engine does not store.");
+        }
+    }
 }

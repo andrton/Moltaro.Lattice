@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //   planner's block of 15 November 2026). The relay numbers the frames it passes again.
 public sealed class LargeForwardTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Request_larger_than_a_frame_travels_in_frames_of_one_correlation_id_and_is_executed_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -36,7 +36,7 @@ public sealed class LargeForwardTests
         Assert.True(piece.Data.AsSpan().SequenceEqual(master.Set<PieceSchema.Piece>().Get(1L)?.Data));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Reply_larger_than_a_frame_is_put_together_by_the_child_and_its_refusal_reaches_the_caller_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

@@ -16,7 +16,7 @@ public sealed class ReplyBeforeTransactionTests
 {
     private const int Writes = 16;
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Child_never_receives_the_transaction_of_a_write_it_forwarded_before_the_reply_of_that_write()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

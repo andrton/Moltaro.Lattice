@@ -168,8 +168,18 @@ namespace Moltaro.Lattice.Engine.Writes;
 // the writes (Children.Capture), and a write published in a later hold is appended to the tail of the
 // children in the hold that publishes it (WriteExecutor), so a write is either published before the
 // capture starts or delivered after it, whichever hold its preparation was in; the senders of the
-// children are woken after the hold (Finish). A child itself refuses every write until S12
-// (refusesEveryWrite), before it is admitted.
+// children are woken after the hold (Finish). A child admits no write here: it forwards its writes to its
+// master (Forwarding.Forwarder).
+//
+// Forwarded writes (brief of Epic 1, sprint S12; the planner's decisions after the study, points 1, 2 and
+// 12). The receiver of a child's connection submits each write the child forwarded, in the order it
+// received them, without awaiting one before it submits the next (Children.ChildConnection), so a
+// forwarded write takes its place among the writes of its entity as any write does. It has no token: a
+// request received whole is a submitted write and runs although its child's connection ends. It brings the
+// root the child sent instead of values (ForwardedOrigin), which the executor places when it prepares the
+// write. Its success is recorded for the child in the hold that publishes it, before its transaction is
+// appended to the tail (WriteExecutor), so that the child takes the reply before the transaction; every
+// other outcome comes from its task, and the receiver records it.
 //
 // A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
 // storage step or of a publication faults the database: reads are refused from then on, a read that
@@ -231,9 +241,6 @@ internal sealed class WriteCoordinator
     // Set once the storage step or a publication failed; never cleared.
     private bool _faulted;
 
-    // Why every write is refused on this instance, a child, before it is admitted; null on a master.
-    private readonly string? _refusesEveryWrite;
-
     // The counters (EngineCounters), written under the lock and read by the counters of the database.
     private int _queued;
 
@@ -249,9 +256,9 @@ internal sealed class WriteCoordinator
     // write loads it.
     private Action? _waitHold;
 
-    // A coordinator of a master, or of a child when refusesEveryWrite gives why the child refuses every
-    // write.
-    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase, string? refusesEveryWrite)
+    // The coordinator of a master. A child has one as well, which admits no write: its writes are
+    // forwarded to its master (Forwarding.Forwarder).
+    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase)
     {
         _writes = writes;
         _executor = executor;
@@ -260,7 +267,6 @@ internal sealed class WriteCoordinator
         _clock = clock;
         _synchronizationTimeout = synchronizationTimeout;
         _faultDatabase = faultDatabase;
-        _refusesEveryWrite = refusesEveryWrite;
     }
 
     // The writes admitted and not completed (EngineCounters.QueuedWrites).
@@ -273,8 +279,9 @@ internal sealed class WriteCoordinator
 
     // Submits a write and returns its task, with its position and whether it changed the database. The
     // values are those of a complete entity for an insert, a replace and an upsert, and null for a
-    // delete. The token cancels the write while it waits for its session's position and until its
-    // dispatch (see the class). Refusals, in the task: NotSupportedException for an entity type the
+    // delete; a write a child forwarded has no values and brings its root and where it came from
+    // instead (forwarded; see the class, "Forwarded writes"). The token cancels the write while it waits
+    // for its session's position and until its dispatch (see the class). Refusals, in the task: NotSupportedException for an entity type the
     // engine does not store; for the session, HistoryMismatch, SynchronizationTimeout and Unavailable;
     // then ObjectDisposedException after the close and Unavailable after a fault; RevisionConflict,
     // DuplicateKey and NotFound for its condition; WriteRejected, with Limit Memory, for an entity the
@@ -287,6 +294,7 @@ internal sealed class WriteCoordinator
         WriteKindEnum kind,
         EntityKey key,
         object?[]? values,
+        ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken cancellationToken)
@@ -294,11 +302,6 @@ internal sealed class WriteCoordinator
         if (table.Layout is null)
         {
             return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(table.Refusal));
-        }
-
-        if (_refusesEveryWrite is not null)
-        {
-            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(_refusesEveryWrite));
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -322,11 +325,11 @@ internal sealed class WriteCoordinator
             // On a master the position of a session is published already, unless a caller made it up.
             if (!waited.IsCompletedSuccessfully)
             {
-                return AdmitAfterAsync(waited, table, kind, key, values, expectedRevision, session, cancellationToken);
+                return AdmitAfterAsync(waited, table, kind, key, values, forwarded, expectedRevision, session, cancellationToken);
             }
         }
 
-        return Admit(table, kind, key, values, expectedRevision, session, cancellationToken);
+        return Admit(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken);
     }
 
     // Arms the switch of the tests: the next write the arena refused runs hold once, at the first wait of
@@ -484,6 +487,7 @@ internal sealed class WriteCoordinator
         WriteKindEnum kind,
         EntityKey key,
         object?[]? values,
+        ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession session,
         CancellationToken cancellationToken)
@@ -491,7 +495,7 @@ internal sealed class WriteCoordinator
         await waited.ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return await Admit(table, kind, key, values, expectedRevision, session, cancellationToken).ConfigureAwait(false);
+        return await Admit(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken).ConfigureAwait(false);
     }
 
     // The call of a write (see the class): one hold of the lock that admits it and, when nothing makes
@@ -501,6 +505,7 @@ internal sealed class WriteCoordinator
         WriteKindEnum kind,
         in EntityKey key,
         object?[]? values,
+        ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken cancellationToken)
@@ -532,7 +537,7 @@ internal sealed class WriteCoordinator
             {
                 write = _spare ?? new PendingWrite(this);
                 _spare = null;
-                write.Begin(table, kind, key, values, expectedRevision, session, cancellationToken, ++_admitted);
+                write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
                 _queued++;
                 pass.Own = write;
                 Start(write, ref pass);

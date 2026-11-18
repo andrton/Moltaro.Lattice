@@ -27,7 +27,7 @@ public sealed class MalformedRequestTests
         new("a root with a descriptor that does not match its length"),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Request_that_is_not_valid_ends_the_connection_and_is_never_executed(string damage)
     {
@@ -42,7 +42,7 @@ public sealed class MalformedRequestTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Request_with_the_correlation_id_0_ends_the_connection_and_is_not_executed()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -56,7 +56,7 @@ public sealed class MalformedRequestTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Request_with_the_correlation_id_of_a_request_not_answered_yet_ends_the_connection_and_is_not_executed()
     {
         var storage = new HeldCommitStorage(holding: false);

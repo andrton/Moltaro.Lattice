@@ -25,7 +25,7 @@ public sealed class BeforeSendingTests
         ExpectNothingSent(relay);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_with_a_position_of_another_history_is_refused_on_the_child_before_anything_is_sent()
     {
         await using var other = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

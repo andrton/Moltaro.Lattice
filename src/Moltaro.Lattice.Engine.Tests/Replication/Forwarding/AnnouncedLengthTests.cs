@@ -22,7 +22,7 @@ public sealed class AnnouncedLengthTests
 {
     private const long Mebibyte = 1024 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Request_announced_above_the_memory_limit_of_the_master_is_refused_at_its_first_frame_and_the_next_request_is_executed()
     {
         var options = ReplicationNodes.MasterOptions(MarkedRoot.Schema, MasterAndChild.Loopback);
@@ -55,7 +55,7 @@ public sealed class AnnouncedLengthTests
         Assert.Null(LoadedPeer.RevisionOfCode(master));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Request_whose_frames_hold_more_than_it_announced_ends_the_connection_and_is_not_executed()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -71,7 +71,7 @@ public sealed class AnnouncedLengthTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Master_takes_no_memory_for_what_a_request_announces_before_its_bytes_arrive()
     {
         const long Announced = 1024 * Mebibyte;

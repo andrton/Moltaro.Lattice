@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // and on the child.
 public sealed class OrderThroughAChildTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Two_writes_of_one_entity_through_one_child_without_awaiting_the_first_are_executed_in_the_order_of_the_calls()
     {
         var storage = new HeldCommitStorage(holding: false);

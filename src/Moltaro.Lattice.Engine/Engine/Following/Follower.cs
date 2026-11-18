@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Loading;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
@@ -24,9 +25,17 @@ namespace Moltaro.Lattice.Engine.Following;
 // After Ready (FollowAsync). The child acknowledges R, then applies every transaction as it comes and,
 // whenever no more of the stream has arrived whole and it is about to read more, acknowledges the last one
 // it applied (Applied(sequence), once for each burst it received, within a transaction of several frames
-// as well; ApplyNextAsync). Reads go on meanwhile: they are protected by
-// epochs, as on a master, and never wait for an application. Retired memory is freed by the applying
-// thread (ReceivedChanges.Publish).
+// as well; ApplyNextAsync). It does not send the Applied itself: one task sends on the connection, the
+// sender of the child (Forwarding.ChildSender), which also sends the writes the child forwards; the
+// follower publishes its applied sequence to it and wakes it, and the sender sends the newest one (brief
+// of Epic 1, sprint S12, the planner's decision after the study, point 3, which rewords the rule of S11
+// and keeps its guarantee). Reads go on meanwhile: they are protected by epochs, as on a master, and never
+// wait for an application. Retired memory is freed by the applying thread (ReceivedChanges.Publish).
+//
+// Replies (S12). The master answers a write the child forwarded with a WriteReply, which may come anywhere
+// in its stream, also between the frames of a transaction; the follower hands each frame of one to the
+// table of the pending requests (Forwarding.PendingRequests), which completes the call once the reply is
+// whole, and goes on. A reply that is not valid is a frame of the master that is not valid.
 //
 // What a transaction has to be. Its sequence follows the one before; it is checked by its frames and its
 // announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity
@@ -44,9 +53,14 @@ namespace Moltaro.Lattice.Engine.Following;
 // limit of the child, before anything is taken for it.
 //
 // Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
-// valid, a connection that ended — ends its connection and keeps serving its reads at the position it has,
-// Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
-// together is applied.
+// valid, a connection that ended, the end of the master's stream, a send of the sender that failed, the
+// close of the child — ends its connection and keeps serving its reads at the position it has, Ready; it
+// does not resume by itself (reconnection is S34). Nothing of a transaction it was putting together is
+// applied. In this order (S12): it marks itself without a master (Forwarding.Forwarder.LoseMaster), so
+// that a write through it is Unavailable and a wait for a position it has not reached ends at once; it
+// ends its side of the connection, and with it the sender; and once the sender has ended, every write it
+// had sent whole and that has no reply ends in IndeterminateOutcome (PendingRequests.Close). So the close of
+// a master, which waits until its children have ended their side, finds each child that reads marked.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
 // transaction that is complete waits, before it is applied, until no suspension is left. The lock that
@@ -54,14 +68,21 @@ namespace Moltaro.Lattice.Engine.Following;
 //
 // The waits, and how each ends: the next frame, before Ready within OpenTimeout, after it until the master
 // sends one or ends the connection — an idle master is not a lost one —, and the close of the child ends
-// it; a suspension, until it is disposed or the child closes; a send of Applied, until the master has
-// taken its bytes, which it does while it serves the child, and the close of the child ends it; the wait for
-// the reads that hold retired memory, which leave within a step, and the close of the child ends it. Every
+// it, and so does the end of the sender; a suspension, until it is disposed or the child closes; the wait
+// for the reads that hold retired memory, which leave within a step, and the close of the child ends it; at
+// the end, the end of the sender, which the end of the connection brings at once. The sends are the
+// sender's (Forwarding.ChildSender). Every
 // application passes the barrier of the close, so that a close frees the arena only once no application is
 // in progress; one after the close is refused, and the child stops.
 internal sealed class Follower
 {
     private readonly MasterLink _link;
+
+    private readonly ChildSender _sender;
+
+    private readonly PendingRequests _pending;
+
+    private readonly Forwarder _forwarder;
 
     private readonly Lock _writes;
 
@@ -88,17 +109,16 @@ internal sealed class Follower
 
     private TaskCompletionSource? _resumed;
 
-    // The sequence of the last transaction applied, and of the last one acknowledged, once one was; the
-    // task of the follower is the only one that changes them.
+    // The sequence of the last transaction applied; the task of the follower is the only one that changes
+    // it.
     private ulong _applied;
 
-    private ulong _acknowledged;
-
-    private bool _acknowledgedOnce;
-
-    public Follower(MasterLink link, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
+        _forwarder = forwarder;
+        _pending = new PendingRequests(history);
+        _sender = new ChildSender(link, _pending);
         _writes = writes;
         _executor = executor;
         _barrier = barrier;
@@ -124,20 +144,30 @@ internal sealed class Follower
             await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false);
         }
 
+        // From here on the writes of the child go to the queue of its sender, before the child is Ready,
+        // so that none finds the child without a connection while the task that follows has not begun;
+        // that task begins with the sender (FollowAsync).
+        _forwarder.Attach(_sender);
+
         return new CatchUpReport(end.Start, end.End, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
     }
 
-    // Follows the master once the child is Ready, until the child stops following or closes (see the
-    // class). It never fails: what ends it is the end of the following, and the child stays Ready.
-    public async Task FollowAsync(CancellationToken cancellationToken)
+    // Follows the master once the child is Ready, and forwards the writes of the child through its sender,
+    // until the child stops following or closes (see the class). It never fails: what ends it is the end of
+    // the following, and the child stays Ready. The token is the close of the child.
+    public async Task FollowAsync(CancellationToken closing)
     {
+        // The end of either side of the connection ends the other: the sender cancels it when it ends.
+        using var ending = CancellationTokenSource.CreateLinkedTokenSource(closing);
+        var sending = _sender.RunAsync(ending);
+
         try
         {
-            await AcknowledgeAsync(cancellationToken).ConfigureAwait(false);
+            Acknowledge();
 
             while (true)
             {
-                await ApplyNextAsync(timeout: null, acknowledges: true, cancellationToken).ConfigureAwait(false);
+                await ApplyNextAsync(timeout: null, acknowledges: true, ending.Token).ConfigureAwait(false);
             }
         }
         catch (Exception)
@@ -147,7 +177,11 @@ internal sealed class Follower
         finally
         {
             _assembler.Reset();
+            _forwarder.LoseMaster();
+            await ending.CancelAsync().ConfigureAwait(false);
             _link.Dispose();
+            await sending.ConfigureAwait(false);
+            _pending.Close();
         }
     }
 
@@ -201,10 +235,19 @@ internal sealed class Follower
         {
             if (acknowledges && !_link.HoldsFrame)
             {
-                await AcknowledgeAsync(cancellationToken).ConfigureAwait(false);
+                Acknowledge();
             }
 
             var frame = await _link.ReceiveAsync(timeout, cancellationToken).ConfigureAwait(false);
+
+            // A reply may come anywhere, also between the frames of a transaction; before Ready no request
+            // has been sent, and the table refuses it.
+            if (frame.Kind == FrameKindEnum.WriteReply)
+            {
+                _pending.Receive(frame);
+
+                continue;
+            }
 
             if (frame.Kind != FrameKindEnum.Transaction)
             {
@@ -243,18 +286,9 @@ internal sealed class Follower
         return resumed is null ? Task.CompletedTask : resumed.WaitAsync(cancellationToken);
     }
 
-    // Tells the master what the child has applied, unless it knows it already.
-    private async ValueTask AcknowledgeAsync(CancellationToken cancellationToken)
-    {
-        if (_acknowledgedOnce && _applied == _acknowledged)
-        {
-            return;
-        }
-
-        await _link.SendAppliedAsync(_applied, cancellationToken).ConfigureAwait(false);
-        _acknowledged = _applied;
-        _acknowledgedOnce = true;
-    }
+    // Tells the sender what the child has applied; the sender tells the master unless it has told it
+    // already.
+    private void Acknowledge() => _sender.Acknowledge(_applied);
 
     // Applies one transaction whole, by the rule of a write refused for memory (see the class).
     private void Apply(ulong sequence, ReadOnlySequence<byte> effects, CancellationToken cancellationToken)

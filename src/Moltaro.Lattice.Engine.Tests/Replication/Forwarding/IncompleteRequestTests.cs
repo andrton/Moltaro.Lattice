@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // the revision it had.
 public sealed class IncompleteRequestTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Master_never_executes_a_request_whose_last_frame_it_did_not_receive()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();

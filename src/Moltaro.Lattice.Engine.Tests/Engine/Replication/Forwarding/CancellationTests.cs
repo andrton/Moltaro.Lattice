@@ -10,7 +10,7 @@ public sealed class CancellationTests
 {
     private const int ThirtyTwoMebibytes = 32 * 1024 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_the_sender_has_not_taken_is_withdrawn_by_its_cancellation_and_never_executed()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
@@ -35,7 +35,7 @@ public sealed class CancellationTests
         Assert.Null(master.Set<PieceSchema.Piece>().Get(2L));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Write_the_sender_has_taken_is_not_withdrawn_by_a_cancellation_and_returns_its_real_outcome()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

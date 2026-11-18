@@ -23,7 +23,7 @@ public sealed class MalformedReplyTests
         new("a body one byte short"),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Child_that_receives_a_reply_that_is_not_valid_ends_its_connection_and_the_write_ends_in_IndeterminateOutcome(string damage)
     {
@@ -38,7 +38,7 @@ public sealed class MalformedReplyTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Child_that_receives_a_reply_to_a_request_already_answered_ends_its_connection()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

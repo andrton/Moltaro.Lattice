@@ -36,7 +36,8 @@ internal static class Protocol
     public const int MaxFrame = HeaderSize + MaxDataBody;
 
     // Bit 0 of FrameHeader.Flags: the frame is the last one of a root, or of the schema, or of the
-    // whole roots it holds, or of a transaction. No other flag is defined.
+    // whole roots it holds, or of a transaction, or of a forwarded write or its reply. No other flag is
+    // defined.
     public const uint EndsARoot = 1;
 
     // The payload of Hello and of HelloReply (FrameCodec.WriteHelloBody): a Guid (16), the history (8),
@@ -74,7 +75,7 @@ internal static class Protocol
     public static int MaxBodyOf(FrameKindEnum kind) => kind switch
     {
         FrameKindEnum.Hello or FrameKindEnum.HelloReply => HelloPayloadSize + CheckSize,
-        FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.Transaction => MaxDataBody,
+        FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.Transaction or FrameKindEnum.WriteRequest or FrameKindEnum.WriteReply => MaxDataBody,
         FrameKindEnum.LoadEnd => LoadEndPayloadSize + CheckSize,
         FrameKindEnum.Refuse => RefusePayloadSize + CheckSize,
         FrameKindEnum.Applied => AppliedPayloadSize + CheckSize,
