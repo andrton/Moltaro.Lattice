@@ -40,6 +40,13 @@ public sealed class ReceivedRootTests
 
     private const string KeyWithALoneSurrogate = "a key with a lone surrogate in UTF-16";
 
+    // The texts that are not well-formed in a field that is not the key.
+    private const string ChunkedUtf8 = "chunked UTF-8 that is not well-formed";
+
+    private const string ChunkedUtf16OfOddLength = "chunked UTF-16 of an odd length";
+
+    private const string InlineUtf16OfOddLength = "inline UTF-16 of an odd length";
+
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     public static IEnumerable<TheoryDataRow<string>> Damages =>
@@ -115,6 +122,143 @@ public sealed class ReceivedRootTests
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
         allocator.ExpectEverythingReturned();
+    }
+
+    public static IEnumerable<TheoryDataRow<string>> TextsThatAreNotWellFormed =>
+    [
+        new(ChunkedUtf8),
+        new(ChunkedUtf16OfOddLength),
+        new(InlineUtf16OfOddLength),
+    ];
+
+    // A node checks the structure of what it receives, so that no read leaves the received bytes, and does
+    // not validate the values of fields again (decision on replication and hosting,
+    // docs/decisions/replication-and-hosting.md): a peer that sends text that is not well-formed can make a
+    // child hold an entity whose read throws or shows replacement characters, never one that makes it read
+    // outside its memory. So a child that receives such a text in a field that is not its key refuses the
+    // root, its open failing with Unavailable and nothing held, or holds it; and a read of the field then
+    // throws a managed exception or returns characters the received bytes hold, U+FFFD in the place of what
+    // is not well-formed, and no more of them than there are bytes. The text is Note, of the character q:
+    // in UTF-8, 70,000 bytes in two chunks, of which the relay makes bytes that no UTF-8 holds and the lead
+    // byte of a character of three bytes at the end of every run of the text in a frame, so at the end of
+    // the text and where a frame cuts it; in UTF-16, 10,000 bytes in a chunk, or 12 inline, whose last byte
+    // the relay takes away, with the length of the text and of the root one byte shorter.
+    [Theory]
+    [MemberData(nameof(TextsThatAreNotWellFormed))]
+    public async Task Child_that_receives_a_text_that_is_not_well_formed_refuses_it_or_reads_it_as_a_managed_failure_or_as_the_characters_it_received(string text)
+    {
+        var utf16 = text != ChunkedUtf8;
+        var characters = text switch
+        {
+            ChunkedUtf8 => 70_000,
+            ChunkedUtf16OfOddLength => 5_000,
+            _ => 6,
+        };
+        await using var master = await ReplicationNodes.OpenMasterAsync(utf16 ? MarkedRoot.Utf16Schema : MarkedRoot.Schema);
+        var marked = master.Set("Marked");
+        var record = MarkedRoot.RecordOf(marked.EntityType, "code");
+
+        record["Note"] = new string('q', characters);
+        await marked.InsertAsync(record);
+
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame => frame.Kind == FrameKindEnum.Blocks ? [NotWellFormed(frame, text)] : [frame]);
+        var allocator = new CountingNativeAllocator();
+        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound), new EngineTestInputs { Allocator = allocator });
+
+        var refusal = await Record.ExceptionAsync(() => child.OpenAsync().AsTask().WaitAsync(Bound));
+
+        if (refusal is not null)
+        {
+            Assert.Equal(LatticeErrorEnum.Unavailable, Assert.IsType<LatticeException>(refusal).Error);
+            Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
+            allocator.ExpectEverythingReturned();
+
+            return;
+        }
+
+        string? note = null;
+        var failure = Record.Exception(() => note = child.Set("Marked").Get("code")?.Get<string>("Note"));
+
+        if (failure is null)
+        {
+            Assert.NotNull(note);
+            Assert.True(note.Length <= characters, $"The read returned {note.Length} characters of a text of {characters}.");
+            Assert.True(note.All(character => character is 'q' or '�'), "The read returned a character that the received bytes do not hold.");
+        }
+    }
+
+    // What the relay sends in the place of a Blocks frame of the root whose Note is the text of the row.
+    private static WireFrame NotWellFormed(WireFrame frame, string text)
+    {
+        var bytes = frame.Payload;
+
+        if (text == ChunkedUtf8)
+        {
+            foreach (var (start, length) in RunsOf(bytes, (byte)'q', least: 64))
+            {
+                bytes[start + 10] = 0xFF;
+                bytes[start + length - 1] = 0xE2;
+            }
+
+            return frame.WithPayload(bytes);
+        }
+
+        // The one root of the frame: its count, its length and its bytes. Out of line, Note lies just before
+        // Data, the last value, of 1,000 bytes; inline, it is the last value of the root payload, which
+        // Data follows: either way its last byte is the one before Data.
+        Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(bytes));
+
+        var rootLength = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(sizeof(uint)));
+        var descriptorAt = MarkedRoot.PayloadAt(bytes) + (MarkedRoot.FieldOf("Note").Offset - BlockHeader.Size);
+        var noteLength = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(descriptorAt + 4));
+        int lastByte;
+
+        if (text == ChunkedUtf16OfOddLength)
+        {
+            Assert.Equal((uint)DescriptorKindEnum.Chunked, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(descriptorAt)));
+            lastByte = bytes.Length - 1_000 - 1;
+        }
+        else
+        {
+            Assert.Equal((uint)DescriptorKindEnum.Inline, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(descriptorAt)));
+
+            var location = (int)BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(descriptorAt + 8));
+
+            lastByte = MarkedRoot.PayloadAt(bytes) + location - BlockHeader.Size + (int)noteLength - 1;
+            Assert.Equal(bytes.Length - 1_000 - 1, lastByte);
+        }
+
+        Assert.Equal((uint)'q', BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(lastByte - 1)));
+
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(descriptorAt + 4), noteLength - 1);
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(sizeof(uint)), rootLength - 1);
+
+        return frame.WithPayload([.. bytes[..lastByte], .. bytes[(lastByte + 1)..]]);
+    }
+
+    // Where the runs of at least the given number of the byte begin in the bytes, and how long each is.
+    private static List<(int Start, int Length)> RunsOf(byte[] bytes, byte value, int least)
+    {
+        var runs = new List<(int Start, int Length)>();
+
+        for (var start = 0; start < bytes.Length;)
+        {
+            var end = start;
+
+            while (end < bytes.Length && bytes[end] == value)
+            {
+                end++;
+            }
+
+            if (end - start >= least)
+            {
+                runs.Add((start, end - start));
+            }
+
+            start = Math.Max(end, start + 1);
+        }
+
+        return runs;
     }
 
     // What the relay sends in the place of the first Blocks frame, which holds the one root.

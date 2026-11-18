@@ -1,5 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.TestSupport.Positions;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -64,6 +66,44 @@ public sealed class MalformedReplyTests
 
         Assert.Equal(LatticeErrorEnum.DuplicateKey, exception.Error);
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+    }
+
+    public static IEnumerable<TheoryDataRow<string>> PositionsNotAhead =>
+    [
+        new("the position the child has applied"),
+        new("a position before it"),
+    ];
+
+    // The reply of a forwarded write reaches the child before the transaction of that write
+    // (docs/design/milestone-1-engine-contract.md, the forwarding of a write), so a success names a
+    // position above the one the child has applied when the reply arrives. One that does not is a reply
+    // that is not valid, and the child ends its connection as for the replies above. The master holds two
+    // pieces, so the child is at the position 2 after its load; the relay gives the success the position
+    // the row names.
+    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [MemberData(nameof(PositionsNotAhead))]
+    public async Task Child_that_receives_a_success_whose_position_is_not_above_what_it_has_applied_ends_its_connection_and_the_write_ends_in_IndeterminateOutcome(string position)
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+        await Pieces.InsertAsync(master, 1, 2, dataBytes: 16);
+        var applied = master.Position;
+        var replied = position == "a position before it"
+            ? ForwardPayload.PositionOf(ForwardPayload.HistoryOf(applied), PositionSequence.Of(applied) - 1)
+            : applied;
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+            frame.Kind == ForwardPayload.WriteReply
+                ? ForwardPayload.Frames(ForwardPayload.WriteReply, frame.CorrelationId, frame.StreamSequence, ForwardPayload.Result(replied, changed: true))
+                : [frame]);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+
+        Assert.Equal(applied, child.Position);
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(async () => await child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(3, name: 8)));
+        await relay.ChildEndedAsync();
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+        Assert.Equal(applied, child.Position);
     }
 
     private static WireFrame Damaged(WireFrame reply, string damage)

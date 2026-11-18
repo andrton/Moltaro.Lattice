@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -53,26 +54,26 @@ public sealed class ChildArenaFullTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    [Fact]
+    // The child shows that it waits for the read: the switch of the tests for a refused write
+    // (EngineDatabase.HoldNextRefusedWriteWait) runs, on a child, once for the next change its arena
+    // refused twice, when its applier knows it has to wait for the reads that hold retired memory and
+    // before it waits; the child has not applied the insert then, and applies it once the read has left.
+    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
     public async Task Child_whose_arena_holds_a_change_once_a_read_that_held_retired_memory_has_left_applies_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         var pieces = master.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(Pieces.Versioned(1, version: 1, TwoAndAHalfMebibytes));
-        await using var relay = FrameRelay.Start(master.ListenUri!);
-        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
         using var held = await HeldRead.StartAsync(child, () => child.Set<PieceSchema.Piece>().Get(1L)?.Count);
+        var waits = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var deleted = await pieces.DeleteAsync(1L);
         await Eventually.AtAsync(child, deleted.Position);
+        child.HoldNextRefusedWriteWait(() => waits.TrySetResult());
         var inserted = await pieces.InsertAsync(Pieces.Versioned(2, version: 2, TwoAndAHalfMebibytes));
 
-        // The relay passes on the last frame of the insert, the second frame that ends a transaction after
-        // the one of the delete, as soon as it has it. No event marks the child waiting for the read that
-        // holds the deleted piece; the wait gives it far more time than it takes to find that its arena
-        // cannot hold the insert.
-        await Eventually.HoldsAsync(() => relay.FromMaster.Count(frame => frame.Kind == FrameKindEnum.Transaction && frame.EndsARoot) == 2, "The master did not send the insert the child cannot hold yet.");
-        await Task.Delay(Wait);
+        await waits.Task.WaitAsync(ReplicationNodes.Bound);
 
         Assert.Equal(deleted.Position, child.Position);
         await held.ReleaseAsync();

@@ -196,6 +196,18 @@ internal static class ForwardPayload
     // The frame Closed at the place given of the stream of the master.
     public static WireFrame ClosedFrame(ulong streamSequence) => WireFrame.Make(Closed, flags: 0, correlationId: 0, streamSequence, []);
 
+    // The body of a reply with a result of the values given.
+    public static byte[] Result(LatticePosition position, bool changed)
+    {
+        var body = new List<byte> { 0 };
+
+        AddUInt64(body, HistoryOf(position));
+        AddUInt64(body, PositionSequence.Of(position));
+        body.Add(changed ? (byte)1 : (byte)0);
+
+        return [.. body];
+    }
+
     // The body of a reply with a refusal of the values given.
     public static byte[] Refusal(LatticeErrorEnum error, string message, LatticeLimitEnum? limit, int? operationIndex, LatticePosition? committedPosition)
     {

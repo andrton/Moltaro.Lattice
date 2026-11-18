@@ -35,7 +35,7 @@ public sealed class KeyArrivingTwiceTests
 
         await using var relay = FrameRelay.Start(master.ListenUri!, frame => frame.Kind switch
         {
-            FrameKindEnum.Blocks => [frame.WithPayload(order == "the older state first" ? RootsFrame(older, OnlyRootIn(frame)) : RootsFrame(OnlyRootIn(frame), older))],
+            FrameKindEnum.Blocks => [frame.WithPayload(order == "the older state first" ? RootsFrame(older, BlocksPayload.OnlyRootIn(frame)) : RootsFrame(BlocksPayload.OnlyRootIn(frame), older))],
             FrameKindEnum.LoadEnd => [frame.WithPayload((LoadEndPayload.Of(frame) with { Roots = 2 }).ToBytes())],
             _ => [frame],
         });
@@ -57,19 +57,7 @@ public sealed class KeyArrivingTwiceTests
         {
         }
 
-        return OnlyRootIn(Assert.Single(relay.FromMaster, frame => frame.Kind == FrameKindEnum.Blocks));
-    }
-
-    // The root of a Blocks frame of one small root: its count, 1, a UInt32; its length, a UInt64; its
-    // bytes (Replication.Load.RootFramer).
-    private static byte[] OnlyRootIn(WireFrame frame)
-    {
-        var payload = frame.Payload;
-
-        Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(payload));
-        Assert.Equal((ulong)(payload.Length - sizeof(uint) - sizeof(ulong)), BinaryPrimitives.ReadUInt64LittleEndian(payload.AsSpan(sizeof(uint))));
-
-        return payload[(sizeof(uint) + sizeof(ulong))..];
+        return BlocksPayload.OnlyRootIn(Assert.Single(relay.FromMaster, frame => frame.Kind == FrameKindEnum.Blocks));
     }
 
     // The payload of a Blocks frame of the roots, in their order.
