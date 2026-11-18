@@ -35,8 +35,8 @@ namespace Moltaro.Lattice.Engine.Loading;
 // every entity on the child is its revision on the master. The key of a root is read from the checked
 // bytes before anything is taken for it (Replication.Load.BlockImport), so a skipped state takes nothing
 // of the arena, the root table, the index or the retired list; for a String key its text is decoded into
-// a string first, the one allocation a skipped state makes. A replaced root is placed for the lifetime of
-// the entity it replaces.
+// a string first, the one allocation a skipped state makes beside a growth of the list that remembers the
+// keys a transaction names. A replaced root is placed for the lifetime of the entity it replaces.
 //
 // Publication, and what a read by key sees. A transaction at sequence s is published in three steps, the
 // stores of the writes of a master split where a master publishes its position (Publish):
@@ -79,8 +79,9 @@ internal sealed class ReceivedChanges
     // The changes prepared and not published yet, in the order they were received.
     private readonly List<Change> _prepared = [];
 
-    // The states the rule skipped since the last Publish.
-    private int _skipped;
+    // The keys of the states the rule skipped since the last Publish: a skipped state names its key as
+    // much as a prepared change does (ThrowIfNamed).
+    private readonly List<(EntityTable Table, EntityKey Key)> _skipped = [];
 
     // The states of keys published, and those the rule skipped, since the instance opened, counted when
     // their transaction or root is published: a Delete of a key the child does not hold counts as
@@ -107,8 +108,8 @@ internal sealed class ReceivedChanges
     // input holds, from its layout version on, whose last mutation is given, and prepares its state by
     // the rule (see the class). True when it is prepared or skipped; false when the arena refused it,
     // with every change prepared since the last Publish abandoned. ValidationFailed for a root that is not
-    // valid, and for a key an earlier change of the same transaction names; every change prepared since
-    // the last Publish is abandoned then as well.
+    // valid, and for a key an earlier effect of the same transaction names, prepared or skipped; every
+    // change prepared since the last Publish is abandoned then as well.
     public bool TryPrepareWrite(EntityTable table, ulong lastMutation, ref SequenceReader<byte> rest)
     {
         var layout = table.Layout!;
@@ -119,7 +120,7 @@ internal sealed class ReceivedChanges
         {
             received = _import.Check(ref rest, layout);
             key = KeyOf(table, received);
-            ThrowIfPrepared(table, key);
+            ThrowIfNamed(table, key);
         }
         catch
         {
@@ -131,7 +132,7 @@ internal sealed class ReceivedChanges
 
         if (held && _roots.Entry(handle).LastMutationSequence >= lastMutation)
         {
-            _skipped++;
+            _skipped.Add((table, key));
 
             return true;
         }
@@ -187,13 +188,13 @@ internal sealed class ReceivedChanges
 
     // Under the lock of the writes: prepares the delete of the key at the sequence by the rule (see the
     // class); nothing when the child does not hold the key, or holds a state not earlier than the delete.
-    // ValidationFailed for a key an earlier change of the same transaction names, with every change
-    // prepared since the last Publish abandoned.
+    // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped,
+    // with every change prepared since the last Publish abandoned.
     public void PrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
     {
         try
         {
-            ThrowIfPrepared(table, key);
+            ThrowIfNamed(table, key);
         }
         catch
         {
@@ -203,7 +204,7 @@ internal sealed class ReceivedChanges
 
         if (!table.TryFind(key, out var handle) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
-            _skipped++;
+            _skipped.Add((table, key));
 
             return;
         }
@@ -275,8 +276,8 @@ internal sealed class ReceivedChanges
         }
 
         AppliedStates += _prepared.Count;
-        SkippedStates += _skipped;
-        _skipped = 0;
+        SkippedStates += _skipped.Count;
+        _skipped.Clear();
         _prepared.Clear();
         _executor.AfterReceived();
     }
@@ -308,7 +309,7 @@ internal sealed class ReceivedChanges
             }
         }
 
-        _skipped = 0;
+        _skipped.Clear();
         _prepared.Clear();
     }
 
@@ -326,17 +327,29 @@ internal sealed class ReceivedChanges
     }
 
     // A transaction names each key once: two changes of one key in one transaction would be prepared
-    // against the same state.
-    private void ThrowIfPrepared(EntityTable table, in EntityKey key)
+    // against the same state. An effect the rule skips names its key as well, so a key named again after
+    // it is refused too.
+    private void ThrowIfNamed(EntityTable table, in EntityKey key)
     {
         foreach (var change in _prepared)
         {
             if (ReferenceEquals(change.Table, table) && table.KeysEqual(change.Key, key))
             {
-                throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"A transaction received from the master changes the key '{key}' of {table.EntityType.Name} twice.");
+                throw NamedTwice(table, key);
+            }
+        }
+
+        foreach (var (skippedTable, skippedKey) in _skipped)
+        {
+            if (ReferenceEquals(skippedTable, table) && table.KeysEqual(skippedKey, key))
+            {
+                throw NamedTwice(table, key);
             }
         }
     }
+
+    private static LatticeException NamedTwice(EntityTable table, in EntityKey key) =>
+        new(LatticeErrorEnum.ValidationFailed, $"A transaction received from the master changes the key '{key}' of {table.EntityType.Name} twice.");
 
     // A write that was not prepared gives back what it took, its root when it was placed and the entry of
     // an insert, which no index maps; then every change prepared before it is abandoned.

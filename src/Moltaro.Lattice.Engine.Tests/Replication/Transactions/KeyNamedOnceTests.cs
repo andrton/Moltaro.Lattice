@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Text;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
@@ -28,7 +27,7 @@ public sealed class KeyNamedOnceTests
         new("a Delete of it"),
     ];
 
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Transaction_that_deletes_a_key_the_child_does_not_hold_and_then_writes_it_is_refused_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(MarkedRoot.Schema);
@@ -67,7 +66,7 @@ public sealed class KeyNamedOnceTests
         Assert.Equal("name", child.Set("Marked").Get("code")?["Name"]);
     }
 
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(AfterASkippedWrite))]
     public async Task Transaction_that_names_a_key_again_after_a_write_of_it_the_child_skips_fails_the_open_of_the_child(string then)
     {
