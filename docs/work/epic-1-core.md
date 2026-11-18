@@ -4693,6 +4693,39 @@ the root of a forwarded write without its arena; no switch that cuts a link was 
    same replace made on the master directly. Where the two paths differ, the forwarded
    one is the defect.
 
+**Decided at the review of S12, 18 November 2026** (two reviewers on commit 3740090; no
+P1). Both confirmed that a closing master left writes it had not executed as
+`IndeterminateOutcome` on the child, against point 5 after the study. The planner settled:
+
+1. **A refusal is recorded like a success:** the reply of a forwarded write, whatever its
+   outcome, is recorded before the write leaves the barrier of the master.
+2. **The frame `Closed`.** A closing master, for each connection and in this order: closes
+   its barrier; lets its admitted writes end, each with its reply recorded; sends the
+   recorded replies, then what the tail holds for that child; then one frame `Closed` —
+   the master closed in order, and every request of this connection not answered before
+   this frame was not executed and will not be; then shuts down its sending side and
+   waits for the child's end as in point 4, within the same 5 s. After `Closed` is queued
+   the master executes no request of that connection: what arrives later, whole or in
+   part, is read and dropped, with no reply of its own. A child that receives `Closed`
+   ends every sent and unanswered request in `Unavailable`, "not executed", marks itself
+   without a master and ends its side. A connection that ends without `Closed` — a reset,
+   a crash, a vanished master, the 5 s elapsed — leaves a sent and unanswered request
+   `IndeterminateOutcome`. An end in order of a connection alone is not a statement about
+   execution: a killed process can produce one. `Closed` has no body; a reply after it,
+   or a second `Closed`, is malformed. The wire format stays 3.
+3. Invariants with tests: after a master's close in order no write through a reading
+   child ends in `IndeterminateOutcome`; a write whose reply was lost without `Closed` is
+   never reported "not executed".
+4. Fixed with tests in the same round: a write refused because the child has no master
+   kept its encoded request reachable from the caller's token; `PositionClock` could
+   report a lost master for a position it had reached, and its new mechanism had no
+   tests; an Insert that carries an expected revision is malformed; a `ListenUri` whose
+   host resolves to no address is `InvalidConfiguration`; what the placeholder left in
+   the core (`EntityBinding.Materialize` and its setters, a constructor of
+   `LatticeRecord`, `FieldValues.Copy`) is removed.
+5. Left as is: a child refuses a closed instance before a session of another history and
+   a master the other way round; no order is decided.
+
 ### Stage 4. Indexes and batches
 
 #### S13 · Text entries and Dictionary strings
