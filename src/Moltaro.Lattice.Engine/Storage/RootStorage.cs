@@ -15,10 +15,11 @@ internal static class RootStorage
     // same cases, before anything is freed. Its descriptors are the only way to what it owns, so
     // every owned block is freed first and the root block, which holds them, last.
     //
-    // The caller frees a root only when no reader can reach its blocks any more (arena protocol,
-    // "Deferred reclamation, 16 November 2026"). A retired root is freed in the same way: its blocks
-    // are still allocated and its descriptors as they were. A root with a Text descriptor is freed by
-    // the thread that holds the lock of the writes, as every change of a count is (Text.TextTable).
+    // The caller frees a root only when no reader can reach its blocks any more
+    // (docs/design/arena-protocol.md, "Deferred reclamation"). A retired root is freed in the same
+    // way: its blocks are still allocated and its descriptors as they were. A root with a Text
+    // descriptor is freed by the thread that holds the lock of the writes, as every change of a count
+    // is (Text.TextTable).
     public static void Free(Arena arena, RootLayout layout, ArenaAddress root)
     {
         ArgumentNullException.ThrowIfNull(layout);
@@ -36,10 +37,10 @@ internal static class RootStorage
     }
 
     // Frees what one descriptor of a block holds outside it: the blocks of a value the block owns, or the
-    // one reference a Text descriptor holds to its entry, which the text table releases (the planner's
-    // decision after the study of S13, point 4: a block holds its references until it is freed). The one
-    // place where a reference goes: the free of a root here, and of the values of a root that was not
-    // completed (RootWriter, Replication.Load.BlockImport).
+    // one reference a Text descriptor holds to its entry, which the text table releases: a block holds
+    // its references until it is freed (Text.TextTable). The one place where a reference goes: the
+    // free of a root here, and of the values of a root that was not completed (RootWriter,
+    // Replication.Load.BlockImport).
     public static void FreeValue(Arena arena, in ValueDescriptor descriptor)
     {
         if (descriptor.Kind == DescriptorKindEnum.Text)

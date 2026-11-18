@@ -10,18 +10,17 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Engine.Loading;
 
 // The connection of a child to its master, from the first attempt to reach it to the end of the load and
-// on, while the child follows its master (brief of Epic 1, sprints S10 and S11; the planner's blocks of
-// 15 and 17 November 2026 and his decisions after the studies). The child owns it, and keeps it open
-// after the load: the stream of transactions arrives on it, and the child sends back what it applied
-// (Following.Follower).
+// on, while the child follows its master (docs/design/milestone-1-engine-contract.md, "Replication
+// transport and initial loading"). The child owns it, and keeps it open after the load: the stream of
+// transactions arrives on it, and the child sends back what it applied (Following.Follower).
 //
 // Reaching the master (ConnectAsync). While the master cannot be reached the child keeps trying, with
 // the back-off of the milestone contract — 100 ms, doubling, at most 5 s between two attempts —, until
 // OpenTimeout has passed since the first attempt: a child may be started before its master. A connection
 // the master refused or ended before it replied counts as not reached. Once connected, the child sends
 // its Hello and waits for the reply for what is left of OpenTimeout: the child has OpenTimeout to reach
-// its master and be accepted by it (review round 1 of S10). A Refuse, a reply that is not valid, no reply
-// in that time, and a master the child cannot load from (Replication.HelloCheck) end the open at once.
+// its master and be accepted by it. A Refuse, a reply that is not valid, no reply in that time, and a
+// master the child cannot load from (Replication.HelloCheck) end the open at once.
 //
 // The load (ReceiveSchemaAsync, ReceiveRootsAsync). Every receive waits for the next frame at most
 // OpenTimeout: a load that keeps arriving is not ended by the timeout, however long it takes. The

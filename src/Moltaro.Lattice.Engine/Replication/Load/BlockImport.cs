@@ -8,8 +8,7 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// Places one root that a child received in its arena (brief of Epic 1, sprint S10; the planner's
-// decision of 17 November 2026 after the study, point 2): the reverse of BlockExport. The input holds the
+// Places one root that a child received in its arena: the reverse of BlockExport. The input holds the
 // root after its type id and its last mutation sequence, which the caller has read to choose the layout
 // and to take the entry of the root: its layout version, the bytes of its root payload, and the bytes of
 // each value stored out of line, in the order of the descriptors, and nothing else.
@@ -23,11 +22,10 @@ namespace Moltaro.Lattice.Replication.Load;
 //   values: for a Plain field or a Binary, inline at most RootLayout.InlineLimit bytes, after the fixed
 //   part; in a block of its own 1 to RootLayout.SingleBlockLimit bytes; in chunks more than that and at
 //   most ValueBlocks.MostValueBytes; for a String field with Dictionary storage, the empty text inline
-//   with length 0, and any other text of kind Text, 1 to ValueBlocks.MostValueBytes bytes out of line
-//   (the planner's decision after the study of S13, point 8); no other kind, so a Text descriptor in a
-//   Plain field, a Text descriptor of length 0 and a Dictionary text of kind Inline, Block or Chunked are
-//   not valid. The location of a value out of line is 0 on the wire: nothing received is used as an
-//   address;
+//   with length 0, and any other text of kind Text, 1 to ValueBlocks.MostValueBytes bytes out of line;
+//   no other kind, so a Text descriptor in a Plain field, a Text descriptor of length 0 and a Dictionary
+//   text of kind Inline, Block or Chunked are not valid. The location of a value out of line is 0 on the
+//   wire: nothing received is used as an address;
 // - the total: the bytes of the input are the fixed part, the values inline and the values out of line,
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
 // Each failure is a LatticeException with ValidationFailed, and nothing is allocated (Check). The child
@@ -95,8 +93,8 @@ internal sealed class BlockImport
     // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
     // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
     // is not (Engine.Entities.EntityTable.ReadKey): a key that a master stores is well-formed, since every
-    // write checks its text (Q41), so such a root did not come from one. Every other text of a root is
-    // placed as the bytes it is and not decoded.
+    // write checks its text (docs/decisions/strings.md, "Input validity and preservation"), so such a root
+    // did not come from one. Every other text of a root is placed as the bytes it is and not decoded.
     public string Text(in ReceivedRoot root, LatticeField field)
     {
         var layout = root.Layout;
@@ -308,7 +306,7 @@ internal sealed class BlockImport
 
         // The end of the root block, its header included, where the locations of values inline count from.
         // A received location is compared without adding the length to it, which could wrap around the
-        // range of the number and pass a value that lies anywhere (review round 1 of S10).
+        // range of the number and pass a value that lies anywhere.
         var end = (ulong)(BlockHeader.Size + payloadLength);
 
         for (var index = 0; index < layout.DescriptorCount; index++)

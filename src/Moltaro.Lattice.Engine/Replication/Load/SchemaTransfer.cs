@@ -5,11 +5,10 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Replication.Load;
 
 // The first part of a load: the schema of the master and the number of roots of each of its entity
-// types (brief of Epic 1, sprint S10; the planner's decision of 17 November 2026 after the study, points
-// 3 and 6). The bytes are the compiled schema as LatticeSchema.Save writes it, with its own digest, and
-// then one UInt64 for each entity type, in the order of LatticeSchema.EntityTypes, little-endian: the
-// count a child sizes the primary index of the type from; LoadEnd still verifies the roots it received.
-// They are cut into Schema frames by the rule of a root: every frame full but the last, which carries
+// types. The bytes are the compiled schema as LatticeSchema.Save writes it, with its own digest, and then
+// one UInt64 for each entity type, in the order of LatticeSchema.EntityTypes, little-endian: the count a
+// child sizes the primary index of the type from; LoadEnd still verifies the roots it received. They are
+// cut into Schema frames by the rule of a root: every frame full but the last, which carries
 // Protocol.EndsABody.
 internal static class SchemaTransfer
 {

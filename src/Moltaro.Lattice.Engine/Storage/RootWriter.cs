@@ -27,11 +27,12 @@ namespace Moltaro.Lattice.Storage;
 // malformed text, a value out of range, a value above the bound of one value or SetNull of a field
 // that is not nullable, did not set the field, and a valid value may follow.
 //
-// An entity has no size limit of its own: only the memory of the arena bounds it (decision O19 of
-// Epic 1). Only Complete reports the memory of the arena, with WriteRejected: no Set… member fails
-// for it. One String or Binary value is bounded by the storage format: one directory block holds
-// ValueBlocks.MostChunks chunks of ChunkPayload bytes, so a value takes at most 268,173,376 bytes of
-// its encoding, ValueBlocks.MostValueBytes. A larger value is refused by its Set… member with
+// An entity has no size limit of its own: only the memory of the arena bounds it
+// (docs/decisions/write-admission.md, "Configurable root-object size limit"). Only Complete reports
+// the memory of the arena, with WriteRejected: no Set… member fails for it. One String or Binary
+// value is bounded by the storage format: one directory block holds ValueBlocks.MostChunks chunks
+// of ChunkPayload bytes, so a value takes at most 268,173,376 bytes of its encoding,
+// ValueBlocks.MostValueBytes. A larger value is refused by its Set… member with
 // LatticeException, ValidationFailed, with the field named, as every other validation of a value,
 // before anything is allocated for it: a fixed rule of the format, the same on every node, and not
 // a WriteRejected of Complete. As the refusal of text that is not well-formed, this refusal is the
@@ -47,13 +48,12 @@ namespace Moltaro.Lattice.Storage;
 //
 // The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
 // prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
-// prepared until the write is published with RootStorage.Publish (brief of S06, the planner's
-// answer to Q30).
+// prepared until the write is published with RootStorage.Publish.
 //
 // A writer ends in one of two ways. Complete checks the root as a whole and returns the address of
-// its root block; the root then belongs to the caller, who publishes it (S06) and frees it later
-// with RootStorage.Free. Abandon frees everything the writer allocated. After Complete, whether
-// it returned or failed, and after Abandon, every Set… member, SetNull and Complete are
+// its root block; the root then belongs to the caller, who publishes it and frees it later with
+// RootStorage.Free. Abandon frees everything the writer allocated. After Complete, whether it
+// returned or failed, and after Abandon, every Set… member, SetNull and Complete are
 // InvalidOperationException, and so is Abandon after a Complete that returned. Abandon after a
 // failed Complete, and a second Abandon, do nothing.
 //
@@ -62,14 +62,14 @@ namespace Moltaro.Lattice.Storage;
 // that a write allocates no managed memory once the pool holds an array of its size. The array goes
 // back as it is: the bytes of the last root stay in it until its next user overwrites them. They are
 // bytes and reference nothing, so they keep no memory alive, and the pool is the process's own, so
-// clearing them would protect nothing (the coordinator's decision after the second review of S06). The size of the
-// root block is known only when every value is placed, so the root block itself is allocated by
-// Complete, which copies the image into it. A value too long to lie inline is copied into native
-// memory at its Set… member, into its value block or its chunks, because the span it comes in lives
-// only for that call. A value is stored whole or not at all (ValueBlocks.TryStore), so a descriptor
-// in the image names a whole value or nothing, and everything the writer holds is reachable from
-// the image, where Complete or Abandon frees it. Once the arena refused a block, the writer
-// allocates nothing more: Complete refuses the entity anyway.
+// clearing them would protect nothing. The size of the root block is known only when every value
+// is placed, so the root block itself is allocated by Complete, which copies the image into it. A
+// value too long to lie inline is copied into native memory at its Set… member, into its value
+// block or its chunks, because the span it comes in lives only for that call. A value is stored
+// whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
+// nothing, and everything the writer holds is reachable from the image, where Complete or Abandon
+// frees it. Once the arena refused a block, the writer allocates nothing more: Complete refuses the
+// entity anyway.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
@@ -80,13 +80,13 @@ namespace Moltaro.Lattice.Storage;
 // thread that changes its arena.
 //
 // A root for a forwarded write. A child forwards the root of a write to its master in the load format
-// (Replication.Forwarding.ForwardEncoding; brief of Epic 1, sprint S12, the planner's decision after the
-// study, point 1), and writes it without its arena: a writer made with ExportedValues places the fixed
-// part and the values inline in its image as always, keeps each value that does not lie inline in
-// managed memory instead of blocks, with the descriptor of the blocks it would take and the location 0,
-// as Replication.Load.BlockExport writes a stored root, and writes the whole root in that form with
-// Export instead of Complete. It allocates nothing in an arena and needs no lock: what it holds is its
-// own. Every check of a value is the same, so the root is the one a master would store for the values.
+// (Replication.Forwarding.ForwardEncoding), and writes it without its arena: a writer made with
+// ExportedValues places the fixed part and the values inline in its image as always, keeps each value
+// that does not lie inline in managed memory instead of blocks, with the descriptor of the blocks it
+// would take and the location 0, as Replication.Load.BlockExport writes a stored root, and writes the
+// whole root in that form with Export instead of Complete. It allocates nothing in an arena and needs
+// no lock: what it holds is its own. Every check of a value is the same, so the root is the one a
+// master would store for the values.
 //
 // What it allocated. SlotBytes counts the bytes of the slots of every block the writer allocated and
 // still holds, as it allocates them: the slot of the root block, and for every value stored in blocks
@@ -214,7 +214,8 @@ internal ref struct RootWriter
 
     // Sets the value of a field of a signed integer type, Int8 to Int64, or of an Enum field whose
     // enum type has a signed underlying type, at the width of that type. A value outside its range
-    // is ValidationFailed; it is never cut, wrapped or widened to make it fit (Q03.1). Whether an
+    // is ValidationFailed; it is never cut, wrapped or widened to make it fit
+    // (docs/decisions/schema-and-types.md, "Small integer widths and Boolean values"). Whether an
     // Enum value is one its enum type allows is checked by the validation of the core before a write
     // reaches the engine (Access.Values.EnumValues), not here.
     public void SetInteger(LatticeField field, long value)
@@ -301,8 +302,8 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a Decimal field, a .NET decimal of 16 bytes (Q03.1): the four integers of
-    // decimal.GetBits, so that its scale and its sign are kept.
+    // Sets the value of a Decimal field, a .NET decimal of 16 bytes (docs/decisions/schema-and-types.md):
+    // the four integers of decimal.GetBits, so that its scale and its sign are kept.
     public void SetDecimal(LatticeField field, decimal value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Decimal, nameof(SetDecimal));
@@ -313,8 +314,8 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a Guid field, its 16 bytes, never text (Q03.4.1, "Primary-key types and Guid
-    // fields").
+    // Sets the value of a Guid field, its 16 bytes, never text (docs/decisions/schema-and-types.md,
+    // "Primary-key types and Guid fields").
     public void SetGuid(LatticeField field, Guid value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Guid, nameof(SetGuid));
@@ -324,7 +325,8 @@ internal ref struct RootWriter
     }
 
     // Sets the value of a DateTimeOffset field: the instant, stored as its UTC ticks. The offset of
-    // the value is not kept; it is read back with offset zero (Q03.4.1, "UTC timestamps").
+    // the value is not kept; it is read back with offset zero (docs/decisions/schema-and-types.md,
+    // "UTC timestamps").
     public void SetDateTimeOffset(LatticeField field, DateTimeOffset value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.DateTimeOffset, nameof(SetDateTimeOffset));
@@ -333,8 +335,8 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a DateOnly field, stored as its day number (Q03.4.1, "DateOnly, TimeOnly and
-    // TimeSpan").
+    // Sets the value of a DateOnly field, stored as its day number (docs/decisions/schema-and-types.md,
+    // "DateOnly, TimeOnly and TimeSpan").
     public void SetDateOnly(LatticeField field, DateOnly value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.DateOnly, nameof(SetDateOnly));
@@ -343,7 +345,8 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a TimeOnly field, stored as its ticks since midnight (Q03.4.1).
+    // Sets the value of a TimeOnly field, stored as its ticks since midnight
+    // (docs/decisions/schema-and-types.md, "DateOnly, TimeOnly and TimeSpan").
     public void SetTimeOnly(LatticeField field, TimeOnly value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.TimeOnly, nameof(SetTimeOnly));
@@ -352,7 +355,8 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a TimeSpan field, stored as its signed ticks (Q03.4.1).
+    // Sets the value of a TimeSpan field, stored as its signed ticks (docs/decisions/schema-and-types.md,
+    // "DateOnly, TimeOnly and TimeSpan").
     public void SetTimeSpan(LatticeField field, TimeSpan value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.TimeSpan, nameof(SetTimeSpan));
@@ -364,18 +368,19 @@ internal ref struct RootWriter
     // Sets the value of a String field: in a UTF-8 database the UTF-8 of its characters, in a UTF-16
     // database its code units, placed by its encoded length as RootLayout says for a field with Plain
     // storage; for a field with Dictionary storage, a text that is not empty in the entry of the text
-    // table that holds the same bytes, found or added (PlaceText), and the empty text inline. Only well-formed text is stored, in both encodings (Q04.5): text that is not well-formed
-    // UTF-16, a surrogate without its pair, is refused with LatticeException, ValidationFailed, at
-    // the call. Then nothing is allocated for the value, the counters of the arena are the same
-    // before and after the call, no character is replaced by another, the field is not set, and the
-    // writer stays usable. Text whose encoding takes more than the 268,173,376 bytes of one value is
-    // refused in the same way, ValidationFailed with the field named. An empty string is a value,
-    // not null.
+    // table that holds the same bytes, found or added (PlaceText), and the empty text inline. Only
+    // well-formed text is stored, in both encodings (docs/decisions/strings.md, "Input validity and
+    // preservation"): text that is not well-formed UTF-16, a surrogate without its pair, is refused
+    // with LatticeException, ValidationFailed, at the call. Then nothing is allocated for the value,
+    // the counters of the arena are the same before and after the call, no character is replaced by
+    // another, the field is not set, and the writer stays usable. Text whose encoding takes more than
+    // the 268,173,376 bytes of one value is refused in the same way, ValidationFailed with the field
+    // named. An empty string is a value, not null.
     //
     // Both refusals are the guard of the stored form, for whoever calls the writer inside the engine;
     // they are not a second validation of the contract. The validation of the core refuses such text
-    // before a write reaches the engine, with the same check, WellFormedText (the planner's answer to
-    // Q41), and the same bound, ValueBound (after the second review of S06).
+    // before a write reaches the engine, with the same check, WellFormedText, and the same bound,
+    // ValueBound.
     public void SetString(LatticeField field, ReadOnlySpan<char> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.String, nameof(SetString));
@@ -390,7 +395,8 @@ internal ref struct RootWriter
 
         // The whole text is checked before anything is placed: a lone surrogate at its end must not
         // be found after its first chunks were allocated. Checking, counting and, in a UTF-8 database,
-        // encoding are three passes over the text, kept apart on purpose: Q04.5 asks to combine them
+        // encoding are three passes over the text, kept apart on purpose: the decision on input
+        // validity (docs/decisions/strings.md, "Input validity and preservation") asks to combine them
         // where possible, and that is done when a measurement shows it is worth the code.
         if (!WellFormedText.IsWellFormed(value))
         {
@@ -415,7 +421,8 @@ internal ref struct RootWriter
     // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
     // LatticeException, ValidationFailed, with the field named, at the call: nothing is allocated
     // for it, the field is not set, and the writer stays usable. An empty value is a value, not null
-    // (Q03.4.1, "Binary fields"). The refusal is the guard of the stored form, as that of SetString.
+    // (docs/decisions/schema-and-types.md, "Binary fields"). The refusal is the guard of the stored
+    // form, as that of SetString.
     public void SetBinary(LatticeField field, ReadOnlySpan<byte> value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Binary, nameof(SetBinary));
@@ -662,9 +669,8 @@ internal ref struct RootWriter
     // nothing when the arena refused a block before or refuses a new entry now, since Complete refuses
     // the entity then. A new entry counts in SlotBytes, as the blocks of a Plain value do: the write
     // allocated it. For a forwarded write the bytes are kept out of line, as the wire carries them: a
-    // Text descriptor with location 0, its bytes after the root payload in the order of the descriptors
-    // (the planner's decision after the study of S13, point 8). An OutOfMemoryException passes with
-    // nothing taken and the field not set.
+    // Text descriptor with location 0, its bytes after the root payload in the order of the descriptors.
+    // An OutOfMemoryException passes with nothing taken and the field not set.
     private void PlaceText(in StoredField stored, ReadOnlySpan<char> value, int length)
     {
         if (length > ValueBlocks.MostValueBytes)

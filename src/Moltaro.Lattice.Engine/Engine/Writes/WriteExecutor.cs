@@ -13,6 +13,11 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
+// What a write does to the engine: its preparation and its publication, for the write coordinator,
+// which decides when each runs and calls every member of this class under the lock of the writes
+// (WriteCoordinator). Insert, replace, upsert and delete, with or without an expected revision
+// (docs/decisions/mutation-commands.md).
+//
 // The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted
 // from crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
 // crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
@@ -21,51 +26,44 @@ namespace Moltaro.Lattice.Engine.Writes;
 // they pair with, describes the protocol, and docs/design/arena-protocol.md, "The stamp of a root
 // entry", says what differs from the source. The rest of the type is the engine's own.
 //
-// What a write does to the engine: its preparation and its publication, for the write coordinator,
-// which decides when each runs and calls every member of this class under the lock of the writes
-// (WriteCoordinator). Insert,
-// replace, upsert and delete, with or without an expected revision (decision on mutation commands,
-// Q13).
-//
 // The arena, the table of root entries, the primary indexes, the position clock and the retired list
 // take no lock and have one changing thread at a time: the holder of the lock of the writes. Reads
 // take no lock: they are protected by epochs, and what a read could still reach is retired, not freed
 // (Protection).
 //
-// A preparation (TryPrepare), in its order, in the hold of the lock that checks its condition (brief
-// of S09, part 2, "The path, decided after the study"; milestone contract, "Write coordinator and
-// revision semantics"). Before it the set has checked the arguments and the core has validated the
-// entity against the schema (Q25), text that is not well-formed (Q41) and the bound of one value
-// included.
+// A preparation (TryPrepare), in its order, in the hold of the lock that checks its condition
+// (docs/design/milestone-1-engine-contract.md, "Write coordinator and revision semantics"). Before it the set
+// has checked the arguments and the core has validated the entity against the schema, text that is not
+// well-formed and the bound of one value included.
 // 1. It looks the key up. Only the holder of the lock changes an index and the roots of its entries,
-//    so it reads them without the protection of reads, as S08 did. It checks the condition against
+//    so it reads them without the protection of reads. It checks the condition against
 //    what it finds: an expected revision, then that an insert finds no entity and a replace finds one.
 //    What it finds is the state every earlier write of the entity left: no write of that entity is
 //    prepared and unpublished when a write of it is prepared (WriteCoordinator). A failed condition
 //    changes nothing. A replace through another spelling of a key compared without case keeps the
 //    stored one.
-// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into
-//    prepared blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is
-//    the encoded size of the write; an insert reserves room in the index, which may grow it, and a
-//    replace or a delete a place in the retired list, beside what the writes prepared before it and not
-//    published yet reserved. A failure frees all of it, so nothing of a failed write is left in any
-//    counter (the planner's answer to Q30). An entity has no size limit of its own; only the memory of
-//    the arena, the memory budget of the database, refuses one (decision O19): then TryPrepare returns
-//    false with everything freed, and the coordinator decides what the write waits for before it tries
-//    again (WriteCoordinator, "The refusal").
+// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
+//    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
+//    size of the write; an insert reserves room in the index, which may grow it, and a replace or a delete a
+//    place in the retired list, beside what the writes prepared before it and not published yet reserved. A
+//    failure frees all of it, so nothing of a failed write is left in any counter. An entity has no size
+//    limit of its own; only the memory of the arena, the memory budget of the database, refuses one
+//    (docs/decisions/write-admission.md, "Configurable root-object size limit"): then TryPrepare returns
+//    false with everything freed, and the coordinator decides what the write waits for before it tries again
+//    (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
-// A write a child forwarded (brief of Epic 1, sprint S12, the planner's decision after the study, point 1)
-// brings the root the child wrote, in the load format, instead of values (ForwardedOrigin). Its
-// preparation places that root as a child places a root of its load (Replication.Load.BlockImport), for
-// the lifetime it goes to; the receiver checked it as a child checks one, and that the key in it is the key
-// of the request (Children.ChildConnection), so the check that placing repeats cannot fail. Its last
-// mutation is the sequence the write is published at, as for every write. One case writes the root again
-// from its values: a replace through another spelling of a String key compared without case, which keeps
-// the spelling the entity was created with, as KeepStoredKey does for a write of values.
+// A write a child forwarded brings the root the child wrote, in the load format, instead of values
+// (ForwardedOrigin). Its preparation places that root as a child places a root of its load
+// (Replication.Load.BlockImport), for the lifetime it goes to; the receiver checked it as a child checks one,
+// and that the key in it is the key of the request (Children.ChildConnection), so the check that placing
+// repeats cannot fail. Its last mutation is the sequence the write is published at, as for every write. One
+// case writes the root again from its values: a replace through another spelling of a String key compared
+// without case, which keeps the spelling the entity was created with, as KeepStoredKey does for a write of
+// values.
 //
 // A publication (Publish), of the writes of a group in its order, after the storage step: it only
-// installs what was prepared: the stores of S08 in their order, the position, the retirement of what
+// installs what was prepared: the stores below in their order, the position, the retirement of what
 // was replaced. It obtains no native memory, grows no index, adds no root entry, does no I/O and runs no
 // code of the application. Each store has release semantics (Volatile.Write), so a read that sees one,
 // by a load with acquire semantics, sees every store before it, the blocks the preparation wrote
@@ -82,17 +80,17 @@ namespace Moltaro.Lattice.Engine.Writes;
 // - A delete of an absent key publishes only its sequence.
 // Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
 // look, a write that retired nothing counting as one thing from a look that left something behind
-// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
-// defect, or when the managed heap cannot hold a block of the tail of the children (below); the
-// write that failed and those after it stay unpublished, and the coordinator faults the database.
+// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a
+// test armed, for a defect, or when the managed heap cannot hold a block of the tail of the children
+// (below); the write that failed and those after it stay unpublished, and the coordinator faults the
+// database.
 //
-// The children (brief of Epic 1, sprint S11; the planner's decision of 17 November 2026 after the study,
-// point 5). While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
+// The children. While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
 // encoded for the children before its stores, from what it publishes — the root it prepared, the key it
-// deletes, or only its position — and appended to the tail after them, in the order of the sequences;
-// the senders of the children are woken once the lock is released (DeliveryTail.Wake). The copy is written
-// into the blocks of the tail, under the lock, which allocates only when the tail takes a block it has
-// no spare for. With no child and no capture nothing is encoded.
+// deletes, or only its position — and appended to the tail after them, in the order of the sequences; the
+// senders of the children are woken once the lock is released (DeliveryTail.Wake). The copy is written into
+// the blocks of the tail, under the lock, which allocates only when the tail takes a block it has no spare
+// for. With no child and no capture nothing is encoded.
 //
 // A child (Loading.ReceivedChanges) publishes what it received from its master through the members
 // Install, MarkReplace, MarkDelete, StampReplace and StampDelete: the stores of the writes of a
@@ -100,11 +98,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // installs every entity it changes, publishes its position once, then stores the stamps. With the
 // sequence of the master as the stamp, and with no fault point: a test arms one on a master.
 //
-// Every write that passes its condition and its preparation and is committed is published at a
-// position of its own, also a delete of an absent key, which changes no entity (the owner's answer to
-// Q39). A revision is the history and the root entry's LastMutationSequence: every position changes
-// at most one entity, so the revision of one entity never satisfies a condition on another, and a
-// recreated entity has a new one (brief of S06, "Position and revision").
+// Every write that passes its condition and its preparation and is committed is published at a position of
+// its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
+// entry's LastMutationSequence: every position changes at most one entity, so the revision of one entity
+// never satisfies a condition on another, and a recreated entity has a new one.
 internal sealed class WriteExecutor
 {
     private readonly Arena _arena;
@@ -615,7 +612,7 @@ internal sealed class WriteExecutor
         // slot (Children.Capture), and takes more of it only once it loads the state Live with acquire
         // semantics, so that state is stored last, with release semantics: a capture that sees it sees
         // the root and the sequence of this lifetime, never those of an earlier one of the slot
-        // (EntityTable.TryTakeLive; review of S10, carried to S11). x64 keeps stores in their order and
+        // (EntityTable.TryTakeLive). x64 keeps stores in their order and
         // hides the difference; hardware that orders stores weakly does not.
         ref var entry = ref _roots.Entry(handle);
 

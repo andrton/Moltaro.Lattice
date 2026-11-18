@@ -9,11 +9,10 @@ namespace Moltaro.Lattice.Storage.Values;
 //
 // The entry of a Dictionary text (Storage.Text.TextTable) is placed by the same rule, one block up to
 // RootLayout.SingleBlockLimit bytes and a directory with chunks above, every block of it of kind
-// SharedText, and a root names it by a descriptor of kind Text (brief of Epic 1, sprint S13, the
-// planner's decision after the study, points 1 and 2). A Text descriptor is read as a value in blocks
-// is read, by its length, but its blocks belong to the entry and not to the root: Free, Publish, Retire
-// and Adopt of a root's descriptor leave them alone, and the text table frees and publishes them
-// (FreeText, PublishText).
+// SharedText, and a root names it by a descriptor of kind Text. A Text descriptor is read as a value
+// in blocks is read, by its length, but its blocks belong to the entry and not to the root: Free,
+// Publish, Retire and Adopt of a root's descriptor leave them alone, and the text table frees and
+// publishes them (FreeText, PublishText).
 //
 // A descriptor lies in a root block, or in a directory, at an offset the packed layout gives, which
 // need not be aligned: it is always read and written as 16 bytes, never through a reference.
@@ -30,9 +29,9 @@ internal static class ValueBlocks
     public const int MostChunks = RootLayout.ChunkPayload / DescriptorSize;
 
     // The bound of one value: the most bytes of its stored encoding, MostChunks full chunks,
-    // 268,173,376 bytes. A fixed rule of the format, not an option (decision O19 of Epic 1); the
-    // validation of the core states it as Access.Values.ValueBound.Bytes, the same number, and
-    // RootWriter refuses a larger value as the guard of the stored form.
+    // 268,173,376 bytes. A fixed rule of the format, not an option; the validation of the core states
+    // it as Access.Values.ValueBound.Bytes, the same number, and RootWriter refuses a larger value as
+    // the guard of the stored form.
     public const int MostValueBytes = MostChunks * RootLayout.ChunkPayload;
 
     // The layout version in the header of the blocks of a text entry, which belong to no root layout.
@@ -54,6 +53,8 @@ internal static class ValueBlocks
     // a Plain value and the entry of a Dictionary text alike. RootWriter places every value so, and
     // Replication.Load.BlockImport refuses any other form on receipt, so the length decides for every
     // kind and the kind need not be read. Not for the descriptors in a directory, which name chunks.
+    // Nor for the descriptor of a collection, whose length is a number of elements and not of bytes, so
+    // that its length does not tell whether it lies in chunks.
     public static bool LiesInChunks(in ValueDescriptor descriptor) => descriptor.Length > RootLayout.SingleBlockLimit;
 
     // Whether the descriptor names bytes out of line, in blocks the wire carries after the root payload:
@@ -73,7 +74,7 @@ internal static class ValueBlocks
     // false, and when the native allocator fails, its OutOfMemoryException passes through; either way
     // the blocks already allocated for the value are freed first and place is left as it was. The
     // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
-    // or nothing (brief of S05, "The size of an entity").
+    // or nothing.
     //
     // The blocks are prepared when prepared is true (Arena.TryAllocatePrepared), and live otherwise.
     public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, bool prepared, int length, ref ValueSource source, scoped Span<byte> place) =>

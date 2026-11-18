@@ -6,20 +6,19 @@ using Moltaro.Lattice.Replication.Load;
 namespace Moltaro.Lattice.Engine.Loading;
 
 // Places the roots a child receives from its master in the child's arena and publishes them, and ends
-// the load (brief of Epic 1, sprints S10 and S11; the planner's block of 17 November 2026, points 2, 4, 5
-// and 9, and his decisions after the studies of S10, points 2 and 3, and of S11, points 4 and 7).
+// the load (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").
 //
 // A root is placed and published by the one rule the child applies what it receives by, under the child's
 // lock of the writes and inside the barrier of the close, as a write is (ReceivedChanges.Place): a key
 // arrives twice in a load when the master wrote while its capture walked its slots, and the later state
 // stays. A root the arena refuses is placed by the rule of a write refused for memory (ReceivedChanges).
 //
-// What a root brings and what is checked of it, beyond what BlockImport checks: its type id names an
-// entity type of the schema the engine stores, and its last mutation sequence is not 0. The key comes
-// from the root as it is stored, and the child hashes it under its own seed: nothing hashed travels
-// (Q50). The revision of a loaded entity is its revision on the master: the stamp of its entry is the
-// sequence of its last mutation there. Each failure is a LatticeException with ValidationFailed, and
-// nothing of the root is left.
+// What a root brings and what is checked of it, beyond what BlockImport checks: its type id names an entity
+// type of the schema the engine stores, and its last mutation sequence is not 0. The key comes from the root
+// as it is stored, and the child hashes it under its own seed: nothing hashed travels, so that nobody who
+// does not know the seed of a node can choose keys that share a hash. The revision of a loaded entity is its
+// revision on the master: the stamp of its entry is the sequence of its last mutation there. Each failure is
+// a LatticeException with ValidationFailed, and nothing of the root is left.
 //
 // At the end of the load (End), the number of roots received has to be the number LoadEnd announces, and
 // the readiness position R at least the last mutation of every root; then the capture start S becomes

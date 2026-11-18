@@ -2,9 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Replication;
 
-// The 32 bytes before the body of every frame, as FrameCodec reads them (brief of Epic 1, sprint S10;
-// a test asserts the size). On the wire each field is little-endian, in this order; the struct is the
-// header read into the numbers of the machine, never the bytes of the wire themselves.
+// The 32 bytes before the body of every frame, as FrameCodec reads them (a test asserts the size). On the
+// wire each field is little-endian, in this order; the struct is the header read into the numbers of the
+// machine, never the bytes of the wire themselves.
 //
 // Sequential layout keeps the declared order; every field sits on its natural boundary, so natural
 // alignment adds no padding.

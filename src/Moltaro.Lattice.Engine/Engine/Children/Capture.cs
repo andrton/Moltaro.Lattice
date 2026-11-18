@@ -8,26 +8,26 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Children;
 
-// What a master gives each child that loads from it and follows it (brief of Epic 1, sprints S10 and S11;
-// the planner's block of 17 November 2026, points 3 and 6, and his decisions after the studies of S10
-// and S11): the master's Hello, its schema in its compiled form, the start of a capture, the copy of one
-// root at a time, the end of the capture, and the tail of the transactions after its start.
+// What a master gives each child that loads from it and follows it: the master's Hello, its schema in its
+// compiled form, the start of a capture, the copy of one root at a time, the end of the capture, and the
+// tail of the transactions after its start (docs/design/milestone-1-engine-contract.md, "Replication
+// transport and initial loading").
 //
-// The capture, while the master goes on writing (the planner's decision after the study of S11, points 2
-// to 4). It is registered in one hold of the lock of the writes, which takes S, the published sequence,
-// the fence of the slots, the counts of the roots, and the cursor of the child in the tail (Register):
-// every write published before that hold is in the state the copy finds, every one published after it is
-// appended to the tail for the child (Writes.WriteExecutor), and none falls between the two. The copy then
-// walks the slots below the fence: every root live at S lies below it, and a root inserted later, in a
-// slot beyond it, arrives through the tail. The copy of a slot may find a state later than S, a root
-// deleted since, or another key in a slot given out again: the child applies every copy and every
-// transaction after S by one rule, by the key in the root and the sequence of its last mutation, so none
-// of these needs anything of the capture (Loading.ReceivedChanges). Nothing is retained for a capture: no
-// slot, no deleted root, no mark of a deletion (the owner's amendment of Q08 of 17 November 2026). Once
-// the last root is copied, R is read in a hold of the lock of the writes (End): an insert stores the
-// sequence of its entry before it publishes the sequence of the database, so a copy can carry a sequence
-// the published clock does not show yet outside that lock, and every root copied has a last mutation no
-// later than R. The child applies the transactions up to R and is Ready there.
+// The capture, while the master goes on writing (docs/decisions/replication-and-hosting.md, "Initial
+// capture and readiness handoff"). It is registered in one hold of the lock of the writes, which takes S,
+// the published sequence, the fence of the slots, the counts of the roots, and the cursor of the child in
+// the tail (Register): every write published before that hold is in the state the copy finds, every one
+// published after it is appended to the tail for the child (Writes.WriteExecutor), and none falls between
+// the two. The copy then walks the slots below the fence: every root live at S lies below it, and a root
+// inserted later, in a slot beyond it, arrives through the tail. The copy of a slot may find a state later
+// than S, a root deleted since, or another key in a slot given out again: the child applies every copy and
+// every transaction after S by one rule, by the key in the root and the sequence of its last mutation, so
+// none of these needs anything of the capture (Loading.ReceivedChanges). Nothing is retained for a
+// capture: no slot, no deleted root, no mark of a deletion. Once the last root is copied, R is read in a
+// hold of the lock of the writes (End): an insert stores the sequence of its entry before it publishes the
+// sequence of the database, so a copy can carry a sequence the published clock does not show yet outside
+// that lock, and every root copied has a last mutation no later than R. The child applies the
+// transactions up to R and is Ready there.
 //
 // The capture is not a read of the application. It walks the slots of the root table, not a primary
 // index and not the public enumeration, so ReadMemoryLimit and ReadTimeLimit do not apply to it and it
@@ -36,7 +36,8 @@ namespace Moltaro.Lattice.Engine.Children;
 // of the connection, and leaves the protection; the connection sends afterwards. So it never holds a slot
 // of the epoch table across a send or between two roots, and the root it copies stays allocated while it
 // copies: a root that a write retired is freed only after the reads that could reach it have left. The
-// copy of one root is coherent without any gate: a published root is never changed in place (Q49).
+// copy of one root is coherent without any gate: a published root is never changed in place
+// (docs/decisions/memory-and-access.md).
 //
 // The lock of the writes is the database's; every member here that takes it holds it for work in memory
 // only and takes no other lock inside it.

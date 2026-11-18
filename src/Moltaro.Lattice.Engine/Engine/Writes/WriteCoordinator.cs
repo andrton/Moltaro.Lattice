@@ -6,16 +6,16 @@ using Moltaro.Lattice.Engine.Protection;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
-// The write coordinator of a master (brief of Epic 1, sprint S09, part 2, "The path, decided after the
-// study"; milestone contract, "Write coordinator and revision semantics"). Writes are executed one at a
-// time under one lock, the lock of the writes, with a group commit at the storage boundary. The path
-// follows published designs, taken as ideas and not as code: the single writer of LMDB, which runs
-// every write under one writer mutex and checks its conditions against the current state
-// (libraries/liblmdb/mdb.c, mdb_txn_begin and mdb_txn_commit), and the group commit of the commit
-// pipeline of Pebble (commit.go: the order and the log record under one mutex, publication in order)
-// and of PostgreSQL (xlog.c, XLogFlush: whoever finds the log free writes for everyone queued behind
-// it), with the bounds of the write group of RocksDB (db/write_thread.cc). The study of S09, part 2
-// names the commits read.
+// The write coordinator of a master: it decides when each write is admitted, prepared, handed to the
+// storage step and published. Writes are executed one at a time under one lock, the lock of the writes,
+// with a group commit at the storage boundary (docs/design/write-path.md; docs/design/
+// milestone-1-engine-contract.md, "Write coordinator and revision semantics"). The path follows
+// published designs, taken as ideas and not as code: the single writer of LMDB, which runs every write
+// under one writer mutex and checks its conditions against the current state (libraries/liblmdb/mdb.c,
+// mdb_txn_begin and mdb_txn_commit), and the group commit of the commit pipeline of Pebble (commit.go:
+// the order and the log record under one mutex, publication in order) and of PostgreSQL (xlog.c,
+// XLogFlush: whoever finds the log free writes for everyone queued behind it), with the bounds of the
+// write group of RocksDB (db/write_thread.cc).
 //
 // One write, when the storage step completes at once, as in MemoryOnly. Its call takes the lock once.
 // Under it the write is admitted, prepared in place (WriteExecutor.TryPrepare: lookup, condition,
@@ -36,22 +36,20 @@ namespace Moltaro.Lattice.Engine.Writes;
 // completion will dispatch the queue, or the queue is empty when the lock is released. The writes of a
 // group take consecutive positions from CommitOutcome.FirstSequence, in its order.
 //
-// The order of writes to one entity, and the wait behind an unpublished write. A call takes its place
-// in the order when it takes the lock: a call made after an earlier call returned its task takes the
-// lock after it, and the earlier write was by then published, or prepared and in the queue or in the
-// storage step, or waiting in a chain, in the held list or in a resolution. A write whose entity has
-// such an earlier write, one that has not completed, waits behind the latest of them, first in first
-// out, in the chain of that entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so
-// it is prepared only once every earlier write of its entity has completed, and its condition is
-// checked against the state they left. Those writes are found in the list of the writes admitted that
-// waited (FindLastOfEntity, and "The refusal" below); when that list is empty, as in MemoryOnly
-// except while the writes a resolution held back are started, nothing is looked at and no key is
-// hashed for it. The wait ends: the write it waits
-// behind completes — published when its storage step completes (the timeout of that step belongs to
-// S27), refused, cancelled, failed, or ended by a fault — and every way a write completes starts the
-// next write of its chain under the same lock (AdvanceChain). A write with a session takes its place
-// when the wait for its position ends (brief of S09, "The order of writes and the wait of a session").
-// It enters the barrier of the close before that wait, so that a close waits for it as for every write
+// The order of writes to one entity, and the wait behind an unpublished write. A call takes its place in the
+// order when it takes the lock: a call made after an earlier call returned its task takes the lock after it,
+// and the earlier write was by then published, or prepared and in the queue or in the storage step, or
+// waiting in a chain, in the held list or in a resolution. A write whose entity has such an earlier write,
+// one that has not completed, waits behind the latest of them, first in first out, in the chain of that
+// entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so it is prepared only once every
+// earlier write of its entity has completed, and its condition is checked against the state they left. Those
+// writes are found in the list of the writes admitted that waited (FindLastOfEntity, and "The refusal"
+// below); when that list is empty, as in MemoryOnly except while the writes a resolution held back are
+// started, nothing is looked at and no key is hashed for it. The wait ends: the write it waits behind
+// completes — published when its storage step completes (the storage step has no timeout yet), refused,
+// cancelled, failed, or ended by a fault — and every way a write completes starts the next write of its chain
+// under the same lock (AdvanceChain). A write with a session takes its place when the wait for its position
+// ends. It enters the barrier of the close before that wait, so that a close waits for it as for every write
 // admitted; the close ends the wait first (EngineDatabase.CloseAsync, PositionClock.Close).
 //
 // The lock of the writes, given by the database, which takes it as well for its counters and its
@@ -68,22 +66,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 // end of a resolution — is carried out after the lock is released (Finish). A read takes none. A write
 // holds the lock while its values are copied into the arena, so one write of a large entity holds
 // every other write back for as long as its copy takes; reads are not held back. The lock is not fair:
-// a caller that releases it and takes it again at once may pass a caller that waited. A gate that lets
-// the callers take it first in first out was measured in S09, part 2 and not kept: it bounded the wait
-// of a small write behind large ones to one large write, but small writes then went no faster than the
-// large ones, and with more threads than processors, 16 writing callers beside 16 readers, the writes
-// all but stopped. What is kept against the unfair hand-over is narrow: a write larger than
-// CommitGroup.MaxEncodedSize, the bound above which a write forms a group alone, gives its processor
-// up once (Thread.Yield) after its call released the lock, so that a caller the release woke can take
-// the lock before the large caller takes it again for its next write. It makes that pass rarer and
-// does not bound it: Thread.Yield gives the processor only to a thread ready on the same one, and the
-// lock lets arriving callers pass a waiting one until that one has waited 100 ms
-// (System.Threading.Lock). Measured in S09, part 2, with and without it alternated on a machine with
-// other load, beside a caller that writes entities of 32 MiB one after another: the p99 of the small
-// writes of another caller was 98 to 115 ms in 12 of 14 rounds without it, a few µs in the other two,
-// and with it below 18 ms in 10 of 15 rounds and 24 to 59 ms in the others; the maximum stayed at 110
-// to 125 ms either way. The series of ordinary writes did not move, since a write pays one comparison
-// of its size for it.
+// a caller that releases it and takes it again at once may pass a caller that waited. What is kept
+// against the unfair hand-over is narrow: a write larger than CommitGroup.MaxEncodedSize, the bound above
+// which a write forms a group alone, gives its processor up once (Thread.Yield) after its call released
+// the lock, so that a caller the release woke can take the lock before the large caller takes it again
+// for its next write. It makes that pass rarer and does not bound it; docs/design/write-path.md, "What it
+// costs", gives the measurements, and why a gate that hands the lock over first in first out is not
+// used.
 //
 // Why the hand-overs are ordered (the .NET memory model). Everything a write is and has passes between
 // threads only under the lock of the writes, which releases what a thread wrote before it and acquires
@@ -91,29 +80,25 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (WriteExecutor), so a read that sees them sees the blocks. The outcome of a write that another
 // thread completes is written under the lock and given after it, by its value source.
 //
-// Cancellation (decision "Cancellation at the commit boundary"; brief of S09, "Dispatch" and
-// "Cancellation before dispatch"). Until its dispatch, the call of ICommitStorage.CommitAsync for its
-// group, the token of a write is honored at every wait — chained, held, prepared and in the queue,
-// waiting in a resolution for the writes admitted before it, for the writes in flight or for the reads
-// that hold retired memory — and when its preparation ends, also a preparation the arena refused. The
-// cancellation of a write that waits in a list or in a resolution hands its withdrawal to the thread
-// pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never takes the lock of the
-// writes: there it leaves its list, gives back what it prepared, starts the next write of its chain,
-// and its call ends in OperationCanceledException. The coordinator never makes a cancelled write run
-// before that thread of the pool runs: a prepared write whose token is cancelled is withdrawn when a
-// group is formed instead of being taken into it (FormGroup), as the work item would withdraw it, and
-// a write that waited in a chain or in the held list is ended instead of being prepared when its turn
-// comes (Start); either way the next write of its entity starts in the same hold, and the work item
-// finds the write ended and does nothing. A write whose resolution waits for reads looks at its token
-// in that wait itself. From the dispatch on the token is not looked at, and the call returns the real
-// outcome.
+// Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
+// dispatch, the call of ICommitStorage.CommitAsync for its group, the token of a write is honored at every
+// wait — chained, held, prepared and in the queue, waiting in a resolution for the writes admitted before it,
+// for the writes in flight or for the reads that hold retired memory — and when its preparation ends, also a
+// preparation the arena refused. The cancellation of a write that waits in a list or in a resolution hands
+// its withdrawal to the thread pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never
+// takes the lock of the writes: there it leaves its list, gives back what it prepared, starts the next write
+// of its chain, and its call ends in OperationCanceledException. The coordinator never makes a cancelled
+// write run before that thread of the pool runs: a prepared write whose token is cancelled is withdrawn when
+// a group is formed instead of being taken into it (FormGroup), as the work item would withdraw it, and a
+// write that waited in a chain or in the held list is ended instead of being prepared when its turn comes
+// (Start); either way the next write of its entity starts in the same hold, and the work item finds the write
+// ended and does nothing. A write whose resolution waits for reads looks at its token in that wait itself.
+// From the dispatch on the token is not looked at, and the call returns the real outcome.
 //
-// The refusal (brief of S09, "When a write is refused for memory: the rule after review round 1";
-// decision Q14 as amended; brief of S09, part 2, "The path, decided after the study"). A write is
-// refused for memory only when it does not fit beside the stored data, never for memory other writes
-// hold for a time or that is retired and not freed yet. A write the arena refuses has given back
-// everything it prepared (WriteExecutor.TryPrepare); it frees what is retired and tries again. Refused
-// again, it is resolved alone, holding nothing:
+// The refusal (docs/decisions/write-admission.md). A write is refused for memory only when it does not fit
+// beside the stored data, never for memory other writes hold for a time or that is retired and not freed yet.
+// A write the arena refuses has given back everything it prepared (WriteExecutor.TryPrepare); it frees what
+// is retired and tries again. Refused again, it is resolved alone, holding nothing:
 // 1. It waits for every write admitted before it to complete (WaitingForEarlier). The writes that
 //    concern it are those of the list of the writes admitted that waited (_oldestWaiter, PendingWrite.Older):
 //    a write enters that list when its call leaves the lock with the write not completed, and leaves it
@@ -137,8 +122,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    Memory, has had no effect and never runs later. Either way the resolution ends, and the held
 //    writes start at once, in their order.
 // In MemoryOnly a write completes in the hold of its call, so a refused write is the oldest and nothing
-// is prepared and unpublished, and the resolution is the path of S08: free what is retired, wait for
-// the reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held
+// is prepared and unpublished, and the resolution is the plain one: free what is retired, wait for the
+// reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held
 // back are prepared in one hold and published as one group, and one of them that the arena refuses
 // there may find writes before it not completed and writes prepared beside it, and goes through steps
 // 1 and 2 as in a database whose storage step is busy. Only the oldest write is resolved, so two
@@ -165,37 +150,32 @@ namespace Moltaro.Lattice.Engine.Writes;
 // cancelled adds its registration. A storage step that does not complete at once adds the task of its
 // completion.
 //
-// Children (brief of Epic 1, sprint S11; the planner's decision of 17 November 2026 after the study,
-// points 2 and 5). A master publishes every write while children are connected or loading; no write is
-// refused or delayed because of a child. The capture of a child is registered in a hold of the lock of
-// the writes (Children.Capture), and a write published in a later hold is appended to the tail of the
-// children in the hold that publishes it (WriteExecutor), so a write is either published before the
-// capture starts or delivered after it, whichever hold its preparation was in; the senders of the
-// children are woken after the hold (Finish). A child admits no write here: it forwards its writes to its
-// master (Forwarding.Forwarder).
+// Children. A master publishes every write while children are connected or loading; no write is refused or
+// delayed because of a child. The capture of a child is registered in a hold of the lock of the writes
+// (Children.Capture), and a write published in a later hold is appended to the tail of the children in the
+// hold that publishes it (WriteExecutor), so a write is either published before the capture starts or
+// delivered after it, whichever hold its preparation was in; the senders of the children are woken after the
+// hold (Finish). A child admits no write here: it forwards its writes to its master (Forwarding.Forwarder).
 //
-// Forwarded writes (brief of Epic 1, sprint S12; the planner's decisions after the study, points 1, 2 and
-// 12, and decided at the review, point 1). The receiver of a child's connection submits each write the
-// child forwarded, in the order it received them, without awaiting one before it submits the next
-// (Children.ChildConnection, Forward), so a forwarded write takes its place among the writes of its entity
-// as any write does. It has no token: a request received whole is a submitted write and runs although its
-// child's connection ends. It brings the root the child sent instead of values (ForwardedOrigin), which the
-// executor places when it prepares the write. It has no caller: its outcome is its reply, recorded for the
-// child before the write leaves the barrier of the close, whatever the outcome: a success in the hold that
-// publishes it (WriteExecutor), a refusal where its outcome is given, after the hold that decided it
-// (Deliver, Outcome), or at once when it is refused before its admission; why the child takes the reply
-// before the transaction, Delivery.RecordedReplies says ("The order that matters"). So once the barrier
-// has drained, every forwarded write admitted has its reply recorded, and nothing of one runs any more: no
-// task of it is awaited.
+// Forwarded writes. The receiver of a child's connection submits each write the child forwarded, in the order
+// it received them, without awaiting one before it submits the next (Children.ChildConnection, Forward), so a
+// forwarded write takes its place among the writes of its entity as any write does. It has no token: a
+// request received whole is a submitted write and runs although its child's connection ends. It brings the
+// root the child sent instead of values (ForwardedOrigin), which the executor places when it prepares the
+// write. It has no caller: its outcome is its reply, recorded for the child before the write leaves the
+// barrier of the close, whatever the outcome: a success in the hold that publishes it (WriteExecutor), a
+// refusal where its outcome is given, after the hold that decided it (Deliver, Outcome), or at once when it
+// is refused before its admission; why the child takes the reply before the transaction,
+// Delivery.RecordedReplies says ("The order that matters"). So once the barrier has drained, every forwarded
+// write admitted has its reply recorded, and nothing of one runs any more: no task of it is awaited.
 //
-// A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
-// storage step or of a publication faults the database: reads are refused from then on, a read that
-// retries on the mark of the publication that failed gives up, and the waits for a position end
-// (EngineDatabase.Fault). The writes of the group published before the failure get their results; the
-// write whose publication failed and the writes of the group after it get IndeterminateOutcome, the
-// first with the failure as its InnerException, and when the storage step itself failed the whole
-// group does; every other write admitted gets Unavailable once it has released what it held. Every
-// later write is Unavailable, and a close works.
+// A fault. A failure of the storage step or of a publication faults the database: reads are refused from then
+// on, a read that retries on the mark of the publication that failed gives up, and the waits for a position
+// end (EngineDatabase.Fault). The writes of the group published before the failure get their results; the
+// write whose publication failed and the writes of the group after it get IndeterminateOutcome, the first
+// with the failure as its InnerException, and when the storage step itself failed the whole group does; every
+// other write admitted gets Unavailable once it has released what it held. Every later write is Unavailable,
+// and a close works.
 internal sealed class WriteCoordinator
 {
     // The lock of the writes (see the class).
@@ -532,12 +512,12 @@ internal sealed class WriteCoordinator
     // to one entity"); waited completes when the position is published. False, with the refusal and
     // outside the barrier: ObjectDisposedException after the close; for the session, HistoryMismatch.
     //
-    // The session is bound to the history of this database here, when the write is admitted and before
-    // it runs (PositionClock.Bind; docs/decisions/session-consistency.md, points 4 and 7): a session of
-    // another history, and an empty one that another database bound first, is refused before anything
-    // is executed. So the session of a write that committed is of this history, and moving it to the
-    // position of the write cannot fail: the result of a commit is never replaced by a failure of the
-    // session (Outcome, Deliver).
+    // The session is bound to the history of this database here, when the write is admitted and before it
+    // runs (PositionClock.Bind; docs/decisions/session-consistency.md, "Facade handoff"): a session of
+    // another history, and an empty one that another database bound first, is refused before anything is
+    // executed. So the session of a write that committed is of this history, and moving it to the position of
+    // the write cannot fail: the result of a commit is never replaced by a failure of the session (Outcome,
+    // Deliver).
     private bool TryEnter(LatticeSession? session, CancellationToken cancellationToken, out ValueTask waited, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out Exception? refusal)
     {
         waited = default;
@@ -830,9 +810,9 @@ internal sealed class WriteCoordinator
     // one not in it yet, so the list is searched, from the newest write admitted before this one back.
     // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
     // resolution. The search is linear in the writes that wait, and so is Unlink in the queue and the
-    // held list: with 40,000 writes waiting behind a busy storage step an admission took 0.6 to 0.8 ms
-    // in review round 1 of S09, part 2. It never runs while the storage step completes at once; whether
-    // a busy durable step needs a structure that finds them faster is settled in the brief of S27.
+    // held list: measured with 40,000 writes waiting behind a busy storage step, an admission took 0.6 to
+    // 0.8 ms. It never runs while the storage step completes at once; whether a durable storage step that
+    // is busy needs a structure that finds them faster is open until that step is built.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
         for (var waiter = write.IsWaiter ? write.Older : _newestWaiter; waiter is not null; waiter = waiter.Older)

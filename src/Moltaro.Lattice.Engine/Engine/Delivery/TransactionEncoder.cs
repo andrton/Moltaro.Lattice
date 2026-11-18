@@ -8,13 +8,13 @@ namespace Moltaro.Lattice.Engine.Delivery;
 
 // Writes one committed transaction of a master into the tail it delivers to its children (DeliveryTail),
 // as the bytes that travel (Replication.Transactions.TransactionFormat), once, in the hold of the lock of
-// the writes that publishes it (the planner's decision of 17 November 2026 after the study of S11, points
-// 5 and 6). A transaction is one write until S17 brings the batch: an insert, a replace or an upsert
-// carries the root it publishes, a delete the key, a write that changed nothing only its position. The
-// header and the envelope of the effect are asked for in one span, so that they are in one block; no
-// span asked for is larger than a block: the root payload is at most a block of the arena, and the values
-// out of line and the text of a key go into the spans as the tail gives them. The caller appends it after
-// the stores of the write (DeliveryTail.Commit).
+// the writes that publishes it (docs/design/milestone-1-engine-contract.md, "Replication transport and
+// initial loading"). A transaction is one write, since the write batch is not built yet: an insert, a
+// replace or an upsert carries the root it publishes, a delete the key, a write that changed nothing only
+// its position. The header and the envelope of the effect are asked for in one span, so that they are in
+// one block; no span asked for is larger than a block: the root payload is at most a block of the arena,
+// and the values out of line and the text of a key go into the spans as the tail gives them. The caller
+// appends it after the stores of the write (DeliveryTail.Commit).
 internal static class TransactionEncoder
 {
     // A transaction whose one effect carries the root of the entity type of the table. The root is the

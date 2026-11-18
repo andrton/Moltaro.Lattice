@@ -6,11 +6,10 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Children;
 
-// What a master gives the writes its children forward (brief of Epic 1, sprint S12): its write path, the
-// tables of the entity types it stores by the identity of their entity type, the memory limit of its arena,
-// above which the length a request announces is refused at its first frame (the planner's decision after
-// the study, point 13), and what the check of a received root needs (RequestReceiver). One for the master,
-// shared by the receivers of all its connections.
+// What a master gives the writes its children forward: its write path, the tables of the entity types it
+// stores by the identity of their entity type, the memory limit of its arena, above which the length a
+// request announces is refused at its first frame, and what the check of a received root needs
+// (RequestReceiver). One for the master, shared by the receivers of all its connections.
 internal sealed class ForwardedWrites
 {
     private readonly Arena _arena;

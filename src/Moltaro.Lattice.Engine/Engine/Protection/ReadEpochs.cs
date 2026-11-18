@@ -10,14 +10,13 @@ namespace Moltaro.Lattice.Engine.Protection;
 // 3d104a76ec410499545bc7fb39d0e3168f8ee709; MIT licence, Copyright (c) Microsoft Corporation (see
 // THIRD-PARTY-NOTICES.md).
 //
-// The protection of the reads of one database by epochs (the owner's decision of 16 November 2026;
-// arena protocol, "Deferred reclamation, 16 November 2026"). The database has one epoch, a number
-// that only grows, and a table of slots. A read enters by writing the current epoch into a free slot
-// and leaves by clearing it; that slot is the only memory it writes, and no other read writes it
-// while it is held. The one writer retires what a read could still reach, tagged with the current
-// epoch (RetiredMemory), and frees it once every slot is free or holds a later epoch: then every
-// read that entered before it was retired has left. The writer never waits for a read; a read never
-// waits for the writer.
+// The protection of the reads of one database by epochs (docs/design/arena-protocol.md, "Deferred
+// reclamation"). The database has one epoch, a number that only grows, and a table of slots. A read
+// enters by writing the current epoch into a free slot and leaves by clearing it; that slot is the only
+// memory it writes, and no other read writes it while it is held. The one writer retires what a read
+// could still reach, tagged with the current epoch (RetiredMemory), and frees it once every slot is free
+// or holds a later epoch: then every read that entered before it was retired has left. The writer never
+// waits for a read; a read never waits for the writer.
 //
 // What is taken from LightEpoch: the table of padded slots of one instance, sized as LightEpoch sizes
 // it and rounded up to a power of two (below); entering by a compare-and-swap of the current epoch
@@ -28,9 +27,9 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   principles 9 and 10). LightEpoch keeps the slot of a thread in thread-static memory, indexed by
 //   an instance id from a static table of 1,024. Here a read starts its search at the slot of the
 //   processor it runs on and keeps the slot it took in a local, which it gives to Exit: a read
-//   enters and leaves within one call, so it needs no memory of its own between them. Measured in
-//   phase 1 of S08: 9 ns for one enter and leave on one thread, 37 to 44 ns on 20; a thread-static
-//   start measured 8 to 11 and 19 to 24 ns.
+//   enters and leaves within one call, so it needs no memory of its own between them. Measured: 9 ns
+//   for one enter and leave on one thread, 37 to 44 ns on 20; a thread-static start measured 8 to 11
+//   and 19 to 24 ns.
 // - A read leaves by a store with release semantics, not an interlocked exchange: no reader waits
 //   on a semaphore to be woken (LightEpoch's waiters), so nothing has to be read after the store.
 // - A full table is waited out by spinning (Enter), not on a semaphore.
@@ -112,9 +111,9 @@ internal sealed class ReadEpochs
     // and runs no code of the application (Entities.IRootCopy), so every held slot is left within one
     // step of a read; a test that holds reads through HoldNextRead holds each for a bounded time. A
     // waiting read takes part in no refusal and never fails for the wait. The token of an asynchronous
-    // read ends the wait, with OperationCanceledException (brief of S09, part 2, the second finding of
-    // the outside review it carries); it is looked at only after every slot was found held, so a read
-    // that finds a slot, and a synchronous read, which has no token, pay nothing for it.
+    // read ends the wait, with OperationCanceledException; it is looked at only after every slot was
+    // found held, so a read that finds a slot, and a synchronous read, which has no token, pay nothing
+    // for it.
     public int Enter(CancellationToken cancellationToken = default)
     {
         var start = Thread.GetCurrentProcessorId();

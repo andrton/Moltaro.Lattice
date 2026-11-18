@@ -8,15 +8,15 @@ namespace Moltaro.Lattice.Engine.Protection;
 // 3d104a76ec410499545bc7fb39d0e3168f8ee709; MIT licence, Copyright (c) Microsoft Corporation (see
 // THIRD-PARTY-NOTICES.md).
 //
-// What the writes of one database retired and have not freed yet, and the freeing of it (arena
-// protocol, "Deferred reclamation, 16 November 2026"; brief of S08, "Counters and the drain, part
-// 1"). A write that replaces or deletes a root, or grows a primary index, first unlinks the old
-// thing, so that no read that enters afterwards can reach it, and then retires it here, tagged with
-// the current epoch of ReadEpochs. It is freed once no read that entered with that epoch or an
-// earlier one is inside: an old root and the root of a deleted entity go back to the arena, the
-// entry of a deleted entity to the free slots of the table of root entries, and a replaced table of
-// an index is let go of. Until then a retired root counts in ArenaCounters.RetiredBytes, a retired
-// entry in RootTable.Count, and a retired table in IndexBytes.
+// What the writes of one database retired and have not freed yet, and the freeing of it
+// (docs/design/arena-protocol.md, "Deferred reclamation"). A write that replaces or deletes a root, or
+// grows a primary index, first unlinks the old thing, so that no read that enters afterwards can
+// reach it, and then retires it here, tagged with the current epoch of ReadEpochs. It is freed once
+// no read that entered with that epoch or an earlier one is inside: an old root and the root of a
+// deleted entity go back to the arena, the entry of a deleted entity to the free slots of the table
+// of root entries, and a replaced table of an index is let go of. Until then a retired root counts
+// in ArenaCounters.RetiredBytes, a retired entry in RootTable.Count, and a retired table in
+// IndexBytes.
 //
 // Who calls it, and when. Only the thread that holds the lock of the writes (Writes.WriteExecutor),
 // because the arena, the table of root entries and the indexes take no lock and have one writer.
@@ -27,8 +27,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
 //   moves the epoch on and reads every slot, which costs about what reading the slots costs, so the
 //   look is made once for as many retired things as there are slots: about one read of a slot for
-//   each, measured at 50 to 850 ns a look in phase 1 of S08. The bytes bound what one look can
-//   leave unfreed to one segment's worth beside what reads hold, whatever the size of the roots.
+//   each, measured at 50 to 850 ns a look. The bytes bound what one look can leave unfreed to one
+//   segment's worth beside what reads hold, whatever the size of the roots.
 //   They are derived from the table and the arena, not options.
 //   A look sets both counts to zero.
 //   What a look could not free, because a read could still reach it, stays retired: in RetiredBytes
@@ -41,7 +41,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   So after a look that left something behind, the next look comes within one window of writes of
 //   any kind, and what waits between two looks is what reads held at the last look and at most one
 //   window more: bounded by the two thresholds beside what reads hold (docs/design/arena-protocol.md,
-//   "Deferred reclamation, 16 November 2026").
+//   "Deferred reclamation").
 //   What a look could not free does not count toward the next look: under a read held long, it would
 //   keep the counts at the thresholds, and every write would look.
 //   The bytes of a retired root are the slots of its own blocks and those of the entry of every

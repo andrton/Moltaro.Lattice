@@ -4,8 +4,7 @@ using Moltaro.Lattice.Replication.Forwarding;
 namespace Moltaro.Lattice.Engine.Forwarding;
 
 // The writes a child has begun to send to its master and that have no reply yet, by their correlation id,
-// for one connection (brief of Epic 1, sprint S12, the planner's decision after the study, point 3), and
-// the receipt of their replies.
+// for one connection, and the receipt of their replies.
 //
 // A call enters when the sender takes it (ChildSender), before its first frame, so that a reply finds it
 // however soon it comes; it leaves when its reply arrives, or when the connection ends. A reply is checked

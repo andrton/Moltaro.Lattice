@@ -3,9 +3,7 @@ using System.Buffers.Binary;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// Cuts the roots of a load into Blocks frames and sends them (the planner's block of 15 November 2026,
-// "A root larger than a frame", and his decision of 17 November after the study, point 3). The bodies
-// RootAssembler reads on the child:
+// Cuts the roots of a load into Blocks frames and sends them. The bodies RootAssembler reads on the child:
 // - A frame of whole roots: their count, a UInt32, then for each root its length, a UInt64, and its
 //   bytes: the type id and the last mutation sequence of the capture, then what BlockExport writes.
 //   Every root ends in the frame, so the frame carries Protocol.EndsABody. Small roots share a frame:

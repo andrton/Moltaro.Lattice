@@ -4,9 +4,9 @@ using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
-// How a committed transaction travels from a master to its children after LoadEnd (brief of Epic 1,
-// sprint S11; the planner's decision of 17 November 2026 after the study, points 5 to 8). Every number
-// outside a root is little-endian.
+// How a committed transaction travels from a master to its children after LoadEnd
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). Every
+// number outside a root is little-endian.
 //
 // A transaction is its sequence (UInt64), the length of its effects (UInt64), and its effects, one after
 // another until that length:
@@ -21,7 +21,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // transaction begins a frame of its own, each frame holds at most Protocol.MaxDataPayload bytes of it,
 // and its last frame carries Protocol.EndsABody. Its frames are its check: the check of each frame, the
 // announced length, which the frames end exactly, and its sequence, which follows the one before; no
-// digest of its own is built (decided after the study of S11, point 6).
+// digest of its own is built.
 //
 // Applied (FrameKindEnum.Applied), from a child, carries the sequence up to which it has applied all it
 // has received (UInt64).

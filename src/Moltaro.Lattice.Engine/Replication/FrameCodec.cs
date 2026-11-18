@@ -4,12 +4,11 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Replication;
 
-// Writes and reads whole frames of the replication transport, and the bodies of the handshake (brief of
-// Epic 1, sprint S10, "Types and members of S10"; the planner's decision of 17 November 2026 after the
-// study, point 1). A frame is the header of Protocol.HeaderSize bytes (FrameHeader), the payload, and the
-// check of Protocol.CheckSize bytes, the CRC32C of the header and of the payload (FrameCheck). The body
-// length of the header counts the payload and the check, so a frame takes the header and its body
-// length. Write takes the payload, TryRead returns it; neither hands out the check.
+// Writes and reads whole frames of the replication transport, and the bodies of the handshake. A frame
+// is the header of Protocol.HeaderSize bytes (FrameHeader), the payload, and the check of
+// Protocol.CheckSize bytes, the CRC32C of the header and of the payload (FrameCheck). The body length of
+// the header counts the payload and the check, so a frame takes the header and its body length. Write
+// takes the payload, TryRead returns it; neither hands out the check.
 //
 // Every number of the header, of the check and of the bodies written here is little-endian, so that the
 // bytes are the same on every machine and a node of the other byte order can still read a Hello and be

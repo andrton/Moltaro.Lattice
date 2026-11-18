@@ -9,11 +9,11 @@ namespace Moltaro.Lattice.Storage.Hashing;
 //
 // One table from a hash of 32 bits to slots: of a primary index (Engine.Indexes.PrimaryIndex), whose
 // slots are those of root entries, and of the text table (Storage.Text.TextTable), whose slots are those
-// of text entries and which only writes use (brief of Epic 1, sprint S13, the planner's decision after the
-// study, point 3: one bucket table, not written a second time). What follows speaks of the primary
-// index, the user that has readers; the text table is changed and searched under the lock of the writes
-// alone and never read by a read, so for it the stores with release semantics order nothing anyone
-// needs, and it replaces a full table by a grown one without retiring the old one.
+// of text entries and which only writes use: one type for both, not a second bucket table written for
+// the text. What follows speaks of the primary index, the user that has readers; the text table is
+// changed and searched under the lock of the writes alone and never read by a read, so for it the
+// stores with release semantics order nothing anyone needs, and it replaces a full table by a grown
+// one without retiring the old one.
 //
 // A main table of buckets of one cache line, 64 bytes, each of eight
 // words, and the overflow buckets of the same form that its chains link to (OverflowBuckets). The
@@ -34,7 +34,8 @@ namespace Moltaro.Lattice.Storage.Hashing;
 // buckets from an allocator of their own, apart from the main table. What differs, for one writer
 // and the root entries of this engine:
 // - The entry holds the slot of the root entry, not an address: the entry is the stable control
-//   entry of a root (Q16), and an address changes when a root is replaced or moved.
+//   entry of a root (docs/decisions/physical-storage.md, "Stable control entry per root"), and an
+//   address changes when a root is replaced or moved.
 // - It holds the whole 32-bit hash instead of a 15-bit tag beside a 48-bit address, so that a growth
 //   places every entry from the word alone, without reading a root.
 // - No tentative bit, no compare-and-swap and no latch: one writer changes the table, and it writes a
@@ -47,15 +48,15 @@ namespace Moltaro.Lattice.Storage.Hashing;
 //   of a table goes to buckets 2b and 2b + 1 of the table twice its size; Tsavorite splits bucket i
 //   into i and i plus the old size.
 //
-// The capacity policy (review round 1 of S08, part 1). The main table of B buckets grows by the
-// number of entries alone: once it holds 4B entries (MostEntriesPerBucket), the next insert makes a
-// table of 2B. The chains grow by overflow alone: an entry that finds no empty word in its bucket and
-// the overflow buckets linked to it takes a new overflow bucket, and the overflow adds a page when it
-// has none left (OverflowBuckets). So keys of one hash, which no larger main table separates, cost
-// their overflow and no more. With hashes spread evenly, at most 4 entries per bucket on average leave
-// about 5% of the buckets with an overflow, and an index takes 17 to 34 bytes an entry whatever its
-// key type, against 28 to 56 for an Int64 key and 36 to 72 for a Guid or String key in the map of
-// Arc.Collections before S08.
+// The capacity policy. The main table of B buckets grows by the number of entries alone: once it
+// holds 4B entries (MostEntriesPerBucket), the next insert makes a table of 2B. The chains grow by
+// overflow alone: an entry that finds no empty word in its bucket and the overflow buckets linked to
+// it takes a new overflow bucket, and the overflow adds a page when it has none left
+// (OverflowBuckets). So keys of one hash, which no larger main table separates, cost their overflow
+// and no more. With hashes spread evenly, at most 4 entries per bucket on average leave about 5% of
+// the buckets with an overflow, and an index takes 17 to 34 bytes an entry whatever its key type,
+// against 28 to 56 for an Int64 key and 36 to 72 for a Guid or String key in the map of
+// Arc.Collections that the primary index used before this table.
 //
 // The largest main table has 2^27 buckets (MostBucketBits): its 2^30 words are the largest array of
 // longs below Array.MaxLength, and 4 entries a bucket make 2^29 entries. Beyond, the main table no

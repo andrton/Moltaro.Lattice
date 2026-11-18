@@ -2,10 +2,10 @@ using System.Text;
 
 namespace Moltaro.Lattice.Replication;
 
-// The fixed numbers of the replication transport between a master and its children (brief of Epic 1,
-// sprint S10, "Types and members of S10"; the planner's decision of 17 November 2026 after the study of
-// S10, point 1). They are rules of the format, the same on every node, not settings: a node that differs
-// in one of them is another format and is refused in the handshake.
+// The fixed numbers of the replication transport between a master and its children
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). They are
+// rules of the format, the same on every node, not settings: a node that differs in one of them is
+// another format and is refused in the handshake.
 //
 // A frame is a header of HeaderSize bytes and a body of BodyLength bytes. The body is the payload and,
 // in its last CheckSize bytes, the check: the CRC32C of the header and of the payload (FrameCheck). The
@@ -56,9 +56,9 @@ internal static class Protocol
     // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
     // their effects (Replication.Transactions), and the writes a child forwards with their replies
-    // (Replication.Forwarding). Another value is another format. 3 since Epic 1, sprint S12, whose child
-    // forwards its writes on the connection; 2 was S11, whose LoadEnd carries S and R and whose stream
-    // follows the load.
+    // (Replication.Forwarding). Another value is another format. 3 adds to 2 the writes a child forwards
+    // on the connection, with their replies; 2 is the format whose LoadEnd carries S and R and whose
+    // stream follows the load.
     public const int WireFormat = 3;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
@@ -70,8 +70,7 @@ internal static class Protocol
     // The format of the bytes of a root as the sender stores them: the version of the root layout
     // (Storage.RootLayout.LayoutVersion) in the low 16 bits, and BigEndianLayout when the machine stores
     // numbers big-endian. A root travels as the bytes of the arena, so a node of the other byte order
-    // has another layout format and is refused with Format; no conversion is built (the planner's block
-    // of 15 November 2026, "Byte order").
+    // has another layout format and is refused with Format; no conversion is built.
     public static int LayoutFormat => BitConverter.IsLittleEndian ? 1 : 1 | BigEndianLayout;
 
     // The largest body of a frame of the kind, its check included; 0 for a value that is no kind. A

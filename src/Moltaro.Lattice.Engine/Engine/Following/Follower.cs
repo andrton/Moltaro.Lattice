@@ -9,11 +9,10 @@ using Moltaro.Lattice.Replication.Transactions;
 
 namespace Moltaro.Lattice.Engine.Following;
 
-// How a child follows its master after its load (brief of Epic 1, sprint S11; the planner's decision of
-// 17 November 2026 after the study, points 6 to 8, and the coordinator's reading with the tests): it
-// receives the transactions the master sends after LoadEnd, puts each together whole
-// (Replication.Transactions.TransactionAssembler), applies it under its own lock of the writes by the one
-// rule of ReceivedChanges, and tells the master what it has applied.
+// How a child follows its master after its load: it receives the transactions the master sends after LoadEnd,
+// puts each together whole (Replication.Transactions.TransactionAssembler), applies it under its own lock of
+// the writes by the one rule of ReceivedChanges, and tells the master what it has applied
+// (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").
 //
 // Before Ready (CatchUpAsync). The transactions of (S, R] are applied in their order, each received within
 // OpenTimeout, as every part of a load is: the open of the child waits for them. Only then is the child
@@ -25,51 +24,49 @@ namespace Moltaro.Lattice.Engine.Following;
 // it applied (Applied(sequence), once for each burst it received, within a transaction of several frames
 // as well; ApplyNextAsync). It does not send the Applied itself: one task sends on the connection, the
 // sender of the child (Forwarding.ChildSender), which also sends the writes the child forwards; the
-// follower publishes its applied sequence to it and wakes it, and the sender sends the newest one (brief
-// of Epic 1, sprint S12, the planner's decision after the study, point 3, which rewords the rule of S11
-// and keeps its guarantee). Reads go on meanwhile: they are protected by epochs, as on a master, and never
-// wait for an application. Retired memory is freed by the applying thread (ReceivedChanges.Publish).
+// follower publishes its applied sequence to it and wakes it, and the sender sends the newest one. Reads
+// go on meanwhile: they are protected by epochs, as on a master, and never wait for an application.
+// Retired memory is freed by the applying thread (ReceivedChanges.Publish).
 //
-// Replies (S12). The master answers a write the child forwarded with a WriteReply, which may come anywhere
-// in its stream, also between the frames of a transaction; the follower hands each frame of one to the
-// table of the pending requests (Forwarding.PendingRequests), which completes the call once the reply is
-// whole, and goes on. A reply that is not valid is a frame of the master that is not valid.
+// Replies. The master answers a write the child forwarded with a WriteReply, which may come anywhere in its
+// stream, also between the frames of a transaction; the follower hands each frame of one to the table of the
+// pending requests (Forwarding.PendingRequests), which completes the call once the reply is whole, and goes
+// on. A reply that is not valid is a frame of the master that is not valid.
 //
 // What a transaction has to be. Its sequence follows the one before; it is checked by its frames and its
-// announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity
-// type the engine stores, and the root of a Write carries the sequence of its transaction as its last
-// mutation (the coordinator's decision of 17 November 2026), which, with consecutive sequences, keeps an
-// effect not later than the state held from arriving after R. A transaction that is not so is refused
-// whole: nothing of it is applied. Before Ready that fails the open, with ValidationFailed, which the open
-// reports as Unavailable; after Ready the child stops following.
+// announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity type
+// the engine stores, and the root of a Write carries the sequence of its transaction as its last mutation,
+// which, with consecutive sequences, keeps an effect not later than the state held from arriving after R. A
+// transaction that is not so is refused whole: nothing of it is applied. Before Ready that fails the open,
+// with ValidationFailed, which the open reports as Unavailable; after Ready the child stops following.
 //
 // Memory. A transaction the arena of the child cannot hold is applied by the rule of a write refused for
 // memory: what is retired is freed and the transaction is tried again; refused again, the reads that hold
-// retired memory are waited for, what they held is freed, and it is tried once more (the planner's block of
-// 17 November 2026, point 5; ReceivedChanges.Apply). Refused then, it cannot be held: before Ready the open fails with
-// Unavailable; after it the child stops following. So does a transaction announced larger than the memory
+// retired memory are waited for, what they held is freed, and it is tried once more
+// (ReceivedChanges.Apply). Refused then, it cannot be held: before Ready the open fails with Unavailable;
+// after it the child stops following. So does a transaction announced larger than the memory
 // limit of the child, before anything is taken for it.
 //
 // Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
-// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender
-// that failed, the close of the child — ends its connection and keeps serving its reads at the position it
-// has, Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
-// together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
-// write through it is Unavailable and a wait for a position it has not reached ends at once; it ends its
-// side of the connection and the sender; and every write it had sent whole and that has no reply ends in
+// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender that
+// failed, the close of the child — ends its connection and keeps serving its reads at the position it has,
+// Ready; it does not resume by itself (reconnection is not built yet). Nothing of a transaction it was
+// putting together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
+// write through it is Unavailable and a wait for a position it has not reached ends at once; it ends its side
+// of the connection and the sender; and every write it had sent whole and that has no reply ends in
 // IndeterminateOutcome (PendingRequests.Close): the master may have executed it. FollowAsync says at its
 // lines why they come in this order.
 //
-// The frame Closed (decided at the review of S12, point 2). A master that closes in order sends it after
-// every reply it owes and every transaction of its tail: every request not answered before it was not
-// executed and will not be (Children.ChildConnection). The child marks itself without a master, ends every
-// write it sent and has no reply for in Unavailable, not executed (PendingRequests.EndNotExecuted), and
-// stops following as above; it reads nothing after it, so a frame after Closed changes nothing. A Closed
-// with a correlation id is a frame that is not valid, and one with a body the codec refuses
-// (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or a reply is being put
-// together, since a master sends it only after whole ones: the child stops following without it, and its
-// writes sent whole stay IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
-// no statement about what the master executed. A Closed before Ready fails the open.
+// The frame Closed. A master that closes in order sends it after every reply it owes and every transaction of
+// its tail: every request not answered before it was not executed and will not be (Children.ChildConnection).
+// The child marks itself without a master, ends every write it sent and has no reply for in Unavailable, not
+// executed (PendingRequests.EndNotExecuted), and stops following as above; it reads nothing after it, so a
+// frame after Closed changes nothing. A Closed with a correlation id is a frame that is not valid, and one
+// with a body the codec refuses (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or
+// a reply is being put together, since a master sends it only after whole ones: the child stops following
+// without it, and its writes sent whole stay IndeterminateOutcome. So does every other end of the connection:
+// an end of the stream in order alone is no statement about what the master executed. A Closed before Ready
+// fails the open.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
 // transaction that is complete waits, before it is applied, until no suspension is left. The lock that

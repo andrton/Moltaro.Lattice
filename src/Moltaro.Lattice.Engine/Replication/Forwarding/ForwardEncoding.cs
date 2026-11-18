@@ -6,19 +6,19 @@ using Moltaro.Lattice.Access;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
-// The bodies of a write forwarded through a child and of its reply (brief of Epic 1, sprint S12, the
-// planner's block of 15 November 2026, "Forwarding had no frames in the brief", and his decisions after the
-// study, points 1, 3 and 6). Every number is little-endian; a mark of presence is one byte, 0 or 1.
+// The bodies of a write forwarded through a child and of its reply
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). Every
+// number is little-endian; a mark of presence is one byte, 0 or 1.
 //
 // A request: its kind (one byte, the value of Access.WriteKindEnum), the type id of its entity type
 // (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them;
-// always 0 for an insert, decided at the review of S12, point 4), the minimum position (0, or 1, its history and its sequence, each a UInt64), then the key, in the form
-// of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey); a Delete ends there. An
-// insert, a replace and an upsert go on with the length of the root (UInt64) and the root in the load
-// format of S10, as a Blocks frame carries it: type id (UInt32), last mutation sequence (UInt64), which the
-// child writes as 0 and the master stamps when it prepares the write, then what Load.BlockExport writes.
-// The key and the root are written and read by the engine with the entity type they belong to; here are
-// the parts around them.
+// always 0 for an insert), the minimum position (0, or 1, its history and its sequence, each a UInt64),
+// then the key, in the form of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey);
+// a Delete ends there. An insert, a replace and an upsert go on with the length of the root (UInt64) and
+// the root in the load format, as a Blocks frame carries it: type id (UInt32), last mutation sequence
+// (UInt64), which the child writes as 0 and the master stamps when it prepares the write, then what
+// Load.BlockExport writes. The key and the root are written and read by the engine with the entity type
+// they belong to; here are the parts around them.
 //
 // A reply: 0 and a result — its position, history and sequence, and Changed (one byte, 0 or 1) — or 1 and
 // a refusal: its error (Int32, LatticeErrorEnum), its message (the length of its UTF-8, UInt32, and that

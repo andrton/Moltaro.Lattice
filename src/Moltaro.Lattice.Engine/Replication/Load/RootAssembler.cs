@@ -3,9 +3,8 @@ using System.Buffers.Binary;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// Puts the roots of a load together on a child from the Blocks frames RootFramer cut them into (the
-// planner's block of 15 November 2026, "A root larger than a frame", and his decision of 17 November
-// after the study, point 3). Each root it completes it hands out whole, as the bytes after its length.
+// Puts the roots of a load together on a child from the Blocks frames RootFramer cut them into. Each root
+// it completes it hands out whole, as the bytes after its length.
 //
 // What it checks of a frame, before any root of it is used:
 // - While no root is in progress, the frame is a frame of roots: a count of at least one, then for each

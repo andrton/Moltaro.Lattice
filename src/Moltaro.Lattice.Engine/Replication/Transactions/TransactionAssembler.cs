@@ -4,10 +4,9 @@ using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
-// Puts the transactions a child receives together from their Transaction frames (TransactionFormat; the
-// planner's decision of 17 November 2026 after the study of S11, point 6), one at a time, and hands out
-// each whole: its sequence and its effects. Whether the sequence follows the one before, and what the
-// effects hold, is the applier's (Engine.Following).
+// Puts the transactions a child receives together from their Transaction frames (TransactionFormat), one
+// at a time, and hands out each whole: its sequence and its effects. Whether the sequence follows the one
+// before, and what the effects hold, is the applier's (Engine.Following).
 //
 // What it checks of a frame, before any of it is used:
 // - While no transaction is in progress, the frame begins one: its sequence and the length of its
@@ -22,7 +21,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // A transaction of one frame is handed out where it lies, in the payload of its frame, so it is valid only
 // until the next frame is received. One of several frames is collected in a TransferBuffer, which takes
 // the pieces it needs as its bytes arrive and keeps them for the next large one: a child holds one
-// transaction at a time outside its arena (brief of S11, the planner's block of 15 November 2026).
+// transaction at a time outside its arena.
 internal sealed class TransactionAssembler
 {
     private readonly TransferBuffer _large = new();

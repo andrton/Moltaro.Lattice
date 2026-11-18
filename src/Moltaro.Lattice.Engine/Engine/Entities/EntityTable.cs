@@ -15,6 +15,13 @@ using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
+// The entities of one entity type in an open database: the root layout they are stored with, the
+// primary index that finds them, and the reads by key and by enumeration, inside the protection of
+// reads by epochs (Protection.ReadEpochs; docs/design/arena-protocol.md, "Deferred reclamation").
+// The write executor changes the index and the root entries under the lock of the writes; this class
+// says how reads read them while it does. A write being prepared looks its key up under that lock
+// (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
+//
 // The stamp of a root entry, read here (TakeEntry) and written by Writes.WriteExecutor. A read takes
 // the state, the root and the sequence of the last mutation of an entry as one state, without a lock,
 // while the one thread that holds the lock of the writes changes the entry:
@@ -35,21 +42,13 @@ namespace Moltaro.Lattice.Engine.Entities;
 // (THIRD-PARTY-NOTICES.md); docs/design/arena-protocol.md, "The stamp of a root entry", says what differs
 // and why. The rest of the type is the engine's own.
 //
-// The entities of one entity type in an open database: the root layout they are stored with, the
-// primary index that finds them, and the reads by key and by enumeration, inside the protection of
-// reads by epochs (Protection.ReadEpochs; arena protocol, "Deferred reclamation, 16 November 2026").
-// The write executor changes the index and the root entries under the lock of the writes; this class
-// says how reads read them while it does. A write being prepared looks its key up under that lock
-// (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
-//
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
-// type the engine cannot store yet gets no layout (the planner's answer to point 1 of Q35), every
-// write of it is refused with NotSupportedException, a read of it by key finds nothing and an
-// enumeration of it is empty (brief of S06, "What is refused until a later sprint"). From S07 every
-// key type of the catalog is stored; a String key is equal to another, and hashed, under the
-// comparison its field declares, by the comparison of the schema (Comparison.ValueComparer). From S13 a
-// String key may have Dictionary storage, as any String field may: the root then names the entry of its
-// text in the text table, and the comparison reads the text there, as a read reads it.
+// type the engine cannot store yet gets no layout, every write of it is refused with
+// NotSupportedException, a read of it by key finds nothing and an enumeration of it is empty. Every key
+// type of the catalog is stored; a String key is equal to another, and hashed, under the comparison its
+// field declares, by the comparison of the schema (Comparison.ValueComparer). A String key may have
+// Dictionary storage, as any String field may: the root then names the entry of its text in the text
+// table, and the comparison reads the text there, as a read reads it.
 //
 // A read by key, in its order. It enters the protection of reads, takes no lock and writes nothing
 // but its slot of the protection:
@@ -65,7 +64,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // 3. A live root is copied whole, with every block it owns, into memory of the engine
 //    (IRootCopy.Copy): the blocks of a published root never change, and a root that a write
 //    replaced or deleted is retired, not freed, until the read has left, so the copy is one state
-//    (Q06.1), never memory that was freed or given to another root.
+//    (docs/decisions/memory-and-access.md), never memory that was freed or given to another root.
 // 4. It leaves the protection. The caller builds its result from the copy (IRootCopy.Build), and
 //    only then does code of the application run. A read allocates the returned copy and nothing else.
 // A deleted entry is released, and its slot given to another root, only after the reads that could
@@ -85,7 +84,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // holds (EntityPass), managed memory of the enumeration. A step is made of rounds, each inside the
 // protection of reads, which it enters and leaves, and each walking at most WordsPerRound words of
 // the index, so that no round holds back what writes retire for longer than a bounded piece of work,
-// however many entries a step has to pass, as after a growth (review round 1 of S08, part 2). A round:
+// however many entries a step has to pass, as after a growth. A round:
 // 1. It looks at the time limit of a read, then takes the current table of the index with its version.
 //    A version other than the one its position belongs to means that the index grew since, and the
 //    walk starts again at the start of the new table: a growth places every entry anew, so a position
@@ -212,8 +211,8 @@ internal sealed class EntityTable
     public void Presize(long count) => _index!.Presize(count);
 
     // The key a root stores, in the form the index takes it, hashed under the seed of this instance: for
-    // the loader of a child, which builds its index from the keys it receives (the planner's block of 17
-    // November 2026, point 5). The root is one the caller placed and holds under the lock of the writes.
+    // the loader of a child, which builds its index from the keys it receives. The root is one the caller
+    // placed and holds under the lock of the writes.
     public EntityKey StoredKey(in RootReader stored)
     {
         var field = EntityType.Key;
@@ -295,7 +294,7 @@ internal sealed class EntityTable
     // (Replication.Transactions.TransactionFormat), in the form WriteKey writes and ReadKey reads: an
     // integer key as the 64 bits of EntityKey.Integer, a Guid key as its 16 bytes in the order of
     // Guid.TryWriteBytes, a String key as the length of its UTF-8 (UInt32) and that UTF-8; numbers
-    // little-endian. The text of a key is well-formed, as the core checked it (Q41), so it has its UTF-8.
+    // little-endian. The text of a key is well-formed, as the core checked it, so it has its UTF-8.
     public int KeyLength(in EntityKey key) => KeyKind switch
     {
         KeyKindEnum.Integer => sizeof(long),
@@ -520,8 +519,8 @@ internal sealed class EntityTable
     // from a call that would exceed a read limit and from every call after it (EntityPass). The token
     // of an asynchronous enumeration ends the wait of a round for a slot of the protection, and each
     // round looks at it before it looks at the limits, so a cancellation is reported before a limit is
-    // and takes effect between two rounds (brief of S09, part 2, the second finding of the outside
-    // review it carries); OperationCanceledException then, with the pass as it was before the call.
+    // and takes effect between two rounds; OperationCanceledException then, with the pass as it was
+    // before the call.
     public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
@@ -706,18 +705,17 @@ internal sealed class EntityTable
         return null;
     }
 
-    // The hash of a key in the index, under the seed the instance drew when it opened (the planner's
-    // answer to Q50), so that nobody who does not know the seed can choose keys that share a hash and
-    // lengthen one chain of the index, and the index depends on nothing a process sets. For a String,
-    // the seeded hash of the comparison its field declares (Comparison.ValueComparer.TextHash),
-    // computed with the key. For an integer, held as a long, and for a Guid, all its bits mixed by the
-    // finalizer of MurmurHash3 (Mix), the seed mixed in by an exclusive or before the finalizer, into
-    // the integer and into the second half of the Guid: Int64.GetHashCode and Guid.GetHashCode are the
-    // exclusive or of the halves or the quarters of the value, which keys of a structure share
-    // systematically, such as (shard << 32) | id or (i << 32) | i, all of hash 0 (review round 1 of
-    // S08, part 1). Under the seed 0 a key enters the finalizer unchanged. Keys that are one key
-    // (KeysEqual) have one hash, so the coordinator of the writes compares the entities of two writes
-    // by it before it compares their keys (Writes.PendingWrite.IsOfSameEntity).
+    // The hash of a key in the index, under the seed the instance drew when it opened, so that nobody who
+    // does not know the seed can choose keys that share a hash and lengthen one chain of the index, and the
+    // index depends on nothing a process sets. For a String, the seeded hash of the comparison its field
+    // declares (Comparison.ValueComparer.TextHash), computed with the key. For an integer, held as a long,
+    // and for a Guid, all its bits mixed by the finalizer of MurmurHash3 (Mix), the seed mixed in by an
+    // exclusive or before the finalizer, into the integer and into the second half of the Guid:
+    // Int64.GetHashCode and Guid.GetHashCode are the exclusive or of the halves or the quarters of the value,
+    // which keys of a structure share systematically, such as (shard << 32) | id or (i << 32) | i, all of
+    // hash 0. Under the seed 0 a key enters the finalizer unchanged. Keys that are one key (KeysEqual) have
+    // one hash, so the coordinator of the writes compares the entities of two writes by it before it compares
+    // their keys (Writes.PendingWrite.IsOfSameEntity).
     public uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)
@@ -819,16 +817,14 @@ internal sealed class EntityTable
         return true;
     }
 
-    // For the capture of a load on a master (Children.Capture), inside the protection of reads the
-    // caller entered, while the master goes on writing (brief of Epic 1, sprint S11): takes the entry as
-    // one state, by its stamp, as a read does (TryCopy), and returns true with its root and the sequence
-    // of its last mutation when the root is live. The caller reaches the entry by its slot in the root
-    // table, not through an index (the planner's block of 17 November 2026, point 3), so it meets entries
-    // no read meets: a slot that was never published, that a write took for an insert and has not
-    // published yet, or that a write gave back when it was refused or withdrawn, is Free or Prepared, and
-    // its stamp is 0, the mark of a write in progress, which a slot given back keeps for good. Such an
-    // entry holds no live root, so its state is looked at first, and the stamp is taken only of an entry
-    // that holds one.
+    // For the capture of a load on a master (Children.Capture), inside the protection of reads the caller
+    // entered, while the master goes on writing: takes the entry as one state, by its stamp, as a read does
+    // (TryCopy), and returns true with its root and the sequence of its last mutation when the root is live.
+    // The caller reaches the entry by its slot in the root table, not through an index, so it meets entries
+    // no read meets: a slot that was never published, that a write took for an insert and has not published
+    // yet, or that a write gave back when it was refused or withdrawn, is Free or Prepared, and its stamp is
+    // 0, the mark of a write in progress, which a slot given back keeps for good. Such an entry holds no live
+    // root, so its state is looked at first, and the stamp is taken only of an entry that holds one.
     //
     // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
     // insert writes the root and the sequence of a new entry and only then stores the state Live, by a
@@ -872,8 +868,8 @@ internal sealed class EntityTable
                 // A write of this root is between its stores, which take a few nanoseconds and wait
                 // for nothing: the read backs off until the write has stored its sequence. A
                 // publication that failed between its stores never stores it, and it faulted the
-                // database: the read then reports Unavailable instead of retrying (brief of S09, "A
-                // fault during publication and the reads that retry"). Only this retry looks.
+                // database: the read then reports Unavailable instead of retrying. Only this retry
+                // looks.
                 if (epochs.IsFaulted)
                 {
                     epochs.ThrowForState();

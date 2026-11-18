@@ -2,11 +2,10 @@ using System.Buffers.Binary;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// The payload of LoadEnd (the planner's decisions of 17 November 2026 after the studies of S10, point 3,
-// and of S11, point 4): the capture start S, its readiness position R, read after the last root
-// was copied, and the number of roots the master sent, each a UInt64, little-endian. The transactions
-// after S follow LoadEnd on the same connection, and the child is Ready once it has applied R. A child
-// whose count of roots differs fails its open.
+// The payload of LoadEnd: the capture start S, its readiness position R, read after the last root was
+// copied, and the number of roots the master sent, each a UInt64, little-endian. The transactions after
+// S follow LoadEnd on the same connection, and the child is Ready once it has applied R. A child whose
+// count of roots differs fails its open.
 internal readonly record struct LoadEndBody(ulong CaptureStart, ulong Readiness, ulong Roots)
 {
     public void WriteTo(Span<byte> payload)
