@@ -24,19 +24,21 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 //    the entity in the load format, which the root writer writes without the arena of the child
 //    (Storage.RootWriter, "A root for a forwarded write"; point 1). No timeout travels (point 9).
 // 3. The queue of the sender of the connection (ChildSender), unless the child has no connection to its
-//    master: then Unavailable, not executed. Until the sender takes it, the token withdraws the call; then
-//    the call waits for the real outcome.
+//    master: then Unavailable, not executed. The sender is looked for before the request is encoded, and a
+//    call it refuses to queue leaves no registration on the token, so that a refused write keeps nothing
+//    reachable (decided at the review of S12, point 4). Until the sender takes it, the token withdraws the
+//    call; then the call waits for the real outcome.
 // 4. The reply. A refusal of the master is thrown as the master gave it. A result is waited for until this
 //    child has applied its position, on the clock of the child, bounded by the SynchronizationTimeout of
 //    the session when it sets one, otherwise by the option; then the session moves to the position, and
 //    the call returns. The reply comes before the transaction of the write (Children.ChildConnection), so
 //    the wait begins before the child can have applied it.
 //
-// The wait for the application ends otherwise: at the timeout, or at once when the child lost its master,
-// in SynchronizationTimeout with the committed position, since the write is committed and must not be
-// repeated; at the close of the child, with the result, since a closed child serves no read (point 8); on
-// a child that faulted, in Unavailable with the committed position. The session moves to the committed
-// position in each of these.
+// The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
+// or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
+// not be repeated, and an application retries on Unavailable (settled by the planner with the
+// implementation of S12, point 1); at the close of the child, with the result, since a closed child serves
+// no read (point 8). The session moves to the committed position in each of these.
 //
 // What the end of the connection does to a call is the sender's and the table's (ChildSender,
 // PendingRequests): not sent whole, Unavailable; sent whole and not answered, IndeterminateOutcome, unless
@@ -103,13 +105,21 @@ internal sealed class Forwarder
             _clock.CheckHistory(position);
         }
 
+        if (_sender is not { } sender)
+        {
+            throw NoMaster();
+        }
+
         var call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, minimumPosition));
 
         call.WithdrawOn(cancellationToken);
 
-        if (_sender is not { } sender || !sender.TryQueue(call))
+        // The sender ended since it was read: the call ends here, and its registration with it.
+        if (!sender.TryQueue(call))
         {
-            throw new LatticeException(LatticeErrorEnum.Unavailable, "This child has no connection to its master: the write was not executed.");
+            call.TryEnd();
+
+            throw NoMaster();
         }
 
         var reply = await call.Outcome.ConfigureAwait(false);
@@ -133,6 +143,9 @@ internal sealed class Forwarder
 
         return result;
     }
+
+    private static LatticeException NoMaster() =>
+        new(LatticeErrorEnum.Unavailable, "This child has no connection to its master: the write was not executed.");
 
     // The request of the write (see the class, step 2).
     private static OutgoingMessage Request(EntityTable table, WriteKindEnum kind, in EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
@@ -177,8 +190,10 @@ internal sealed class Forwarder
         }
         catch (LatticeException exception)
         {
+            // The timeout, the loss of the master or a fault of the child: the position does not arrive
+            // in time, or cannot arrive (see the class).
             throw new LatticeException(
-                exception.Error,
+                LatticeErrorEnum.SynchronizationTimeout,
                 $"The write is committed by the master at position {committed}, but this child has not applied it: {exception.Message} It is not rolled back; do not submit it again. An operation that requires this position will see it.",
                 exception)
             {

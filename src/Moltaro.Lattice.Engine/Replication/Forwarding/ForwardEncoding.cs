@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // study, points 1, 3 and 6). Every number is little-endian; a mark of presence is one byte, 0 or 1.
 //
 // A request: its kind (one byte, the value of Storage.WriteKindEnum), the type id of its entity type
-// (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them),
-// the minimum position (0, or 1, its history and its sequence, each a UInt64), then the key, in the form
+// (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them;
+// always 0 for an insert, decided at the review of S12, point 4), the minimum position (0, or 1, its history and its sequence, each a UInt64), then the key, in the form
 // of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey); a Delete ends there. An
 // insert, a replace and an upsert go on with the length of the root (UInt64) and the root in the load
 // format of S10, as a Blocks frame carries it: type id (UInt32), last mutation sequence (UInt64), which the
@@ -87,6 +87,13 @@ internal static class ForwardEncoding
             }
 
             revision = new LatticeRevision((ulong)high, (ulong)low);
+
+            // An insert has no condition but an absent key: the write path would take one with a revision
+            // for a replace.
+            if ((WriteKindEnum)kind == WriteKindEnum.Insert)
+            {
+                throw Invalid("A forwarded insert carries an expected revision, which no insert has.");
+            }
         }
 
         var position = ReadPosition(ref body, "its minimum position");

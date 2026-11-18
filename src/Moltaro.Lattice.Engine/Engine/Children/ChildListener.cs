@@ -74,11 +74,12 @@ internal sealed class ChildListener
 
     // Listens at the address and starts to accept. The host names the network interface: an IP address,
     // or a name that the system resolves, whose first address is taken. A failure to listen, a port in
-    // use for one, is the SocketException the system reports, and nothing is left open.
+    // use for one or a name that resolves to no address, is the SocketException the system reports, and
+    // nothing is left open.
     public static ChildListener Start(Uri listenUri, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout)
     {
         var host = listenUri.DnsSafeHost;
-        var address = IPAddress.TryParse(host, out var literal) ? literal : Dns.GetHostAddresses(host)[0];
+        var address = IPAddress.TryParse(host, out var literal) ? literal : FirstAddress(host);
         var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
         ChildListener listener;
 
@@ -101,6 +102,11 @@ internal sealed class ChildListener
 
         return listener;
     }
+
+    // The first address the system resolves the name to; a name it resolves to none is refused as one it
+    // does not know.
+    private static IPAddress FirstAddress(string host) =>
+        Dns.GetHostAddresses(host) is [var first, ..] ? first : throw new SocketException((int)SocketError.HostNotFound);
 
     // Stops the listener (see the class), once the admitted writes of the master have ended. A second call
     // stops nothing more and completes when the connections have ended.

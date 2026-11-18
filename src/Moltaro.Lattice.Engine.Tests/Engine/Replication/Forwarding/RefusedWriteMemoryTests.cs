@@ -15,7 +15,7 @@ public sealed class RefusedWriteMemoryTests
 
     private const int Mebibyte = 1024 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    [Fact]
     public async Task Writes_a_child_without_a_master_refuses_keep_nothing_reachable_from_a_live_token()
     {
         var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

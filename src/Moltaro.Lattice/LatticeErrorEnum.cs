@@ -97,10 +97,11 @@ public enum LatticeErrorEnum
     /// set, the master has committed the write, and only its arrival on this node is late.
     /// </summary>
     /// <remarks>
-    /// On a child that has lost its master the wait ends at once, because the position cannot
-    /// arrive. A write through the child that has its reply and waits for the child to apply it
-    /// ends so when the connection ends, with <see cref="LatticeException.CommittedPosition"/>
-    /// set: the write is committed and must not be repeated.
+    /// On a child that has lost its master or has faulted the wait ends at once, because the
+    /// position cannot arrive. A write through the child that has its reply and waits for the
+    /// child to apply it ends so when the connection ends, with
+    /// <see cref="LatticeException.CommittedPosition"/> set: the write is committed and must not
+    /// be repeated.
     /// </remarks>
     SynchronizationTimeout = 11,
 

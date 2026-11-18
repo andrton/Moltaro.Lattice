@@ -28,7 +28,7 @@ public sealed class MalformedRequestTests
         new("a root with a descriptor that does not match its length"),
         new("a root whose type id is not the one of the request"),
         new("a root whose last mutation is not 0"),
-        new("an insert that carries an expected revision") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
+        new("an insert that carries an expected revision"),
     ];
 
     [Theory]

@@ -19,15 +19,16 @@ namespace Moltaro.Lattice.Engine.Children;
 // do the requests, one at a time.
 //
 // What is checked, before anything of a request is used. The correlation id of each request is the one
-// after the id of the request before, from 1: 0 stays the load and the stream, and an id given again
-// would be one still in flight. The frames of a request (MessageAssembler). Its body (ForwardEncoding): a
-// kind of write, an entity type the engine stores, a key of that type, and for an insert, a replace or an
-// upsert a root of its entity type and a last mutation of 0, which passes the check a child makes of a root
-// received in a load (Replication.Load.BlockImport.Check), and whose key is the key of the request, the
-// text of a String key code unit for code unit. That and the conditions of the write path are everything
-// the master checks again (point 1): the values of the root were validated by the child, which is the same
-// engine with the schema the handshake agreed, as a child trusts a master's in a load. A request that fails
-// a check is a defect of the peer: nothing of it is executed, and the connection ends (ValidationFailed).
+// after the id of the request before, from 1: 0 stays the load and the stream, and an id given again would
+// be one still in flight. The frames of a request (MessageAssembler). Its body (ForwardEncoding): a kind
+// of write, no expected revision for an insert, an entity type the engine stores, a key of that type, and
+// for an insert, a replace or an upsert a root of its entity type and a last mutation of 0, which passes
+// the check a child makes of a root received in a load (Replication.Load.BlockImport.Check), and whose key
+// is the key of the request, the text of a String key code unit for code unit. That and the conditions of
+// the write path are everything the master checks again (point 1): the values of the root were validated
+// by the child, which is the same engine with the schema the handshake agreed, as a child trusts a
+// master's in a load. A request that fails a check is a defect of the peer: nothing of it is executed, and
+// the connection ends (ValidationFailed).
 //
 // The one answer without a check of the body: a request announced longer than the memory limit of the
 // master is refused at its first frame with WriteRejected and Limit Memory, its other frames are dropped
