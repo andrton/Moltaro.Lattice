@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // points: shown by real failures of a preparation). Of the three the planner names, a refusal of the
 // arena is stated by RefusedWriteTests and a cancelled write by DispatchTests; this is the third, a
 // failure while the values are encoded. No value reaches the writer of the engine that it refuses
-// while it encodes: the validation of the core refuses every such value first (Writes.RootValues,
+// while it encodes: the validation of the core refuses every such value first (Entities.RootValues,
 // Storage.RootWriter). What fails there is the native allocator, met inside a Set… member of the
 // writer when the arena needs a new segment for a chunk of the value; its OutOfMemoryException passes
 // through after the member has freed what it took (Storage.RootWriter). The database is opened with an

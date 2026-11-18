@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Writes;
+namespace Moltaro.Lattice.Engine.Entities;
 
 // Sets the fields of a root from the values a write took of an object or a record: one value for
 // each field, by LatticeField.Ordinal, in the form LatticeValueDeclaration.ValueType gives. The
