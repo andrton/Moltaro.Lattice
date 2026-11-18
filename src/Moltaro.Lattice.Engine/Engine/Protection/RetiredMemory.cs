@@ -32,9 +32,9 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   They are derived from the table and the arena, not options. And while the last look left things
 //   behind that a read in progress could still reach, the writer looks after every group published,
 //   whatever its writes retired, so that what a read kept from a look is freed by the first write
-//   published after the read has left, also by a write that retires nothing (arena protocol,
-//   "Deferred reclamation, 16 November 2026": what waits between two looks is bounded by the two
-//   thresholds beside what reads hold). The bytes of a retired root are
+//   published after the read has left, also by a write that retires nothing
+//   (docs/design/arena-protocol.md, "Deferred reclamation, 16 November 2026": what waits between two
+//   looks is bounded by the two thresholds beside what reads hold). The bytes of a retired root are
 //   the slots of its own blocks and those of the entry of every Dictionary text it names: an entry
 //   whose last reference lies in retired roots stays live until the drain frees them, and is freed
 //   with them, so it waits for the same look. A text that other roots share is counted for each

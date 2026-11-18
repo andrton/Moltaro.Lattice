@@ -334,7 +334,8 @@ internal sealed class TextTable
     // twice the length, 4 for an empty array, and at most the longest array of .NET (Array.MaxLength).
     // False when no longer array can be had. A doubling past 2^30 slots does not fit an int, and the
     // array is never cut short for it: a table that cannot grow refuses the entry (TryAdd). A limit of
-    // the structure, not an option (milestone contract, "Collections and strings").
+    // the structure, not an option (docs/design/milestone-1-engine-contract.md, "Collections and
+    // strings").
     public static bool TryGrowSlots(int length, out int grown)
     {
         grown = (int)Math.Min(Math.Max(4L, 2L * length), Array.MaxLength);

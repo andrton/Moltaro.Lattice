@@ -516,9 +516,9 @@ internal sealed class WriteCoordinator
     // outside the barrier: ObjectDisposedException after the close; for the session, HistoryMismatch.
     //
     // The session is bound to the history of this database here, when the write is admitted and before
-    // it runs (PositionClock.Bind; decision on session consistency, points 4 and 7): a session of another
-    // history, and an empty one that another database bound first, is refused before anything is
-    // executed. So the session of a write that committed is of this history, and moving it to the
+    // it runs (PositionClock.Bind; docs/decisions/session-consistency.md, points 4 and 7): a session of
+    // another history, and an empty one that another database bound first, is refused before anything
+    // is executed. So the session of a write that committed is of this history, and moving it to the
     // position of the write cannot fail: the result of a commit is never replaced by a failure of the
     // session (Outcome, Deliver).
     private bool TryEnter(LatticeSession? session, CancellationToken cancellationToken, out ValueTask waited, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out Exception? refusal)
