@@ -69,7 +69,7 @@ public sealed class CreateTests
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            MasterUri = MasterAndChild.Loopback,
+            MasterUri = new Uri("lattice://127.0.0.1:7400"),
         });
 
         Assert.Equal(LatticeDatabaseStateEnum.Created, master.State);
