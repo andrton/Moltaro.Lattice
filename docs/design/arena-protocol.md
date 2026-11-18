@@ -123,6 +123,47 @@ retired memory on the path of its own operations, as the mechanism it follows do
 starts no thread and no timer for it. A database nobody uses may therefore hold the last
 retired memory until its next operation or its close.
 
+## The stamp of a root entry
+
+A read by key and the capture of a load take the state, the root and the sequence of the
+last mutation of a root entry as one state, without a lock, while the publishing thread
+changes the entry. The stamp of the entry is the sequence of its last mutation, and one
+value, 0, which no published write has, is no stamp but the mark of a write in progress. A
+write stores the mark, then the new state or root, then its own sequence as the new stamp,
+each store with release semantics. A read loads the stamp with acquire semantics and backs
+off while it finds the mark, loads the state and the root with acquire semantics, and loads
+the stamp again: the same stamp both times is one state, another one means that a write came
+between, and the read takes the entry again. The reader's half is in
+`Engine/Entities/EntityTable.cs`, the writer's in `Engine/Writes/WriteExecutor.cs`.
+
+The protocol is that of `SeqLock` of crossbeam (`crossbeam-utils/src/atomic/seq_lock.rs`) and
+of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
+`a28f40fdddb70bea8e5faf0efad9af0be4b9dbea`. What differs, and why:
+
+- The word is the sequence of the last mutation of the entry, so the stamp is the sequence
+  that names the state copied, and the read loads no word besides the one it takes for its
+  revision; the entry has no room for a word of its own, since it stays at 48 bytes. The mark
+  is 0 where the source's is 1: no published write has the sequence 0. The new stamp is the
+  sequence of the write where the source's is the old stamp plus 2: sequences only grow, so
+  neither repeats a stamp a read holds.
+- The source loads the data with volatile loads, which order nothing, and puts an acquire
+  fence before a relaxed second load of the stamp. Here each load of the data is itself an
+  acquire, which keeps the second load of the stamp after it, as the fence does; and each
+  store of the writer is a release, so the store of the data keeps the store of the mark
+  before it, as the release fence after the source's swap does.
+- The source's writers take the lock by a swap with acquire semantics, because several
+  contend for it; here one thread publishes, under the lock of the writes, and stores the
+  mark.
+- The source's read, after one failed attempt, takes the lock of the writers so that writers
+  do not starve it. A read here takes no lock and writes nothing but its slot of the
+  protection, so it tries again: at once after a failed validation, and while it finds the
+  mark after a back-off by `SpinWait`, which spins, then gives up the processor, as the
+  source's `Backoff.snooze` does for a writer that finds the lock held.
+- The source has a write that releases the lock without a new stamp (abort). A write here
+  stops between its stores only when its publication fails, which allocates nothing and does
+  no I/O, so only a fault injected by a test or a defect fails it; that faults the database,
+  and a read that retries on the mark gives up with Unavailable.
+
 ## Read and mutation paths
 
 An ordinary copy read claims the root, acquires protection, copies scalar fields,

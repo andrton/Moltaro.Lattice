@@ -18,7 +18,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
 // project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
 // The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md). Entities.EntityTable, whose reads
-// they pair with, says what is taken and what differs. The rest of the type is the engine's own.
+// they pair with, describes the protocol, and docs/design/arena-protocol.md, "The stamp of a root
+// entry", says what differs from the source. The rest of the type is the engine's own.
 //
 // What a write does to the engine: its preparation and its publication, for the write coordinator,
 // which decides when each runs and calls every member of this class under the lock of the writes
