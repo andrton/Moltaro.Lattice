@@ -5,15 +5,13 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // value is refused by the validation of a write like every other invalid value: ValidationFailed with
 // the field named, for an object and for a record, at every depth, before the conditions of the write
 // are looked at and before the write is refused as not implemented. The validation of the core makes
-// the check, at a write and when an operation is added to a batch, so it holds on the placeholder and
-// on the engine alike, and for an entity type the engine does not store yet. Such text is never
+// the check, at a write and when an operation is added to a batch, so it holds also for an entity type
+// the engine does not store yet. Such text is never
 // stored and never replaced by another character, and a stored entity stays as it was.
 //
-// Where an entity type can be written today: in a UTF-8 schema, an entity type of scalar fields. No
-// entity type with an owned value or a collection is written yet on either implementation, and the
-// placeholder writes none in a UTF-16 schema or with an enum field, so there the tests state that the
-// validation comes before the refusal. The engine stores the last two from Epic 1, sprint S07, and
-// their cases on the engine are stated by Utf16DatabaseTests and EnumFieldTests.
+// No entity type with an owned value or a collection is written yet, so there the tests state that the
+// validation comes before the refusal. The cases of a UTF-16 schema and of an enum field are stated by
+// Utf16DatabaseTests and EnumFieldTests.
 public sealed class MalformedTextWriteTests
 {
     // A surrogate without its pair, in its forms.
@@ -37,21 +35,16 @@ public sealed class MalformedTextWriteTests
         ["a field of an owned value in a List"] = ("City", (schema, text) => HolderRecord(schema, place: text), text => new Holder { Places = [new Address { City = text }] }),
     };
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndForms =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
-        from form in Forms.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, form);
+    public static IEnumerable<TheoryDataRow<string>> FormCases =>
+        Forms.Keys.Select(form => new TheoryDataRow<string>(form));
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndDepths =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
-        from depth in Depths.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, depth);
+    public static IEnumerable<TheoryDataRow<string>> DepthCases =>
+        Depths.Keys.Select(depth => new TheoryDataRow<string>(depth));
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Write_of_text_that_is_not_well_formed_is_ValidationFailed_with_the_field_named_whatever_else_is_wrong_with_it(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Write_of_text_that_is_not_well_formed_is_ValidationFailed_with_the_field_named_whatever_else_is_wrong_with_it()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         await users.InsertAsync(new User { Id = 1, Name = "Ada", Email = "ada@example.org" });
@@ -96,10 +89,10 @@ public sealed class MalformedTextWriteTests
     }
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndForms))]
-    public async Task Every_form_of_a_surrogate_without_its_pair_is_refused_and_a_pair_in_its_order_is_stored(DatabaseImplementationEnum implementation, string form)
+    [MemberData(nameof(FormCases))]
+    public async Task Every_form_of_a_surrogate_without_its_pair_is_refused_and_a_pair_in_its_order_is_stored(string form)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         var bad = Forms[form];
@@ -116,26 +109,11 @@ public sealed class MalformedTextWriteTests
         Assert.Equal("a😀b", users.Get(4)!.Email);
     }
 
-    [Fact]
-    public async Task Text_that_is_not_well_formed_in_a_schema_of_the_UTF16_encoding_is_refused_before_the_write_is_refused_as_not_implemented()
-    {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Placeholder, NoteSchema("Utf16", ""));
-        await ExpectValidatedBeforeTheRefusalAsync(database);
-    }
-
-    [Fact]
-    public async Task Text_that_is_not_well_formed_in_an_entity_type_that_is_not_stored_yet_is_refused_before_the_write_is_refused_as_not_implemented()
-    {
-        // An enum field: the placeholder does not store such an entity type.
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Placeholder, NoteSchema("Utf8", """, { "Id": 3, "Name": "Level", "Type": "Enum", "Enum": "Level" }"""));
-        await ExpectValidatedBeforeTheRefusalAsync(database);
-    }
-
     [Theory]
-    [MemberData(nameof(ImplementationsAndDepths))]
-    public async Task Text_that_is_not_well_formed_at_any_depth_is_refused_before_the_write_is_refused_as_not_implemented(DatabaseImplementationEnum implementation, string depth)
+    [MemberData(nameof(DepthCases))]
+    public async Task Text_that_is_not_well_formed_at_any_depth_is_refused_before_the_write_is_refused_as_not_implemented(string depth)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, HolderSchema());
+        await using var database = await TestDatabases.OpenMasterAsync(HolderSchema());
         var holders = database.Set<Holder>();
         var holderRecords = database.Set("Holder");
         var (field, record, entity) = Depths[depth];
@@ -154,46 +132,8 @@ public sealed class MalformedTextWriteTests
         await Assert.ThrowsAsync<NotSupportedException>(async () => await holders.InsertAsync(entity("well-formed")));
     }
 
-    // A Note with malformed text is ValidationFailed, through the class and by name and when it is
-    // added to a batch; with well-formed text it is refused as not implemented.
-    private static async Task ExpectValidatedBeforeTheRefusalAsync(ILatticeDatabase database)
-    {
-        var notes = database.Set<Note>();
-        var noteRecords = database.Set("Note");
-        var record = new LatticeRecord(noteRecords.EntityType) { ["Id"] = 1L, ["Caption"] = Forms["a low surrogate alone"] };
-        if (noteRecords.EntityType.TryGetField("Level", out _))
-        {
-            record["Level"] = 1;
-        }
-
-        await TestData.ExpectValidationFailedAsync("Caption", () => noteRecords.InsertAsync(record));
-        await TestData.ExpectValidationFailedAsync("Caption", () => noteRecords.UpsertAsync(record));
-        await TestData.ExpectValidationFailedAsync("Caption", () => notes.InsertAsync(new Note { Id = 1, Caption = Forms["a low surrogate alone"], Level = 1 }));
-        TestData.ExpectValidationFailed("Caption", () => database.CreateWriteBatch().Insert(record));
-
-        record["Caption"] = "well-formed";
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await noteRecords.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await notes.InsertAsync(new Note { Id = 1, Caption = "well-formed", Level = 1 }));
-    }
-
-    // The entity type Note, bound to the class Note, in a schema of the given encoding, with the
-    // fields given after Id and Caption and the enum type Level.
-    private static LatticeSchema NoteSchema(string encoding, string fields) => LatticeSchema.Compile($$"""
-        {
-          "StringEncoding": "{{encoding}}",
-          "Enums": [ { "Id": 1, "Name": "Level", "UnderlyingType": "Int32", "Members": [ { "Name": "Low", "Value": 1 } ] } ],
-          "EntityTypes": [
-            {
-              "Id": 1, "Name": "Note", "ClrType": "{{typeof(Note).FullName}}",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Caption", "Type": "String" }{{fields}} ],
-              "PrimaryKey": [1]
-            }
-          ]
-        }
-        """);
-
     // Holder holds text at every depth: in a List, a Map, a Set, an owned value of Address, a List
-    // in it, and a List of owned values. Neither implementation stores it yet.
+    // in it, and a List of owned values. The engine does not store it yet.
     private static LatticeSchema HolderSchema() => LatticeSchema.Compile($$"""
         {
           "OwnedTypes": [
@@ -241,15 +181,6 @@ public sealed class MalformedTextWriteTests
             ["Work"] = new LatticeOwnedValue(address) { ["City"] = city, ["Lines"] = lines ?? new[] { "Karl Johans gate 1" } },
             ["Places"] = place is null ? Array.Empty<LatticeOwnedValue>() : new[] { new LatticeOwnedValue(address) { ["City"] = place, ["Lines"] = Array.Empty<string>() } },
         };
-    }
-
-    private sealed class Note
-    {
-        public long Id { get; set; }
-
-        public string Caption { get; set; } = "";
-
-        public int Level { get; set; }
     }
 
     private sealed class Holder

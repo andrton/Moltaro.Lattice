@@ -3,11 +3,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // Entities by name, as records: database.Set("Setting"). No .NET class is involved.
 public sealed class DynamicSetTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Entity_type_without_a_class_supports_full_crud(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Entity_type_without_a_class_supports_full_crud()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
 
         // Create
@@ -39,11 +38,10 @@ public sealed class DynamicSetTests
         Assert.False((await settings.DeleteAsync("theme")).Changed);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Get_returns_the_record_or_null(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Get_returns_the_record_or_null()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
         await settings.InsertAsync(new LatticeRecord(settings.EntityType) { ["Name"] = "theme", ["Value"] = "dark", ["Priority"] = 1 });
 
@@ -51,11 +49,10 @@ public sealed class DynamicSetTests
         Assert.Null(settings.Get("missing"));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Records_follow_the_same_write_rules_as_classes(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Records_follow_the_same_write_rules_as_classes()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
         LatticeRecord NewSetting(string name) => new(settings.EntityType) { ["Name"] = name, ["Value"] = "v", ["Priority"] = 0 };
 
@@ -69,11 +66,10 @@ public sealed class DynamicSetTests
         await TestData.ExpectErrorAsync(LatticeErrorEnum.RevisionConflict, () => settings.DeleteAsync("a", staleRevision));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Required_field_without_a_value_is_rejected(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Required_field_without_a_value_is_rejected()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
 
         // Priority is required and was not set.
@@ -83,11 +79,10 @@ public sealed class DynamicSetTests
         Assert.Empty(settings.Enumerate());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Record_accepts_only_declared_fields_and_matching_values(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Record_accepts_only_declared_fields_and_matching_values()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var record = new LatticeRecord(database.Set("Setting").EntityType);
 
         Assert.Throws<ArgumentException>(() => record["Unknown"] = 1);
@@ -99,11 +94,10 @@ public sealed class DynamicSetTests
         Assert.Equal(5, record["Priority"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task The_database_keeps_its_own_copy_of_every_record(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task The_database_keeps_its_own_copy_of_every_record()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
         var payload = new byte[] { 1, 2, 3 };
         var original = new LatticeRecord(settings.EntityType) { ["Name"] = "blob", ["Value"] = "v", ["Priority"] = 0, ["Payload"] = payload };
@@ -121,11 +115,10 @@ public sealed class DynamicSetTests
         Assert.Equal(new byte[] { 1, 2, 3 }, secondRead.Get<byte[]>("Payload"));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_and_name_give_the_same_data(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_and_name_give_the_same_data()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
 
@@ -142,20 +135,18 @@ public sealed class DynamicSetTests
         Assert.Equal("Ada Lovelace", user.Name);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Unknown_entity_type_is_rejected(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Unknown_entity_type_is_rejected()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
 
         TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => database.Set("Invoice"));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Record_of_another_entity_type_is_rejected(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Record_of_another_entity_type_is_rejected()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
         var tag = new LatticeRecord(database.Set("Tag").EntityType) { ["Name"] = "urgent", ["Color"] = "red" };
 

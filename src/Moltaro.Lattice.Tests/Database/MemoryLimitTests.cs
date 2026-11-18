@@ -17,7 +17,7 @@ public sealed class MemoryLimitTests
     [Fact]
     public async Task Write_the_memory_limit_cannot_hold_is_WriteRejected_with_Limit_Memory_has_no_effect_and_never_runs_later()
     {
-        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, Options(memoryLimit: 8L * Mebibyte));
+        await using var database = await TestDatabases.OpenAsync(Options(memoryLimit: 8L * Mebibyte));
         var settings = database.Set("Setting");
         await settings.InsertAsync(SettingOf(settings, "small", Mebibyte));
         var before = database.Position;
@@ -42,12 +42,12 @@ public sealed class MemoryLimitTests
     [Fact]
     public async Task Placeholder_validates_the_memory_limit_of_its_options_and_otherwise_does_not_use_it()
     {
-        var refused = Assert.Throws<LatticeException>(() => TestDatabases.Create(DatabaseImplementationEnum.Placeholder, Options(memoryLimit: (4L * Mebibyte) - 1)));
+        var refused = Assert.Throws<LatticeException>(() => LatticeDatabase.Create(Options(memoryLimit: (4L * Mebibyte) - 1)));
 
         Assert.Equal(LatticeErrorEnum.InvalidConfiguration, refused.Error);
 
         // A budget that the entity exceeds, which the placeholder does not enforce until S12.
-        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Placeholder, Options(memoryLimit: 4L * Mebibyte));
+        await using var database = await LatticeDatabase.OpenAsync(Options(memoryLimit: 4L * Mebibyte));
         var settings = database.Set("Setting");
 
         Assert.True((await settings.InsertAsync(SettingOf(settings, "large", 8 * Mebibyte))).Changed);

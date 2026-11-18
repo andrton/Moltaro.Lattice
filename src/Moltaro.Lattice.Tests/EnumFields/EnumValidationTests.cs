@@ -2,7 +2,7 @@ namespace Moltaro.Lattice.Tests.EnumFields;
 
 // Whether an integer is a value its enum type declares is checked by the validation of the core
 // (Q03.5, Q03.6; brief of Epic 1, sprint S07), with every other validation of a value and in the
-// order of Q25, on the placeholder and on the engine alike; LatticeEnumType.IsValid is the rule. A
+// order of Q25; LatticeEnumType.IsValid is the rule. A
 // value that an ordinary enum type does not declare, and for a Flags type a bit that no member
 // declares, is ValidationFailed with the field named: by class, where a .NET enum property holds such
 // a value by a cast, and by name; through a set and when added to a batch; at any depth; before the
@@ -14,9 +14,8 @@ namespace Moltaro.Lattice.Tests.EnumFields;
 // Alarm has the key Id, a required Text and four Enum fields: Level, of an ordinary UInt8 enum type
 // without zero; Grade, nullable, of an ordinary Int16 enum type with zero; Rights, of a Flags UInt64
 // enum type whose highest declared bit is the 64th; and Signal, nullable, of a Flags Int8 enum type
-// that declares its sign bit. Panel holds a List of Level. The placeholder stores neither, so there a
-// valid value ends in NotSupportedException after the validation, and so it does for Panel on the
-// engine until S18; the engine stores Alarm from this sprint.
+// that declares its sign bit. Panel holds a List of Level, which the engine does not store until S18,
+// so there a valid value ends in NotSupportedException after the validation; the engine stores Alarm.
 public sealed class EnumValidationTests
 {
     private enum LevelEnum : byte
@@ -102,21 +101,17 @@ public sealed class EnumValidationTests
         ["the sign bit of a signed Flags type with another bit"] = (record => record["Signal"] = -127, alarm => alarm.Signal = SignalEnum.Sign | SignalEnum.Ready),
     };
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndFaults =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
-        from fault in Faults.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, fault);
+    public static IEnumerable<TheoryDataRow<string>> FaultCases =>
+        Faults.Keys.Select(fault => new TheoryDataRow<string>(fault));
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndAllowed =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
-        from allowed in Allowed.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, allowed);
+    public static IEnumerable<TheoryDataRow<string>> AllowedCases =>
+        Allowed.Keys.Select(allowed => new TheoryDataRow<string>(allowed));
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndFaults))]
-    public async Task Write_with_a_value_its_enum_type_does_not_allow_is_ValidationFailed_with_the_field_named(DatabaseImplementationEnum implementation, string fault)
+    [MemberData(nameof(FaultCases))]
+    public async Task Write_with_a_value_its_enum_type_does_not_allow_is_ValidationFailed_with_the_field_named(string fault)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var alarms = database.Set<Alarm>();
         var records = database.Set("Alarm");
         var (field, faultOfRecord, faultOfObject) = Faults[fault];
@@ -156,10 +151,10 @@ public sealed class EnumValidationTests
     }
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndAllowed))]
-    public async Task Value_its_enum_type_allows_passes_the_validation(DatabaseImplementationEnum implementation, string allowed)
+    [MemberData(nameof(AllowedCases))]
+    public async Task Value_its_enum_type_allows_passes_the_validation(string allowed)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var records = database.Set("Alarm");
         var (allowedOfRecord, allowedOfObject) = Allowed[allowed];
         var record = ValidRecord(records, 1);
@@ -168,7 +163,7 @@ public sealed class EnumValidationTests
         allowedOfRecord(record);
         allowedOfObject(alarm);
 
-        // Adding to a batch validates as a write does, and writes nothing on either implementation.
+        // Adding to a batch validates as a write does, and writes nothing.
         // That the engine stores these values is stated by EnumFieldTests.
         var batch = database.CreateWriteBatch();
         batch.Insert(record);
@@ -193,11 +188,10 @@ public sealed class EnumValidationTests
         Assert.Equal(new byte[] { 1, 3 }, levels.Get<List<byte>>("Levels"));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Value_its_enum_type_does_not_allow_inside_a_collection_is_ValidationFailed_before_the_write_is_refused(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Value_its_enum_type_does_not_allow_inside_a_collection_is_ValidationFailed_before_the_write_is_refused()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var panels = database.Set<Panel>();
         var records = database.Set("Panel");
         var record = new LatticeRecord(records.EntityType) { ["Id"] = 1L, ["Levels"] = new byte[] { 1, 3 } };
@@ -208,8 +202,8 @@ public sealed class EnumValidationTests
         TestData.ExpectValidationFailed("Levels", () => database.CreateWriteBatch().Insert(record));
         TestData.ExpectValidationFailed("Levels", () => database.CreateWriteBatch().Insert(panel));
 
-        // With declared values the write passes the validation and is refused as not implemented: no
-        // implementation stores a List yet.
+        // With declared values the write passes the validation and is refused as not implemented: a List
+        // is not stored yet.
         record["Levels"] = new byte[] { 1, 2 };
         panel.Levels = [LevelEnum.Low, LevelEnum.High];
         await Assert.ThrowsAsync<NotSupportedException>(async () => await records.InsertAsync(record));
@@ -219,7 +213,7 @@ public sealed class EnumValidationTests
     [Fact]
     public async Task Value_its_enum_type_does_not_allow_is_refused_before_the_conditions_of_the_write()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var alarms = database.Set<Alarm>();
         var records = database.Set("Alarm");
         var stored = new Alarm { Id = 1, Text = "stored", Level = LevelEnum.High, Grade = GradeEnum.None, Rights = 0, Signal = SignalEnum.Sign | SignalEnum.Ready };
@@ -238,11 +232,10 @@ public sealed class EnumValidationTests
         ExpectAsStored(alarms, stored, revision);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Missing_required_value_and_a_null_in_a_field_that_is_not_nullable_are_ValidationFailed_with_the_field_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Missing_required_value_and_a_null_in_a_field_that_is_not_nullable_are_ValidationFailed_with_the_field_named()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var alarms = database.Set<Alarm>();
         var records = database.Set("Alarm");
 
@@ -265,7 +258,7 @@ public sealed class EnumValidationTests
     [Fact]
     public async Task Missing_required_value_and_a_null_in_a_field_that_is_not_nullable_are_refused_before_the_conditions_of_the_write()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var alarms = database.Set<Alarm>();
         var records = database.Set("Alarm");
         var stored = new Alarm { Id = 1, Text = "stored" };

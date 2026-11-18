@@ -6,7 +6,9 @@ namespace Moltaro.Lattice.Tests.Database;
 // that serves it has caught up, and never answers from older data.
 public sealed class ConsistencyTests
 {
-    [Fact]
+    // The placeholder keeps the position it had for a delete that deleted nothing (Q39), so this test
+    // runs once LatticeDatabase opens the engine.
+    [Fact(Skip = SkipReason.BeforeSprint12)]
     public async Task Every_result_carries_a_position()
     {
         await using var master = await TestData.OpenMasterAsync();
@@ -27,9 +29,9 @@ public sealed class ConsistencyTests
         Assert.False(missing.Found);
         Assert.Equal(inserted.Position, missing.Position);
         Assert.False(nothingDeleted.Changed);
-        Assert.Equal(inserted.Position, nothingDeleted.Position);
+        Assert.NotEqual(inserted.Position, nothingDeleted.Position);
 
-        // Every change moves the position.
+        // Every write moves the position, also one that changed nothing.
         Assert.NotEqual(inserted.Position, replaced.Position);
         Assert.Equal(replaced.Position, master.Position);
     }

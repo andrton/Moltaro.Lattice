@@ -10,18 +10,15 @@ namespace Moltaro.Lattice.Tests.Database;
 // deleted and inserted again, before the child connected; an entity of 32 MiB arrives whole. These
 // tests state the load: none of them writes on the master while its child loads or after it has opened.
 // A load under writes and a child that follows its master are stated by MasterAndChildTests and by the
-// tests of the engine (Epic 1, sprint S11). They run on the placeholder,
-// whose child connects inside the process, and on the engine, whose child connects over loopback TCP
-// (TestDatabases.ImplementationsWithChildren).
+// tests of the engine (Epic 1, sprint S11). The child connects to its master over loopback TCP.
 public sealed class ChildLoadTests
 {
     private const int ThirtyTwoMebibytes = 32 * 1024 * 1024;
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Child_has_the_schema_and_every_entity_of_its_master_through_classes_and_by_name(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Child_has_the_schema_and_every_entity_of_its_master_through_classes_and_by_name()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
         var masterSettings = master.Set("Setting");
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada", Email = "ada@example.org", Age = 36, Enabled = true });
         await master.Users().InsertAsync(new User { Id = 2, Name = "Grace" });
@@ -29,7 +26,7 @@ public sealed class ChildLoadTests
         await masterSettings.InsertAsync(new LatticeRecord(masterSettings.EntityType) { ["Name"] = "theme", ["Value"] = "dark", ["Priority"] = 1, ["Payload"] = new byte[] { 1, 2, 3 } });
         await masterSettings.InsertAsync(new LatticeRecord(masterSettings.EntityType) { ["Name"] = "locale", ["Value"] = "en", ["Priority"] = 2 });
 
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var child = await TestDatabases.OpenChildAsync(master);
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(master.Schema.Fingerprint, child.Schema.Fingerprint);
@@ -46,18 +43,17 @@ public sealed class ChildLoadTests
         ExpectSameSetting(masterSettings.Get("locale")!, childSettings.Get("locale"));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Loaded_child_is_at_the_position_of_its_master_in_the_same_history(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Loaded_child_is_at_the_position_of_its_master_in_the_same_history()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
         var users = master.Users();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         await users.InsertAsync(new User { Id = 2, Name = "Grace" });
         await users.ReplaceAsync(new User { Id = 1, Name = "Ada Lovelace" });
         await users.DeleteAsync(2L);
 
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var child = await TestDatabases.OpenChildAsync(master);
 
         Assert.Equal(master.Position, child.Position);
         Assert.Equal(4UL, PositionSequence.Of(child.Position));
@@ -66,13 +62,12 @@ public sealed class ChildLoadTests
         await child.WaitForPositionAsync(master.Position, TimeSpan.FromSeconds(10));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Child_of_an_empty_master_is_ready_at_sequence_zero(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Child_of_an_empty_master_is_ready_at_sequence_zero()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
 
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var child = await TestDatabases.OpenChildAsync(master);
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(master.Position, child.Position);
@@ -81,11 +76,10 @@ public sealed class ChildLoadTests
         Assert.Empty(child.Set("Setting").Enumerate());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Every_entity_on_a_loaded_child_has_the_revision_it_has_on_the_master(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Every_entity_on_a_loaded_child_has_the_revision_it_has_on_the_master()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
         var users = master.Users();
 
         // Inserted; replaced; deleted and inserted again; inserted and replaced by an upsert.
@@ -98,7 +92,7 @@ public sealed class ChildLoadTests
         await users.UpsertAsync(new User { Id = 4, Name = "Barbara" });
         await users.UpsertAsync(new User { Id = 4, Name = "Barbara Liskov" });
 
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var child = await TestDatabases.OpenChildAsync(master);
 
         foreach (var id in new[] { 1L, 2L, 3L, 4L })
         {
@@ -109,11 +103,10 @@ public sealed class ChildLoadTests
         }
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Entity_of_32_MiB_is_loaded_by_a_child_and_equals_the_masters(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Entity_of_32_MiB_is_loaded_by_a_child_and_equals_the_masters()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
         var settings = master.Set("Setting");
 
         // Bytes that do not repeat, so that a part placed in the wrong place or lost would show.
@@ -121,7 +114,7 @@ public sealed class ChildLoadTests
         new Random(42).NextBytes(payload);
         await settings.InsertAsync(new LatticeRecord(settings.EntityType) { ["Name"] = "large", ["Value"] = "v", ["Priority"] = 7, ["Payload"] = payload });
 
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var child = await TestDatabases.OpenChildAsync(master);
 
         var loaded = child.Set("Setting").Get("large");
         Assert.NotNull(loaded);

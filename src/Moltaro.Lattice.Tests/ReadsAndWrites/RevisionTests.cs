@@ -12,11 +12,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // contract: the revision binds history, type and key, and position).
 public sealed class RevisionTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Revision_read_from_one_entity_never_satisfies_a_condition_on_another(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Revision_read_from_one_entity_never_satisfies_a_condition_on_another()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var tags = database.Set<Tag>();
 
@@ -41,11 +40,10 @@ public sealed class RevisionTests
         Assert.Equal(secondRevision, secondAfter);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Recreated_entity_has_a_new_revision(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Recreated_entity_has_a_new_revision()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         Assert.True(users.TryGet(1, out _, out var original));
@@ -71,11 +69,10 @@ public sealed class RevisionTests
         await users.ReplaceAsync(user, upserted);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Two_revisions_of_one_entity_are_equal_while_it_keeps_its_state_and_differ_after_a_write(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Two_revisions_of_one_entity_are_equal_while_it_keeps_its_state_and_differ_after_a_write()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
@@ -95,12 +92,11 @@ public sealed class RevisionTests
         Assert.NotEqual(byClass, afterReplace);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Revision_read_in_one_database_never_satisfies_a_condition_in_another_with_the_same_writes(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Revision_read_in_one_database_never_satisfies_a_condition_in_another_with_the_same_writes()
     {
-        await using var first = await TestDatabases.OpenMasterAsync(implementation);
-        await using var second = await TestDatabases.OpenMasterAsync(implementation);
+        await using var first = await TestDatabases.OpenMasterAsync();
+        await using var second = await TestDatabases.OpenMasterAsync();
 
         // The same writes in both, so that the entity is at the same place of both histories.
         foreach (var database in new[] { first, second })

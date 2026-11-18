@@ -9,8 +9,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // stays as it was: its count, the entity it refuses, and the other entities it still takes. Keys that
 // the declared comparison holds different are two entities.
 //
-// The check lives in the batch of the core, which both implementations return, and a batch is built
-// for any schema on both, so these tests run on the placeholder and on the engine. Account has a
+// The check lives in the batch of the core, which is built for any schema. Account has a
 // String key compared without case, Note one compared with Ordinal, and Counter an Int32 key.
 public sealed class WriteBatchEntityTests
 {
@@ -36,11 +35,10 @@ public sealed class WriteBatchEntityTests
         }
         """);
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Two_spellings_of_a_key_compared_without_case_are_one_entity(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Two_spellings_of_a_key_compared_without_case_are_one_entity()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var accounts = database.Set("Account");
         var batch = database.CreateWriteBatch();
 
@@ -62,11 +60,10 @@ public sealed class WriteBatchEntityTests
         Assert.Equal(3, batch.Count);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Integer_key_given_in_two_widths_is_one_entity(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Integer_key_given_in_two_widths_is_one_entity()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var counters = database.Set("Counter");
         var batch = database.CreateWriteBatch();
 
@@ -84,11 +81,10 @@ public sealed class WriteBatchEntityTests
         Assert.Equal(2, batch.Count);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Two_spellings_of_a_key_compared_with_Ordinal_are_two_entities(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Two_spellings_of_a_key_compared_with_Ordinal_are_two_entities()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var notes = database.Set("Note");
         var batch = database.CreateWriteBatch();
 

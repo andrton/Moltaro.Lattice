@@ -11,11 +11,10 @@ namespace Moltaro.Lattice.Tests.Binding;
 // binding is stated, not a read.
 public sealed class SetAccessorTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Properties_with_a_set_accessor_of_any_accessibility_bind_and_hold_the_stored_values(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Properties_with_a_set_accessor_of_any_accessibility_bind_and_hold_the_stored_values()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, TicketSchema());
+        await using var database = await TestDatabases.OpenMasterAsync(TicketSchema());
         var tickets = database.Set<Ticket>();
         var records = database.Set("Ticket");
 
@@ -39,11 +38,10 @@ public sealed class SetAccessorTests
         ExpectTicket(tickets.Get(2L), 2, "Network", "Grace", 5, "T-2");
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Record_class_with_init_accessors_binds_and_holds_the_stored_values(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Record_class_with_init_accessors_binds_and_holds_the_stored_values()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, AccessorSchema.Note<InitNote>());
+        await using var database = await TestDatabases.OpenMasterAsync(AccessorSchema.Note<InitNote>());
         var notes = database.Set<InitNote>();
         var records = database.Set("Note");
 
@@ -55,51 +53,43 @@ public sealed class SetAccessorTests
         Assert.Equal("written", records.Get(2L)!["Text"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_of_an_owned_type_binds_with_set_accessors_of_any_accessibility(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_of_an_owned_type_binds_with_set_accessors_of_any_accessibility()
     {
         // Text has a private and Level a protected set accessor in one class; in the other, Text an
         // internal one and Level init.
         await AccessorSchema.ExpectBoundAsync(
-            implementation,
             AccessorSchema.Stamped<PrivatelySetStamp>(),
             new BindingSchema.Holder<PrivatelySetStamp> { Id = 1, Value = new PrivatelySetStamp("sealed", 2) });
 
         await AccessorSchema.ExpectBoundAsync(
-            implementation,
             AccessorSchema.Stamped<InitStamp>(),
             new BindingSchema.Holder<InitStamp> { Id = 1, Value = new InitStamp("sealed") { Level = 2 } });
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Property_without_a_set_accessor_is_refused_with_the_property_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Property_without_a_set_accessor_is_refused_with_the_property_named()
     {
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<GetOnlyNote>(), new GetOnlyNote { Id = 1 });
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<ComputedNote>(), new ComputedNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<GetOnlyNote>(), new GetOnlyNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<ComputedNote>(), new ComputedNote { Id = 1 });
 
         await AccessorSchema.ExpectNotBoundAsync(
-            implementation,
             AccessorSchema.Stamped<GetOnlyStamp>(),
             new BindingSchema.Holder<GetOnlyStamp> { Id = 1, Value = new GetOnlyStamp() });
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Property_whose_get_accessor_is_not_public_is_refused_with_the_property_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Property_whose_get_accessor_is_not_public_is_refused_with_the_property_named()
     {
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<InternalGetNote>(), new InternalGetNote { Id = 1 });
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<ProtectedGetNote>(), new ProtectedGetNote { Id = 1 });
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<PrivateGetNote>(), new PrivateGetNote { Id = 1 });
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<InternalNote>(), new InternalNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<InternalGetNote>(), new InternalGetNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<ProtectedGetNote>(), new ProtectedGetNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<PrivateGetNote>(), new PrivateGetNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<InternalNote>(), new InternalNote { Id = 1 });
 
         await AccessorSchema.ExpectNotBoundAsync(
-            implementation,
             AccessorSchema.Stamped<PrivateGetStamp>(),
             new BindingSchema.Holder<PrivateGetStamp> { Id = 1, Value = new PrivateGetStamp() });
         await AccessorSchema.ExpectNotBoundAsync(
-            implementation,
             AccessorSchema.Stamped<InternalGetStamp>(),
             new BindingSchema.Holder<InternalGetStamp> { Id = 1, Value = new InternalGetStamp() });
     }

@@ -12,9 +12,8 @@ public sealed class CloseDuringReadsTests
 
     private const int Readers = 4;
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_that_races_a_close_returns_the_whole_entity_or_ObjectDisposedException(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_that_races_a_close_returns_the_whole_entity_or_ObjectDisposedException()
     {
         // A name in chunks and an email in a block of its own (brief of S05, "Where a value goes").
         var name = new string('n', 70_000);
@@ -22,7 +21,7 @@ public sealed class CloseDuringReadsTests
 
         for (var round = 0; round < Rounds; round++)
         {
-            var database = await TestDatabases.OpenMasterAsync(implementation);
+            var database = await TestDatabases.OpenMasterAsync();
             var users = database.Set<User>();
             var userRecords = database.Set("User");
             await users.InsertAsync(new User { Id = 1, Name = name, Email = email, Age = round, Enabled = true });

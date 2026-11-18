@@ -12,8 +12,6 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 //
 // Each case is one entity type, Item, in a schema of its own: the key Id, an Int64, the String field
 // Text with the index ByText, and the field Value. Where the case is not Value, Value is an Int32.
-// These tests state what the engine does, so they run on the engine only; the placeholder is not
-// changed.
 public sealed class NotStoredYetTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
@@ -42,7 +40,7 @@ public sealed class NotStoredYetTests
     public async Task Every_write_of_an_entity_type_the_engine_cannot_store_yet_is_not_supported(string caseName)
     {
         var @case = Cases[caseName];
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
         var items = database.Set("Item");
         var record = @case.CompleteRecord(items.EntityType, database.Schema);
 
@@ -59,7 +57,7 @@ public sealed class NotStoredYetTests
     public async Task Write_of_such_an_entity_type_checks_its_arguments_and_validates_the_entity_before_it_is_refused(string caseName)
     {
         var @case = Cases[caseName];
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
         var items = database.Set("Item");
 
         // Text is required.
@@ -82,7 +80,7 @@ public sealed class NotStoredYetTests
     public async Task Read_of_such_an_entity_type_by_key_finds_nothing_and_an_enumeration_of_it_is_empty(string caseName)
     {
         var @case = Cases[caseName];
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
         var items = database.Set("Item");
 
         Assert.Null(items.Get(@case.Key));
@@ -100,7 +98,7 @@ public sealed class NotStoredYetTests
     public async Task Class_of_such_an_entity_type_binds_and_its_index_is_selected(string caseName)
     {
         var @case = Cases[caseName];
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
 
         Assert.NotNull(database.Set("Item").Index("ByText"));
 

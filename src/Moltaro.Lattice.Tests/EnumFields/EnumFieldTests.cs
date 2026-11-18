@@ -10,10 +10,7 @@ namespace Moltaro.Lattice.Tests.EnumFields;
 // names, and combinations of bits that no member names with the highest bit of the type, the sign bit
 // of a signed one: a value that is cut to another width, extended with its sign, or read as another
 // type on its way in or out is read back as another value, or is refused as one its enum type does not
-// declare.
-//
-// Engine only: the placeholder refuses an entity type with an Enum field until S12. Whether a value
-// is declared is checked on both implementations, as EnumValidationTests states.
+// declare. Whether a value is declared is checked by the validation, as EnumValidationTests states.
 public sealed class EnumFieldTests
 {
     private enum Int8LevelEnum : sbyte
@@ -177,7 +174,7 @@ public sealed class EnumFieldTests
     [Fact]
     public async Task Text_that_is_not_well_formed_in_an_entity_type_with_an_Enum_field_is_ValidationFailed_and_well_formed_text_is_stored()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, NoteSchema);
+        await using var database = await TestDatabases.OpenMasterAsync(NoteSchema);
         var notes = database.Set<Note>();
         var records = database.Set("Note");
         var record = new LatticeRecord(records.EntityType) { ["Id"] = 1L, ["Caption"] = "a\uDE00b", ["Level"] = 1 };
@@ -273,7 +270,7 @@ public sealed class EnumFieldTests
 
         public override async Task ExpectWrittenAndReadBackAsync()
         {
-            await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, _schema);
+            await using var database = await TestDatabases.OpenMasterAsync(_schema);
             var gauges = database.Set<Gauge<TLevel, TMask>>();
             var records = database.Set("Gauge");
             var lowest = Enum.Parse<TLevel>("Lowest");

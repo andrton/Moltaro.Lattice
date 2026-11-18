@@ -5,7 +5,7 @@ public sealed class LatticeDatabaseOptionsTests
     private static readonly LatticeSchema Schema = TestData.Schema;
     private const string Storage = "Host=localhost";
     private const long FourMebibytes = 4 * 1024 * 1024;
-    private static readonly Uri Master = new("https://master.example");
+    private static readonly Uri Master = new("lattice://127.0.0.1:7400");
 
     [Fact]
     public void Defaults_select_a_durable_master()

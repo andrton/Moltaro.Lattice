@@ -1,8 +1,7 @@
 namespace Moltaro.Lattice.Tests.Database;
 
 // A master and its children opened in one process. The tests in which a child only follows its master
-// run on both implementations (TestDatabases.ImplementationsWithChildren; Epic 1, sprint S11);
-// the others run on the placeholder, through TestData.
+// open them through TestDatabases (Epic 1, sprint S11); the others through TestData.
 public sealed class MasterAndChildTests
 {
     [Fact]
@@ -19,12 +18,11 @@ public sealed class MasterAndChildTests
         Assert.Equal([1L, 2L], child.Users().Enumerate().Select(user => user.Id).Order());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Child_receives_later_changes_of_the_master(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Child_receives_later_changes_of_the_master()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
-        await using var child = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
+        await using var child = await TestDatabases.OpenChildAsync(master);
         var masterUsers = master.Users();
         var childUsers = child.Users();
 
@@ -38,13 +36,12 @@ public sealed class MasterAndChildTests
         await MasterAndChild.EventuallyAsync(() => !childUsers.TryGet(1, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.ImplementationsWithChildren), MemberType = typeof(TestDatabases))]
-    public async Task Several_children_follow_one_master(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Several_children_follow_one_master()
     {
-        await using var master = await TestDatabases.OpenListeningMasterAsync(implementation);
-        await using var firstChild = await TestDatabases.OpenChildAsync(implementation, master);
-        await using var secondChild = await TestDatabases.OpenChildAsync(implementation, master);
+        await using var master = await TestDatabases.OpenListeningMasterAsync();
+        await using var firstChild = await TestDatabases.OpenChildAsync(master);
+        await using var secondChild = await TestDatabases.OpenChildAsync(master);
 
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 

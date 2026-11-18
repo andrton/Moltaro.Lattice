@@ -80,11 +80,11 @@ public sealed class CreateTests
     {
         "a Durable master without a connection string" => new LatticeDatabaseOptions { Schema = Schema },
         "a Durable master with an infinite synchronization timeout" => new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost", SynchronizationTimeout = Timeout.InfiniteTimeSpan },
-        "a Durable child" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, MasterUri = new Uri("lattice://master") },
-        "a child with a schema" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, MasterUri = new Uri("lattice://master"), Schema = Schema },
+        "a Durable child" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, MasterUri = new Uri("lattice://127.0.0.1:7400") },
+        "a child with a schema" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, MasterUri = new Uri("lattice://127.0.0.1:7400"), Schema = Schema },
         "a child without the address of its master" => new LatticeDatabaseOptions { Role = LatticeRoleEnum.Child, PersistenceMode = LatticePersistenceModeEnum.MemoryOnly },
         "a master with a relative ListenUri" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, Schema = Schema, ListenUri = new Uri("master", UriKind.Relative) },
-        "a MemoryOnly master with a ListenUri and without a schema" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, ListenUri = new Uri("lattice://master") },
+        "a MemoryOnly master with a ListenUri and without a schema" => new LatticeDatabaseOptions { PersistenceMode = LatticePersistenceModeEnum.MemoryOnly, ListenUri = new Uri("lattice://127.0.0.1:7400") },
         _ => throw new ArgumentOutOfRangeException(nameof(options), options, "No such options."),
     };
 }

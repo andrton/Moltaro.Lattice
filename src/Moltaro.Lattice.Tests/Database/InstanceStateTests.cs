@@ -13,13 +13,12 @@ public sealed class InstanceStateTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Before_the_open_every_operation_is_Unavailable(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Before_the_open_every_operation_is_Unavailable()
     {
-        await using var other = await TestDatabases.OpenMasterAsync(implementation);
+        await using var other = await TestDatabases.OpenMasterAsync();
         var position = other.Position;
-        await using var database = TestDatabases.Create(implementation, MemoryOnly());
+        await using var database = TestDatabases.Create(MemoryOnly());
 
         Assert.Equal(LatticeDatabaseStateEnum.Created, database.State);
 
@@ -35,11 +34,10 @@ public sealed class InstanceStateTests
         Assert.Equal(LatticeDatabaseStateEnum.Created, database.State);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task After_a_close_every_operation_is_ObjectDisposedException(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task After_a_close_every_operation_is_ObjectDisposedException()
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation);
+        var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
@@ -84,11 +82,10 @@ public sealed class InstanceStateTests
         Assert.Equal("Ada", record["Name"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Closing_or_disposing_a_closed_database_does_nothing(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Closing_or_disposing_a_closed_database_does_nothing()
     {
-        var closed = await TestDatabases.OpenMasterAsync(implementation);
+        var closed = await TestDatabases.OpenMasterAsync();
         await closed.CloseAsync();
         await closed.CloseAsync();
         await closed.DisposeAsync();
@@ -97,18 +94,17 @@ public sealed class InstanceStateTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, closed.State);
 
         // Disposing an open database closes it.
-        var disposed = await TestDatabases.OpenMasterAsync(implementation);
+        var disposed = await TestDatabases.OpenMasterAsync();
         disposed.Dispose();
 
         Assert.Equal(LatticeDatabaseStateEnum.Closed, disposed.State);
         Assert.Throws<ObjectDisposedException>(() => disposed.Set<User>());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Close_and_dispose_called_before_an_earlier_close_has_completed_complete_with_it_without_an_error(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Close_and_dispose_called_before_an_earlier_close_has_completed_complete_with_it_without_an_error()
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation);
+        var database = await TestDatabases.OpenMasterAsync();
         await database.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 
         // None of the calls is awaited before the next one is made.
@@ -122,11 +118,10 @@ public sealed class InstanceStateTests
         Assert.Throws<ObjectDisposedException>(() => database.Set<User>());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Close_whose_wait_is_cancelled_still_closes_the_database_and_a_later_close_and_dispose_complete_without_an_error(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Close_whose_wait_is_cancelled_still_closes_the_database_and_a_later_close_and_dispose_complete_without_an_error()
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation);
+        var database = await TestDatabases.OpenMasterAsync();
         var users = database.Users();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         using var cancelled = new CancellationTokenSource();
@@ -146,11 +141,10 @@ public sealed class InstanceStateTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, database.State);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task After_a_close_a_read_of_an_entity_type_the_engine_does_not_store_is_ObjectDisposedException()
     {
-        // Holder has a List field: the engine does not store it, and the placeholder does not write it.
+        // Holder has a List field: the engine does not store it.
         var schema = LatticeSchema.Compile($$"""
             {
               "EntityTypes": [
@@ -162,7 +156,7 @@ public sealed class InstanceStateTests
               ]
             }
             """);
-        var database = await TestDatabases.OpenMasterAsync(implementation, schema);
+        var database = await TestDatabases.OpenMasterAsync(schema);
         var holders = database.Set<Holder>();
         var holderRecords = database.Set("Holder");
 

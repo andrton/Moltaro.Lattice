@@ -18,8 +18,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // state, so they are the tests of the enumeration that wait for it: the limit is 200 ms, thousands of
 // times what the few steps of a pass take inside the engine, and a pause 300 ms. Before it counts, a
 // test takes every form of a pass once on a database without limits, so that the first step it times
-// does not include compiling the code of a step. On the engine alone: the placeholder validates the
-// limit and otherwise does not use it until S12.
+// does not include compiling the code of a step.
 public sealed class ReadTimeLimitTests
 {
     private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(200);
@@ -89,7 +88,7 @@ public sealed class ReadTimeLimitTests
     // Takes every form of a pass on a database without limits.
     private static async Task WarmUpAsync()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
+        await using var database = await TestDatabases.OpenMasterAsync();
         await database.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" });
 
         foreach (var form in EnumerationForms.All)
@@ -99,7 +98,7 @@ public sealed class ReadTimeLimitTests
     }
 
     // A master of the engine whose options limit the time of a read.
-    private static ValueTask<ILatticeDatabase> OpenAsync() => TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+    private static ValueTask<ILatticeDatabase> OpenAsync() => TestDatabases.OpenAsync(new LatticeDatabaseOptions
     {
         PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
         Schema = TestData.Schema,

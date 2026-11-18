@@ -3,8 +3,8 @@ namespace Moltaro.Lattice.Tests.Database;
 // ILatticeDatabase.ListenUri (brief of Epic 1, sprint S10): the address at which a master accepts its
 // children, which a child is given as its MasterUri; null for a master without a ListenUri and for a
 // child; Unavailable before the open and ObjectDisposedException after a close, as the other members
-// of an instance. The placeholder listens on no port and returns the configured address; the port a
-// master of the engine chose for port 0 is stated by the tests of S10.
+// of an instance. A master given an address with a port reports that address; the port a master
+// chose for port 0 is stated by the tests of S10.
 public sealed class ListenUriTests
 {
     [Fact]
@@ -21,20 +21,18 @@ public sealed class ListenUriTests
         Assert.Null(child.ListenUri);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Master_without_a_listen_address_reports_none(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Master_without_a_listen_address_reports_none()
     {
-        await using var master = await TestDatabases.OpenMasterAsync(implementation);
+        await using var master = await TestDatabases.OpenMasterAsync();
 
         Assert.Null(master.ListenUri);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Listen_address_is_Unavailable_before_the_open_and_ObjectDisposedException_after_a_close(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Listen_address_is_Unavailable_before_the_open_and_ObjectDisposedException_after_a_close()
     {
-        var database = TestDatabases.Create(implementation, new LatticeDatabaseOptions
+        var database = TestDatabases.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,

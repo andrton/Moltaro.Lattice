@@ -2,7 +2,7 @@ namespace Moltaro.Lattice.Tests.Keys;
 
 // Every key type of the catalog is a primary key (Q03.4.1; brief of Epic 1, sprint S07): the eight
 // integers, String and Guid. Under each an entity is inserted, read, replaced, upserted, deleted and
-// enumerated, through its class and by name, on the placeholder and on the engine. The keys stored
+// enumerated, through its class and by name. The keys stored
 // are the smallest and the largest value of an integer type, so that one of the UInt64 keys is above
 // the largest Int64; for String the empty key and another; for Guid two.
 //
@@ -51,27 +51,25 @@ public sealed class KeyTypeTests
             otherTypes: ["5f0c1b8e-58a4-4c4e-9a43-2f6f1c0d7e11", 1]),
     }.ToDictionary(@case => @case.Name);
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndKeyTypes =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
-        from keyType in Cases.Keys
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, keyType);
+    public static IEnumerable<TheoryDataRow<string>> KeyTypes =>
+        Cases.Keys.Select(keyType => new TheoryDataRow<string>(keyType));
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndKeyTypes))]
-    public async Task Entity_is_inserted_read_replaced_upserted_deleted_and_enumerated_under_every_key_type(DatabaseImplementationEnum implementation, string keyType)
+    [MemberData(nameof(KeyTypes))]
+    public async Task Entity_is_inserted_read_replaced_upserted_deleted_and_enumerated_under_every_key_type(string keyType)
     {
         var @case = Cases[keyType];
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
 
         await @case.ExpectEveryOperationAsync(database);
     }
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndKeyTypes))]
-    public async Task Key_of_another_width_that_fits_finds_its_entity_and_one_that_does_not_fit_or_is_of_another_type_is_ArgumentException(DatabaseImplementationEnum implementation, string keyType)
+    [MemberData(nameof(KeyTypes))]
+    public async Task Key_of_another_width_that_fits_finds_its_entity_and_one_that_does_not_fit_or_is_of_another_type_is_ArgumentException(string keyType)
     {
         var @case = Cases[keyType];
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, @case.Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(@case.Schema);
 
         await @case.ExpectKeyArgumentsAsync(database);
     }

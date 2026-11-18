@@ -26,7 +26,7 @@ public sealed class ReadLimitsTests
     {
         var timeLimit = TimeSpan.FromMilliseconds(100);
 
-        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+        await using var database = await TestDatabases.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -72,7 +72,7 @@ public sealed class ReadLimitsTests
     public async Task Step_of_a_cancelled_enumeration_that_a_read_limit_has_failed_is_OperationCanceledException_and_not_ReadLimitExceeded()
     {
         // 2,000 Int64 keys take more than 4 KiB however they are remembered (ReadMemoryLimitTests).
-        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+        await using var database = await TestDatabases.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -115,8 +115,8 @@ public sealed class ReadLimitsTests
         const int LongTags = 1_000;
 
         // No limit, and the largest limits the types allow.
-        await using var unlimited = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
-        await using var largest = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+        await using var unlimited = await TestDatabases.OpenMasterAsync();
+        await using var largest = await TestDatabases.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -156,7 +156,7 @@ public sealed class ReadLimitsTests
     [Fact]
     public async Task Placeholder_validates_the_read_limits_of_its_options_and_otherwise_does_not_use_them()
     {
-        var refused = Assert.Throws<LatticeException>(() => TestDatabases.Create(DatabaseImplementationEnum.Placeholder, new LatticeDatabaseOptions
+        var refused = Assert.Throws<LatticeException>(() => LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -166,7 +166,7 @@ public sealed class ReadLimitsTests
         Assert.Equal(LatticeErrorEnum.InvalidConfiguration, refused.Error);
 
         // Limits that no pass could meet, which the placeholder does not enforce until S12.
-        await using var database = await TestDatabases.OpenAsync(DatabaseImplementationEnum.Placeholder, new LatticeDatabaseOptions
+        await using var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,

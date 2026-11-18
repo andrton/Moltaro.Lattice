@@ -3,11 +3,10 @@ namespace Moltaro.Lattice.Tests.Keys;
 // Keys whose hash codes are all the same are keys like any other (review round 1 of Epic 1, sprint
 // S08, part 1: the primary index of the engine wrote past its table when many keys shared a hash).
 // Int64.GetHashCode is the exclusive or of the two halves of the value, so every key (i << 32) | i has
-// the hash code 0. What that means differs by implementation, and the test states what each has to
-// do: the placeholder keeps its entities in a dictionary that hashes a key by its hash code, so there
-// all 300 keys meet in one hash; the engine mixes every bit of an Int64 key into its hash, so there
-// keys of this structure spread as any others do, and the chains of entries of one hash are tested on
-// its index directly (OneHashChainTests of Moltaro.Lattice.Engine.Tests). On both: every one of 300
+// the hash code 0. The engine mixes every bit of an Int64 key into its hash, so keys of this structure
+// spread as any others do, and the chains of entries of one hash are tested on its index directly
+// (OneHashChainTests of Moltaro.Lattice.Engine.Tests); a store that hashed a key by its hash code would
+// put all 300 keys into one hash. Every one of 300
 // such keys is inserted and found, through the class and by name; 50 other keys of hash code 0 that
 // were never inserted are absent; an enumeration returns each key once; each is deleted, half through
 // the class and half by name, after which none is found and an enumeration is empty; and all of them
@@ -34,11 +33,10 @@ public sealed class ZeroHashCodeKeyTests
         }
         """);
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Entities_whose_keys_all_have_the_hash_code_zero_are_inserted_found_enumerated_once_and_deleted(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Entities_whose_keys_all_have_the_hash_code_zero_are_inserted_found_enumerated_once_and_deleted()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var clashes = database.Set<Clash>();
         var records = database.Set("Clash");
         long[] keys = [.. Enumerable.Range(1, Count).Select(KeyOf)];

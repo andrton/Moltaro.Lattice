@@ -6,16 +6,14 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // close"). The close comes between two steps, from another thread or from the code that walks the
 // pass, and the next step fails; what the pass returned before stays as it was. Every step after the
 // close is a step after the close, so each fails the same way, and none ends the pass as if it had
-// returned everything. Every form of an enumeration, on the engine alone: the placeholder takes
-// what a pass returns at its first step and returns the rest after a close, which is not changed,
-// until S12. Every wait is bounded, so a close that waited for an enumeration standing between two
-// steps fails the test instead of hanging it.
+// returned everything. Every form of an enumeration. Every wait is bounded, so a close that waited
+// for an enumeration standing between two steps fails the test instead of hanging it.
 public sealed class EnumerationAfterCloseTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Step_after_a_close_from_another_thread_is_ObjectDisposedException(string form)
     {
         var database = await OpenAsync();
@@ -38,7 +36,7 @@ public sealed class EnumerationAfterCloseTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Every_step_after_a_close_is_ObjectDisposedException_and_never_the_end_of_the_pass(string form)
     {
         var database = await OpenAsync();
@@ -62,7 +60,7 @@ public sealed class EnumerationAfterCloseTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Step_after_a_close_from_inside_the_walk_is_ObjectDisposedException(string form)
     {
         var database = await OpenAsync();
@@ -89,10 +87,10 @@ public sealed class EnumerationAfterCloseTests
         }
     }
 
-    // A master of the engine with three users.
+    // A master with three users.
     private static async Task<ILatticeDatabase> OpenAsync()
     {
-        var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
+        var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         for (var id = 1L; id <= 3; id++)
