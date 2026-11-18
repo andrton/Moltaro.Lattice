@@ -168,7 +168,8 @@ Unicode; malformed input is rejected before commit.</li>
 <li><strong>Plain by default.</strong> Fields explicitly marked Dictionary share equal original text
 through one dictionary per database. There is no automatic policy switching.</li>
 <li><strong>Stable text references.</strong> Indexes share protected text instead of copying it.
-Stored, prepared and index references are counted; reclamation waits for active users.</li>
+An entry has one count of the blocks that refer to it; it is freed when the last of
+them is freed, after the readers that could reach it have left.</li>
 <li><strong>Schema-owned comparison.</strong> Ordinal is the default; individual fields may use
 OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.</li>
 </ul>
@@ -204,7 +205,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </tr>
 <tr>
 <td>Declared secondary index</td>
-<td>Arc.Collections OrderedMultiMap; single or composite keys</td>
+<td>An ordered structure of the engine's own, chosen in the sprint that builds it after a study; single or composite keys; not built yet</td>
 </tr>
 <tr>
 <td>Application-defined traversal</td>

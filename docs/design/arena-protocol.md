@@ -24,9 +24,10 @@ A managed struct control entry identifies one root lifetime: key, generation,
 published revision, root address, live/deleted state and temporary lookup claims.
 The primary index reaches this entry, never an unprotected native pointer. Owned
 chunks identify the root entry and the descriptor position that must be repaired
-when they move. Shared dictionary text instead belongs to a stable dictionary
-entry, with its own address and root, prepared-root and index reference counts.
-The index count includes prepared index replacements until they publish or abort.
+when they move. Shared dictionary text instead belongs to a text entry
+with its own address and one count of the blocks that refer to it: a root, a prepared root
+or, later, a block of an index holds one reference for each Text descriptor it contains,
+from the moment it is written until it is freed.
 
 All addresses are internal. Relocation changes addresses, not keys, revisions or
 logical contents. Published dictionary text is immutable; an update acquires a

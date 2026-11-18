@@ -71,7 +71,8 @@ layout for the first milestone.
 - **Plain by default.** Fields explicitly marked Dictionary share equal original text
   through one dictionary per database. There is no automatic policy switching.
 - **Stable text references.** Indexes share protected text instead of copying it.
-  Stored, prepared and index references are counted; reclamation waits for active users.
+  An entry has one count of the blocks that refer to it; it is freed when the last of
+  them is freed, after the readers that could reach it have left.
 - **Schema-owned comparison.** Ordinal is the default; individual fields may use
   OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.
 
@@ -103,7 +104,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 | Access path | Selected mechanism |
 | --- | --- |
 | Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
-| Declared secondary index | Arc.Collections OrderedMultiMap; single or composite keys |
+| Declared secondary index | An ordered structure of the engine's own, chosen in the sprint that builds it after a study; single or composite keys; not built yet |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
 The caller names the index. Equality, leading-key/range access and Limit/Offset are

@@ -130,9 +130,9 @@ Plain strings preserve their original encoded bytes. Dictionary fields use one
 database-wide content table with exact-text equality, preserving case/spelling even
 when a field's search policy ignores case. No automatic Plain/Dictionary switching.
 All text used by an index has a stable text entry; an indexed Plain value can share
-its existing text with the index without content interning. Text entries track saved,
-prepared and index references separately. Reclaim only when every reference and
-protected reader has drained. An entry is freed only when the last block that refers
+its existing text with the index without content interning. A text entry has one
+count: a block holds one reference for each Text descriptor it contains, from the moment
+it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
 to it is freed, which is after the last protected reader that could reach it has left;
 so a reference never resolves to other text. No generation is kept.
 

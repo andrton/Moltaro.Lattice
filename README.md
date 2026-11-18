@@ -15,7 +15,7 @@ reads entities of scalar and Enum fields by primary key, under every key type an
 text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. A child
 loads the whole database from its master over TCP while the master keeps writing, then
 follows its changes, and forwards its own writes to the master. A schema can already
-declare more than the engine stores: an entity type with Dictionary storage, an owned
+declare more than the engine stores: an entity type with an owned
 value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Index
 search, unique indexes, write batches and PostgreSQL persistence are not implemented
 yet, and the contract may still change.
@@ -51,7 +51,11 @@ A JSON descriptor declares the entity types, their fields, primary keys and inde
 the enum types. Entity types, fields, indexes and enum types each have a stable identity,
 which a rename keeps. A String field may say how it is compared (`Comparison`: `Ordinal`
 or `OrdinalIgnoreCase`) and stored (`StringStorage`: `Plain` or `Dictionary`), and the
-schema says how its text is encoded (`StringEncoding`: `Utf8` or `Utf16`). The descriptor
+schema says how its text is encoded (`StringEncoding`: `Utf8` or `Utf16`). A field stored
+as `Dictionary` keeps each distinct text once for the whole database: it pays for a field
+with few distinct values and costs memory and write time for identifiers, names and other
+mostly distinct text, which stay `Plain`
+([the measured figures](docs/decisions/strings.md#q04.3-where-should-identical-strings-share-storage)). The descriptor
 is closed: a property it does not know is an error, not something to ignore. An entity
 type may name the .NET class that represents it; this is optional.
 
@@ -381,8 +385,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
 write batch, Durable persistence, a child that connects again after it lost its master,
-and storing what a schema can declare beyond scalar and enum fields: Dictionary storage,
-and owned values, Lists, Maps, Sets and references, which a schema declares, a record and
+and storing what a schema can declare beyond scalar and enum fields:
+owned values, Lists, Maps, Sets and references, which a schema declares, a record and
 a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
 of a write, schema migration and replication status. A query language is not planned for
 the first version.
