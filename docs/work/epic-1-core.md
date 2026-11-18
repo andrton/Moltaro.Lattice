@@ -4615,7 +4615,18 @@ above says otherwise, these replace it. The study read the source of PostgreSQL
     `Child_keeps_serving_reads_after_the_master_closes`.
 
 The planner reported points 1, 4 and 8 to the owner as its decisions, which he may
-overturn; the owner agreed with all of them on 18 November 2026, as the planner relays. Carried to S27: with Durable, say whether a master can be behind a position a
+overturn; the owner agreed with all of them on 18 November 2026, as the planner relays.
+
+**Settled by the planner on 18 November 2026, with the contract commit.** A write of a
+child that its sender has not taken, or has sent only in part, ends at that child's close
+in `Unavailable`, not executed; `ObjectDisposedException` stays for a call made after the
+close (this replaces "ends as a write not yet dispatched ends at the close of a master").
+The wait of a forwarded write for its application on the child is bounded by the
+`SynchronizationTimeout` of the session when the call has a session that sets one,
+otherwise by the option; it does not travel (this corrects point 5 of 17 November). An
+address already in use is `InvalidConfiguration` with the system's message inside (this
+replaces "with the error the system reports" of S10); the test of two masters at one
+address takes a loopback port by binding port 0, reading the port and releasing it. Carried to S27: with Durable, say whether a master can be behind a position a
 session holds.
 
 ### Stage 4. Indexes and batches
