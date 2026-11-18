@@ -8,10 +8,11 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // What a master receives in a request is checked before it is used (brief of Epic 1, sprint S12, decided
 // after the study, point 1): a body that ends before its fields, an unknown kind, an unknown type id, a
 // key that is not the key in the root, and a root that fails the check a child makes of a root received
-// in a load (its layout version, a descriptor against its length). A malformed request is a defect of
-// the peer: the master executes nothing of it and ends the connection, without a reply (settled by the
-// planner with the tests of S12); once it holds nothing for the child any more, "code" has the revision
-// it had. So it is with the correlation id 0, which stays the load and the stream, and with the id of a
+// in a load (its layout version, a descriptor against its length), and the envelope of the root: the type
+// id of the request and a last mutation of 0; an insert carries no expected revision (decided at the
+// review of S12, point 4). A malformed request is a defect of the peer: the master executes nothing of
+// it and ends the connection, without a reply (settled by the planner with the tests of S12); once it
+// holds nothing for the child any more, "code" has the revision it had. So it is with the correlation id 0, which stays the load and the stream, and with the id of a
 // request of the connection that has not been answered (decided after the study, point 3); the request
 // received whole before it still runs (point 12). The master holds the commit of the earlier one
 // (HeldCommitStorage), so that it is not answered when the second arrives.
@@ -25,6 +26,9 @@ public sealed class MalformedRequestTests
         new("a key that is not the key in its root"),
         new("a root of an unknown layout version"),
         new("a root with a descriptor that does not match its length"),
+        new("a root whose type id is not the one of the request"),
+        new("a root whose last mutation is not 0"),
+        new("an insert that carries an expected revision") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
     ];
 
     [Theory]
@@ -35,7 +39,7 @@ public sealed class MalformedRequestTests
         var revision = LoadedPeer.RevisionOfCode(master);
         using var child = await LoadedPeer.ConnectAsync(master);
 
-        await child.SendRequestAsync(1, Damaged(child, damage));
+        await child.SendRequestAsync(1, Damaged(child, damage, revision!.Value));
 
         Assert.Null(await child.ReceiveReplyOrTheEndAsync(1));
         await LoadedPeer.ExpectNothingRegisteredAsync(master);
@@ -90,10 +94,14 @@ public sealed class MalformedRequestTests
     }
 
     // The body of a request of "code" with the damage of the row.
-    private static byte[] Damaged(LoadedPeer child, string damage)
+    private static byte[] Damaged(LoadedPeer child, string damage, LatticeRevision revision)
     {
         switch (damage)
         {
+            case "an insert that carries an expected revision":
+                // The revision "code" has, so that a write that took it for a replace would change "code".
+                return ForwardPayload.Request(ForwardPayload.Insert, MarkedRoot.TypeId, ForwardPayload.KeyOf("code"), child.Root, expectedRevision: revision);
+
             case "a body that ends in its key":
                 return LoadedPeer.DeleteOfCode()[..^1];
 
@@ -121,6 +129,14 @@ public sealed class MalformedRequestTests
                 var descriptorAt = MarkedRoot.PayloadAt(root) + (MarkedRoot.FieldOf("Name").Offset - BlockHeader.Size);
 
                 BinaryPrimitives.WriteUInt32LittleEndian(root.AsSpan(descriptorAt), (uint)DescriptorKindEnum.Chunked);
+                break;
+
+            case "a root whose type id is not the one of the request":
+                BinaryPrimitives.WriteUInt32LittleEndian(root, MarkedRoot.TypeId + 1);
+                break;
+
+            case "a root whose last mutation is not 0":
+                BinaryPrimitives.WriteUInt64LittleEndian(root.AsSpan(sizeof(uint)), 5);
                 break;
 
             default:

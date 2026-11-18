@@ -95,6 +95,22 @@ internal sealed class LoopbackLink : IAsyncDisposable
         }
     }
 
+    // Ends the connection to the child in order, as a peer ends its sending side: the child reads the end
+    // of the stream, without a reset, and the link passes nothing more to it. The connection to the master
+    // stays until the child ends its own. Called once the child is connected, the first socket the link
+    // tracks.
+    public void EndToChildInOrder()
+    {
+        Socket child;
+
+        lock (_lock)
+        {
+            child = _sockets[0];
+        }
+
+        child.Shutdown(SocketShutdown.Send);
+    }
+
     // Ends the link; a second call waits for the same end. The source of the token is not disposed, so
     // that a call after the first can still cancel it: it holds no timer and nothing to release.
     public async ValueTask DisposeAsync()

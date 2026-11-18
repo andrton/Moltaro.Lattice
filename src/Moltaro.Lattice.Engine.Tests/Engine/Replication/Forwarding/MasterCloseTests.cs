@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Positions;
 
@@ -13,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   the storage step gave it. The child waits for an application up to an hour, far beyond the bound, so
 //   that only its application can end the call within it.
 // - A write that reaches the master while it closes is not executed: it is answered Unavailable, "not
-//   executed".
+//   executed", also one that arrives after its barrier closed, and a refusal reaches its caller as it is.
 // When the close has returned, the child has observed the end and refuses a write with Unavailable, as
 // MasterAndChildTests.Child_keeps_serving_reads_after_the_master_closes states.
 public sealed class MasterCloseTests
@@ -80,6 +81,87 @@ public sealed class MasterCloseTests
         finally
         {
             storage.ReleaseAll();
+            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        }
+    }
+
+    // A refusal is recorded like a success, before the write leaves the barrier of the master (decided at
+    // the review of S12, point 1): a forwarded insert admitted behind an insert of the same key that the
+    // storage step holds is refused DuplicateKey once the storage lets the first go, while the master
+    // closes, and its caller gets DuplicateKey, never IndeterminateOutcome or Unavailable. Before the fix the
+    // close could send its replies before the refusal was recorded, 5 times in 150, so the scenario is run
+    // round after round; after it a single round is deterministic.
+    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    public async Task Write_refused_behind_a_held_write_while_its_master_closes_returns_its_refusal()
+    {
+        const int Rounds = 40;
+
+        for (var round = 0; round < Rounds; round++)
+        {
+            var storage = new HeldCommitStorage(holding: false);
+            var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+
+            try
+            {
+                await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+                var pieces = child.Set<PieceSchema.Piece>();
+
+                storage.Hold();
+                var first = pieces.InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
+                await storage.NextAsync();
+                var second = pieces.InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
+                await Eventually.HoldsAsync(() => master.Counters.QueuedWrites == 2, "The master did not admit the second insert behind the first.");
+
+                var closing = master.CloseAsync().AsTask();
+                storage.ReleaseAll();
+                await closing.WaitAsync(ReplicationNodes.Bound);
+
+                var refused = await Assert.ThrowsAsync<LatticeException>(() => second.WaitAsync(ReplicationNodes.Bound));
+
+                Assert.True((await first.WaitAsync(ReplicationNodes.Bound)).Changed);
+                Assert.Equal(LatticeErrorEnum.DuplicateKey, refused.Error);
+            }
+            finally
+            {
+                storage.ReleaseAll();
+                await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            }
+        }
+    }
+
+    // A request that reaches a master after its barrier closed is not executed and is answered Unavailable,
+    // or, once the master has sent Closed, is dropped and ended Unavailable by the child when it reads
+    // Closed (decided at the review of S12, point 2). The child holds back its application
+    // (EngineDatabase.SuspendApplying) with a transaction it has received, so it does not read the end of
+    // its master's stream; the master begins to close, and then the child forwards a write. Once the child
+    // applies again, it reads the rest, and the write ends in Unavailable; the child never has it.
+    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    public async Task Write_forwarded_after_the_barrier_of_its_master_closed_ends_in_Unavailable_and_is_not_executed()
+    {
+        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+
+        try
+        {
+            await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+            Task<LatticeWriteResult> late;
+            Task closing;
+
+            using (child.SuspendApplying())
+            {
+                await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8));
+                closing = master.CloseAsync().AsTask();
+                late = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8)).AsTask();
+            }
+
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => late.WaitAsync(ReplicationNodes.Bound));
+            await closing.WaitAsync(ReplicationNodes.Bound);
+
+            Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
+            Assert.NotNull(child.Set<PieceSchema.Piece>().Get(1L));
+            Assert.Null(child.Set<PieceSchema.Piece>().Get(2L));
+        }
+        finally
+        {
             await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
         }
     }

@@ -28,6 +28,11 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //   the receiver takes any cut. The frames of one request are not interleaved with those of another
 //   request, and Applied frames may pass between them; a reply may come anywhere in the stream of the
 //   master, also between the frames of a transaction.
+// - FrameKindEnum.Closed = 12 (decided at the review of S12, point 2; the next free number, which the
+//   tests name by its number, Closed below, until the implementer adds it): from a master that closes in
+//   order, once per connection, after the replies and the tail it sends there and before the end of its
+//   sending side. It has no body: its payload is empty, so its frame is a header and the check, and its
+//   correlation id is 0. Every request of the connection not answered before it was not executed.
 //
 // The body of a request.
 // - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Storage.WriteKindEnum.
@@ -54,6 +59,8 @@ internal static class ForwardPayload
 
     public const FrameKindEnum WriteReply = (FrameKindEnum)11;
 
+    public const FrameKindEnum Closed = (FrameKindEnum)12;
+
     // The kinds of a request: the values of WriteKindEnum.
     public const byte Insert = 0;
 
@@ -66,14 +73,28 @@ internal static class ForwardPayload
     // Where the last mutation sequence of a root stands: after its type id.
     private const int LastMutationAt = sizeof(uint);
 
-    // The body of a request without a revision and, unless one is given, without a minimum position;
-    // the root is left out for a Delete.
-    public static byte[] Request(byte kind, uint typeId, ReadOnlySpan<byte> key, ReadOnlySpan<byte> root, LatticePosition? minimumPosition = null)
+    // The body of a request without a revision and a minimum position unless they are given; the root
+    // is left out for a Delete.
+    public static byte[] Request(byte kind, uint typeId, ReadOnlySpan<byte> key, ReadOnlySpan<byte> root, LatticePosition? minimumPosition = null, LatticeRevision? expectedRevision = null)
     {
         var body = new List<byte> { kind };
 
         AddUInt32(body, typeId);
-        body.Add(0);
+
+        if (expectedRevision is { } revision)
+        {
+            // The two values of the revision, from its text: both in hexadecimal, 16 digits each, in the
+            // order the revision holds them (LatticeRevision.ToString).
+            var text = revision.ToString();
+
+            body.Add(1);
+            AddUInt64(body, ulong.Parse(text.AsSpan(0, 16), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+            AddUInt64(body, ulong.Parse(text.AsSpan(16, 16), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            body.Add(0);
+        }
 
         if (minimumPosition is { } position)
         {
@@ -173,6 +194,9 @@ internal static class ForwardPayload
 
         return bytes[sizeof(ulong)..];
     }
+
+    // The frame Closed at the place given of the stream of the master.
+    public static WireFrame ClosedFrame(ulong streamSequence) => WireFrame.Make(Closed, flags: 0, correlationId: 0, streamSequence, []);
 
     // The body of a reply with a refusal of the values given.
     public static byte[] Refusal(LatticeErrorEnum error, string message, LatticeLimitEnum? limit, int? operationIndex, LatticePosition? committedPosition)

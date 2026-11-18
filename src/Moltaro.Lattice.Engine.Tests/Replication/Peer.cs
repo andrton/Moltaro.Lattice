@@ -128,6 +128,36 @@ internal sealed class Peer : IDisposable
         }
     }
 
+    // Every whole frame the master sent since the last receive until it ended the connection, within the
+    // bound, and whether it ended its side in order (the end of the stream) rather than by a reset; a part
+    // of a frame at the end is left out.
+    public async Task<(IReadOnlyList<WireFrame> Frames, bool InOrder)> ReceiveToTheEndAsync()
+    {
+        var received = new List<byte>(_received);
+        var buffer = new byte[64 * 1024];
+
+        _received.Clear();
+
+        try
+        {
+            while (true)
+            {
+                var read = await _socket.ReceiveAsync(buffer.AsMemory(), SocketFlags.None).AsTask().WaitAsync(Bound);
+
+                if (read == 0)
+                {
+                    return (WireFrame.TakeAll([.. received]), true);
+                }
+
+                received.AddRange(buffer.AsSpan(0, read));
+            }
+        }
+        catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionReset)
+        {
+            return (WireFrame.TakeAll([.. received]), false);
+        }
+    }
+
     // Reads what the master sends until it ends the connection, within the bound: true when it ended its
     // side in order, which the peer reads as the end of the stream, false when it reset the connection.
     public async Task<bool> EndedInOrderAsync()

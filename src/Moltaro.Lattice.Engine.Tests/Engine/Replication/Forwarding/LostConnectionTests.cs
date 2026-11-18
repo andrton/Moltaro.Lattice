@@ -15,6 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   not known to the child, IndeterminateOutcome, never Unavailable; the request, received whole, runs
 //   although its connection ended. The storage step of the master holds it (HeldCommitStorage) while a
 //   link between the two (LoopbackLink) is cut; released, the master has executed it.
+// - The same, when the connection ends in order without the frame Closed: IndeterminateOutcome too.
 // - The connection ends while a write holds its reply and waits for its application: the call ends at
 //   once in SynchronizationTimeout with the committed position.
 // - A child without a connection to its master refuses a write with Unavailable: here
@@ -58,6 +59,40 @@ public sealed class LostConnectionTests
             var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
             await storage.NextAsync();
             link.Cut();
+
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+
+            Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
+
+            storage.ReleaseAll();
+            await Eventually.HoldsAsync(() => master.Set<PieceSchema.Piece>().Get(1L) is not null, "The master did not execute the request it had received whole.");
+        }
+        finally
+        {
+            storage.ReleaseAll();
+        }
+    }
+
+    // An end in order of the connection alone says nothing about execution: a killed process can produce
+    // one, so without the frame Closed a write sent whole and not answered stays IndeterminateOutcome, never
+    // Unavailable "not executed" (decided at the review of S12, point 2). The link ends its side toward
+    // the child in order, the end of the stream without a reset and without Closed, while the storage step
+    // of the master holds the write it received whole; released, the master executes it.
+    [Fact]
+    public async Task Connection_that_ends_in_order_without_Closed_after_the_master_received_the_whole_request_gives_IndeterminateOutcome()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+
+        try
+        {
+            await using var link = new LoopbackLink(master.ListenUri!, LoopbackLink.CopyAsync);
+            await using var child = await ReplicationNodes.OpenChildAsync(link.Address);
+
+            storage.Hold();
+            var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
+            await storage.NextAsync();
+            link.EndToChildInOrder();
 
             var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
 
