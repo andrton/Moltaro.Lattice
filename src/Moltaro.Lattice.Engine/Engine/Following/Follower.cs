@@ -173,7 +173,7 @@ internal sealed class Follower
     {
         // The end of either side of the connection ends the other: the sender cancels it when it ends.
         using var ending = CancellationTokenSource.CreateLinkedTokenSource(closing);
-        var sending = _sender.RunAsync(ending);
+        var sending = _sender.RunAsync(ending, ending.Token);
 
         try
         {

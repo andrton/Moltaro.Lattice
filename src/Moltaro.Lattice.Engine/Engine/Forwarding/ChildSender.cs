@@ -88,11 +88,10 @@ internal sealed class ChildSender
     }
 
     // Sends until the connection ends (see the class). It never fails: the end of the connection is the
-    // whole of what a failure does, and the token given ends it; the source is cancelled when the sender
-    // ends, so that the following ends with it.
-    public async Task RunAsync(CancellationTokenSource ending)
+    // whole of what a failure does, and the token ends it. Ending is cancelled when the sender ends, so
+    // that the following ends with it.
+    public async Task RunAsync(CancellationTokenSource ending, CancellationToken cancellationToken)
     {
-        var cancellationToken = ending.Token;
         ForwardedCall? sending = null;
 
         try

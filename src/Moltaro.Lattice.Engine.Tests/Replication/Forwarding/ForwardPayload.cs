@@ -16,8 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //
 // The frames.
 // - FrameKindEnum.WriteRequest = 10 and FrameKindEnum.WriteReply = 11 (brief of S12), whose largest body
-//   is Protocol.MaxDataBody. The tests name them by their numbers (WriteRequest, WriteReply below) until
-//   the implementer adds them.
+//   is Protocol.MaxDataBody (WriteRequest, WriteReply below).
 // - Every frame of a request carries the id of the request in FrameHeader.CorrelationId: ids start at 1
 //   on each connection and grow by one with each request the sender of the child takes, in that order;
 //   0 stays the load and the stream. Every frame of a reply carries the id of its request.
@@ -28,11 +27,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //   the receiver takes any cut. The frames of one request are not interleaved with those of another
 //   request, and Applied frames may pass between them; a reply may come anywhere in the stream of the
 //   master, also between the frames of a transaction.
-// - FrameKindEnum.Closed = 12 (decided at the review of S12, point 2; the next free number, which the
-//   tests name by its number, Closed below, until the implementer adds it): from a master that closes in
-//   order, once per connection, after the replies and the tail it sends there and before the end of its
-//   sending side. It has no body: its payload is empty, so its frame is a header and the check, and its
-//   correlation id is 0. Every request of the connection not answered before it was not executed.
+// - FrameKindEnum.Closed = 12 (decided at the review of S12, point 2; Closed below): from a master that
+//   closes in order, once per connection, after the replies and the tail it sends there and before the
+//   end of its sending side. It has no body: its payload is empty, so its frame is a header and the check,
+//   and its correlation id is 0. Every request of the connection not answered before it was not executed.
 //
 // The body of a request.
 // - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Storage.WriteKindEnum.
@@ -55,11 +53,11 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 internal static class ForwardPayload
 {
     // FrameKindEnum.WriteRequest and FrameKindEnum.WriteReply of the brief of S12.
-    public const FrameKindEnum WriteRequest = (FrameKindEnum)10;
+    public const FrameKindEnum WriteRequest = FrameKindEnum.WriteRequest;
 
-    public const FrameKindEnum WriteReply = (FrameKindEnum)11;
+    public const FrameKindEnum WriteReply = FrameKindEnum.WriteReply;
 
-    public const FrameKindEnum Closed = (FrameKindEnum)12;
+    public const FrameKindEnum Closed = FrameKindEnum.Closed;
 
     // The kinds of a request: the values of WriteKindEnum.
     public const byte Insert = 0;

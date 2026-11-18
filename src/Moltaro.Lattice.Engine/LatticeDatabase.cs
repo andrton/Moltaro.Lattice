@@ -45,7 +45,7 @@ public static class LatticeDatabase
     public static async ValueTask<ILatticeDatabase> OpenAsync(LatticeDatabaseOptions options, CancellationToken cancellationToken = default)
     {
         var database = Create(options);
-        await database.OpenAsync(cancellationToken);
+        await database.OpenAsync(cancellationToken).ConfigureAwait(false);
         return database;
     }
 }

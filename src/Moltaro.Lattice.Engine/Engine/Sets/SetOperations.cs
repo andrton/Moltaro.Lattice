@@ -64,7 +64,7 @@ internal sealed class SetOperations
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken).ConfigureAwait(false);
 
         var result = TryRead<TCopy, TResult>(key, copy, out var revision, out var sequence, cancellationToken);
         var position = _clock.At(sequence);

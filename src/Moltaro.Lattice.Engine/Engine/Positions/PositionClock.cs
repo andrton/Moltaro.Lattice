@@ -263,7 +263,7 @@ internal sealed class PositionClock
                         throw new TimeoutException();
                     }
 
-                    await target.Signal.Task.WaitAsync(remaining, cancellationToken);
+                    await target.Signal.Task.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {
