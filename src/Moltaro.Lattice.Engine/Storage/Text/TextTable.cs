@@ -222,7 +222,9 @@ internal sealed class TextTable
 
     // A new entry of the text: room in the bucket table and a slot first, then the blocks, so that a
     // refusal of the arena or a failure gives back only the slot. An array of slots that cannot grow any
-    // more refuses the entry before anything is taken, as the arena refuses one it cannot hold.
+    // more refuses the entry as the arena refuses one it cannot hold: no slot is taken, no block is
+    // stored and no count changes; the bucket table may have grown and room in it is reserved, which
+    // the next entry uses.
     private bool TryAdd(ref TextPieces pieces, uint hash, int length, bool prepared, Span<byte> place, out long newBytes)
     {
         if (_buckets.IsFull(reserved: 0) && _buckets.BucketBits < IndexTable.MostBucketBits)

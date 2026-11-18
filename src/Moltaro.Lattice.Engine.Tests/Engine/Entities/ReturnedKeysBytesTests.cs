@@ -1,6 +1,5 @@
 using System.Globalization;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -74,7 +73,7 @@ public sealed class ReturnedKeysBytesTests
     // pass grows has a chunk of its own exactly as long as its text, so with keys of 40,000 code units
     // every key takes a new chunk of its length; 25 keys double the places twice (ReturnedKeys.PlacesFor)
     // and fill the list five times. Every key whose room is not counted so is named.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public void Room_for_a_String_key_counts_the_most_that_is_live_at_once_while_the_places_the_list_of_chunks_and_the_chunk_grow()
     {
         using var standalone = new StandaloneKeys("String", LongKey);
@@ -110,7 +109,7 @@ public sealed class ReturnedKeysBytesTests
     // at once while room is made for the first key that doubles the places and needs a chunk lets the pass
     // return that key, and the next one, which needs one chunk more than the limit holds, fails it with
     // ReadMemory. A count of the old places with the new chunk would fail it one entity earlier.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Memory_limit_at_the_most_live_while_a_key_doubles_the_places_and_needs_a_chunk_lets_the_pass_return_that_key()
     {
         var held = new KeysHeld(0, 0, 0);

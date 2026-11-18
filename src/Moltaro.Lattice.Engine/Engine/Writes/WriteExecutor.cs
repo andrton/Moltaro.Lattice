@@ -222,7 +222,9 @@ internal sealed class WriteExecutor
         var writes = group.Writes;
         var published = 0;
 
-        // The writes that retire nothing in their publication: an insert and a delete of an absent key.
+        // The writes whose publication retires nothing: an insert and a delete of an absent key. An
+        // insert that grew the index retired the old table when it was prepared and is counted here as
+        // well, which only brings a look earlier.
         var retiredNothing = 0;
 
         failure = null;

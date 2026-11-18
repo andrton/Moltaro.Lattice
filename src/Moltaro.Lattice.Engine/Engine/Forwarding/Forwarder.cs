@@ -15,8 +15,9 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // A call, in its order:
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
 //    the schema (Q25), before it calls. An entity type the engine does not store is NotSupportedException;
-//    a position of another history in the session is HistoryMismatch, here, before anything is queued
-//    (the planner's decision after the study, point 9); the master checks it again. An empty session is
+//    a position of another history in the session is HistoryMismatch, here, before anything is queued,
+//    since no node can order a write after it (docs/decisions/session-consistency.md, point 7); the
+//    master checks it again. An empty session is
 //    bound to the history of the child, which is its master's, here as well (Positions.PositionClock.Bind),
 //    and is HistoryMismatch when another database bound it first; so the session of a write the master
 //    committed always moves to its position (step 4). A token cancelled already ends the call. The child
