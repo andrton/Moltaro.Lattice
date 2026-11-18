@@ -112,10 +112,12 @@ internal sealed class Capture
     // Copies the root of the slot into the buffer when the slot holds a live root (see the class): its
     // type id and the sequence of its last mutation, little-endian, then what BlockExport writes. False,
     // with the buffer as it was, when the slot holds none. ObjectDisposedException once the database is
-    // closed, and Unavailable once it is faulted: the protection of reads refuses to be entered.
-    public bool TryCopy(uint slot, TransferBuffer buffer)
+    // closed, and Unavailable once it is faulted: the protection of reads refuses to be entered. The token,
+    // the close of the master, ends a wait for a slot of the protection, as it does for a read with a
+    // token (ReadEpochs.Enter), with OperationCanceledException.
+    public bool TryCopy(uint slot, TransferBuffer buffer, CancellationToken cancellationToken)
     {
-        var protection = _epochs.Enter();
+        var protection = _epochs.Enter(cancellationToken);
 
         try
         {

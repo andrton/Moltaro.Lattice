@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // bytes up to Used are complete and never change while the block is in the tail: the end is stored with
 // release semantics after the bytes before it, and the link to the next block after the end of this
 // one, so that a sender that loads them with acquire semantics (DeliveryReader) reads only complete
-// bytes, and reads every byte of this block before it follows the link.
+// bytes, and reads every byte of this block before it follows the link. EndSequence, EndOffset and
+// EndAppended are read and written under the lock alone.
 internal sealed class DeliveryBlock
 {
     private int _used;
@@ -31,6 +32,15 @@ internal sealed class DeliveryBlock
     // The block after this one, once the bytes of this one are complete.
     public DeliveryBlock? Next => Volatile.Read(ref _next);
 
+    // Under the lock: the last transaction that ends in the block, written at its Commit: its sequence, 0
+    // while none ends in it; where in the block it ends; and the bytes appended to the tail up to its end
+    // (DeliveryTail.Release).
+    public ulong EndSequence { get; set; }
+
+    public int EndOffset { get; set; }
+
+    public long EndAppended { get; set; }
+
     // Under the lock: the bytes up to the end given are complete.
     public void Publish(int used) => Volatile.Write(ref _used, used);
 
@@ -43,5 +53,8 @@ internal sealed class DeliveryBlock
     {
         _used = 0;
         _next = null;
+        EndSequence = 0;
+        EndOffset = 0;
+        EndAppended = 0;
     }
 }

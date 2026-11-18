@@ -11,8 +11,10 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // the writes that publishes it (the planner's decision of 17 November 2026 after the study of S11, points
 // 5 and 6). A transaction is one write until S17 brings the batch: an insert, a replace or an upsert
 // carries the root it publishes, a delete the key, a write that changed nothing only its position. The
-// header and the envelope of the effect are asked for in one span, so that they are in one block. The
-// caller appends it after the stores of the write (DeliveryTail.Commit).
+// header and the envelope of the effect are asked for in one span, so that they are in one block; no
+// span asked for is larger than a block: the root payload is at most a block of the arena, and the values
+// out of line and the text of a key go into the spans as the tail gives them. The caller appends it after
+// the stores of the write (DeliveryTail.Commit).
 internal static class TransactionEncoder
 {
     // A transaction whose one effect carries the root of the entity type of the table. The root is the
@@ -40,22 +42,23 @@ internal static class TransactionEncoder
         BlockExport.Write(tail, arena, layout, root);
     }
 
-    // A transaction whose one effect deletes the key of the entity type of the table.
+    // A transaction whose one effect deletes the key of the entity type of the table. The key goes into the
+    // spans the tail gives (EntityTable.WriteKey): the text of a String key may be longer than a block.
     public static void Delete(DeliveryTail tail, ulong sequence, EntityTable table, in EntityKey key)
     {
         var effects = TransactionFormat.DeleteEnvelopeSize + table.KeyLength(key);
-        var length = TransactionFormat.HeaderSize + effects;
+        const int Start = TransactionFormat.HeaderSize + TransactionFormat.DeleteEnvelopeSize;
 
         tail.Begin(sequence, effects);
 
-        var bytes = tail.GetSpan(length);
-        var effect = bytes[TransactionFormat.HeaderSize..];
+        var start = tail.GetSpan(Start);
+        var effect = start[TransactionFormat.HeaderSize..];
 
-        TransactionFormat.WriteHeader(bytes, sequence, effects);
+        TransactionFormat.WriteHeader(start, sequence, effects);
         effect[0] = (byte)EffectKindEnum.Delete;
         BinaryPrimitives.WriteUInt32LittleEndian(effect[1..], (uint)table.EntityType.Id);
-        table.WriteKey(key, effect[TransactionFormat.DeleteEnvelopeSize..]);
-        tail.Advance(length);
+        tail.Advance(Start);
+        table.WriteKey(key, tail);
     }
 
     // A transaction of a write that changed nothing.

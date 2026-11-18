@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Unicode;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -151,6 +152,10 @@ internal sealed class EntityTable
 
     // UTF-8 that refuses bytes that are not well-formed, for the text of a received key (ReadKey).
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
+    // surrogates.
+    private const int MostBytesOfACharacter = 4;
 
     private readonly Arena _arena;
 
@@ -314,23 +319,38 @@ internal sealed class EntityTable
         _ => sizeof(uint) + Encoding.UTF8.GetByteCount(key.Text!),
     };
 
-    // Writes the key into the place, which has KeyLength bytes (see KeyLength).
-    public void WriteKey(in EntityKey key, Span<byte> place)
+    // Writes the key into the output, KeyLength bytes (see KeyLength). The text of a String key may be as
+    // long as a String value may be, longer than one span of the output holds (the tail a master delivers
+    // from, Delivery.DeliveryTail, gives spans of at most one block), so it is encoded into the spans as the
+    // output gives them, each asked for room for one whole character; an integer, a Guid and the length of
+    // a text fit the span asked for.
+    public void WriteKey(in EntityKey key, IBufferWriter<byte> output)
     {
         switch (KeyKind)
         {
             case KeyKindEnum.Integer:
-                BinaryPrimitives.WriteInt64LittleEndian(place, key.Integer);
+                BinaryPrimitives.WriteInt64LittleEndian(output.GetSpan(sizeof(long)), key.Integer);
+                output.Advance(sizeof(long));
                 break;
 
             case KeyKindEnum.Guid:
-                key.Guid.TryWriteBytes(place);
+                key.Guid.TryWriteBytes(output.GetSpan(16));
+                output.Advance(16);
                 break;
 
             default:
-                var written = Encoding.UTF8.GetBytes(key.Text!, place[sizeof(uint)..]);
+                var text = key.Text!.AsSpan();
 
-                BinaryPrimitives.WriteUInt32LittleEndian(place, (uint)written);
+                BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), (uint)Encoding.UTF8.GetByteCount(text));
+                output.Advance(sizeof(uint));
+
+                while (!text.IsEmpty)
+                {
+                    Utf8.FromUtf16(text, output.GetSpan(MostBytesOfACharacter), out var read, out var written);
+                    output.Advance(written);
+                    text = text[read..];
+                }
+
                 break;
         }
     }

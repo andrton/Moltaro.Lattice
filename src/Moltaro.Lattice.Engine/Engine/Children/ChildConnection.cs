@@ -135,7 +135,7 @@ internal sealed class ChildConnection
         {
             buffer.Clear();
 
-            if (_capture.TryCopy((uint)slot, buffer))
+            if (_capture.TryCopy((uint)slot, buffer, closing))
             {
                 await framer.AddAsync(buffer, closing).ConfigureAwait(false);
             }

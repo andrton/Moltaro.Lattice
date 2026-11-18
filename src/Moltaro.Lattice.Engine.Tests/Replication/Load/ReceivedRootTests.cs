@@ -54,8 +54,8 @@ public sealed class ReceivedRootTests
         new("more bytes than the root announces"),
         new("no Blocks frame, fewer roots than LoadEnd announces"),
         new("a Blocks frame twice, more roots than LoadEnd announces"),
-        new(KeyNotUtf8) { Skip = ReviewFindings.NotFixed },
-        new(KeyWithALoneSurrogate) { Skip = ReviewFindings.NotFixed },
+        new(KeyNotUtf8),
+        new(KeyWithALoneSurrogate),
     ];
 
     [Theory]

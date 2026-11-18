@@ -10,7 +10,6 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Measurements.Fixture;
 using Moltaro.Lattice.Replication.Load;
-using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
@@ -198,14 +197,14 @@ internal static class LargeWriteChildScenario
             delivery.Add(Stopwatch.GetElapsedTime(started));
 
             started = Stopwatch.GetTimestamp();
-            BlockExport.Write(new ExactBufferWriter(reused, 0), arena, layout, root);
+            BlockExport.Write(new ArrayWriter(reused), arena, layout, root);
             reusedCopy.Add(Stopwatch.GetElapsedTime(started));
 
             started = Stopwatch.GetTimestamp();
 
             var rented = ArrayPool<byte>.Shared.Rent(reused.Length);
 
-            BlockExport.Write(new ExactBufferWriter(rented, 0), arena, layout, root);
+            BlockExport.Write(new ArrayWriter(rented), arena, layout, root);
             pooledCopy.Add(Stopwatch.GetElapsedTime(started));
             ArrayPool<byte>.Shared.Return(rented);
 
@@ -221,6 +220,19 @@ internal static class LargeWriteChildScenario
             $"The same copy, for comparison, into one array allocated once: {Spread(reusedCopy)}; into an array taken from ArrayPool<byte>.Shared and returned: {Spread(pooledCopy)}",
             $"For scale, a copy of 32 MiB from one managed array into another: {Spread(plain)}",
         ];
+    }
+
+    // Writes into an array given from its start, for the copies into an array allocated once and into a
+    // pooled one; the array holds what is written.
+    private sealed class ArrayWriter(byte[] bytes) : IBufferWriter<byte>
+    {
+        private int _position;
+
+        public Span<byte> GetSpan(int sizeHint = 0) => bytes.AsSpan(_position);
+
+        public Memory<byte> GetMemory(int sizeHint = 0) => bytes.AsMemory(_position);
+
+        public void Advance(int count) => _position += count;
     }
 
     // A tail of one child that applies each transaction at once: the copy a write makes for the tail, and

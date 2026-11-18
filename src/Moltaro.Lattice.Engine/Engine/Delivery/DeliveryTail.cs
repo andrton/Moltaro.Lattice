@@ -33,7 +33,9 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // where a capture that has not ended counts at its start — is released: its bytes leave PendingBytes,
 // which is what was appended less what was released, so it counts the bytes of the transactions some
 // child has not applied, 0 once every child has applied everything and 0 with no child. The tail finds
-// them by reading their headers from where the last release stopped. A block is let go of once every
+// them by whole blocks, each of which records the last transaction that ends in it, and by their headers
+// only inside the block that holds the lowest position, so that a release costs a step for each block it
+// passes and at most a block's worth of headers, however far a child lagged. A block is let go of once every
 // transaction with bytes in it is released and the sender of every cursor has moved past it
 // (DeliveryCursor.Block): a sender reads a block only while its cursor names it, and moves on only
 // forward, to the block the one it names links. So a block let go of is one no sender reads or will
@@ -171,6 +173,11 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
 
         _appendedBytes += _length;
         _lastSequence = _sequence;
+
+        // The block the transaction ends in (see DeliveryBlock), for a release by whole blocks.
+        _writing!.EndSequence = _sequence;
+        _writing.EndOffset = _writingAt;
+        _writing.EndAppended = _appendedBytes;
         _writing = null;
     }
 
@@ -332,6 +339,8 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
         }
         else
         {
+            PassWholeBlocks(lowest);
+
             while (TryUnreleased(out var sequence, out var length) && sequence <= lowest)
             {
                 _releasedBytes += length;
@@ -348,6 +357,38 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
             // No sender reads it, none can reach it again, and emptied it links no later block.
             passed.Reset();
             _spare ??= passed;
+        }
+    }
+
+    // Moves the start of what is not released, block by block, to the end of the last transaction that
+    // every child has applied and that ends in a block before the one that holds the lowest position, so
+    // that only the headers inside that block are read (Release): a block in which a transaction ends
+    // records the last of them at Commit, and the transactions of a block are in the order of their
+    // sequences. A block in which none ends lies inside one transaction, and the search goes on past it.
+    private void PassWholeBlocks(ulong lowest)
+    {
+        var block = _released!;
+
+        while (true)
+        {
+            if (block.EndSequence > lowest)
+            {
+                return;
+            }
+
+            if (block.EndSequence != 0 && block.EndAppended > _releasedBytes)
+            {
+                _released = block;
+                _releasedAt = block.EndOffset;
+                _releasedBytes = block.EndAppended;
+            }
+
+            if (ReferenceEquals(block, _current))
+            {
+                return;
+            }
+
+            block = block.Next!;
         }
     }
 

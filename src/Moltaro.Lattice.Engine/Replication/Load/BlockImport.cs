@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
@@ -40,6 +41,9 @@ namespace Moltaro.Lattice.Replication.Load;
 // The arena has one changing thread at a time: the caller holds the lock of the writes of the child.
 internal sealed class BlockImport
 {
+    // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     private readonly Arena _arena;
 
     private readonly LatticeSchema _schema;
@@ -84,7 +88,12 @@ internal sealed class BlockImport
         new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
 
     // The text of a String field of the root checked last, which is not null, as a new string decoded
-    // from the encoding of the database, where the root holds it: inline in its payload, or out of line.
+    // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
+    // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
+    // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
+    // is not (Engine.Entities.EntityTable.ReadKey): a key that a master stores is well-formed, since every
+    // write checks its text (Q41), so such a root did not come from one. Every other text of a root is
+    // placed as the bytes it is and not decoded.
     public string Text(in ReceivedRoot root, LatticeField field)
     {
         var layout = root.Layout;
@@ -121,7 +130,14 @@ internal sealed class BlockImport
 
         if (layout.StringEncoding == LatticeStringEncodingEnum.Utf8)
         {
-            return Encoding.UTF8.GetString(bytes);
+            try
+            {
+                return StrictUtf8.GetString(bytes);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(layout, $"the text of the field {field.Name} is not well-formed UTF-8 ({exception.Message})");
+            }
         }
 
         if (bytes.Length % sizeof(char) != 0)
@@ -129,7 +145,14 @@ internal sealed class BlockImport
             throw Invalid(layout, $"the text of the field {field.Name} has {bytes.Length} bytes, which are no UTF-16 code units.");
         }
 
-        return string.Create((int)(bytes.Length / sizeof(char)), bytes, static (units, value) => value.CopyTo(MemoryMarshal.AsBytes(units)));
+        var text = string.Create((int)(bytes.Length / sizeof(char)), bytes, static (units, value) => value.CopyTo(MemoryMarshal.AsBytes(units)));
+
+        if (!WellFormedText.IsWellFormed(text))
+        {
+            throw Invalid(layout, $"the text of the field {field.Name} is not well-formed UTF-16: it holds a surrogate without its pair.");
+        }
+
+        return text;
     }
 
     // Places the root checked last for the lifetime the handle names (see the class): the address of its

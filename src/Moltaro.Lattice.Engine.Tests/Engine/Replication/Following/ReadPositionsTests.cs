@@ -20,7 +20,7 @@ public sealed class ReadPositionsTests
 
     private const long Key = 1;
 
-    [Fact(Skip = ReviewFindings.NotFixed)]
+    [Fact]
     public async Task Read_on_a_child_never_returns_a_state_at_a_position_at_which_the_master_did_not_have_it()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

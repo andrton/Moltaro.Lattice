@@ -22,8 +22,9 @@ namespace Moltaro.Lattice.Engine.Following;
 // before R: the state before it is a mixture of the copy and the stream, which no position names.
 //
 // After Ready (FollowAsync). The child acknowledges R, then applies every transaction as it comes and,
-// whenever no more of the stream has arrived whole, acknowledges the last one it applied
-// (Applied(sequence), once for each burst it received). Reads go on meanwhile: they are protected by
+// whenever no more of the stream has arrived whole and it is about to read more, acknowledges the last one
+// it applied (Applied(sequence), once for each burst it received, within a transaction of several frames
+// as well; ApplyNextAsync). Reads go on meanwhile: they are protected by
 // epochs, as on a master, and never wait for an application. Retired memory is freed by the applying
 // thread (ReceivedChanges.Publish).
 //
@@ -116,7 +117,7 @@ internal sealed class Follower
 
         while (_applied < end.End)
         {
-            await ApplyNextAsync(_openTimeout, cancellationToken).ConfigureAwait(false);
+            await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false);
         }
 
         return new CatchUpReport(end.Start, end.End, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
@@ -132,12 +133,7 @@ internal sealed class Follower
 
             while (true)
             {
-                await ApplyNextAsync(timeout: null, cancellationToken).ConfigureAwait(false);
-
-                if (!_link.HoldsFrame)
-                {
-                    await AcknowledgeAsync(cancellationToken).ConfigureAwait(false);
-                }
+                await ApplyNextAsync(timeout: null, acknowledges: true, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception)
@@ -185,14 +181,25 @@ internal sealed class Follower
 
     private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 
-    // Receives the next transaction whole and applies it.
-    private async Task ApplyNextAsync(TimeSpan? timeout, CancellationToken cancellationToken)
+    // Receives the next transaction whole and applies it. After Ready it acknowledges what it has applied
+    // whenever no more of the stream waits and the next frame has to be read from the socket, within a
+    // transaction as well as between two, so that a child under a stream that never pauses sends Applied at
+    // least once for each fill of its receive buffer: between two Applied it applies no more than the
+    // transactions whose last frames one fill of the buffer holds (Replication.FrameConnection). An Applied
+    // sent only at the end of a transaction would wait as long as each transaction ended with a whole frame
+    // of the next one already received, which a stream of transactions of several frames can keep up.
+    private async Task ApplyNextAsync(TimeSpan? timeout, bool acknowledges, CancellationToken cancellationToken)
     {
         ulong sequence;
         ReadOnlySequence<byte> effects;
 
         while (true)
         {
+            if (acknowledges && !_link.HoldsFrame)
+            {
+                await AcknowledgeAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             var frame = await _link.ReceiveAsync(timeout, cancellationToken).ConfigureAwait(false);
 
             if (frame.Kind != FrameKindEnum.Transaction)

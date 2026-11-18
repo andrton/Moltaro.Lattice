@@ -79,8 +79,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // no spare for. With no child and no capture nothing is encoded.
 //
 // A child (Loading.ReceivedChanges) publishes what it received from its master through the members
-// PublishReceived…, with the stores of a write of a master and the sequence of the master as the stamp,
-// and with no fault point: a test arms one on a master.
+// InstallReceived, Mark…Received, PublishPosition and Stamp…Received: the stores of the writes of a
+// master, split where a master publishes its position, so that a transaction of several effects marks or
+// installs every entity it changes, publishes its position once, then stores the stamps. With the
+// sequence of the master as the stamp, and with no fault point: a test arms one on a master.
 //
 // Every write that passes its condition and its preparation and is committed is published at a
 // position of its own, also a delete of an absent key, which changes no entity (the owner's answer to
@@ -409,11 +411,11 @@ internal sealed class WriteExecutor
                 break;
 
             case PublicationKindEnum.Replace:
-                ReplaceRoot(table.Layout!, prepared.Handle, prepared.Root, sequence, publishesPosition: true, EngineFaultPointEnum.DuringPublication);
+                ReplaceRoot(table.Layout!, prepared.Handle, prepared.Root, sequence);
                 break;
 
             case PublicationKindEnum.Delete:
-                DeleteRoot(table, write.Key, prepared.Handle, sequence, EngineFaultPointEnum.DuringPublication);
+                DeleteRoot(table, write.Key, prepared.Handle, sequence);
                 break;
 
             default:
@@ -450,30 +452,34 @@ internal sealed class WriteExecutor
         }
     }
 
-    // For a child (Loading.ReceivedChanges), under the lock of the writes: publishes a root the child
-    // received, which Replication.Load.BlockImport placed in prepared blocks for the new lifetime the
-    // handle names, as an insert publishes its root, with the sequence of its last mutation on the master
-    // as its stamp; the caller has reserved room in the index for the key, and publishes the position of
-    // the transaction after it (PublishPosition), or none during the load.
-    public void PublishReceivedInsert(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong lastMutation) =>
+    // For a child (Loading.ReceivedChanges), under the lock of the writes, step 1 of the publication of what
+    // it received: installs a root placed in prepared blocks for the new lifetime the handle names
+    // (Replication.Load.BlockImport), as an insert of a master does before its position, with the sequence
+    // of its last mutation on the master as its stamp; the caller has reserved room in the index.
+    public void InstallReceived(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong lastMutation) =>
         Install(table, key, handle, root, lastMutation);
 
-    // For a child, under the lock of the writes: replaces the root of an entity it holds by a root it
-    // received, placed for the lifetime of the entity, by the stores of a replace of a master, with the
-    // sequence of the master as the stamp. The position is published within the stores, as a master
-    // does, for a transaction of the stream; not for a root of a load, which publishes no position. The
-    // caller has reserved the place of the old root in the retired list.
-    public void PublishReceivedReplace(EntityTable table, RootHandle handle, ArenaAddress root, ulong lastMutation, bool publishesPosition) =>
-        ReplaceRoot(table.Layout!, handle, root, lastMutation, publishesPosition, faultPoint: null);
+    // For a child, step 1: the first stores of a replace of a master, the mark and then the root placed
+    // for the lifetime of the entity; returns the root it replaces, for step 3. A read of the entity backs
+    // off until step 3 stores the stamp.
+    public ArenaAddress MarkReceivedReplace(EntityTable table, RootHandle handle, ArenaAddress root) =>
+        MarkReplace(table.Layout!, handle, root);
 
-    // For a child, under the lock of the writes: deletes an entity it holds, by the stores of a delete of
-    // a master, which publish the position of the transaction before the entry of the index is removed.
-    // The caller has reserved the place of the root in the retired list.
-    public void PublishReceivedDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence) =>
-        DeleteRoot(table, key, handle, sequence, faultPoint: null);
+    // For a child, step 1: the first stores of a delete of a master, the mark and then the state Deleted.
+    public void MarkReceivedDelete(RootHandle handle) => MarkDelete(handle);
 
-    // For a child, under the lock of the writes: the sequence of the master becomes the sequence of the
-    // child: S at the end of its load, then the sequence of each transaction it applies.
+    // For a child, step 3, after the position: the last stores of a replace, the stamp and the retirement of
+    // the root it replaced; the caller has reserved its place in the retired list.
+    public void StampReceivedReplace(EntityTable table, RootHandle handle, ArenaAddress replaced, ulong lastMutation) =>
+        StampReplace(table.Layout!, handle, replaced, lastMutation);
+
+    // For a child, step 3: the last stores of a delete, the stamp, the removal of the entry of the index and
+    // the retirement of the root and its entry; the caller has reserved the place in the retired list.
+    public void StampReceivedDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence) =>
+        StampDelete(table, key, handle, sequence);
+
+    // For a child, under the lock of the writes, step 2: the sequence of the master becomes the sequence of
+    // the child: S at the end of its load, then the sequence of each transaction it applies.
     public void PublishPosition(ulong sequence) => _clock.Publish(sequence);
 
     // For a child, under the lock of the writes, after what it received is published: what was retired is
@@ -520,55 +526,70 @@ internal sealed class WriteExecutor
         table.Add(key, handle);
     }
 
-    // The stores of a replace, with the fault point of the tests on a master.
-    private void ReplaceRoot(RootLayout layout, RootHandle handle, ArenaAddress root, ulong sequence, bool publishesPosition, EngineFaultPointEnum? faultPoint)
+    // The stores of a replace of a master, with the fault point of the tests (see the head of the file).
+    private void ReplaceRoot(RootLayout layout, RootHandle handle, ArenaAddress root, ulong sequence)
+    {
+        var replaced = MarkReplace(layout, handle, root);
+
+        Pass(EngineFaultPointEnum.DuringPublication);
+
+        // The sequence of the database between the mark and the stamp, so that a read that loads the new
+        // stamp reads that sequence or a later one (the position of an answer, EntityTable).
+        _clock.Publish(sequence);
+        StampReplace(layout, handle, replaced, sequence);
+    }
+
+    // The stores of a delete of a master, with the fault point of the tests, in the order of a replace.
+    private void DeleteRoot(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
+    {
+        MarkDelete(handle);
+        Pass(EngineFaultPointEnum.DuringPublication);
+        _clock.Publish(sequence);
+        StampDelete(table, key, handle, sequence);
+    }
+
+    // The stores of a replace before the position (see the head of the file), each with release semantics:
+    // the mark first; the release of the root's store keeps the mark before the root, as the release fence
+    // after the source's swap keeps it before the data. Returns the root replaced.
+    private ArenaAddress MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
     {
         RootStorage.Publish(_arena, layout, root);
 
         ref var entry = ref _roots.Entry(handle);
         var replaced = entry.Root;
 
-        // The stores of the stamp (see the head of the file), each with release semantics. The mark
-        // first; the release of the root's store keeps the mark before the root, as the release fence
-        // after the source's swap keeps it before the data. The sequence of the database next, so that a
-        // read that loads the new stamp reads that sequence or a later one (the position of an answer,
-        // EntityTable). The new stamp last; its release keeps the root before it, so a read that loads
-        // it sees the new root.
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseRoot(root);
 
-        if (faultPoint is { } point)
-        {
-            Pass(point);
-        }
+        return replaced;
+    }
 
-        if (publishesPosition)
-        {
-            _clock.Publish(sequence);
-        }
-
-        entry.ReleaseLastMutation(sequence);
-
-        // Reads that took the old root before go on copying it; it is freed once they have left.
+    // The stores of a replace after the position: the new stamp, whose release keeps the root before it,
+    // so a read that loads it sees the new root. Reads that took the old root before go on copying it; it
+    // is freed once they have left.
+    private void StampReplace(RootLayout layout, RootHandle handle, ArenaAddress replaced, ulong sequence)
+    {
+        _roots.Entry(handle).ReleaseLastMutation(sequence);
         _retired.RetireRoot(layout, replaced);
     }
 
-    // The stores of a delete, with the fault point of the tests on a master.
-    private void DeleteRoot(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence, EngineFaultPointEnum? faultPoint)
+    // The stores of a delete before the position: the mark, then the state where a replace has the root.
+    // The entry keeps the address of its root, which is retired, not freed.
+    private void MarkDelete(RootHandle handle)
     {
         ref var entry = ref _roots.Entry(handle);
 
-        // The stores of the stamp as in a replace, with the state where a replace has the root. The
-        // entry keeps the address of its root, which is retired, not freed.
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseState(RootStateEnum.Deleted);
+    }
 
-        if (faultPoint is { } point)
-        {
-            Pass(point);
-        }
+    // The stores of a delete after the position: the stamp, then the entry of the index is removed, so a
+    // read that misses the key reads the position of the delete or a later one; the root and its entry are
+    // retired.
+    private void StampDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
+    {
+        ref var entry = ref _roots.Entry(handle);
 
-        _clock.Publish(sequence);
         entry.ReleaseLastMutation(sequence);
         table.Remove(key, handle);
         _retired.RetireDeleted(table.Layout!, handle, entry.Root);

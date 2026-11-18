@@ -415,7 +415,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // "Types and members of S11"): the internal switch that holds back a child's replication, so that a
     // test can state what a child does while it has not applied what it received. A Ready child holds
     // back the application of every transaction it receives until the suspension is disposed; holds of
-    // several suspensions add up. The child goes on receiving meanwhile, and its master goes on writing.
+    // several suspensions add up. The transaction it has put together waits where it was received, and the
+    // child receives nothing more meanwhile, so what its master sends waits in the connection; its master
+    // goes on writing.
     // Disposing it after the close does nothing; a suspension held at the close does not keep the close
     // from completing. Unavailable before the child is Ready, ObjectDisposedException after the close,
     // and InvalidOperationException on a master, which applies nothing it receives.
@@ -861,7 +863,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, refusesEveryWrite: "Writes through a child of the engine come with Epic 1, sprint S12: write to its master.");
 
             var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
-            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema);
+            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, Fault);
 
             PresizeIndexes(tables, counts, memoryLimit);
 
