@@ -37,7 +37,7 @@ public sealed class LoadUnderWritesSoakTests
         }
 
         await using var link = HeldLink.Paced(master.ListenUri!, portion: 2 * 64 * 1024, pause: TimeSpan.FromMilliseconds(2));
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
         var opening = child.OpenAsync().AsTask();
 
         for (var write = 0; write < Writes; write++)

@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Placeholder;
+using Moltaro.Lattice.Engine;
 
 namespace Moltaro.Lattice;
 
@@ -25,15 +25,9 @@ public static class LatticeDatabase
     /// </exception>
     public static ILatticeDatabase Create(LatticeDatabaseOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        options.Validate();
+        EngineDatabase.Check(options);
 
-        if (options.PersistenceMode == LatticePersistenceModeEnum.Durable)
-        {
-            throw new NotSupportedException("Durable persistence is not implemented yet. Select MemoryOnly explicitly.");
-        }
-
-        return new InMemoryDatabase(options);
+        return new EngineDatabase(options, testInputs: null);
     }
 
     /// <summary>

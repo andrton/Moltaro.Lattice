@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Placeholder;
+using Moltaro.Lattice.Engine;
 
 namespace Moltaro.Lattice.Tests.Indexes;
 
@@ -409,5 +409,5 @@ public sealed class IndexTests
     }
 
     // Holds back what the child receives from its master, the way a slow link would.
-    private static IDisposable Lagging(ILatticeDatabase child) => ((InMemoryDatabase)child).SuspendApplying();
+    private static IDisposable Lagging(ILatticeDatabase child) => ((EngineDatabase)child).SuspendApplying();
 }

@@ -11,9 +11,6 @@ namespace Moltaro.Lattice.Replication;
 // of a root travel in the byte order of the sender, which LayoutFormat announces (Replication.Load).
 internal static class Protocol
 {
-    // The scheme of the addresses of the transport: lattice://host:port (brief of Epic 1, sprint S10).
-    public const string Scheme = "lattice";
-
     // The first four bytes of every frame, "LATT" in little-endian order.
     public const uint Magic = 0x5454414C;
 

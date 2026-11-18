@@ -15,7 +15,7 @@ internal static class EngineMaster
 {
     public static async Task<EngineDatabase> OpenAsync(LatticeSchema schema)
     {
-        var database = EngineDatabase.Create(OptionsOf(schema));
+        var database = (EngineDatabase)LatticeDatabase.Create(OptionsOf(schema));
 
         await database.OpenAsync();
         return database;

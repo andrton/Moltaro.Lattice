@@ -47,7 +47,7 @@ internal static class ReplicationNodes
             ListenUri = MasterAndChild.Loopback,
             OpenTimeout = BeyondTheBound,
         };
-        var master = EngineDatabase.Create(options);
+        var master = (EngineDatabase)LatticeDatabase.Create(options);
 
         await master.OpenAsync().AsTask().WaitAsync(Bound);
         return master;

@@ -64,7 +64,7 @@ internal static class LargeWritesScenario
 
     public static IReadOnlyList<string> Run()
     {
-        using var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = Schema,

@@ -134,7 +134,7 @@ public sealed class MasterAndChildTests
         new("a duplicate key"),
         new("a key that is not found"),
         new("a revision the entity no longer has"),
-        new("an entity the memory of the master cannot hold") { Skip = SkipReason.BeforeSprint12 },
+        new("an entity the memory of the master cannot hold"),
     ];
 
     [Theory]

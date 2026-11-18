@@ -88,7 +88,7 @@ internal static class ChildUnderWritesScenario
     private static List<string> Load(UserDatabase users, long[] keys, int children)
     {
         var lines = new List<string>();
-        var instances = Enumerable.Range(0, children).Select(_ => EngineDatabase.Create(ChildOptions(users.ListenUri!))).ToList();
+        var instances = Enumerable.Range(0, children).Select(_ => (EngineDatabase)LatticeDatabase.Create(ChildOptions(users.ListenUri!))).ToList();
 
         try
         {

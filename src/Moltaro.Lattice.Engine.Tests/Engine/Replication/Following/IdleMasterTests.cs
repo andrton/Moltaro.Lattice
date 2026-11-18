@@ -25,7 +25,7 @@ public sealed class IdleMasterTests
             ListenUri = MasterAndChild.Loopback,
             OpenTimeout = OpenTimeout,
         };
-        await using var master = EngineDatabase.Create(masterOptions);
+        await using var master = (EngineDatabase)LatticeDatabase.Create(masterOptions);
         await master.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
         await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(master.ListenUri!, OpenTimeout), new EngineTestInputs());

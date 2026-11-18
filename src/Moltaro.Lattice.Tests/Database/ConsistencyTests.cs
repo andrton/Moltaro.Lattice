@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Placeholder;
+using Moltaro.Lattice.Engine;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -8,9 +8,7 @@ namespace Moltaro.Lattice.Tests.Database;
 // after the master committed it does not undo it (Q08.1.2; brief of Epic 1, sprint S12).
 public sealed class ConsistencyTests
 {
-    // The placeholder keeps the position it had for a delete that deleted nothing (Q39), so this test
-    // runs once LatticeDatabase opens the engine.
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public async Task Every_result_carries_a_position()
     {
         await using var master = await TestData.OpenMasterAsync();
@@ -449,7 +447,7 @@ public sealed class ConsistencyTests
     }
 
     // Holds back what the child receives from its master, the way a slow link would.
-    private static IDisposable Lagging(ILatticeDatabase child) => ((InMemoryDatabase)child).SuspendApplying();
+    private static IDisposable Lagging(ILatticeDatabase child) => ((EngineDatabase)child).SuspendApplying();
 
     private static ValueTask<ILatticeDatabase> OpenChildAsync(Uri masterUri, TimeSpan synchronizationTimeout) =>
         LatticeDatabase.OpenAsync(new LatticeDatabaseOptions

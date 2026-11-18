@@ -26,22 +26,21 @@ namespace Moltaro.Lattice.Engine;
 
 // The database of the engine: an ILatticeDatabase over the native arena, the table of root
 // entries and the root layouts of this assembly, with the primary index. It is what the public
-// contract runs on once the placeholder of the core library is gone. It is a MemoryOnly master that
+// contract runs on: LatticeDatabase opens it (brief of Epic 1, sprint S12). It is a MemoryOnly master that
 // inserts, reads, replaces, upserts and deletes entities of scalar fields by primary key, by class
 // and by name (brief of Epic 1, sprint S06), for many callers at once through its write coordinator
 // (S09), and that accepts children at a ListenUri; or a child that loads the whole database of its
 // master over TCP, serves its reads (S10), follows the writes of its master (S11), and forwards its own
 // writes to its master, each returning once this child has applied it (S12).
 //
-// How a test reaches it. Until S12 LatticeDatabase still opens the placeholder, and a test opens
-// the engine through Create, the internal entry of exception X4 (docs/work/exceptions.md): only
-// the opening differs, and every operation after it goes through the public interfaces. In S12
-// LatticeDatabase returns this class, and Create is removed with its uses.
-//
-// Create. An instance is a MemoryOnly master, with or without a ListenUri, or a child. Create makes it
-// without opening it and refuses in the order of LatticeDatabase.Create: ArgumentNullException for null
-// options; Validate, which gives InvalidConfiguration; then NotSupportedException for Durable
-// persistence (until S27). The engine refuses an address it cannot use when the instance opens.
+// How it is made. LatticeDatabase.Create makes it, and the tests of the engine and the measurement program
+// make it with their inputs through Create (exception X3, docs/work/exceptions.md); the scenario tests of
+// the contract open it through LatticeDatabase, and every operation after it goes through the public
+// interfaces. An instance is a MemoryOnly master, with or without a ListenUri, or a child. It is made
+// without being opened, and the refusals come in the order of LatticeDatabase.Create: ArgumentNullException
+// for null options; Validate, which gives InvalidConfiguration, also for an address that does not have the
+// form of the transport; then NotSupportedException for Durable persistence (until S27). A master that
+// cannot listen at its address fails its open with InvalidConfiguration.
 //
 // States. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child is Connecting
 // while it has no connection to its master, the pauses between its attempts included, and Loading from
@@ -225,7 +224,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // Cancelled when the close begins: it ends the open of a child that is in progress.
     private readonly CancellationTokenSource _closing = new();
 
-    private EngineDatabase(LatticeDatabaseOptions options, EngineTestInputs? testInputs)
+    // An instance for the options, which Check has accepted, without opening it: LatticeDatabase.Create, and
+    // the Create of the tests with their inputs.
+    internal EngineDatabase(LatticeDatabaseOptions options, EngineTestInputs? testInputs)
     {
         _options = options;
         _testInputs = testInputs;
@@ -233,21 +234,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
         _epochs = new ReadEpochs(this);
     }
 
-    // Makes an instance for the options without opening it: a MemoryOnly master or a child.
-    public static EngineDatabase Create(LatticeDatabaseOptions options)
-    {
-        Check(options);
-
-        return new EngineDatabase(options, testInputs: null);
-    }
-
-    // For the tests of the engine (exception X3, docs/work/exceptions.md): makes an instance as the
-    // first Create does, with the same refusals, that takes what the inputs give instead of what an
-    // instance makes for itself: the options of its arena, the allocator of its native memory, the
-    // seed of the hashes of its primary indexes and the storage step of its commit stage, each when it
-    // is set (EngineTestInputs). When the inputs give the options of the arena, MemoryLimit of the
-    // options of the database is not read. Nothing else differs, and an instance made by the first
-    // Create pays nothing for it.
+    // For the tests of the engine and the measurement program (exception X3, docs/work/exceptions.md):
+    // makes an instance as LatticeDatabase.Create does, with the same refusals, that takes what the inputs
+    // give instead of what an instance makes for itself: the options of its arena, the allocator of its
+    // native memory, the seed of the hashes of its primary indexes and the storage step of its commit
+    // stage, each when it is set (EngineTestInputs). When the inputs give the options of the arena,
+    // MemoryLimit of the options of the database is not read. Nothing else differs, and an instance made
+    // by LatticeDatabase.Create pays nothing for it.
     public static EngineDatabase Create(LatticeDatabaseOptions options, EngineTestInputs inputs)
     {
         Check(options);
@@ -256,8 +249,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return new EngineDatabase(options, inputs);
     }
 
-    // The refusals of Create, in the order of LatticeDatabase.Create.
-    private static void Check(LatticeDatabaseOptions options)
+    // The refusals of LatticeDatabase.Create, in their order, and of the Create of the tests.
+    internal static void Check(LatticeDatabaseOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -738,40 +731,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ExceptionDispatchInfo.Throw(exception);
     }
 
-    // The address of ListenUri or MasterUri as the engine takes it (brief of S10): the scheme lattice, a
-    // host and a TCP port, and nothing else; port 0 only where the system may choose the port, in
-    // ListenUri. InvalidConfiguration otherwise. Validate keeps accepting any absolute address until S12,
-    // so the open checks it.
-    private static Uri CheckAddress(Uri address, string option, bool portMayBeChosen)
-    {
-        if (!string.Equals(address.Scheme, Protocol.Scheme, StringComparison.Ordinal))
-        {
-            throw new LatticeException(LatticeErrorEnum.InvalidConfiguration, $"{option} {address} has the scheme {address.Scheme}; the engine takes {Protocol.Scheme}://host:port.");
-        }
-
-        if (address.AbsolutePath is not ("" or "/") || address.Query.Length > 0 || address.Fragment.Length > 0 || address.UserInfo.Length > 0)
-        {
-            throw new LatticeException(LatticeErrorEnum.InvalidConfiguration, $"{option} {address} names more than a host and a port; the engine takes {Protocol.Scheme}://host:port.");
-        }
-
-        if (address.Host.Length == 0 || address.Port < 0 || (address.Port == 0 && !portMayBeChosen))
-        {
-            throw new LatticeException(
-                LatticeErrorEnum.InvalidConfiguration,
-                portMayBeChosen
-                    ? $"{option} {address} names no host or no port; the engine takes {Protocol.Scheme}://host:port, with port 0 for a port the system chooses."
-                    : $"{option} {address} names no host or no port; a child is given the address its master reports, with the port it listens at.");
-        }
-
-        return address;
-    }
-
     // The open of a master (see OpenAsync). It passes the barrier of the close, so that a close that
     // begins meanwhile finds the listener it starts (FreeAfterOperationsAsync). A close that came while
     // it opened wins: the open fails with ObjectDisposedException.
     private void OpenMaster()
     {
-        var listenUri = _options.ListenUri is { } address ? CheckAddress(address, nameof(LatticeDatabaseOptions.ListenUri), portMayBeChosen: true) : null;
+        // Validate has checked its form: lattice://host:port.
+        var listenUri = _options.ListenUri;
         var schema = _options.Schema!;
 
         _barrier.Enter();
@@ -860,7 +826,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             using var opening = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _closing.Token);
             var token = opening.Token;
-            var masterUri = CheckAddress(_options.MasterUri!, nameof(LatticeDatabaseOptions.MasterUri), portMayBeChosen: false);
+            // Validate has checked its form: lattice://host:port, with a port other than 0.
+            var masterUri = _options.MasterUri!;
 
             // A child holds nothing before it loads: an empty identity, history zero, an empty
             // fingerprint (brief of S10, HelloBody).

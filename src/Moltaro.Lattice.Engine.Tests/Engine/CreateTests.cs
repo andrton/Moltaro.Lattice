@@ -18,7 +18,7 @@ public sealed class CreateTests
     [Fact]
     public void Null_options_are_ArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => EngineDatabase.Create(null!));
+        Assert.Throws<ArgumentNullException>(() => LatticeDatabase.Create(null!));
     }
 
     // Each of these options is invalid, and the invalid configuration is found first, before anything
@@ -33,7 +33,7 @@ public sealed class CreateTests
     [InlineData("a MemoryOnly master with a ListenUri and without a schema")]
     public void Invalid_options_are_InvalidConfiguration_before_anything_is_refused_as_not_supported(string options)
     {
-        var exception = Assert.Throws<LatticeException>(() => EngineDatabase.Create(Invalid(options)));
+        var exception = Assert.Throws<LatticeException>(() => LatticeDatabase.Create(Invalid(options)));
 
         Assert.Equal(LatticeErrorEnum.InvalidConfiguration, exception.Error);
     }
@@ -41,13 +41,13 @@ public sealed class CreateTests
     [Fact]
     public void Durable_master_is_not_served_yet_and_is_NotSupportedException()
     {
-        Assert.Throws<NotSupportedException>(() => EngineDatabase.Create(new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost", Schema = Schema }));
+        Assert.Throws<NotSupportedException>(() => LatticeDatabase.Create(new LatticeDatabaseOptions { StorageConnectionString = "Host=localhost", Schema = Schema }));
     }
 
     [Fact]
     public void MemoryOnly_master_is_created_without_being_opened()
     {
-        using var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var database = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = Schema,
@@ -59,13 +59,13 @@ public sealed class CreateTests
     [Fact]
     public void Master_with_a_ListenUri_and_a_child_are_created_without_being_opened()
     {
-        using var master = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var master = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = Schema,
             ListenUri = MasterAndChild.Loopback,
         });
-        using var child = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var child = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,

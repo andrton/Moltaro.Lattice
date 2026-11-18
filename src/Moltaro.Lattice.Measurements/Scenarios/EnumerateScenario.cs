@@ -326,7 +326,7 @@ internal static class EnumerateScenario
     // returns every entity.
     private static bool Completes(LatticeSchema schema, object[] keys, long readMemoryLimit)
     {
-        using var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,

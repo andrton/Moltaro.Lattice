@@ -1,16 +1,11 @@
-using Moltaro.Lattice.Engine;
-
 namespace Moltaro.Lattice.Tests;
 
 // Creates and opens a database of the engine, which the public contract runs on from Epic 1, sprint S12.
-// Until the implementation of S12 makes LatticeDatabase return it, the engine is reached through its
-// internal entry, EngineDatabase.Create, under exception X4 (docs/work/exceptions.md); then this helper
-// opens through LatticeDatabase. Only the opening differs: after it a test uses the public interfaces
-// and nothing else.
+// Only the opening differs: after it a test uses the public interfaces and nothing else.
 internal static class TestDatabases
 {
     // Creates a database without opening it, as LatticeDatabase.Create does.
-    public static ILatticeDatabase Create(LatticeDatabaseOptions options) => EngineDatabase.Create(options);
+    public static ILatticeDatabase Create(LatticeDatabaseOptions options) => LatticeDatabase.Create(options);
 
     // Creates a database and opens it, as LatticeDatabase.OpenAsync does.
     public static async ValueTask<ILatticeDatabase> OpenAsync(LatticeDatabaseOptions options)

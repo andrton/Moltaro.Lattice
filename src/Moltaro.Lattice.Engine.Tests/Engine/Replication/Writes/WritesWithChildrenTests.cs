@@ -55,7 +55,7 @@ public sealed class WritesWithChildrenTests
         await Pieces.InsertBeyondALinkAsync(master);
         var before = master.Position;
         await using var link = HeldLink.Start(master.ListenUri!);
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
 
         var opening = child.OpenAsync().AsTask();
         await link.HeldAsync();

@@ -211,6 +211,10 @@ public sealed class LatticeDatabaseOptions
     // agree on it.
     internal const int ArenaSegmentSize = 4 * 1024 * 1024;
 
+    // The scheme of the addresses of the replication transport: lattice://host:port (brief of Epic 1,
+    // sprint S10; Validate from S12).
+    internal const string AddressScheme = "lattice";
+
     /// <summary>
     /// Checks that the options describe a supported instance.
     /// </summary>
@@ -262,6 +266,29 @@ public sealed class LatticeDatabaseOptions
         }
     }
 
+    // The form of an address of the transport (see ListenUri): the scheme lattice, a host and a TCP port,
+    // and nothing else; port 0 only where the system may choose the port, in a ListenUri. A relative
+    // address has none of them.
+    private static void CheckAddress(Uri address, string option, bool portMayBeChosen)
+    {
+        if (!address.IsAbsoluteUri || !string.Equals(address.Scheme, AddressScheme, StringComparison.Ordinal))
+        {
+            throw Invalid($"{option} {address} is not an address of the form {AddressScheme}://host:port.");
+        }
+
+        if (address.AbsolutePath is not ("" or "/") || address.Query.Length > 0 || address.Fragment.Length > 0 || address.UserInfo.Length > 0)
+        {
+            throw Invalid($"{option} {address} names more than a host and a port; an address has the form {AddressScheme}://host:port.");
+        }
+
+        if (address.Host.Length == 0 || address.Port < 0 || (address.Port == 0 && !portMayBeChosen))
+        {
+            throw Invalid(portMayBeChosen
+                ? $"{option} {address} names no host or no port; an address has the form {AddressScheme}://host:port, with port 0 for a port the system chooses."
+                : $"{option} {address} names no host or no port; a child is given the address its master reports, with the port it listens at.");
+        }
+    }
+
     // A wait must end: zero, negative, infinite and absurdly long values are refused.
     internal static bool IsFiniteTimeout(TimeSpan timeout) =>
         timeout > TimeSpan.Zero && timeout <= TimeSpan.FromDays(1);
@@ -273,9 +300,9 @@ public sealed class LatticeDatabaseOptions
             throw Invalid($"{nameof(MasterUri)} is not allowed for a master.");
         }
 
-        if (ListenUri is { IsAbsoluteUri: false })
+        if (ListenUri is { } listenUri)
         {
-            throw Invalid($"{nameof(ListenUri)} must be an absolute address.");
+            CheckAddress(listenUri, nameof(ListenUri), portMayBeChosen: true);
         }
 
         switch (PersistenceMode)
@@ -311,10 +338,12 @@ public sealed class LatticeDatabaseOptions
             throw Invalid("A child must explicitly select MemoryOnly persistence.");
         }
 
-        if (MasterUri is null || !MasterUri.IsAbsoluteUri)
+        if (MasterUri is null)
         {
-            throw Invalid($"A child requires an absolute {nameof(MasterUri)}.");
+            throw Invalid($"A child requires {nameof(MasterUri)}.");
         }
+
+        CheckAddress(MasterUri, nameof(MasterUri), portMayBeChosen: false);
 
         if (ListenUri is not null)
         {

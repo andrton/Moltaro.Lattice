@@ -187,21 +187,21 @@ public sealed class LatticeDatabaseOptionsTests
         Child(new Uri("lattice://localhost:7400")).Validate();
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [Theory]
     [MemberData(nameof(OtherForms))]
     public void ListenUri_of_another_form_is_refused(string form)
     {
         AssertInvalid(MemoryOnlyMaster(listenUri: AddressOf(form)));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint12)]
+    [Theory]
     [MemberData(nameof(OtherForms))]
     public void MasterUri_of_another_form_is_refused(string form)
     {
         AssertInvalid(Child(AddressOf(form)));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint12)]
+    [Fact]
     public void MasterUri_with_port_0_is_refused()
     {
         AssertInvalid(Child(new Uri("lattice://127.0.0.1:0")));

@@ -76,7 +76,7 @@ internal static class ReadByTextKeyScenario
 
     private static EngineDatabase Open(LatticeSchema schema)
     {
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,

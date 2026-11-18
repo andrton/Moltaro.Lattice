@@ -267,7 +267,7 @@ public sealed class ReadTimeInsideTheEngineTests
     // the time limit given in its options.
     private static async Task<EngineDatabase> OpenWithStampsAsync(TimeSpan? readTimeLimit, int count = Keys)
     {
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = StampSchema.Schema,

@@ -53,7 +53,7 @@ internal sealed class UserDatabase : IDisposable
         var records = ReferenceFixture.Generate(schema).ToList();
         var users = records.Where(record => record.EntityType.Name == "User").ToList();
 
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,
