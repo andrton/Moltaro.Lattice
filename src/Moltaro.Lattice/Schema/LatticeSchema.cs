@@ -20,19 +20,21 @@ public sealed class LatticeSchema
     private readonly Dictionary<string, LatticeEnumType> _enumTypesByName;
     private readonly Dictionary<string, LatticeOwnedType> _ownedTypesByName;
 
+    // Every collection a compiled schema shows, here and in its types, is read-only: a cast to an
+    // array or to a list of .NET writes nothing, so the schema stays what it was compiled as.
     internal LatticeSchema(
         int version,
         LatticeStringEncodingEnum stringEncoding,
-        IReadOnlyList<LatticeEnumType> enumTypes,
-        IReadOnlyList<LatticeOwnedType> ownedTypes,
-        IReadOnlyList<LatticeEntityType> entityTypes,
+        LatticeEnumType[] enumTypes,
+        LatticeOwnedType[] ownedTypes,
+        LatticeEntityType[] entityTypes,
         LatticeFingerprint fingerprint)
     {
         Version = version;
         StringEncoding = stringEncoding;
-        EnumTypes = enumTypes;
-        OwnedTypes = ownedTypes;
-        EntityTypes = entityTypes;
+        EnumTypes = Array.AsReadOnly(enumTypes);
+        OwnedTypes = Array.AsReadOnly(ownedTypes);
+        EntityTypes = Array.AsReadOnly(entityTypes);
         Fingerprint = fingerprint;
         _byName = entityTypes.ToDictionary(entityType => entityType.Name, StringComparer.Ordinal);
         _byClrTypeName = entityTypes

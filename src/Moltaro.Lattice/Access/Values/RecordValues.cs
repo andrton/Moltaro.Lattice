@@ -57,13 +57,8 @@ internal static class RecordValues
     // collection or an owned value is copied with it either way; the engine stores no such field yet.
     public static object?[] Submit(LatticeEntityType entityType, object?[] values, bool copyBinary)
     {
-        var fields = entityType.Fields;
-
-        // By index: a foreach over the list of the schema would allocate its enumerator.
-        for (var index = 0; index < fields.Count; index++)
+        foreach (var field in entityType.FieldsByOrdinal)
         {
-            var field = fields[index];
-
             if (values[field.Ordinal] is { } value && !ValueBound.Holds(field, value, entityType.StringEncoding))
             {
                 throw new Place(entityType.Name, entityType.Name, field).Fail(ValueBound.Problem);
@@ -71,7 +66,7 @@ internal static class RecordValues
         }
 
         var submitted = new object?[values.Length];
-        CopyFields(entityType.Fields, values, submitted, entityType.Name, entityType.Name, copyBinary);
+        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType.Name, entityType.Name, copyBinary);
 
         return submitted;
     }
@@ -110,7 +105,7 @@ internal static class RecordValues
         }
 
         var copy = new LatticeOwnedValue(ownedType);
-        CopyFields(ownedType.Fields, source.Values, copy.Values, place.EntityType, ownedType.Name, copyBinary: true);
+        CopyFields(ownedType.FieldsByOrdinal, source.Values, copy.Values, place.EntityType, ownedType.Name, copyBinary: true);
 
         return copy;
     }
@@ -118,7 +113,7 @@ internal static class RecordValues
     // The fields of an entity type or of an owned type, the owner. A field without a value is
     // refused only by a write, which names the entity type it writes. A Binary value of one of these
     // fields is copied when copyBinary is true (Submit).
-    private static void CopyFields(IReadOnlyList<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner, bool copyBinary)
+    private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner, bool copyBinary)
     {
         foreach (var field in fields)
         {

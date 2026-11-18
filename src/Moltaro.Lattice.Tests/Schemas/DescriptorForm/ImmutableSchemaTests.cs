@@ -1,5 +1,3 @@
-using Moltaro.Lattice.TestSupport.Skips;
-
 namespace Moltaro.Lattice.Tests.Schemas.DescriptorForm;
 
 // A schema is immutable and can be shared by any number of databases and threads (LatticeSchema). So is
@@ -13,7 +11,7 @@ public sealed class ImmutableSchemaTests
 {
     public static IEnumerable<TheoryDataRow<string>> Forms => [new("compiled"), new("loaded")];
 
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public void No_collection_of_a_schema_can_be_written_through_a_cast(string form)
     {

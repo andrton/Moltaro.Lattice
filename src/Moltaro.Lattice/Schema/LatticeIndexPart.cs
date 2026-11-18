@@ -39,9 +39,9 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeIndexPart
 {
-    internal LatticeIndexPart(IReadOnlyList<LatticeField> path)
+    internal LatticeIndexPart(LatticeField[] path)
     {
-        Path = path;
+        Path = Array.AsReadOnly(path);
         Field = path[^1];
 
         // Every step but the last is an owned value, which is absent when it is nullable and

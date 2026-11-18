@@ -29,11 +29,11 @@ namespace Moltaro.Lattice.Schema;
 /// </remarks>
 public sealed class LatticeIndex
 {
-    internal LatticeIndex(int id, string name, IReadOnlyList<LatticeIndexPart> parts, bool isUnique)
+    internal LatticeIndex(int id, string name, LatticeIndexPart[] parts, bool isUnique)
     {
         Id = id;
         Name = name;
-        Parts = parts;
+        Parts = Array.AsReadOnly(parts);
         IsUnique = isUnique;
     }
 

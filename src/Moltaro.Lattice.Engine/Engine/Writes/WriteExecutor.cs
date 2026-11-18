@@ -486,7 +486,7 @@ internal sealed class WriteExecutor
             return default;
         }
 
-        var values = new object?[table.EntityType.Fields.Count];
+        var values = new object?[table.EntityType.FieldsByOrdinal.Length];
 
         try
         {

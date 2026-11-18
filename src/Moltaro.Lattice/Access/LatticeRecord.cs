@@ -56,7 +56,7 @@ public sealed class LatticeRecord
     {
         ArgumentNullException.ThrowIfNull(entityType);
         EntityType = entityType;
-        _values = new object?[entityType.Fields.Count];
+        _values = new object?[entityType.FieldsByOrdinal.Length];
     }
 
     /// <summary>The entity type the record belongs to.</summary>
