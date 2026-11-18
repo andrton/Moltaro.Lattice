@@ -7,6 +7,7 @@
     <!-- Its types are internal, like everything outside the contract; the test projects that
          use them are its friends. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Tests" />
+    <InternalsVisibleTo Include="Moltaro.Lattice.AspNet.Identity.Tests" />
     <InternalsVisibleTo Include="Moltaro.Lattice.DependencyInjection.Tests" />
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine.Tests" />
   </ItemGroup>

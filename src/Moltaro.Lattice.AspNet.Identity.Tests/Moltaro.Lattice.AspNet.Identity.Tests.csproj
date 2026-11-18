@@ -17,6 +17,7 @@
     <ProjectReference Include="..\Moltaro.Lattice.AspNet.Identity\Moltaro.Lattice.AspNet.Identity.csproj" />
     <!-- The tests open their database through LatticeDatabase, which is in the engine. -->
     <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
+    <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Update="app.schema.json" CopyToOutputDirectory="PreserveNewest" />
