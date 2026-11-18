@@ -4748,6 +4748,15 @@ P1). Both confirmed that a closing master left writes it had not executed as
    the contract of point 1 above the review was made exact: a wait for a position on a
    faulted child is `Unavailable`; only a write through a child that faulted after its
    master committed the write ends in `SynchronizationTimeout` with its position.
+7. **The Linux job of the pull request failed on a test of S10**, a paced load that got no
+   frame for its timeout of 1 s. The cause, reproduced in a Linux container on 4
+   processors, was not the engine: two soak tests of S11 ran loops on pool threads
+   whose awaits complete synchronously, held every worker of the pool and stalled the
+   timers and socket continuations of other tests for seconds. The pair fails at the
+   commit of S11 too: the green Linux runs of the pull requests of S10 and S11 passed by
+   the luck of scheduling and are not evidence. The loops were moved off the pool,
+   assertions unchanged. What the engine reports when a deadline fires over bytes that
+   wait is carried to S34.
 
 ### Stage 4. Indexes and batches
 
@@ -5647,6 +5656,14 @@ master ends it. Decide whether a wait for a position, and a forwarded write that
 its reply, continue across a reconnection instead of ending at once; the sentence of the
 contract "On a child that has lost its master or has faulted the wait ends at once" and
 the remark "Not implemented yet" on `Unavailable` (no reconnection) are rewritten here.
+
+**Carried from S12:** a receive deadline that fires while bytes wait in the socket reports
+that nothing arrived, which is false: they arrived and the process had not handled them
+(found at S12 on a starved thread pool: deadline armed at 3916 ms, 128 KiB in the socket
+at 4237 ms, callback at 8231 ms). Decide with the lost-peer rule whether a deadline that
+finds bytes waiting keeps reading, and how far a starved process may then run past its
+timeout. Until then the message of that refusal is not evidence about the master or the
+network.
 
 **Carried from S11:** a child that stopped following — a malformed transaction, a change
 its arena cannot hold, the end of its connection — stays Ready at its position and does
