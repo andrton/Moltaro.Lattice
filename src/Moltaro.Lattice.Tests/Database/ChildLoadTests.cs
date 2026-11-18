@@ -7,9 +7,10 @@ namespace Moltaro.Lattice.Tests.Database;
 // master reports has the master's schema and every entity, through classes and by name, and is at the
 // position of its master in the same history; the child of an empty master is ready at sequence zero;
 // every entity on the child has the revision it has on the master, also one that was replaced, or
-// deleted and inserted again, before the child connected; an entity of 32 MiB arrives whole. The
-// master is not written to while the child loads, and a loaded child does not follow it yet (S11), so
-// none of these tests writes on the master after its child has opened. They run on the placeholder,
+// deleted and inserted again, before the child connected; an entity of 32 MiB arrives whole. These
+// tests state the load: none of them writes on the master while its child loads or after it has opened.
+// A load under writes and a child that follows its master are stated by MasterAndChildTests and by the
+// tests of the engine (Epic 1, sprint S11). They run on the placeholder,
 // whose child connects inside the process, and on the engine, whose child connects over loopback TCP
 // (TestDatabases.ImplementationsWithChildren).
 public sealed class ChildLoadTests

@@ -231,12 +231,9 @@ schema order and explicit field comparers; keys are not raw byte-memcmp tuples.
 Comparison/hash has one schema-owned service across indexes, Map/Set and direct
 lookups. Use accepted .NET Equals/CompareTo semantics for floating-point values,
 with compatible NaN/zero hashes. String comparison is Ordinal/OrdinalIgnoreCase,
-independent of UTF-8/UTF-16 storage. Ordinal can stream UTF-16 code units; initial
-UTF-8 IgnoreCase comparisons decode into pre-reserved UTF-16 scratch and use .NET
-ordinal span comparison/hashing. Reserve/reuse scratch before gates, including write
-publication needs; no per-comparison managed string allocation. This deliberate
-CPU/workspace cost is measured against the memory target. Do not substitute UTF-8
-byte ordering, culture collation, or an unverified custom case-folding algorithm.
+independent of UTF-8/UTF-16 storage. Comparison without case uses the versioned case
+table of the core ([strings](../decisions/strings.md), Q46), the same on every node; no
+.NET culture or runtime table takes part. No comparison allocates a managed string.
 
 Numeric lookup/bound parameters bind once to the declared field type using the
 accepted allowlist: same-type values; in-range integer-to-integer; exact integer-to-
@@ -331,10 +328,11 @@ values. Owned trees have no external native pointers. Persist actual string byte
 rebuild the database dictionary and all indexes on load. On-disk text duplication is
 allowed; it does not force duplicate in-memory text. References encode target type/key.
 
-Durable and wire logical values use explicit little-endian numeric encoding, .NET
+Durable logical values use explicit little-endian numeric encoding, .NET
 Decimal's four UInt32 components, Guid's documented RFC byte order, UTC ticks for
-DateTimeOffset, day number for DateOnly and ticks for TimeOnly/TimeSpan. Validate
-declared ranges and Unicode. The format header carries magic, format version, schema
+DateTimeOffset, day number for DateOnly and ticks for TimeOnly/TimeSpan. The replication
+stream carries stored bytes in the layout and byte order the Hello has checked (decided
+after the studies of S10 and S11). Validate declared ranges and Unicode. The format header carries magic, format version, schema
 version, payload length and checksum. No CLR object image, package node or native
 segment address is a durable format. Fixed layout offsets derive deterministically
 from the compiled schema; unit/chunk placement is internal.
@@ -400,24 +398,41 @@ Initial frame header: magic UInt32, protocol version UInt16, kind UInt16, flags 
 body length UInt32, correlation ID UInt64, stream sequence UInt64 (32 bytes); body has
 an integrity checksum. Hello binds database identity/history, schema fingerprint,
 wire/layout compatibility and role. Reject unsupported formats before allocation.
-Data frames are <=64 KiB; a larger bounded transaction is fragmented and published
-only after its complete end/digest. ACK means **applied to data and indexes**, not merely
-received by the socket. A child sends no success ACK for a partial WriteBatch.
+Data frames are <=64 KiB; a larger transaction is fragmented, its first frame announces
+its length, and a child applies it only once all of it has arrived. A transaction is
+checked by the check of its frames, its announced length and its sequence, which follows
+the one before (decided after the study of S11). ACK means **applied to data and
+indexes**, not merely received by the socket: a child sends `Applied` with a sequence for
+each burst it received once it has applied all of it, and never a sequence before R. A
+child sends no success ACK for a partial WriteBatch.
 
-Keep one shared RAM delivery tail with per-child applied cursors. Release a transaction
-after every participating recipient has applied it. If a disconnected/slow child holds
+Keep one shared RAM delivery tail. A committed transaction is encoded and appended to it
+in the hold of the lock of the writes that publishes it, in the order of sequences, and
+only while a child or a capture is registered; it is encoded once for all children and
+framed per connection, on that child's sender task, outside every lock. Every
+child has its own cursor, and the master releases the tail up to the lowest position
+among its children and registered captures. The tail is managed memory outside the
+instance budget, unbounded until S33; a write of the master is never refused or delayed
+because a child is slow (decided after the study of S11). The tail retains whole blocks
+of 1 MiB: at most the bytes not yet applied, rounded up to blocks, plus the block being
+filled, a block a sender still reads, and one spare; with no child and no capture it
+retains nothing. If a disconnected/slow child holds
 the tail beyond its byte/time budget, remove its retention claim and require reload
 when it returns. It may still serve ordinary local stale reads, but a MinPosition wait
 cannot succeed until it catches up. PostgreSQL is never a child catch-up source.
 
-Initial transfer uses the accepted fenced capture: register S and a root-slot catalog
-fence; retain deletion/incarnation watermarks and the shared live stream after S.
-Copy each root coherently under its protection, including owned blocks and required
-shared text. Copy bytes into bounded send buffers, release gates, then perform I/O.
+Initial transfer uses a fenced capture, registered in one hold of the lock of the
+writes: it takes S, the published sequence, the fence of root slots and its cursor into
+the tail. Copy each root coherently under its protection, one root at a time, including
+owned blocks and required shared text. Copy bytes into bounded send buffers, release
+gates, then perform I/O. Nothing is retained for a capture: no slot, no deleted root, no
+mark of a deletion (decided after the study of S11).
 No address and no block number travels: the child stores received bytes through its
 own allocation, which writes every location (decided after the study of S10). Shared text is transferred
 with capture IDs and remapped to local text handles. Do not pin old payloads for the
-entire snapshot or hold read locks over the network.
+entire snapshot or hold read locks over the network. R is read in a hold of the lock of
+the writes after the last root was copied, because a root can carry a sequence the
+published clock does not show yet; `LoadEnd` carries S, R and the number of roots sent.
 
 Process-local hash codes/buckets are derived state. Transfer Map/Set entries and
 rebuild their hash directories on the child, just as dictionary and search indexes
@@ -425,22 +440,35 @@ are rebuilt. Never reuse randomized .NET hashes from another process. The block
 importer marks derived regions for reconstruction and repairs descriptors before
 readiness; its schema/layout metadata distinguishes entries from lookup acceleration.
 
-Each captured root includes its last mutation position/incarnation. At the end of
-enumeration, record a fixed published position R. Filter and replay transactions
-S..R per root against those watermarks, preserving whole transaction application.
-Apply deletion watermarks to avoid resurrecting removed/recreated keys. Roots inserted
-outside the initial fence arrive through the retained stream. No reads are enabled
-until the complete state and local indexes cover R. Live changes after R continue
-through the same ordered application path. The existing bootstrap experiment proves
-this state-selection model; binary/shared-block integration remains a release test.
+Each captured root carries the sequence of its last mutation. A loading child is sent
+its stream after `LoadEnd`, on the same connection, from S. A Write effect carries the
+root in the load format, a Delete the type id and the key, a write that changed nothing
+only its position. The child applies a copy and an effect by one rule, under its lock of
+the writes: a state of a key at sequence s is skipped when the child holds that key with
+a last mutation not earlier than s; otherwise a Write inserts or replaces and a Delete
+removes the key if it is held. The child addresses an entity by the key in the root,
+never by a slot of the master, so a key that arrives twice in a load is resolved by the
+rule. A deleted entity cannot come back, because its delete is in the tail and the tail
+is applied after every copy; a recreated entity has a later sequence than anything of its
+earlier lifetime; roots inserted outside the fence arrive through the tail. A transaction
+is applied whole: one of its effects can be skipped while another is applied, and a
+transaction is never skipped whole by the sequence of one effect. The clock of a loading
+child starts at S; no reads are enabled until the complete state and local indexes cover
+R, and the child is Ready when it has applied R. Live changes after R continue through
+the same ordered application path. A Write of the stream whose root does not carry the
+sequence of its transaction is refused with its whole transaction. The bootstrap
+experiment tested the earlier state-selection model with deletion watermarks, which the
+owner withdrew on 17 November 2026; binary/shared-block integration remains a release
+test.
 
 **Decided by the owner on 14 November 2026:** children that start together are loaded
 in parallel, not one after another. A deployment of 5–10 children has to come up on
 default settings, and a queue of single captures would not let it. Each capture has its
-own S, its own catalog fence, its own watermarks and its own R; all of them read the one
+own S, its own catalog fence, its own watermarks (watermarks withdrawn on 17 November
+2026; a capture has its S, its fence of slots and its R) and its own R; all of them read the one
 shared live stream, which is retained from the earliest S still in use. The number of
 captures that run at once is an option, 10 by default. A child beyond the limit, or one
-whose capture cannot reserve its buffers and watermarks within the memory budget, waits
+whose capture cannot reserve its buffers within the memory budget, waits
 before its capture is registered; that wait is part of its open timeout. The earlier
 starting value of one capture at a time is withdrawn. The bootstrap experiment covered
 one capture; several at once, and their cost to the master's readers and writers, are a
@@ -550,7 +578,7 @@ refusal, and where it can the database waits or slows down instead of refusing.
 | Journal trigger / hard limit | 64 MiB or 5 s oldest unapplied; no hard limit by default, by the owner's decision of 15 November 2026. An application may set one, and appends beyond it are then refused. Without one the time of a recovery grows with the unapplied tail |
 | Durable receipt budget | No limit by default, by the owner's decision of 15 November 2026; an application may set one, with conservative admission reservation and periodic actual-size reconciliation as before |
 | Retry window / generation admission duration | 15 min configurable / 60 s internal |
-| Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB |
+| Shared pending replication / per-peer I/O buffer | min(32 MiB, 20% instance budget) / 256 KiB. The bound of pending replication is built with S33; until then it is counted and reported, and a slow child makes it grow |
 | Slow-peer retention deadline / concurrent captures | 30 s / up to 10 captures at once, configurable; a child beyond the limit waits before its capture is registered. Built with S33; until then captures are not limited |
 | Reconnect / applier failure pauses | 100 ms exponential backoff capped at 5 s, bounded by the relevant request/retention limits |
 
@@ -559,7 +587,8 @@ be larger than any bounded buffer of this table — an internal
 group, the pending replication, a batch of base application: each of them bounds what
 accumulates and takes a transaction that exceeds it alone, and none refuses a transaction
 for its own size. What a transaction needs is reserved in the instance budget before it is
-committed, the copy for delivery to children included; a transaction the budget cannot
+committed, the copy for delivery to children included (from S24/S33; until then that copy
+is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
 hold is refused before it has any effect.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.

@@ -21,9 +21,33 @@ namespace Moltaro.Lattice.Replication.Load;
 //
 // The caller holds the protection of the root while Write reads it (Engine.Children.Capture): the
 // blocks of a published root never change, and those of a root that a write replaced stay allocated
-// until the reads that could reach them have left.
+// until the reads that could reach them have left. A write of the master that is published while a child
+// is registered writes the root it publishes, under the lock of the writes, which nothing else changes
+// meanwhile (Engine.Delivery).
 internal static class BlockExport
 {
+    // The bytes Write writes for the root: its layout version, its root payload and each value stored
+    // out of line.
+    public static long Length(Arena arena, RootLayout layout, ArenaAddress root)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        var payload = layout.RootPayload(arena, root);
+        var length = (long)sizeof(uint) + payload.Length;
+
+        for (var index = 0; index < layout.DescriptorCount; index++)
+        {
+            var descriptor = ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
+
+            if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
+            {
+                length += (long)descriptor.Length;
+            }
+        }
+
+        return length;
+    }
+
     public static void Write(IBufferWriter<byte> output, Arena arena, RootLayout layout, ArenaAddress root)
     {
         ArgumentNullException.ThrowIfNull(output);

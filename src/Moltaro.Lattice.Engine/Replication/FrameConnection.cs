@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Net.Sockets;
 
 namespace Moltaro.Lattice.Replication;
@@ -19,9 +20,12 @@ namespace Moltaro.Lattice.Replication;
 // is ordered, so another one is a defect of the sender, and the frame is refused as one whose check
 // fails is.
 //
-// Who calls what. One task of the node uses the connection at a time: it adds, sends and receives in
-// turn. Dispose and Reset may come from another thread to end it, and the call in progress then fails.
-// No lock is held across any of these calls: the connection takes none.
+// Who calls what. The sending side (Add, SendAsync, PendingBytes) and the receiving side (ReceiveAsync,
+// HoldsFrame) share no state but the socket, which carries both directions at once: one task at a time
+// uses each side, and the two sides may be used by two tasks at once, as a master sends a child its
+// stream while it receives what the child has applied (Engine.Children.ChildConnection). Dispose and
+// Reset may come from another thread to end it, and the calls in progress then fail. No lock is held
+// across any of these calls: the connection takes none.
 //
 // The waits. A send waits until the peer has taken the bytes, which it may never do; the token of the
 // call ends the wait, and the close of the node cancels it (exception X6 until S33). A receive waits for
@@ -75,6 +79,23 @@ internal sealed class FrameConnection : IDisposable
 
         FrameCodec.WriteRefuseBody(body, reason);
         Add(FrameKindEnum.Refuse, 0, body.WrittenSpan);
+    }
+
+    // The bytes of the frames added and not sent yet.
+    public int PendingBytes => _outgoing.WrittenCount;
+
+    // Whether a whole frame has been received and waits to be taken by the next ReceiveAsync, which then
+    // returns it without waiting: a child acknowledges what it has applied when no more of the stream
+    // waits (Engine.Following.Follower). Whether the frame is valid is not looked at here.
+    public bool HoldsFrame
+    {
+        get
+        {
+            var unread = _end - _start;
+
+            return unread >= Protocol.HeaderSize
+                && unread - Protocol.HeaderSize >= BinaryPrimitives.ReadUInt32LittleEndian(_received.AsSpan(_start + 12));
+        }
     }
 
     // Sends every frame added since the last send. A failure of the socket passes through as the

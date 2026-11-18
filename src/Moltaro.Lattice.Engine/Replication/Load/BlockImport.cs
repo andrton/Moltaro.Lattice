@@ -1,4 +1,7 @@
 using System.Buffers;
+using System.Runtime.InteropServices;
+using System.Text;
+using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
@@ -23,24 +26,30 @@ namespace Moltaro.Lattice.Replication.Load;
 //   address;
 // - the total: the bytes of the input are the fixed part, the values inline and the values out of line,
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
-// Each failure is a LatticeException with ValidationFailed, and nothing is allocated. Then the root
-// block is allocated, prepared, and filled with the payload, and each value out of line is stored
-// through ValueBlocks, the store the write path uses, which allocates its blocks and writes every header
-// and location itself; the root block is named as their parent. The caller publishes the root.
+// Each failure is a LatticeException with ValidationFailed, and nothing is allocated (Check). The child
+// then reads the key of the root from what was checked (FixedPart, Text), so that it knows whether the
+// root is the state of a key it holds before it takes anything for it (Engine.Loading.ReceivedChanges).
+// Then the root block is allocated, prepared, and filled with the payload, and each value out of line is
+// stored through ValueBlocks, the store the write path uses, which allocates its blocks and writes every
+// header and location itself; the root block is named as their parent (Place). The caller publishes the
+// root.
 //
 // A refusal of the arena for its budget returns the null address, and an OutOfMemoryException of the
 // native allocator passes through; either way nothing of the root is left allocated. The caller decides
-// what a refusal means (Engine.Loading.RootPlacement).
+// what a refusal means (Engine.Loading).
 //
 // The arena has one changing thread at a time: the caller holds the lock of the writes of the child.
 internal sealed class BlockImport
 {
+    // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     private readonly Arena _arena;
 
     private readonly LatticeSchema _schema;
 
     // The root payload as received, checked here before any of it reaches the arena: at most the
-    // payload of one block. Reused for every root.
+    // payload of one block. Reused for every root, so a checked root is valid until the next check.
     private readonly byte[] _payload = new byte[Arena.MaxBlockSize - BlockHeader.Size];
 
     public BlockImport(Arena arena, LatticeSchema schema)
@@ -52,12 +61,11 @@ internal sealed class BlockImport
         _schema = schema;
     }
 
-    // Places the root of the layout for the lifetime the handle names (see the class): the address of
-    // its root block, prepared, with the input advanced to its end; the null address when the arena
-    // refused it for its budget. ValidationFailed, with nothing left allocated, when a length, a count or
-    // a kind is not valid; nothing is dereferenced before it is checked. A layout of an entity type of
-    // another schema is a caller's mistake, ArgumentException.
-    public ArenaAddress Read(ref SequenceReader<byte> input, RootLayout layout, RootHandle root)
+    // Checks the root of the layout that the rest of the input holds, and nothing more (see the class),
+    // with the input advanced to its end. ValidationFailed when a length, a count or a kind is not valid;
+    // nothing is dereferenced before it is checked, and nothing is allocated. A layout of an entity type
+    // of another schema is a caller's mistake, ArgumentException.
+    public ReceivedRoot Check(ref SequenceReader<byte> input, RootLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
 
@@ -67,13 +75,100 @@ internal sealed class BlockImport
         }
 
         var payloadLength = ReadPayload(ref input, layout);
+        var outOfLine = input.UnreadSequence;
 
-        if (!_arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, root, out var block))
+        input.Advance(outOfLine.Length);
+
+        return new ReceivedRoot(layout, payloadLength, outOfLine);
+    }
+
+    // A reader of the fixed part of the root checked last, which reads its fixed fields and descriptors
+    // (Storage.RootReader, a reader of a copy).
+    public RootReader FixedPart(in ReceivedRoot root) =>
+        new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
+
+    // The text of a String field of the root checked last, which is not null, as a new string decoded
+    // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
+    // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
+    // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
+    // is not (Engine.Entities.EntityTable.ReadKey): a key that a master stores is well-formed, since every
+    // write checks its text (Q41), so such a root did not come from one. Every other text of a root is
+    // placed as the bytes it is and not decoded.
+    public string Text(in ReceivedRoot root, LatticeField field)
+    {
+        var layout = root.Layout;
+        ref readonly var stored = ref layout.StoredFieldOf(field);
+        var descriptor = ValueBlocks.Read(_payload.AsSpan(stored.Offset - BlockHeader.Size));
+        ReadOnlySequence<byte> bytes;
+
+        if (descriptor.Kind == DescriptorKindEnum.Inline)
+        {
+            bytes = new ReadOnlySequence<byte>(_payload, (int)descriptor.Location - BlockHeader.Size, (int)descriptor.Length);
+        }
+        else
+        {
+            // The values out of line follow one another in the order of their descriptors.
+            var before = 0L;
+
+            for (var index = 0; index < layout.DescriptorCount; index++)
+            {
+                ref readonly var other = ref layout.DescriptorField(index);
+
+                if (other.Offset == stored.Offset)
+                {
+                    break;
+                }
+
+                if (ValueBlocks.Read(_payload.AsSpan(other.Offset - BlockHeader.Size)) is { Kind: DescriptorKindEnum.Block or DescriptorKindEnum.Chunked } value)
+                {
+                    before += (long)value.Length;
+                }
+            }
+
+            bytes = root.OutOfLine.Slice(before, (long)descriptor.Length);
+        }
+
+        if (layout.StringEncoding == LatticeStringEncodingEnum.Utf8)
+        {
+            try
+            {
+                return StrictUtf8.GetString(bytes);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(layout, $"the text of the field {field.Name} is not well-formed UTF-8 ({exception.Message})");
+            }
+        }
+
+        if (bytes.Length % sizeof(char) != 0)
+        {
+            throw Invalid(layout, $"the text of the field {field.Name} has {bytes.Length} bytes, which are no UTF-16 code units.");
+        }
+
+        var text = string.Create((int)(bytes.Length / sizeof(char)), bytes, static (units, value) => value.CopyTo(MemoryMarshal.AsBytes(units)));
+
+        if (!WellFormedText.IsWellFormed(text))
+        {
+            throw Invalid(layout, $"the text of the field {field.Name} is not well-formed UTF-16: it holds a surrogate without its pair.");
+        }
+
+        return text;
+    }
+
+    // Places the root checked last for the lifetime the handle names (see the class): the address of its
+    // root block, prepared; the null address when the arena refused it for its budget, with nothing of it
+    // left allocated.
+    public ArenaAddress Place(in ReceivedRoot root, RootHandle handle)
+    {
+        var layout = root.Layout;
+
+        if (!_arena.TryAllocatePrepared(root.PayloadLength, BlockKindEnum.Root, handle, out var block))
         {
             return default;
         }
 
         var index = 0;
+        var values = root.OutOfLine;
 
         try
         {
@@ -81,7 +176,7 @@ internal sealed class BlockImport
 
             var target = _arena.Payload(block);
 
-            _payload.AsSpan(0, payloadLength).CopyTo(target);
+            _payload.AsSpan(0, root.PayloadLength).CopyTo(target);
 
             for (; index < layout.DescriptorCount; index++)
             {
@@ -100,9 +195,9 @@ internal sealed class BlockImport
 
                 // The descriptor in place is the received one, whose location is 0; TryStore writes the
                 // descriptor of the stored value over it, or leaves it as it was.
-                var source = ValueSource.Received(input.UnreadSequence.Slice(0, length));
+                var source = ValueSource.Received(values.Slice(0, length));
 
-                if (!ValueBlocks.TryStore(_arena, root, layout.LayoutVersion, prepared: true, length, ref source, place))
+                if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, prepared: true, length, ref source, place))
                 {
                     Abandon(block, layout, index);
 
@@ -110,7 +205,7 @@ internal sealed class BlockImport
                 }
 
                 ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, offset);
-                input.Advance(length);
+                values = values.Slice(length);
             }
         }
         catch

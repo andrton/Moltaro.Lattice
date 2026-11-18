@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 // refused for memory before it gives up). The child has the smallest limit, one segment of 4 MiB, and
 // the master holds 8 MiB; its open timeout is far beyond the bound, so an open that ends within the bound
 // ended at once. It holds nothing afterwards (CountingNativeAllocator), and it leaves nothing registered
-// on the master, which publishes a write again.
+// on the master (NothingRegistered).
 public sealed class ChildMemoryLimitTests
 {
     private static readonly long Segment = new ArenaOptions().SegmentSize;
@@ -32,6 +32,6 @@ public sealed class ChildMemoryLimitTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
         allocator.ExpectEverythingReturned();
 
-        await AcceptedWrite.UntilPublishedAsync(master, 100);
+        await NothingRegistered.ExpectAsync(master, 100);
     }
 }

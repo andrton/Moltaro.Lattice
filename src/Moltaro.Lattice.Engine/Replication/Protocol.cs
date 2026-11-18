@@ -26,7 +26,7 @@ internal static class Protocol
     // The bytes of the check at the end of every body.
     public const int CheckSize = 4;
 
-    // The largest body of a data frame, Schema or Blocks, its check included.
+    // The largest body of a data frame, Schema, Blocks or Transaction, its check included.
     public const int MaxDataBody = 64 * 1024;
 
     // The largest payload of a data frame.
@@ -36,7 +36,7 @@ internal static class Protocol
     public const int MaxFrame = HeaderSize + MaxDataBody;
 
     // Bit 0 of FrameHeader.Flags: the frame is the last one of a root, or of the schema, or of the
-    // whole roots it holds. No other flag is defined.
+    // whole roots it holds, or of a transaction. No other flag is defined.
     public const uint EndsARoot = 1;
 
     // The payload of Hello and of HelloReply (FrameCodec.WriteHelloBody): a Guid (16), the history (8),
@@ -46,13 +46,18 @@ internal static class Protocol
     // The payload of Refuse: its reason as a UInt16.
     public const int RefusePayloadSize = 2;
 
-    // The payload of LoadEnd: the sequence at which the load ended and the number of roots sent, each
-    // a UInt64 (Load.LoadEndBody).
-    public const int LoadEndPayloadSize = 16;
+    // The payload of LoadEnd: the start position S of the capture, its end position R and the number of
+    // roots sent, each a UInt64 (Load.LoadEndBody).
+    public const int LoadEndPayloadSize = 24;
 
-    // The format of what the bodies of a load hold: the envelope of a root, the framing of roots and of
-    // the schema, the body of LoadEnd (Replication.Load). Another value is another format.
-    public const int WireFormat = 1;
+    // The payload of Applied: the sequence up to which the child has applied all it received, a UInt64.
+    public const int AppliedPayloadSize = sizeof(ulong);
+
+    // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
+    // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
+    // their effects (Replication.Transactions). Another value is another format. 2 since Epic 1, sprint
+    // S11, whose LoadEnd carries S and R and whose stream follows the load.
+    public const int WireFormat = 2;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;
@@ -69,9 +74,10 @@ internal static class Protocol
     public static int MaxBodyOf(FrameKindEnum kind) => kind switch
     {
         FrameKindEnum.Hello or FrameKindEnum.HelloReply => HelloPayloadSize + CheckSize,
-        FrameKindEnum.Schema or FrameKindEnum.Blocks => MaxDataBody,
+        FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.Transaction => MaxDataBody,
         FrameKindEnum.LoadEnd => LoadEndPayloadSize + CheckSize,
         FrameKindEnum.Refuse => RefusePayloadSize + CheckSize,
+        FrameKindEnum.Applied => AppliedPayloadSize + CheckSize,
         _ => 0,
     };
 }

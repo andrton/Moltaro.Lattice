@@ -353,10 +353,10 @@ Exact capture, block/reference handling and handoff remain implementation work;
 the representation direction is not awaiting another approval.
 
 The [initial capture/handoff mechanism](../decisions/replication-and-hosting.md#initial-capture-and-readiness-handoff)
-is accepted for v1: register delivery at S and fence the control-entry range; retain
-deleted identities/revisions without old payloads, prevent premature slot reuse and
-copy coherent roots with individual watermarks. After the scan fixes R, install the
-complete base and replay whole transactions through R, filtering effects per root.
+is accepted for v1, as amended on 17 November 2026: register delivery at S and fence the
+range of root slots; copy coherent roots, each with the sequence of its last mutation,
+and retain nothing for the capture. After the scan fixes R, replay whole transactions
+through R; the child skips a state it already holds at a later sequence.
 The provisional arena remains unreadable and has no applied acknowledgment until
 readiness and local index preparation are complete. Acknowledgment releases pending
 delivery and temporary capture metadata under the existing bounded-retention rules.

@@ -17,7 +17,8 @@ internal static class TestDatabases
     ];
 
     // The data of a theory that runs a master and its child on both implementations: on the engine a
-    // master that accepts children and its child, which loads the database over TCP (Epic 1, sprint S10).
+    // master that accepts children and its child, which loads the database over TCP (Epic 1, sprint S10)
+    // and follows the writes of its master after its load (S11).
     public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum>> ImplementationsWithChildren =>
     [
         new(DatabaseImplementationEnum.Placeholder),

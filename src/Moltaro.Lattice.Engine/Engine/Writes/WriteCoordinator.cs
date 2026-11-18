@@ -53,8 +53,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // when the wait for its position ends (brief of S09, "The order of writes and the wait of a session").
 //
 // The lock of the writes, given by the database, which takes it as well for its counters and its
-// drain. It protects the arena, the table of root entries, the primary indexes, the position clock and
-// the retired list (WriteExecutor), and the state of this class: the queue of the prepared writes, the
+// drain, and for the start, the end and the acknowledgments of the children of a master
+// (Children.Capture). It protects the arena, the table of root entries, the primary indexes, the
+// position clock, the retired list (WriteExecutor) and the tail of the children (Delivery.DeliveryTail),
+// and the state of this class: the queue of the prepared writes, the
 // group in the storage step, the chains, the list of the writes admitted that waited, the held list,
 // the write being resolved, the admission number, whether the database faulted, and the counters. It
 // is held for work in memory only: no I/O, no await, no code of the application, no wait for anything
@@ -160,18 +162,14 @@ namespace Moltaro.Lattice.Engine.Writes;
 // cancelled adds its registration. A storage step that does not complete at once adds the task of its
 // completion.
 //
-// Children (brief of Epic 1, sprint S10, "Out of scope", and the planner's block of 17 November 2026,
-// point 6). Until S11 a master refuses every write with NotSupportedException while a child is connected
-// or loading. Whether a child is registered is decided under the lock of the writes, and the
-// registration of a child takes that lock too and takes in the same hold what the capture of the child
-// starts from (RegisterChild), so a write is either published before the capture starts, and then is in
-// what the child loads, or refused; none is in between. The refusal is decided where a write would be
-// prepared — at its start (Start), and at the last try of a resolution (TryLast) — so a write that
-// waited in a chain, in the held list or in a resolution while the child registered is refused as well.
-// A write already prepared and not published when a child registers cannot be on a master of S10: the
-// storage step of MemoryOnly completes in the hold of the write, so nothing is prepared and unpublished
-// between two holds; a busy storage step, and with it the case, is settled by S11, which ends the
-// refusal. A child itself refuses every write until S12 (refusesEveryWrite), before it is admitted.
+// Children (brief of Epic 1, sprint S11; the planner's decision of 17 November 2026 after the study,
+// points 2 and 5). A master publishes every write while children are connected or loading; no write is
+// refused or delayed because of a child. The capture of a child is registered in a hold of the lock of
+// the writes (Children.Capture), and a write published in a later hold is appended to the tail of the
+// children in the hold that publishes it (WriteExecutor), so a write is either published before the
+// capture starts or delivered after it, whichever hold its preparation was in; the senders of the
+// children are woken after the hold (Finish). A child itself refuses every write until S12
+// (refusesEveryWrite), before it is admitted.
 //
 // A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
 // storage step or of a publication faults the database: reads are refused from then on, a read that
@@ -233,10 +231,6 @@ internal sealed class WriteCoordinator
     // Set once the storage step or a publication failed; never cleared.
     private bool _faulted;
 
-    // The children registered on this master (see the class, "Children"): while it is not 0 every write
-    // is refused.
-    private int _children;
-
     // Why every write is refused on this instance, a child, before it is admitted; null on a master.
     private readonly string? _refusesEveryWrite;
 
@@ -267,37 +261,6 @@ internal sealed class WriteCoordinator
         _synchronizationTimeout = synchronizationTimeout;
         _faultDatabase = faultDatabase;
         _refusesEveryWrite = refusesEveryWrite;
-    }
-
-    // Registers a child of this master (see the class, "Children"): from this hold of the lock of the
-    // writes on every write is refused, until UnregisterChild. start runs in the same hold and takes what
-    // the capture of the child starts from, the state every write before it left. Unavailable after a
-    // fault, and nothing is registered.
-    public TStart RegisterChild<TStart>(Func<TStart> start)
-    {
-        lock (_writes)
-        {
-            if (_faulted)
-            {
-                throw Unavailable();
-            }
-
-            var taken = start();
-
-            _children++;
-
-            return taken;
-        }
-    }
-
-    // Ends the registration of a child whose connection has ended; writes are published again once no
-    // child is registered.
-    public void UnregisterChild()
-    {
-        lock (_writes)
-        {
-            _children--;
-        }
     }
 
     // The writes admitted and not completed (EngineCounters.QueuedWrites).
@@ -441,9 +404,6 @@ internal sealed class WriteCoordinator
 
     private static LatticeException Unavailable() =>
         new(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
-
-    private static NotSupportedException RefusedForChildren() =>
-        new("A master of the engine refuses writes while a child is connected or loading; a child that follows the writes of its master comes with Epic 1, sprint S11.");
 
     // Takes the write out of a list linked by Next, which holds it; linear in the list (see
     // FindLastOfEntity).
@@ -695,14 +655,6 @@ internal sealed class WriteCoordinator
         if (_faulted)
         {
             End(write, Unavailable(), ref pass);
-            AdvanceChain(write, ref pass);
-
-            return;
-        }
-
-        if (_children > 0)
-        {
-            End(write, RefusedForChildren(), ref pass);
             AdvanceChain(write, ref pass);
 
             return;
@@ -1027,13 +979,6 @@ internal sealed class WriteCoordinator
     // into the queue of the prepared writes, or refused for memory.
     private void TryLast(PendingWrite write, ref Pass pass)
     {
-        if (_children > 0)
-        {
-            End(write, RefusedForChildren(), ref pass);
-
-            return;
-        }
-
         try
         {
             _executor.DrainRetired();
@@ -1266,6 +1211,7 @@ internal sealed class WriteCoordinator
         var writes = _group.Writes;
 
         pass.Published = true;
+        pass.Delivered |= _executor.TakeDelivered();
 
         if (failure is not null)
         {
@@ -1399,6 +1345,11 @@ internal sealed class WriteCoordinator
             _executor.WakePositions();
         }
 
+        if (pass.Delivered)
+        {
+            _executor.WakeDelivery();
+        }
+
         for (var write = pass.Ended; write is not null;)
         {
             var next = write.NextEnded;
@@ -1480,8 +1431,11 @@ internal sealed class WriteCoordinator
         // A write that begins to wait in step 2 of its resolution, for the switch of the tests.
         public PendingWrite? Offer;
 
-        // Whether a group was published, and whether the database faulted.
+        // Whether a group was published, whether its publication appended to the tail of the children, and
+        // whether the database faulted.
         public bool Published;
+
+        public bool Delivered;
 
         public bool Faulted;
 

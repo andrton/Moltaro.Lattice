@@ -114,8 +114,11 @@ is honored in every wait of its step; a key is given by name without a box. The 
 entry keeps the refusals of the placeholder until S12. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
 connects over TCP, loads the schema and every entity with its revision, and becomes Ready;
 a frame carries a CRC32C and no address travels; `OpenTimeout` bounds reaching the master
-and the time without a frame. A master refuses writes while a child is connected, until
-S11 lets a child follow.
+and the time without a frame. From S11 the master keeps writing while children
+load and follow: a child ends its load at a fixed position of the master and applies the
+master's changes in order, each whole, at the master's positions and revisions; the
+master releases a change when every child has applied it, and until S33 nothing bounds
+what it keeps for a child that falls behind.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -182,7 +185,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R25 | A Durable write succeeds after its durable admission, its PostgreSQL commit and its coherent publication; an uncertain commit is reported as uncertain | [Q09.1](../decisions/write-acknowledgment.md), [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S28–S29 |
 | R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are bounded when the application sets a limit, and shrink back after load in any case | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
 | R27 | Recovery: an offline reopen rebuilds one arena and its indexes from the base and the committed tail; nothing partial is replayed; damaged or incompatible data is refused | [Q09.2](../decisions/checkpoint-and-journal.md), [Q16](../decisions/physical-storage.md) | Release | Absent | S30–S31, S32 |
-| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works inside one process | S10–S11, S33 |
+| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works in the engine, over TCP, behind the tests; no limit of captures yet | S10–S11, S33 |
 | R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works inside one process | S12 |
 | R30 | Delivery history in RAM is bounded and released after acknowledgment; a child resumes from it or reloads into one arena; reads wait within a bound; a foreign history is refused; local reads continue while disconnected | [Q08.1.2, Q08.1.3](../decisions/replication-and-hosting.md) | Release | Absent | S33–S34, S35 |
 | R31 | Backup and restore are run by infrastructure. A restored database is validated offline and activated with a new history; children reload | [Q09.4](../decisions/backup-and-restore.md) | Release | Absent | S36 |
@@ -312,6 +315,14 @@ documentation before this document is removed.
 | S10 | Bytes of one such load on the wire, next to the stored bytes | 15,410,260 bytes from the master and 108 from the child: 154.1 bytes per entity, against 162 live and 176 retained per entity in the arena of the master; the child stores what the master stores | development-4 | 17 November 2026 |
 | S10 | Memory of one such load | an arena of 20 MiB on each side; 7.8 MiB of managed memory allocated during a load, 7.5 MiB held after it (the index and the root entries); the working set of the process 128 MiB before the first child and 166 MiB after the fifth | development-4 | 17 November 2026 |
 | S10 | Reads by key and writes of a master without a child, the branch against its base in alternating rounds | reads on 20 threads 17.2 to 17.6 M/s against 14.9 to 16.3; one caller replacing 1.38 to 1.48 M/s against 1.49 to 1.53; 16 callers inserting and deleting 1.58 to 1.70 M/s against 1.62 to 1.65: within the spread of the rounds | development-3 | 17 November 2026 |
+| S11 | Time from the open of a child to Ready, 100,000 users, while the master takes 200 writes a second and 16 threads read it; children in the master's process; four runs (measured before the tail of blocks) | one child 440 to 580 ms, two at once 530 to 703 ms; 78 to 128 transactions in (S, R], `LoadEnd` to Ready 0.1 to 4.5 ms (26.1 ms once), 0 to 5.1 % of the states skipped, peak of `PendingDeliveryBytes` 14.4 to 22.6 KB; following for 2 s the children apply 198 to 200 transactions a second, as the master writes | development-4 | 18 November 2026 |
+| S11 | The same load at the full rate of one caller | Ready in 0.96 to 1.12 s, one child or two; 40.5 to 51.3 thousand transactions in (S, R], `LoadEnd` to Ready 300 to 533 ms, up to 94 % of the states skipped (the copy already held a later state), peak of `PendingDeliveryBytes` 11.7 to 15.4 MB; following, the master writes 276 to 340 k/s and the children apply 290 to 358 k/s | development-4 | 18 November 2026 |
+| S11 | Read p99 of the master during a load at the full rate, 16 readers | 4.1 to 5.4 µs with no load, 5.1 to 6.6 µs during one load, 4.6 to 6.2 µs during two | development-4 | 18 November 2026 |
+| S11 | Reads by key beside a following child, one caller writing, per reader thread, below what the machine gives (it keeps at most 9 to 10 of its 20 logical processors busy at sustained speed) | 2 readers: 708 to 766 k/s on the base, 742 to 813 k/s with no child, 704 to 864 k/s with a child, p99 2.7 to 4.3 µs throughout; 4 readers with the child in its own process: 566 to 763 k/s against 616 to 769 k/s. A following child does not slow a read. The rows of 16 readers are a capped machine and decide nothing; the first round after a load with the child inside the master's process shows the child's own heap promoted in that process, a property of the measurement, not of a master's read | development-4 | 18 November 2026 |
+| S11 | Writes a second of a master with following children, with the tail of blocks and after the review; alternating rounds of one day | one caller: 364 to 510 k/s with no child, 377 to 415 k/s with one child in the process, 451 to 474 k/s with one in its own process, 375 to 398 k/s with two; 16 callers: 245 to 270 k/s with one or two children, as with none; a write allocates 160 bytes with no child and 164 to 182 with children; with no child nothing is encoded or retained and the branch equals its base | development-4 | 18 November 2026 |
+| S11 | The tail of blocks of 1 MiB against one object and one array for each transaction (the trial that was kept) | allocation per write with a child 446 to 462 bytes against 165 to 182; one caller with one child 331 to 383 k/s against 382 to 437 k/s, write p99 14.6 to 15.9 µs against 9.0 to 12.3 µs, pause of the collector per 2 s 25 to 143 ms against 6.9 to 9.2 ms; 16 readers beside 16 callers with a child: writes 60 to 77 k/s against 127 to 150 k/s, reads 2.02 to 2.52 M/s against 2.51 to 2.98 M/s. Tried without gain and not kept: acknowledgments that do not release, a sender that spins before it waits, a larger gen0 budget. Not built: a pool of tail memory and encoding outside the lock (S33) | development-4 | 18 November 2026 |
+| S11 | One write of 32 MiB with a child following | p50 2.5 to 2.6 ms with no child, 27.6 to 34.8 ms with one; small writes beside large ones 3.7 to 17.9 k/s with no child and 293 to 592 a second with one, p99 42 to 101 ms: they wait while the large write is copied into the tail under the lock. The capture's copy of one root of 32 MiB inside the protection: median 10.4 to 14.9 ms. Carried to S33 | development-4 | 18 November 2026 |
+| S11 | One acknowledgment that releases a million transactions of 64 bytes, under the lock of the writes | 4.0 to 19.6 ms when every header was read, 0.03 to 0.46 ms with the release by whole blocks | development-4 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1007,7 +1018,7 @@ Why this order:
 | S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
-| S11 | A child loads under writes and follows the master | Full | Not started |
+| S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
@@ -4215,6 +4226,100 @@ says otherwise, these replace it.
    decide what of S..R is replayed; the test author states the outcomes (nothing deleted
    comes back, nothing inserted is missing, revisions equal), not the watermark mechanism.
 
+**Decided by the planner on 17 November 2026 after the study of S11.** Where a sentence
+above says otherwise, these replace it. The study read the source of Valkey (BSD-3-Clause,
+commit 97ff16e), PostgreSQL (PostgreSQL Licence, commit 11591f2), Garnet (MIT, commit
+fcc018a) and etcd (Apache-2.0, commits 65fe41f and, for raft, 99f9ffb); no file is adapted
+from them. The owner agreed on 17 November 2026 to withdraw the deletion metadata of the
+initial capture (watermarks of deletions, no reuse of fenced slots, the claim on the
+catalog); the decision on replication and hosting carries the amendment. In Acceptance
+"its own start position, fence and watermarks" becomes "its own start position, fence
+and end position".
+
+1. **Contract line.** Internal: the capture with its start position S, its fence of root
+   slots and its end position R; the shared tail of committed transactions; the
+   acknowledgment that means *applied*.
+2. **Start.** A capture is registered in one hold of the lock of the writes: it takes S,
+   the published sequence, the fence of root slots and its cursor into the tail. From this
+   sprint no write is refused because of a child.
+3. **Copy.** As in S10: one root at a time inside the protection of reads, sent outside
+   it. Nothing is retained for a capture: no slot, no deleted root, no mark of a deletion.
+4. **End.** R is read in a hold of the lock of the writes after the last root was copied,
+   because a root can carry a sequence the published clock does not show yet. `LoadEnd`
+   carries S, R and the number of roots sent.
+5. **Tail.** A committed transaction is encoded and appended to one shared tail in the
+   hold of the lock of the writes that publishes it, in the order of sequences, and only
+   while a child or a capture is registered. It is encoded once for all children and
+   framed per connection, on that child's sender task, outside every lock: the frame
+   of S10 carries the stream sequence of its connection under its check (corrected on 17
+   November 2026 with the implementation; "framed once for all children" stood here). Every
+   child has its own cursor; a loading child is sent its stream after `LoadEnd`, on the
+   same connection. The master releases the tail up to the lowest position among its
+   children and registered captures. The tail is managed memory outside the instance
+   budget, unbounded until S33; `PendingDeliveryBytes` is what was appended less what was
+   released. A write of the master is never refused or delayed because a child is slow.
+   Added on 18 November 2026 with the implementation: the tail retains whole blocks of 1
+   MiB — at most the bytes not yet applied, rounded up to blocks, plus the block being
+   filled, a block a sender still reads, and one spare; with no child and no capture it
+   retains nothing. The size of a block is an internal constant. `PendingDeliveryBytes`
+   stays the bytes of transactions not yet applied by every child.
+6. **Effects.** A Write carries the root in the load format of S10; a Delete the type id
+   and the key; a write that changed nothing only its position. A transaction is checked
+   by the check of its frames, its announced length and its sequence, which follows the
+   one before; `TransactionEnd` is not built, and "its end and its digest" becomes "its
+   announced length". A transaction larger than a frame is put together whole before it
+   is applied. `RootEffect.Entity`, `EffectEncoding` through `RootReader`/`RootWriter` and
+   "the logical encoding of format 1" leave this brief; the internal types are restated as
+   S10 was built. The machine-independent encoding of the journal is decided in S27 with
+   its study; whether delivery then shares it is decided there by a figure.
+7. **Apply.** The child applies a copy and an effect by one rule, under its lock of the
+   writes: a state of a key at sequence s is skipped when the child holds that key with a
+   last mutation not earlier than s; otherwise a Write inserts or replaces and a Delete
+   removes the key if it is held. The child addresses an entity by the key in the root,
+   never by a slot of the master, so a key that arrives twice in a load is resolved by the
+   rule, not refused (this replaces the refusal of S10). The clock of a loading child
+   starts at S; it is Ready when it has applied R.
+8. **Acknowledgment** per received burst: `Applied(sequence)` when the child has applied
+   all it has received; never before R.
+9. **Divergence after R** (an effect not later than the state held) is a broken
+   invariant, not lag: the instance becomes `Faulted`, the connection is closed, every
+   operation is `Unavailable` with the reason in the message. Not "stops following". Test
+   through a hand-made stream.
+10. **`Install`.** State = Live is stored last, by a release store, because the capture
+    reaches entries by slot; the check that the assignment in `RootTable.Add` cannot tear
+    the state and the three comments that become false ride in this sprint. x64 hides the
+    hazard, so no test shows it there.
+11. This replaces points 1, 2 and 8 of the additions above; point 3 stands (revisions
+    equal), with the sequence of the copy or effect as the last mutation.
+12. **Measured, added:** the peak of `PendingDeliveryBytes` during a load at 200 writes a
+    second and at the full rate; the transactions in (S, R], the time from `LoadEnd` to
+    Ready and the share of effects skipped; the child's rate of applying against the
+    master's rate of writing; p99 and writes a second of 1 and 16 callers with no child,
+    one and two (the copy into the tail and its allocation under the lock; a write of 32
+    MiB); the time one root of 32 MiB is copied inside the protection.
+13. **Milestone contract**, "Independent base, journal and recovery": "and wire" leaves
+    the sentence "Durable and wire logical values use explicit little-endian…"; added: "The
+    replication stream carries stored bytes in the layout and byte order the Hello has
+    checked (decided after the studies of S10 and S11)".
+
+**Decided at the review of S11, 18 November 2026.** A child publishes the position of a
+transaction once, after every insert of it is installed and every replaced or deleted
+entity is marked, and stamps them afterwards, so a read on a child never returns a state
+at a position at which the master did not have it. After Ready a child acknowledges
+before every read of its socket whenever it has applied something new, not only when a
+burst ends (this replaces "per received burst" in point 8). The text of a received key
+is checked as strictly in a root as in a Delete.
+
+**Read by the coordinator on 17 November 2026, with the tests of S11.** The root of a
+Write of the stream carries the sequence of its transaction as its last mutation (point 3
+of the planner's additions), and the child checks it: a Write whose root says otherwise
+is a malformed transaction, refused whole. With that check and consecutive sequences an
+effect not later than the state held cannot arrive after R, so point 9 above has no case:
+the `Faulted` path of a divergence is not built and has no test. A malformed transaction
+after Ready applies nothing and ends the connection; the child stays Ready at its
+position and does not follow again (reconnection is S34), as a child whose arena cannot
+hold a change does.
+
 #### S12 · Writes through a child, sessions; the placeholder is removed
 
 **Carried from S09:** a child forwards the writes of one entity in the order of their
@@ -4408,6 +4513,63 @@ says otherwise, these replace it.
 
 #### S13 · Text entries and Dictionary strings
 
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **No gate of its own.** The text table is looked up by content only by a write, under
+   the lock of the writes; a read reaches a text through the reference its root holds,
+   inside the protection of reads, and never looks up by content. The candidate to hold
+   the study against: a plain hash table changed and searched under the lock of the
+   writes alone, entries reached by readers directly, an entry retired when its last
+   reference goes and freed by the deferred reclamation. "Use one dictionary gate
+   initially" in the milestone contract is withdrawn by the decision of 16 November.
+2. **Generations.** "Handles carry generations" guarded a rebinding that deferred
+   reclamation may already exclude: a root is never changed in place and an entry is not
+   freed while a read that could see it is inside. The study says whether a generation is
+   still needed and for what; it is not built because the brief of 14 November lists it.
+3. **Counts.** Stored, prepared and index references are changed only under the lock of
+   the writes. A write prepared and then withdrawn, cancelled or ended by a fault releases
+   what it took; a test states it with the held storage.
+4. **A child.** Text travels as bytes with its root, in the load format, for a copy and
+   for an effect of the stream; the child stores each distinct text once through its own
+   table. "A child loads shared text once" means once in its memory. Whether the wire
+   carries a repeated text once is decided by the figure of the study (bytes on the wire
+   for the measured case), by transfer ids that are not addresses if at all.
+5. **Study, before the contract step:** how an established store keeps equal values once
+   with counted references under one changing thread and concurrent readers — Valkey
+   (shared objects, reference counts), DuckDB (dictionary strings; MIT), ClickHouse
+   (LowCardinality; Apache-2.0), Arrow (dictionary encoding; Apache-2.0). Questions: where
+   the count lives, when an entry is freed, what a reader pays to reach the text, what a
+   write pays to find it.
+6. **Measured, added:** a read by key of an entity with a Dictionary field next to the
+   same entity with a Plain field, 1 and 16 threads — a Dictionary read that is slower
+   beyond noise is a finding (reads win over writes); writes a second with the field as
+   Plain and as Dictionary.
+
 **Carried from S10:** what travels to a child holds no address and no block number; the
 child stores received bytes through its own allocation.
 
@@ -4431,6 +4593,80 @@ child stores received bytes through its own allocation.
 - **Out of scope.** Moving text during compaction (S23). Index keys (S14–S15).
 
 #### S14 · Secondary indexes and exact search
+
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **The structure is not decided.** The milestone contract names `Arc.Collections`
+   `OrderedMultiMap` "until the contract of S14 reviews it"; that structure needs a lock
+   around every reader, which the rule above excludes. By the owner's word of 16 November
+   the default is a structure of the engine's own after a named open-source one. Study,
+   as the first step: ordered structures with one changing thread and readers that take
+   no lock — the skip list of LevelDB/RocksDB memtables (BSD / Apache-2.0), the
+   copy-on-write B+tree of LMDB (OpenLDAP licence), a B+tree with optimistic versions
+   (LeanStore, MIT), the adaptive radix tree (DuckDB, MIT); and, for contrast,
+   `OrderedMultiMap` behind a reader-writer protection, measured, not assumed. For each:
+   bytes per entry for the fixture's indexes, read rate on 1 and 16 threads beside a
+   writer, the cost of an insert and a delete, how a removed node is reclaimed, how a
+   range is walked while it changes. The planner takes the result to the owner with the
+   scope before the contract step ends: it changes an accepted line (index structures),
+   the row of `AGENTS.md` on the engine and `Arc.Collections`, and the package reference.
+2. **Entries are unique by (index key, identity of the entity):** the candidate that makes
+   a group of equal keys an ordered run, which S15 needs. The study confirms or replaces
+   it.
+3. **What a search guarantees,** restated for readers without a lock: an entry is a hint;
+   the search reads the root and returns it only if its current state has the searched
+   key. So "a reader never finds an entity under a key it no longer has" holds by that
+   check, and an entity that had the key for the whole search is found. "One publication"
+   means: the entries of a write are installed in the hold of the lock that publishes its
+   root.
+4. **Preparation.** Nodes and text are taken in the hold that prepares the write and
+   released if it is withdrawn; with the storage step busy a prepared, unpublished write
+   holds them and no reader can reach them. "Staging/removing package nodes" leaves the
+   milestone text with the package.
+5. **Comparison** is the one service built in S07 (`ValueComparer`), with the case table
+   of the core (Q46). The milestone paragraph "initial UTF-8 IgnoreCase comparisons decode
+   into pre-reserved UTF-16 scratch and use .NET ordinal span comparison … Do not
+   substitute … an unverified custom case-folding algorithm" is stale since Q46 and is
+   replaced now, under O16, with "Comparison without case uses the versioned case table of
+   the core ([strings](../decisions/strings.md), Q46), the same on every node; no .NET
+   culture or runtime table takes part."
+6. **The contract is not only "Exists".** `IndexKey.Equal<T…>` is generic in its signature
+   and stores its values as `object` in an array: a box per value and two objects per
+   search. The contract step measures a search by a full key and decides the form of
+   `IndexKey` and `IndexBound` so that building a key boxes nothing, as it did for the key
+   by name in S09, part 2; the Measured line "allocates its result and nothing per
+   comparison" includes the key. A change of the two types is a contract commit of this
+   sprint.
+7. **A child** builds its indexes while it loads and keeps them while it follows; an index
+   entry the stream contradicts is the divergence of S11 and faults the child.
+8. **Measured, added:** exact search on 1 and 16 threads, alone and beside a writer;
+   writes a second of the fixture's users with 0, 1 and all their indexes; bytes per index
+   entry; the read by key on 16 threads not lower than before the sprint.
 
 **Track:** full · **Needs:** S13 · **Owners:** E04, E08
 
@@ -4458,6 +4694,52 @@ child stores received bytes through its own allocation.
   (S15). Uniqueness (S16).
 
 #### S15 · Ranges, order, paging and the binding rules
+
+**Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
+sentence above or below says otherwise, these replace it. The owner asked for this check
+of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
+process, and the milestone paragraphs it owns are rewritten by the sprint after its
+study.
+
+Common to S13, S14 and S15:
+
+- Reads take no gate (16 November). Wherever this brief or the milestone contract says
+  "dictionary gate", "index gate", "index protection", "claim root lifetimes" or "under
+  the root gate", read: a read enters the protection of reads, and a structure is
+  changed only by the thread that holds the lock of the writes; what is removed is
+  retired and freed after the readers that could see it have left, and its bytes are
+  counted as retired.
+- A structure a read walks is one a read can walk without a lock while it is changed. A
+  structure that needs a lock around readers is not taken; reads on 16 threads beside a
+  writer are measured for every new read path, next to the read by key.
+- Every hash is seeded per instance (Q50). Nothing derived travels to a child (S10): a
+  child builds its text table and its indexes itself, under its lock of the writes, from
+  what it receives.
+- The memory of a new structure is counted in the instance budget, the rule of a write
+  refused for memory applies to it, and its retired bytes are reported.
+- Tokens are honored inside every wait of a step; a close completes only when the
+  structure's memory is returned.
+
+For this sprint:
+
+1. **Traversal after the enumeration of S08, part 2:** nothing is held between two steps —
+   no node, no cursor of a package, no slot of the protection. A step enters the
+   protection, seeks after the last returned (key, identity), returns the next, leaves.
+   With entries unique by (key, identity) a traversal under change returns no identity
+   twice and every unchanged match without remembering what it visited; the paragraph of
+   the milestone contract on a "managed package-node cursor", an "index mutation version"
+   and "inclusive reseek skipping visited identities" is rewritten by this sprint after
+   the structure of S14. If the structure cannot seek so, the study of S14 says it and
+   the remembered set stays.
+2. **Limits:** `ReadMemoryLimit` bounds what a traversal remembers (the last key; a set
+   only if point 1 fails), `ReadTimeLimit` the engine time of its steps; a cancellation is
+   reported before a limit (finding 2 of the outside review).
+3. **Binding.** A value is bound once to the type of its field without a box, in the form
+   S14 gave `IndexKey`/`IndexBound`; the allowlist is unchanged.
+4. **Text order** is the order of `ValueComparer`; "in UTF-8 and in UTF-16 databases"
+   stays as the acceptance says.
+5. **Measured, added:** a range that returns 100 entities on 1 and 16 threads, alone and
+   beside a writer; a page deep in a range (Offset 10,000) next to the first page.
 
 **Track:** full · **Needs:** S14 · **Owners:** E04, E08
 
@@ -4510,6 +4792,12 @@ unpublished write of another entity waits behind it, as a write to the same enti
   existing data (S38).
 
 #### S17 · Atomic write batch
+
+**Carried from the review of S11:** a child applies a transaction of several effects in
+three steps (every insert installed and every replace or delete marked; the position
+published once; the stamps), built in S11 and reasoned, not tested, because no master
+sent such a transaction. The test of this sprint: a read on a child that sees the
+position of a batch sees all of it, for a batch that inserts, replaces and deletes.
 
 **Track:** full · **Needs:** S16 · **Decisions:** D4 · **Owners:** E03, E08
 
@@ -4598,6 +4886,10 @@ child stores received bytes through its own allocation.
 - **Out of scope.** Element commands (S20). Shrinking after removals (S23).
 
 #### S20 · Partial updates
+
+**Carried from the study of S11:** how a partial update travels to a child is decided in
+the study of this sprint; if as a partial effect, a partial effect for a key not held
+during catch-up is recorded and must be resolved by a delete before R.
 
 **Track:** full · **Needs:** S19 · **Owners:** E08, E03 · **Closes:** Q07.3.6
 
@@ -4722,6 +5014,10 @@ under the lock of the writes or by the rule this sprint states.
   commands, which are outside the milestone.
 
 #### S24 · The memory budget
+
+**Carried from the review of S11:** decide whether the budget report shows the memory
+the delivery tail retains (whole blocks, the spare included) as its own figure, next to
+`PendingDeliveryBytes`.
 
 **Carried from the review of S10:** a child sizes its index from the counts its master
 announces, bounded only by its memory limit, and each accepted connection holds about
@@ -5042,6 +5338,16 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Carried from S11:** the bound of the tail is decided here, with the figures of S11 in
+"Measured results". Not built in S11 and judged here: a pool of tail memory and encoding
+outside the lock of the writes (it needs the published root kept from being freed until
+it is copied). A write of 32 MiB holds the lock about 30 ms with a child following,
+against 2.5 ms with none, and small writes wait behind it; the planner brings that to the
+owner with Q52. X6 now names the waits of a stream: the sends end here, the waits for a
+frame in S34. The acknowledgment of a child under a stream that never pauses has no
+deterministic test; a `RootTable.Add` that throws while a child applies has none either
+(the root table has no fault point).
+
 **Carried from the review of S10:** the two waits of X6 end here: the master's send to a
 child that does not read, and its wait for the end of a loaded child's connection (a
 child lost without a reset is not noticed). The milestone row "concurrent captures, up
@@ -5081,6 +5387,11 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Carried from S11:** a child that stopped following — a malformed transaction, a change
+its arena cannot hold, the end of its connection — stays Ready at its position and does
+not follow again; a master that vanishes without closing the connection leaves the child
+waiting for a frame without a deadline (X6). Both end here.
 
 **Carried from the review of S10:** the pauses between a child's attempts and a master's accepts (100 ms,
 doubling, at most 5 s) are constants (X6) and become options here. The listener resolves

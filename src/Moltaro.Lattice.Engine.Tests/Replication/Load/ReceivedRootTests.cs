@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Text;
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
@@ -18,7 +19,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 // a descriptor whose kind does not match its length, an inline value whose location runs past the end of
 // the root even where the sum of location and length wraps around — of a text and of a key (review round
 // 1 of S10) —, a null bitmap that contradicts the descriptors, fewer or more bytes than the root
-// announces, or fewer or more roots than LoadEnd announces fails its open at once with Unavailable and
+// announces, a key whose text is not well-formed, or fewer or more roots than LoadEnd announces fails its
+// open at once with Unavailable and
 // holds nothing; no received value is used as an address. So does a child whose schema, received in the
 // Schema frames, is not the one whose fingerprint the HelloReply of its master announced (review round 1
 // of S10).
@@ -31,6 +33,13 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 // the bound ended at once.
 public sealed class ReceivedRootTests
 {
+    // The key Code of the root is text that is not well-formed: four bytes that are no UTF-8, in a database
+    // that stores UTF-8; a high surrogate with no low one after it, in a database that stores UTF-16 (review
+    // round 1 of S11: a received key is checked as a Delete's key is).
+    private const string KeyNotUtf8 = "a key that is not well-formed UTF-8";
+
+    private const string KeyWithALoneSurrogate = "a key with a lone surrogate in UTF-16";
+
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     public static IEnumerable<TheoryDataRow<string>> Damages =>
@@ -45,14 +54,17 @@ public sealed class ReceivedRootTests
         new("more bytes than the root announces"),
         new("no Blocks frame, fewer roots than LoadEnd announces"),
         new("a Blocks frame twice, more roots than LoadEnd announces"),
+        new(KeyNotUtf8),
+        new(KeyWithALoneSurrogate),
     ];
 
     [Theory]
     [MemberData(nameof(Damages))]
     public async Task Child_that_receives_an_invalid_root_fails_its_open_at_once_with_Unavailable_and_holds_nothing(string damage)
     {
-        await using var master = await ReplicationNodes.OpenMasterAsync(MarkedRoot.Schema);
-        var written = await master.Set("Marked").InsertAsync(MarkedRoot.Record());
+        await using var master = await ReplicationNodes.OpenMasterAsync(damage == KeyWithALoneSurrogate ? MarkedRoot.Utf16Schema : MarkedRoot.Schema);
+        var marked = master.Set("Marked");
+        var written = await marked.InsertAsync(MarkedRoot.RecordOf(marked.EntityType, "code"));
         var lastMutation = PositionSequence.Of(written.Position);
         var damagedOne = false;
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
@@ -162,6 +174,14 @@ public sealed class ReceivedRootTests
 
             case "a Blocks frame twice, more roots than LoadEnd announces":
                 return [frame, frame];
+
+            case KeyNotUtf8:
+                bytes.AsSpan(MarkedRoot.KeyAt(bytes, "code", Encoding.UTF8), 4).Fill(0xFF);
+                break;
+
+            case KeyWithALoneSurrogate:
+                BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(MarkedRoot.KeyAt(bytes, "code", Encoding.Unicode)), 0xD800);
+                break;
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(damage), damage, "No such damage.");

@@ -163,7 +163,8 @@ If committed publication fails, the instance stops serving data until reopen/rec
 ## Replica lifecycle
 
 Initial loading and live updates come from master memory over the internal connection.
-Children that start together load in parallel, up to a configurable limit.
+Children that start together load in parallel; the configurable limit of loads at once
+is planned and not built yet.
 A new child receives the whole database, builds local indexes and catches up through a
 fixed published position before opening reads.
 
@@ -183,7 +184,8 @@ Waiting does not freeze the database or chase a moving latest position. A later 
 may already be visible. Unconstrained reads can use intact local state during lag or
 disconnection; status reports the observed progress and whether it is current or unknown.
 
-The master retains a bounded shared delivery tail only while recipients need it.
+The master retains a shared delivery tail only while recipients need it; its bound is
+planned and not built yet.
 Acknowledged payloads are released. A child that needs changes the master no longer
 retains reloads fully, with one arena and bounded read waiting; an empty restarted child
 cannot serve data offline.

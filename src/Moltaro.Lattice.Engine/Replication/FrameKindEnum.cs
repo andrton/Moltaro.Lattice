@@ -22,4 +22,13 @@ internal enum FrameKindEnum : ushort
     // From a master to a peer it does not accept: the reason (RefuseReasonEnum). The master closes the
     // connection after it.
     Refuse = 6,
+
+    // From a master to a child after LoadEnd: a committed transaction, or a part of one
+    // (Transactions.TransactionFormat). 8 is not used: a transaction ends where its announced length
+    // ends (the planner's decision of 17 November 2026 after the study of S11, point 6).
+    Transaction = 7,
+
+    // From a child to its master: the sequence up to which the child has applied all it has received
+    // (Transactions.TransactionFormat).
+    Applied = 9,
 }

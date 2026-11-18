@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.DamagedFrames;
 // sprint S10, Acceptance; the planner's decision of 17 November 2026 after the study, point 1), on
 // either side of it:
 // - A master that receives such a frame from a peer drops the peer, sends it nothing of the database,
-//   and goes on serving: it publishes a write and a new child loads from it. The peer is a connection of
+//   and goes on serving: it holds nothing for the peer (NothingRegistered) and a new child loads from
+//   it. The peer is a connection of
 //   the test (Peer) that sends the Hello of a real child (Handshake) with one thing wrong — a body length
 //   over the largest, an unknown kind, a wrong check, a body too short for a Hello. The master gives a
 //   peer far more than the bound to introduce itself, so that within the bound only the check of the
@@ -18,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.DamagedFrames;
 // - A child that receives such a frame from its master — the first Blocks frame damaged on its way by a
 //   relay (FrameRelay) — fails its open at once with Unavailable and holds nothing (its native memory is
 //   counted, CountingNativeAllocator); its open timeout is far beyond the bound. The master, which loses
-//   the connection, publishes a write again.
+//   the connection, holds nothing for it any more.
 public sealed class DamagedFrameTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
@@ -52,7 +53,7 @@ public sealed class DamagedFrameTests
 
         Assert.DoesNotContain(received, frame => frame.Kind is FrameKindEnum.HelloReply or FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.LoadEnd);
 
-        await AcceptedWrite.UntilPublishedAsync(master, 100);
+        await NothingRegistered.ExpectAsync(master, 100);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
         Pieces.ExpectSame(master, child);
     }
@@ -83,7 +84,7 @@ public sealed class DamagedFrameTests
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
         allocator.ExpectEverythingReturned();
 
-        await AcceptedWrite.UntilPublishedAsync(master, 100);
+        await NothingRegistered.ExpectAsync(master, 100);
     }
 
     private static WireFrame Damaged(WireFrame frame, string damage) => damage switch

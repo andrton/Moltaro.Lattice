@@ -1,5 +1,9 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Unicode;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -146,6 +150,13 @@ internal sealed class EntityTable
     // index does not grow, takes one round.
     private const int WordsPerRound = 256;
 
+    // UTF-8 that refuses bytes that are not well-formed, for the text of a received key (ReadKey).
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
+    // surrogates.
+    private const int MostBytesOfACharacter = 4;
+
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -289,6 +300,116 @@ internal sealed class EntityTable
         handle = default;
 
         return false;
+    }
+
+    // A key of the String key type from its text, hashed under the seed of this instance: for the loader
+    // of a child, which reads the text from a root it received before it places it
+    // (Loading.ReceivedChanges).
+    public EntityKey KeyOfText(string text) => EntityKey.OfText(text, TextHash(text));
+
+    // The bytes a key of this entity type takes in a Delete of the replication stream
+    // (Replication.Transactions.TransactionFormat), in the form WriteKey writes and ReadKey reads: an
+    // integer key as the 64 bits of EntityKey.Integer, a Guid key as its 16 bytes in the order of
+    // Guid.TryWriteBytes, a String key as the length of its UTF-8 (UInt32) and that UTF-8; numbers
+    // little-endian. The text of a key is well-formed, as the core checked it (Q41), so it has its UTF-8.
+    public int KeyLength(in EntityKey key) => KeyKind switch
+    {
+        KeyKindEnum.Integer => sizeof(long),
+        KeyKindEnum.Guid => 16,
+        _ => sizeof(uint) + Encoding.UTF8.GetByteCount(key.Text!),
+    };
+
+    // Writes the key into the output, KeyLength bytes (see KeyLength). The text of a String key may be as
+    // long as a String value may be, longer than one span of the output holds (the tail a master delivers
+    // from, Delivery.DeliveryTail, gives spans of at most one block), so it is encoded into the spans as the
+    // output gives them, each asked for room for one whole character; an integer, a Guid and the length of
+    // a text fit the span asked for.
+    public void WriteKey(in EntityKey key, IBufferWriter<byte> output)
+    {
+        switch (KeyKind)
+        {
+            case KeyKindEnum.Integer:
+                BinaryPrimitives.WriteInt64LittleEndian(output.GetSpan(sizeof(long)), key.Integer);
+                output.Advance(sizeof(long));
+                break;
+
+            case KeyKindEnum.Guid:
+                key.Guid.TryWriteBytes(output.GetSpan(16));
+                output.Advance(16);
+                break;
+
+            default:
+                var text = key.Text!.AsSpan();
+
+                BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), (uint)Encoding.UTF8.GetByteCount(text));
+                output.Advance(sizeof(uint));
+
+                while (!text.IsEmpty)
+                {
+                    Utf8.FromUtf16(text, output.GetSpan(MostBytesOfACharacter), out var read, out var written);
+                    output.Advance(written);
+                    text = text[read..];
+                }
+
+                break;
+        }
+    }
+
+    // Reads a key that WriteKey wrote from the input, hashed under the seed of this instance, with the
+    // input advanced past it. ValidationFailed for bytes that are not a key of this entity type: too few
+    // of them, an integer outside the key type, text that is not well-formed UTF-8.
+    public EntityKey ReadKey(ref SequenceReader<byte> input)
+    {
+        switch (KeyKind)
+        {
+            case KeyKindEnum.Integer:
+                if (!input.TryReadLittleEndian(out long integer))
+                {
+                    throw InvalidKey($"{input.Remaining} bytes are fewer than an integer key takes.");
+                }
+
+                var type = EntityType.Key.Declaration.Type;
+
+                if (!IsInRange(type, integer))
+                {
+                    throw InvalidKey($"the integer {integer} is not a value of the key type {type}.");
+                }
+
+                return EntityKey.OfInteger(type, integer);
+
+            case KeyKindEnum.Guid:
+                Span<byte> guid = stackalloc byte[16];
+
+                if (!input.TryCopyTo(guid))
+                {
+                    throw InvalidKey($"{input.Remaining} bytes are fewer than a Guid key takes.");
+                }
+
+                input.Advance(guid.Length);
+
+                return EntityKey.OfGuid(new Guid(guid));
+
+            default:
+                if (!input.TryReadLittleEndian(out int length) || length < 0 || length > input.Remaining)
+                {
+                    throw InvalidKey("the bytes do not hold the text they announce.");
+                }
+
+                string text;
+
+                try
+                {
+                    text = StrictUtf8.GetString(input.UnreadSequence.Slice(0, length));
+                }
+                catch (DecoderFallbackException exception)
+                {
+                    throw InvalidKey($"its text is not well-formed UTF-8 ({exception.Message})");
+                }
+
+                input.Advance(length);
+
+                return KeyOfText(text);
+        }
     }
 
     // Makes room in the index for one more key before an insert is published, beside the inserts
@@ -560,6 +681,21 @@ internal sealed class EntityTable
     // which computes it before the read enters the protection of reads.
     public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(EntityType.Key, text, _seed);
 
+    // Whether an integer, held as EntityKey.Integer holds it, is a value of the key type.
+    private static bool IsInRange(LatticeFieldTypeEnum type, long integer) => type switch
+    {
+        LatticeFieldTypeEnum.Int8 => integer is >= sbyte.MinValue and <= sbyte.MaxValue,
+        LatticeFieldTypeEnum.UInt8 => integer is >= 0 and <= byte.MaxValue,
+        LatticeFieldTypeEnum.Int16 => integer is >= short.MinValue and <= short.MaxValue,
+        LatticeFieldTypeEnum.UInt16 => integer is >= 0 and <= ushort.MaxValue,
+        LatticeFieldTypeEnum.Int32 => integer is >= int.MinValue and <= int.MaxValue,
+        LatticeFieldTypeEnum.UInt32 => integer is >= 0 and <= uint.MaxValue,
+        _ => true,
+    };
+
+    private LatticeException InvalidKey(string reason) =>
+        new(LatticeErrorEnum.ValidationFailed, $"A key of {EntityType.Name} received from the master is not valid: {reason}");
+
     // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
     private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
     {
@@ -700,15 +836,27 @@ internal sealed class EntityTable
     }
 
     // For the capture of a load on a master (Children.Capture), inside the protection of reads the
-    // caller entered: takes the entry as one state, by its stamp, as a read does (TryCopy), and returns
-    // true with its root and the sequence of its last mutation when the root is live. The caller reaches
-    // the entry by its slot in the root table, not through an index (the planner's block of 17 November
-    // 2026, point 3), so it meets entries no read meets: a slot that was never published, or that a
-    // write took for an insert and gave back when it was refused or withdrawn, has the stamp 0, the mark
-    // of a write in progress, and no write will ever store another. Such an entry holds no live root, so
-    // its state is looked at first, and the stamp is taken only of an entry that holds one; no write is
-    // published while the caller copies (Children.Capture), so the state does not change meanwhile.
-    // A root found live stays allocated until the caller leaves the protection.
+    // caller entered, while the master goes on writing (brief of Epic 1, sprint S11): takes the entry as
+    // one state, by its stamp, as a read does (TryCopy), and returns true with its root and the sequence
+    // of its last mutation when the root is live. The caller reaches the entry by its slot in the root
+    // table, not through an index (the planner's block of 17 November 2026, point 3), so it meets entries
+    // no read meets: a slot that was never published, that a write took for an insert and has not
+    // published yet, or that a write gave back when it was refused or withdrawn, is Free or Prepared, and
+    // its stamp is 0, the mark of a write in progress, which a slot given back keeps for good. Such an
+    // entry holds no live root, so its state is looked at first, and the stamp is taken only of an entry
+    // that holds one.
+    //
+    // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
+    // insert writes the root and the sequence of a new entry and only then stores the state Live, by a
+    // store with release semantics (Writes.WriteExecutor.Install); the state is loaded here with acquire
+    // semantics, so a capture that loads Live sees the root, the sequence and the type id of the lifetime
+    // that store published, and the blocks of the root; it never pairs Live with the root or the sequence
+    // of an earlier lifetime of the slot, a root that may have been freed. That earlier lifetime cannot be
+    // seen Live either once its root may have been freed: its entry is released, and the slot given to a
+    // new lifetime, only after the reads that entered before its delete was retired have left
+    // (Protection.RetiredMemory), and a read that enters after that sees the delete (Protection.ReadEpochs).
+    // A replace or a delete of the lifetime meanwhile is taken by the stamp, as for any read. A root found
+    // live stays allocated, and its entry keeps its lifetime, until the caller leaves the protection.
     public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out ArenaAddress root, out ulong lastMutation)
     {
         if (entry.AcquireState() != RootStateEnum.Live)

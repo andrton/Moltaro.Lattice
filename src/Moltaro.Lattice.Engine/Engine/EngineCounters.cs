@@ -61,6 +61,20 @@ namespace Moltaro.Lattice.Engine;
 // that a test can state the default. When a test gave the options of the arena (EngineTestInputs.Arena)
 // they are the options of the arena, MemoryLimit of the options of the database is not read, and this
 // is the limit of those options. It is the limit of the arena (brief of S09, "The refusal").
+//
+// The members of the children of a master (brief of Epic 1, sprint S11, "Types and members of S11"; the
+// planner's decision of 17 November 2026 after the study, points 2 to 5; Delivery.DeliveryTail), written
+// and read under the lock of the writes. Both are 0 on a master that no child is connected to or loads
+// from, and on a child.
+//
+// ActiveCaptures: the captures registered and not ended: one for each child from the hold that takes its
+// start position until its capture has copied its last root and taken its end position.
+//
+// PendingDeliveryBytes: the bytes of the committed transactions the master holds for its children that
+// some child has not applied: what it appended to the tail less what it released once every child had
+// applied it, in bytes of transactions, not of the capacity of the blocks that hold them; 0 once every
+// child has applied everything, and with no child. The blocks themselves are managed memory outside the
+// budget of the instance, without a bound of their own until S33.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,
@@ -71,4 +85,6 @@ internal readonly record struct EngineCounters(
     int QueuedWrites,
     int LargestCommitGroup,
     long LargestCommitGroupBytes,
-    long MemoryLimit);
+    long MemoryLimit,
+    int ActiveCaptures,
+    long PendingDeliveryBytes);

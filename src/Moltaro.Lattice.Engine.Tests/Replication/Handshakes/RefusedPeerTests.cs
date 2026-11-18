@@ -13,8 +13,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Handshakes;
 // fingerprint, another wire format, another layout format, the byte order of a big-endian machine
 // (bit 16 of the layout format, as the implementer of S10 encodes it) or another version of the case
 // table, or the role of a master, is refused with the matching reason — Database, History, Schema,
-// Format or Role — before any data frame is sent, and nothing of it is registered on the master, which
-// publishes a write afterwards. A real child cannot send most of these, so the test sends a Hello it
+// Format or Role — before any data frame is sent, and nothing of it is registered on the master
+// (NothingRegistered). A real child cannot send most of these, so the test sends a Hello it
 // makes itself, through a connection of its own (Peer): the Hello of a real child that holds nothing yet,
 // recorded on its way to the master (Handshake), with one value changed, and the identity of the master
 // taken from its reply where the value has to be the master's for the check of the next one to be
@@ -50,7 +50,7 @@ public sealed class RefusedPeerTests
         Assert.Equal(Enum.Parse<RefuseReasonEnum>(reason), FrameCodec.ReadRefuseBody(new ReadOnlySequence<byte>(refusal.Payload)));
         Assert.DoesNotContain(received, frame => frame.Kind is FrameKindEnum.HelloReply or FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.LoadEnd);
 
-        await AcceptedWrite.UntilPublishedAsync(master, 100);
+        await NothingRegistered.ExpectAsync(master, 100);
     }
 
     // The Hello of the child with the one difference.
