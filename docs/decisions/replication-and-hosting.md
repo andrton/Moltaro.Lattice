@@ -1521,8 +1521,10 @@ the system choose the port and the open master reports the one it chose
 
 The nodes of one database are the same engine with the schema agreed in the handshake. A
 node checks the structure of everything it receives — frame, root, transaction, request,
-reply — so that no read or write leaves the bytes it received and nothing is allocated
-by a length a peer announced. It does not validate the values of fields again: a child
+reply — so that no read or write leaves the bytes it received. What a node allocates grows with
+the bytes it has received, with one stated exception: a child sizes its primary index
+from the number of entities its master announces, after checking that this many
+entities, each at its least size, fit its memory limit. It does not validate the values of fields again: a child
 validates an entity against the schema before it forwards the write, and a child trusts
 the values its master sends in a load and in the stream.
 
@@ -1539,4 +1541,4 @@ not before.
 
 **For a reviewer.** A finding that a node accepts invalid field values from a peer
 restates this decision. A finding that a peer can make a node touch memory outside what
-it received, or allocate by an announced length, is a defect.
+it received, or allocate by an announced length beyond that stated exception, is a defect.
