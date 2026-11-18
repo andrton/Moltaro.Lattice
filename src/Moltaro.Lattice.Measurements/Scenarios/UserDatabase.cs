@@ -14,6 +14,10 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // A writer beside the reads replaces the users with the values they have, or inserts and deletes
 // users of its own: users with keys above the fixture's, which the reads never read, made as copies
 // of the fixture's users with another key.
+//
+// For the scenarios of Dictionary strings (brief of Epic 1, sprint S13) the field Region, one of 16
+// texts of 9 bytes, can be declared with Dictionary storage: the same users, generated from the scalar
+// form and copied by name into a schema that differs from it in that one declaration.
 internal sealed class UserDatabase : IDisposable
 {
     private readonly EngineDatabase _database;
@@ -46,12 +50,14 @@ internal sealed class UserDatabase : IDisposable
     public string Loaded { get; }
 
     // Generates the fixture, opens the database, under the read limits given or none and accepting
-    // children at the address given or at none, and inserts the users by name.
-    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null)
+    // children at the address given or at none, and inserts the users by name; with Region in Dictionary
+    // storage when dictionaryRegion is true.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false)
     {
-        var schema = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
-        var records = ReferenceFixture.Generate(schema).ToList();
-        var users = records.Where(record => record.EntityType.Name == "User").ToList();
+        var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
+        var records = ReferenceFixture.Generate(scalar).ToList();
+        var schema = dictionaryRegion ? LatticeSchema.Compile(WithDictionaryRegion(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)))) : scalar;
+        var users = records.Where(record => record.EntityType.Name == "User").Select(user => dictionaryRegion ? CopyInto(schema, user) : user).ToList();
 
         var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
@@ -77,7 +83,7 @@ internal sealed class UserDatabase : IDisposable
         return new UserDatabase(
             database,
             users,
-            $"Fixture: the scalar form without its Unique marks, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
+            $"Fixture: the scalar form without its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
             $"Database: the engine, MemoryOnly; {ReadSeries.Number(users.Count)} users inserted by name in {ReadSeries.Seconds(loading.Elapsed)} s");
     }
 
@@ -166,6 +172,34 @@ internal sealed class UserDatabase : IDisposable
     public long IndexBytes => _database.Counters.PrimaryIndexBytes;
 
     public void Dispose() => _database.Dispose();
+
+    // The descriptor with Region of the users in Dictionary storage.
+    private static string WithDictionaryRegion(string json)
+    {
+        const string Region = "\"Name\": \"Region\", \"Type\": \"String\"";
+
+        if (!json.Contains(Region, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The descriptor of the fixture does not declare Region as this scenario expects.");
+        }
+
+        return json.Replace(Region, $"{Region}, \"StringStorage\": \"Dictionary\"", StringComparison.Ordinal);
+    }
+
+    // A user of the fixture as a record of the entity type User of the schema, field by field.
+    private static LatticeRecord CopyInto(LatticeSchema schema, LatticeRecord user)
+    {
+        schema.TryGetEntityType("User", out var entityType);
+
+        var copy = new LatticeRecord(entityType!);
+
+        foreach (var field in user.EntityType.Fields)
+        {
+            copy[field.Name] = user[field.Name];
+        }
+
+        return copy;
+    }
 
     // The descriptor with the class FixtureUser named for the entity type User.
     private static string WithUserClass(string json)
