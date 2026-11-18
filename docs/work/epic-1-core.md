@@ -65,7 +65,7 @@ fingerprints; the optional .NET class, bound by one table for every position, wi
 enum that has to agree with its enum type. Records and owned values that hold nested
 values and copy what is set into them. Sets by class and by name, for
 entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
-and UTF-16: read, enumerate, insert,
+and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
@@ -97,7 +97,12 @@ takes no lock; what a write replaces or removes is retired and freed once the re
 could reach it have left; the primary index is a hash table of the engine's own that is
 read while a write is published; the package `Arc.Collections`, referenced by the engine
 and used by none of its code, was removed in S13 by the owner's decision of 18 November
-2026, and the ordered indexes of S14 are decided by their study. From S08, part 2,
+2026, and the ordered indexes of S14 are decided by their study. Since S13 a String field
+with Dictionary storage is stored once for the database: a text entry of the arena that
+holds the exact bytes, the root holding its relative address, one count of the blocks
+that refer to it changed only under the lock of the writes, and a table by content that
+only writes use; a read of such a field costs what a read of a Plain value out of line
+costs, and a child builds its own entries from the bytes it receives. From S08, part 2,
 an enumeration of the engine goes on while entities change and the index grows: it
 remembers the keys it has returned, returns no identity twice and every entity nobody
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
@@ -137,7 +142,6 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
-| Storing a String with Dictionary storage | The declaration of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S13 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
@@ -174,10 +178,10 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R7 | Ordinary reads return owned copies, coherent for one entity | [Q06, Q06.1](../decisions/memory-and-access.md) | Must | Works | S06–S08 |
 | R8 | Short synchronous protected read-only views: no copy, no escape, no nested database call | [Q06.2, Q06.3](../decisions/memory-and-access.md) | Must | Absent | S21–S22 |
 | R9 | Native segments, size classes, relative addressing, stable managed root entries, large values in bounded chunks | [Q05](../decisions/memory-and-access.md), [Q16](../decisions/physical-storage.md) | Must | Absent | S04, S05 |
-| R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Absent | S05, S13 |
+| R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Works for String fields; text in collections and index keys with their sprints | S05, S13 |
 | R11 | Space is reused for the life of the database: size-class reuse, bounded incremental compaction, collection shrink, release of empty segments | [Q17](../decisions/allocation-and-compaction.md) | Must | Absent | S04, S23–S24 |
 | R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
-| R13 | Arc UnorderedMapSlim for the primary index and Arc OrderedMultiMap for secondary indexes, behind engine-owned protection, rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
+| R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
 | R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | On the engine an enumeration goes on while entities change, with the budget of the options; index traversal follows | S06–S08, S14–S15 |
@@ -338,6 +342,14 @@ documentation before this document is removed.
 | S12 | The close of a master and of a child with 16 callers forwarding | master: median 2.4 to 3.3 ms after the frame Closed (1.9 to 3.3 ms before it), longest 7.5 ms; child: median 1.7 to 3.1 ms, longest 18 ms | development-4 | 18 November 2026 |
 | S12 | Allocation per forwarded write | about 3.2 KB on the child and 1.1 KB on the master; not reduced in S12, a figure to return to when G3 is measured | development-4 | 18 November 2026 |
 | S12 | A master with no child against the commit before the implementation of S12, alternating rounds | no fall with 4 and 16 callers, readers, and readers beside writers; allocation per write unchanged (160 and 124 bytes); one caller: replace 1.39 to 1.52 M/s against 1.46 to 1.57 M/s, inside the spread between runs (the order of the runs changed the sign) | development-4 | 18 November 2026 |
+| S13 | Read by key of an entity whose field is stored as Dictionary against the same field as Plain out of line, by class | 1 thread 1.57 to 1.93 M/s against 1.22 to 1.62 M/s; 16 threads 7.9 to 9.2 M/s against 6.3 to 8.1 M/s: not slower. Against a Plain value small enough to lie in the root the two cross at 65 bytes | development-5 | 18 November 2026 |
+| S13 | Reads beside a writer that allocates in the size class of the entries, 7 readers and the writer on 8 processors, 16 rounds of each, Plain and Dictionary alternating, the machine 27 to 50 % busy with other work | reads beside the writer over reads alone: Plain median 0.875 (0.75 to 1.01), Dictionary 0.86 (0.64 to 0.97), the ratio of the medians 0.98; reads alone 8.17 M/s Plain and 9.96 M/s Dictionary, beside the writer 7.30 and 8.41 M/s; the writer 795 k/s beside Plain readers and 704 k/s beside Dictionary readers. With 16 readers: 0.93 and 0.95 | development-5 | 18 November 2026 |
+| S13 | Writes of an entity with a text of 9 bytes, the field as Dictionary against Plain | 12 to 20 % fewer writes a second as Dictionary; a write whose text is already stored costs 60 to 110 ns more, one whose text is new about 330 ns more (reads win over writes; the advice is in the decision on strings) | development-5 | 18 November 2026 |
+| S13 | Memory of 100,000 users of the fixture with one field of 16 distinct texts of 9 bytes | 16.0 MB as Dictionary against 17.6 MB as Plain, 9.1 % less | development-5 | 18 November 2026 |
+| S13 | Memory for each value when all 1,000,000 texts are distinct, 9 bytes each | 163 bytes as Dictionary against 80 as Plain; the table takes 51.4 bytes for each distinct entry | development-5 | 18 November 2026 |
+| S13 | A child that loads 100,000 such users | the bytes on the wire are those of Plain (15,410,268); the child holds 16 entries; Ready about 0.12 µs later for each Dictionary value | development-5 | 18 November 2026 |
+| S13 | Bytes the arena holds while one text of 1 MiB is replaced 100 times with no read in progress | 101 MiB as Dictionary against 4.0 MiB as Plain before the fix of the review; after it the test holds Dictionary to at most twice Plain | development-5 | 18 November 2026 |
+| S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. **Open: to be measured again on a quiet machine, with the base against itself** | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1046,7 +1058,7 @@ Why this order:
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
-| S13 | Text entries and Dictionary strings | Full | In progress |
+| S13 | Text entries and Dictionary strings | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -4895,7 +4907,9 @@ keeps a generation.
    lie in the entry: a read reads nothing a write changes. An empty text stays inline
    with length 0 and has no entry. A Dictionary text may be as long as a value may be.
 3. **The text table** is used by writes only, in managed memory, and no read touches it:
-   slots (address, references as Int64, hash, a flag or the link of the free list) and a
+   slots (address, references as Int64, hash, a flag or the link of the free list; as
+   built also the length of the text, so that a lookup passes over texts of another length
+   without touching the arena: 32 bytes a slot) and a
    bucket table from hash to slot. The bucket table is the `IndexTable` of the primary
    index, which moves with its companions to a folder below both users; it is not
    written a second time. The hash is the engine's seeded hash over the stored bytes
@@ -4955,6 +4969,56 @@ keeps a generation.
     time to Ready, the bytes on the wire and the number of entries; memory for each
     distinct entry at 16 and at 1,000,000 distinct texts, arena and table together,
     against Plain; one repeated text of about 100 KB.
+
+**Decided at the review of S13, 18 November 2026** (two reviewers on commit 9d6c036; no
+P1). Both confirmed by tracing and by probes that no count is changed outside the lock of
+the writes, that no read reaches freed or reused text, that a received root is refused
+before anything is placed, and that no read touches the text table. By the planner's
+decision of the same day the sprint had one round of fixes, for P1 and P2 only, and no
+second review; what else was named went where its kind belongs.
+
+1. **Three kinds of free path that drop a text reference had no test** (both reviewers):
+   a preparation that took a reference and then fails, the abandon of a child with a root
+   placed, the free of a placed forwarded root on a master. Tests were added and pass on
+   the code as it was: the code was right.
+2. **Dead text that only retired roots still name was not counted toward the next look of
+   the drain** (one reviewer, by probe): one entity whose text of 1 MiB was replaced 100
+   times held 101 MiB against 4 MiB as Plain, until the 128th retired item. Fixed, test
+   first: a retired root counts toward the next look the slots of its own blocks and
+   those of the entry of every Text descriptor it holds. Shared text is counted for each
+   root that names it, which only makes a look come earlier. `RetiredBytes` keeps its
+   meaning, the bytes of retired blocks.
+3. **`LiesInChunks` compares the length alone.** As built it also read the kind, one more
+   comparison on every read of a non-empty String or Binary value, Plain included. A
+   value is placed by its length for every kind — the writer places it so and a received
+   root of another form is refused — so the length decides. Taken into the sprint because
+   the read by key of the reference fixture did not close against the commit before the
+   implementation (see the measured results); a proposal to test for an inline value
+   first is superseded by it.
+4. **Carried to the fix package after S13**, because they change behavior and a
+   refactoring sprint may not: the slot array of the text table doubles past 2^30 slots
+   into a truncated array where the write has to be refused for memory; a closed instance
+   that is kept alive still holds the text table (it joins item 10 of the package); the
+   test of "a reference never resolves to other text" does not read through the old
+   root, and a stronger one does.
+5. **Carried to S13R** ([refactoring backlog](refactoring.md), T1): the state Prepared or
+   Published of a slot repeats what the arena knows of the entry's block.
+6. **Left as it is:** the text table is owned by the arena. Both reviewers were asked
+   whether a table owned by the database is plainer and both found it is not: every free
+   of a block has the arena at hand and has to drop the references of that block.
+7. **The hardest part to follow**, named by both reviewers: the life of an entry from
+   prepared to published — the state in the slot, the branch of `TryAcquire` that
+   publishes on a hit, `TextTable.Publish` called for each descriptor from
+   `RootStorage.Publish`, and the prepared accounting of the arena have to be read
+   together to see that every path publishes an entry before a read can reach it. T1
+   answers it.
+8. **Remarks, recorded and not acted on:** the table and the slot array never shrink
+   (S23); `TextTable.Publish` asserts no lock; `Marvin`'s append of bytes in pieces and
+   two texts of one 32-bit hash have no test of their own (the reviewers' probes pass);
+   the branch of `TryAcquire` for a write that is not prepared is reached by no product
+   path; the head of `IndexTable` still speaks of the primary index only; the encoded
+   size of a forwarded write does not count a new entry, which only grouping reads; a
+   write of a Dictionary text clears 512 bytes of stack it does not use in UTF-16.
 
 #### After S13 · Findings of the outside review
 
@@ -5039,6 +5103,23 @@ never produces; they are closed anyway where the check is exact and cheap.
 16. `ChildArenaFullTests`: the sleep is replaced by an observable — a counter or a signal
     of "the applier waits for reads that hold retired memory", reachable by the tests of
     the engine — so the test proves the wait. P4.
+
+17. From the review of S13. The slot array of the text table (`TextTable.TakeSlot`)
+    doubles its length without a bound: at 2^30 slots the doubling overflows and the array
+    is cut to 4 slots. The behavior: the write is refused with the memory refusal the
+    engine already has (`WriteRejected`, memory) before anything is taken, never a
+    truncated table; no new error and no option — it is a limit of the structure, stated
+    once in the engine contract. The test reads the growth function at the boundary, not
+    a billion entries. P3.
+18. From the review of S13. The test of "a reference never resolves to other text" holds
+    a read before it has taken its root, so the released read copies the new root. The
+    stronger form: take the old root inside the hold, replace, write and delete texts of
+    the same size class, drain, and read the old text through the old root, for one block
+    and for a chunked entry. The reviewer's probe of that form passes; no fix is expected.
+    P3.
+
+Item 10 also covers the text table of S13: a closed instance that is kept alive holds
+its slots and buckets today, as it holds the root table and the index.
 
 **Document, no code.**
 

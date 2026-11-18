@@ -25,6 +25,7 @@ Gone through by the planner and the coordinator on 18 November 2026.
   16 threads with the allocation of each, so that a fall names its entry. Then the small
   entries in the same files, and the figure for the address validation of
   `Arena.Payload` and `Arena.Header`: no change of it without that figure.
+  T1 of the review of S13 goes with them, after A9, with its figures.
 - **S14R**, after S14: A3, A4 (in before S18), A5, A11, A12, A13.
 - Comments never ride in a commit that moves code.
 
@@ -86,6 +87,19 @@ against a reader who was not here:
 per file; the prefixes that state the locking context; the sections "The waits, and how
 each ends" and "Who calls what"; attribution of adapted code with its commit; measured
 figures beside a tuning constant.
+
+## Review of S13, 18 November 2026
+
+What the two reviewers of S13 named under the question of simplicity. Line numbers are
+those of the branch of S13 at its merge.
+
+| # | Place | What is wrong | The simpler form | Status |
+| --- | --- | --- | --- | --- |
+| T1 | `Storage/Text/TextSlot.cs` (`State`), `TextTable.cs` (`Publish`, the branch of `TryAcquire` that publishes on a hit, the parameter `prepared`), `ValueBlocks.PublishText`, the `Text` branch of `RootStorage.Publish` | The state Prepared or Published of an entry is kept in the slot beside what the arena already knows of the entry's block, and the same field is the link of the free list; a reader has to hold four places together to see that an entry is published before a read reaches it. Both reviewers named it the hardest part of S13 to follow | One of two, chosen in S13R by which leaves the life of an entry stated in one place: `Publish` asks `Arena.IsPrepared(address)` and the slot keeps no state; or an entry is allocated live always, if nothing depends on a queued write's entry being counted as prepared. Either way the free-list link moves into a field a free slot does not use and the slot is 24 bytes instead of 32. Shown unchanged: the tally tests, `PreparedBytes` and `LiveBytes` in the released-write tests, memory for each distinct entry (51.4 bytes of table today), the writes with a Dictionary text | taken (S13R) |
+
+Refused: a text table owned by the database instead of the arena — both reviewers found
+it no plainer: every free of a block has the arena at hand and has to drop the block's
+references, and the other form adds a parameter to about ten signatures.
 
 ## Architect's review of stages 2 and 3, 18 November 2026
 
