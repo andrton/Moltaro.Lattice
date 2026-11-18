@@ -23,7 +23,7 @@ public sealed class DictionaryTextLengthTests
 
     public static IEnumerable<TheoryDataRow<LatticeStringEncodingEnum>> Encodings => EveryEncoding;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Null_the_empty_text_and_a_text_of_one_character_read_back_as_written(LatticeStringEncodingEnum encoding)
     {
@@ -49,7 +49,7 @@ public sealed class DictionaryTextLengthTests
         ExpectText(places, records, 3, "", null);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Text_of_every_length_around_the_bounds_of_the_storage_reads_back_as_written(LatticeStringEncodingEnum encoding)
     {
@@ -85,7 +85,7 @@ public sealed class DictionaryTextLengthTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Text_whose_characters_cross_the_boundary_of_a_chunk_reads_back_as_written(LatticeStringEncodingEnum encoding)
     {
@@ -105,7 +105,7 @@ public sealed class DictionaryTextLengthTests
         ExpectText(places, records, 2, threes, pairs);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Large_text_that_two_entities_share_reads_back_as_written_after_one_of_them_is_deleted(LatticeStringEncodingEnum encoding)
     {

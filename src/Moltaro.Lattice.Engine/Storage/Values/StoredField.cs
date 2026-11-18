@@ -20,6 +20,7 @@ internal readonly struct StoredField
         Width = width;
         Offset = offset;
         NullBit = nullBit;
+        IsShared = type == StoredTypeEnum.String && field.Declaration.StringStorage == LatticeStringStorageEnum.Dictionary;
     }
 
     public LatticeField Field { get; }
@@ -41,6 +42,11 @@ internal readonly struct StoredField
     public bool IsNullable => NullBit != NoNullBit;
 
     // A String or a Binary field, whose fixed part is a descriptor and whose value lies inline or in
-    // blocks of its own.
+    // blocks of its own, or for a Dictionary text in the entry of the text table.
     public bool IsVariable => Type is StoredTypeEnum.String or StoredTypeEnum.Binary;
+
+    // A String field with Dictionary storage: a text that is not empty lies in an entry of the text table,
+    // which its descriptor of kind Text names, never inline (brief of Epic 1, sprint S13, the planner's
+    // decision after the study, points 1 and 2).
+    public bool IsShared { get; }
 }

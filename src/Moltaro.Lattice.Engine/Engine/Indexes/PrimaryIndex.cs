@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Indexes;
 

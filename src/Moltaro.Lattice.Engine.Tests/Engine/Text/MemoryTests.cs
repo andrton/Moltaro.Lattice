@@ -17,7 +17,7 @@ public sealed class MemoryTests
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Write_of_a_new_text_the_arena_cannot_hold_is_WriteRejected_with_Limit_Memory_and_leaves_no_entry()
     {
         await using var database = await EngineMaster.OpenAsync(TextSchema.Utf8, TwoSegments, new NativeAllocator());
@@ -38,7 +38,7 @@ public sealed class MemoryTests
         tally.ExpectHeldBy(database);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Write_of_a_text_the_database_holds_takes_no_memory_for_the_text()
     {
         await using var database = await EngineMaster.OpenAsync(TextSchema.Utf8, TwoSegments, new NativeAllocator());

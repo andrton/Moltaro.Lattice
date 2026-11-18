@@ -21,7 +21,7 @@ public sealed class MalformedTextTransactionTests
 
     public static IEnumerable<TheoryDataRow<string>> Damages => MarkedTextRoot.Damages;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Transaction_whose_Write_carries_a_Dictionary_text_in_another_form_is_refused_whole_and_leaves_nothing(string damage)
     {

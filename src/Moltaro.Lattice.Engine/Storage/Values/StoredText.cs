@@ -28,7 +28,8 @@ internal static class StoredText
             return string.Empty;
         }
 
-        if (descriptor.Kind != DescriptorKindEnum.Chunked)
+        // A Dictionary text, of kind Text, is read where its entry lies, as a value of a root in blocks.
+        if (!ValueBlocks.LiesInChunks(descriptor))
         {
             var bytes = ValueBlocks.Contiguous(arena, descriptor, rootPayload);
 

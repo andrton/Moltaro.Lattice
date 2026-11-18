@@ -29,7 +29,7 @@ public sealed class CloseTests
 
     private static int Readers => Math.Clamp(Environment.ProcessorCount - 2, 2, 6);
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Close_with_entries_alive_returns_every_piece_of_native_memory()
     {
         var allocator = new CountingNativeAllocator();
@@ -49,7 +49,7 @@ public sealed class CloseTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Close_while_a_read_is_held_across_the_replace_of_the_last_referrer_of_a_text_returns_every_piece_of_native_memory_once_the_read_has_left()
     {
         var allocator = new CountingNativeAllocator();
@@ -72,7 +72,7 @@ public sealed class CloseTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Close_in_the_middle_of_writes_of_changing_texts_drains_and_reads_returns_every_piece_of_native_memory()
     {
         var allocator = new CountingNativeAllocator();
@@ -102,7 +102,7 @@ public sealed class CloseTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [InlineData(nameof(EngineFaultPointEnum.BeforePublication))]
     [InlineData(nameof(EngineFaultPointEnum.DuringPublication))]
     public async Task Close_of_an_instance_that_a_write_with_a_new_text_faulted_returns_every_piece_of_native_memory(string point)

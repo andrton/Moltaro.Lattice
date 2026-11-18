@@ -15,7 +15,10 @@ namespace Moltaro.Lattice.Replication.Load;
 // Nothing on the wire is an address or a block number: the location of a value in a block of its own or
 // in chunks is the address of that block in this arena, so the copy of the payload carries 0 in its
 // place, and the child stores the value through its own allocation, which writes every location
-// (BlockImport). The bytes of a slot that hold no value, and the headers of the blocks, are not sent.
+// (BlockImport). The text of a field with Dictionary storage travels so too, as bytes with each root (the
+// planner's decision after the study of S13, point 8): its descriptor of kind Text with its length and
+// the location 0, and the bytes of its entry among the values out of line, in the order of the
+// descriptors; the child builds its own entries from them. No transfer id and no state of a connection. The bytes of a slot that hold no value, and the headers of the blocks, are not sent.
 // The numbers of the payload and of the values are in the byte order of this machine, which the
 // handshake announces (Protocol.LayoutFormat); the layout version is little-endian.
 //
@@ -39,7 +42,7 @@ internal static class BlockExport
         {
             var descriptor = ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
 
-            if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
+            if (ValueBlocks.LiesOutOfLine(descriptor))
             {
                 length += (long)descriptor.Length;
             }
@@ -68,7 +71,7 @@ internal static class BlockExport
             var place = copy[(layout.DescriptorField(index).Offset - BlockHeader.Size)..];
             var descriptor = ValueBlocks.Read(place);
 
-            if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
+            if (ValueBlocks.LiesOutOfLine(descriptor))
             {
                 ValueBlocks.Write(place, descriptor with { Location = 0 });
             }
@@ -80,21 +83,23 @@ internal static class BlockExport
         {
             var descriptor = ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
 
-            switch (descriptor.Kind)
+            if (!ValueBlocks.LiesOutOfLine(descriptor))
             {
-                case DescriptorKindEnum.Block:
-                    Copy(output, ValueBlocks.Contiguous(arena, descriptor, payload));
-                    break;
+                continue;
+            }
 
-                case DescriptorKindEnum.Chunked:
-                    var entries = ValueBlocks.Directory(arena, descriptor);
+            if (!ValueBlocks.LiesInChunks(descriptor))
+            {
+                Copy(output, ValueBlocks.Contiguous(arena, descriptor, payload));
 
-                    for (var chunk = 0; chunk < entries.Length / ValueBlocks.DescriptorSize; chunk++)
-                    {
-                        Copy(output, ValueBlocks.Chunk(arena, entries, chunk));
-                    }
+                continue;
+            }
 
-                    break;
+            var entries = ValueBlocks.Directory(arena, descriptor);
+
+            for (var chunk = 0; chunk < entries.Length / ValueBlocks.DescriptorSize; chunk++)
+            {
+                Copy(output, ValueBlocks.Chunk(arena, entries, chunk));
             }
         }
     }

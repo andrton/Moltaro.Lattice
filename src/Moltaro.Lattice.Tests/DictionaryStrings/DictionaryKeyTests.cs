@@ -16,7 +16,7 @@ public sealed class DictionaryKeyTests
 
     public static IEnumerable<TheoryDataRow<LatticeStringEncodingEnum>> Encodings => EveryEncoding;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Entity_with_a_Dictionary_key_is_inserted_read_replaced_upserted_and_deleted(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {
@@ -52,7 +52,7 @@ public sealed class DictionaryKeyTests
         Assert.Equal(["beta", "gamma"], records.Enumerate().Select(record => (string)record["Name"]!).Order(StringComparer.Ordinal));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Dictionary_key_compared_without_case_is_found_under_every_spelling_and_keeps_the_spelling_it_was_created_with(LatticeStringEncodingEnum encoding)
     {
@@ -81,7 +81,7 @@ public sealed class DictionaryKeyTests
         Assert.Equal("MAIN", codes.Get("main")?.Name);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Dictionary_keys_that_differ_only_in_case_are_two_entities_when_compared_with_Ordinal(LatticeStringEncodingEnum encoding)
     {

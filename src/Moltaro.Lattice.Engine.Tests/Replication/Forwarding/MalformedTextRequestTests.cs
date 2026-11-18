@@ -17,7 +17,7 @@ public sealed class MalformedTextRequestTests
 {
     public static IEnumerable<TheoryDataRow<string>> Damages => MarkedTextRoot.Damages;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Request_whose_root_carries_a_Dictionary_text_in_another_form_ends_the_connection_and_is_never_executed(string damage)
     {

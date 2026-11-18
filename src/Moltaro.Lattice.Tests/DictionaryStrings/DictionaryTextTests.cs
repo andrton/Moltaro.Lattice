@@ -19,7 +19,7 @@ public sealed class DictionaryTextTests
 
     public static IEnumerable<TheoryDataRow<LatticeStringEncodingEnum, LatticeStringComparisonEnum>> Databases => EveryDatabase;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Text_reads_back_as_written_by_key_through_the_class_and_by_name(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {
@@ -52,7 +52,7 @@ public sealed class DictionaryTextTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Text_reads_back_as_written_in_an_enumeration_through_the_class_and_by_name(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {
@@ -74,7 +74,7 @@ public sealed class DictionaryTextTests
         Assert.Equal(Texts, enumerated.OrderBy(place => place.Id).Select(place => place.Region));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Replace_and_upsert_read_back_the_new_text_and_leave_the_text_of_every_other_entity(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {
@@ -107,7 +107,7 @@ public sealed class DictionaryTextTests
         Assert.Equal("kept", places.Get(4)!.Label);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Deleted_entity_is_absent_and_the_entities_that_shared_its_text_keep_it(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {
@@ -134,7 +134,7 @@ public sealed class DictionaryTextTests
         ExpectText(places, records, 5, "North", "a😀b");
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Databases))]
     public async Task Texts_that_differ_only_in_case_each_read_back_their_own_spelling(LatticeStringEncodingEnum encoding, LatticeStringComparisonEnum comparison)
     {

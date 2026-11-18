@@ -110,7 +110,7 @@ public sealed class ReadAllocationTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [InlineData(10)]
     [InlineData(1_000)]
     [InlineData(30_000)]

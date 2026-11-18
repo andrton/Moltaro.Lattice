@@ -9,10 +9,10 @@ await KeyTypesSample.RunAsync();
 await DynamicAccessSample.RunAsync(schema);
 await MasterAndChildSample.RunAsync(schema);
 await DependencyInjectionSample.RunAsync(schema);
+await DictionaryStringsSample.RunAsync();
 
 // What follows is in the contract but not implemented yet. Each sample shows the intended
 // use and runs to the end once its feature exists.
-await RunPlannedAsync(DictionaryStringsSample.RunAsync, nameof(DictionaryStringsSample));
 await RunPlannedAsync(NestedValuesSample.RunAsync, nameof(NestedValuesSample));
 await RunPlannedAsync(() => IndexSample.RunAsync(schema), nameof(IndexSample));
 await RunPlannedAsync(UniqueIndexSample.RunAsync, nameof(UniqueIndexSample));

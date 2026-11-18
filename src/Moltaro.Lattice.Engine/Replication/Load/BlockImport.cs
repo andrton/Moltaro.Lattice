@@ -19,10 +19,14 @@ namespace Moltaro.Lattice.Replication.Load;
 // - the null bitmap: no bit set beyond the nullable fields, and the bit of each nullable String or
 //   Binary field against its descriptor: a field that is null has the descriptor of zeros, one that is
 //   not has a descriptor of a value;
-// - the kind of each descriptor against its length, as RootWriter places values: inline at most
-//   RootLayout.InlineLimit bytes, after the fixed part; in a block of its own 1 to
-//   RootLayout.SingleBlockLimit bytes; in chunks more than that and at most ValueBlocks.MostValueBytes;
-//   no other kind. The location of a value out of line is 0 on the wire: nothing received is used as an
+// - the kind of each descriptor against its length and the storage of its field, as RootWriter places
+//   values: for a Plain field or a Binary, inline at most RootLayout.InlineLimit bytes, after the fixed
+//   part; in a block of its own 1 to RootLayout.SingleBlockLimit bytes; in chunks more than that and at
+//   most ValueBlocks.MostValueBytes; for a String field with Dictionary storage, the empty text inline
+//   with length 0, and any other text of kind Text, 1 to ValueBlocks.MostValueBytes bytes out of line
+//   (the planner's decision after the study of S13, point 8); no other kind, so a Text descriptor in a
+//   Plain field, a Text descriptor of length 0 and a Dictionary text of kind Inline, Block or Chunked are
+//   not valid. The location of a value out of line is 0 on the wire: nothing received is used as an
 //   address;
 // - the total: the bytes of the input are the fixed part, the values inline and the values out of line,
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
@@ -31,8 +35,10 @@ namespace Moltaro.Lattice.Replication.Load;
 // root is the state of a key it holds before it takes anything for it (Engine.Loading.ReceivedChanges).
 // Then the root block is allocated, prepared, and filled with the payload, and each value out of line is
 // stored through ValueBlocks, the store the write path uses, which allocates its blocks and writes every
-// header and location itself; the root block is named as their parent (Place). The caller publishes the
-// root.
+// header and location itself; the root block is named as their parent (Place). The bytes of a Dictionary
+// text become a reference to the entry of the text table of this node that holds them, found or added
+// with the seed of this node (Storage.Text.TextTable.TryAcquire), so a node stores each distinct text
+// once whatever it receives. The caller publishes the root.
 //
 // A refusal of the arena for its budget returns the null address, and an OutOfMemoryException of the
 // native allocator passes through; either way nothing of the root is left allocated. The caller decides
@@ -119,7 +125,9 @@ internal sealed class BlockImport
                     break;
                 }
 
-                if (ValueBlocks.Read(_payload.AsSpan(other.Offset - BlockHeader.Size)) is { Kind: DescriptorKindEnum.Block or DescriptorKindEnum.Chunked } value)
+                var value = ValueBlocks.Read(_payload.AsSpan(other.Offset - BlockHeader.Size));
+
+                if (ValueBlocks.LiesOutOfLine(value))
                 {
                     before += (long)value.Length;
                 }
@@ -182,29 +190,42 @@ internal sealed class BlockImport
             {
                 var offset = layout.DescriptorField(index).Offset;
                 var place = target.Slice(offset - BlockHeader.Size, ValueBlocks.DescriptorSize);
-                var length = ValueBlocks.Read(place) switch
-                {
-                    { Kind: DescriptorKindEnum.Block or DescriptorKindEnum.Chunked } received => (int)received.Length,
-                    _ => -1,
-                };
+                var received = ValueBlocks.Read(place);
 
-                if (length < 0)
+                if (!ValueBlocks.LiesOutOfLine(received))
                 {
                     continue;
                 }
 
-                // The descriptor in place is the received one, whose location is 0; TryStore writes the
-                // descriptor of the stored value over it, or leaves it as it was.
-                var source = ValueSource.Received(values.Slice(0, length));
+                var length = (int)received.Length;
+                var bytes = values.Slice(0, length);
 
-                if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, prepared: true, length, ref source, place))
+                // The descriptor in place is the received one, whose location is 0; TryStore and
+                // TryAcquire write the descriptor of the stored value, or of the entry, over it, or leave
+                // it as it was.
+                if (received.Kind == DescriptorKindEnum.Text)
                 {
-                    Abandon(block, layout, index);
+                    if (!_arena.Texts.TryAcquire(bytes, prepared: true, place, out _))
+                    {
+                        Abandon(block, layout, index);
 
-                    return default;
+                        return default;
+                    }
+                }
+                else
+                {
+                    var source = ValueSource.Received(bytes);
+
+                    if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, prepared: true, length, ref source, place))
+                    {
+                        Abandon(block, layout, index);
+
+                        return default;
+                    }
+
+                    ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, offset);
                 }
 
-                ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, offset);
                 values = values.Slice(length);
             }
         }
@@ -261,19 +282,23 @@ internal sealed class BlockImport
                 continue;
             }
 
+            // The kinds a field of its storage takes (see the class): a Dictionary text is empty and
+            // inline, or out of line as a Text descriptor; a Plain value or a Binary takes the other
+            // three.
             switch (descriptor.Kind)
             {
-                case DescriptorKindEnum.Inline when descriptor.Length <= RootLayout.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
+                case DescriptorKindEnum.Inline when descriptor.Length <= (field.IsShared ? 0 : RootLayout.InlineLimit) && descriptor.Location >= (ulong)layout.FixedSize:
                     inline += descriptor.Length;
                     break;
 
-                case DescriptorKindEnum.Block when descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
-                case DescriptorKindEnum.Chunked when descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Block when !field.IsShared && descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
+                case DescriptorKindEnum.Chunked when !field.IsShared && descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Text when field.IsShared && descriptor.Length is > 0 and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                     outOfLine += descriptor.Length;
                     break;
 
                 default:
-                    throw Invalid(layout, $"the field {field.Field.Name} has a descriptor of the kind {descriptor.Kind} with the length {descriptor.Length} and the location {descriptor.Location}, which does not describe a stored value.");
+                    throw Invalid(layout, $"the field {field.Field.Name} has a descriptor of the kind {descriptor.Kind} with the length {descriptor.Length} and the location {descriptor.Location}, which does not describe a stored value of its storage.");
             }
         }
 
@@ -318,16 +343,17 @@ internal sealed class BlockImport
         }
     }
 
-    // Frees what Read allocated for a root it did not complete: the values stored before the descriptor
-    // at the index, then the root block. The descriptors from the index on still hold what was received,
-    // or the null and inline values, and name no block of this arena.
+    // Frees what Place allocated and took for a root it did not complete: the values stored, and the
+    // references to text entries taken, before the descriptor at the index, then the root block. The
+    // descriptors from the index on still hold what was received, or the null and inline values, and
+    // name no block of this arena.
     private void Abandon(ArenaAddress block, RootLayout layout, int before)
     {
         var target = _arena.Payload(block);
 
         for (var index = 0; index < before; index++)
         {
-            ValueBlocks.Free(_arena, ValueBlocks.Read(target[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+            RootStorage.FreeValue(_arena, ValueBlocks.Read(target[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
         }
 
         _arena.Free(block);

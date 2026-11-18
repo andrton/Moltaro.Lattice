@@ -43,7 +43,6 @@ public sealed class LayoutRefusalTests
     [InlineData("Options", "'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' }")]
     [InlineData("Rights", "'Type': 'Set', 'Element': { 'Type': 'Int32' }")]
     [InlineData("Manager", "'Type': 'Reference', 'EntityType': 'Item'")]
-    [InlineData("Region", "'Type': 'String', 'StringStorage': 'Dictionary'")]
     public void A_field_that_S05_cannot_store_is_not_supported_with_the_field_named(string name, string declaration)
     {
         // The field stands among fields that S05 stores, so the message has to name the right one.

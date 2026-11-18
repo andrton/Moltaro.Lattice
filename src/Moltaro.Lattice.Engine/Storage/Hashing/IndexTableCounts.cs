@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Moltaro.Lattice.Engine.Indexes;
+namespace Moltaro.Lattice.Storage.Hashing;
 
 // The count of one table of a primary index, on cache lines of its own (IndexTable): the entries it
 // holds. The thread that publishes changes it at every insert and delete, while every lookup loads

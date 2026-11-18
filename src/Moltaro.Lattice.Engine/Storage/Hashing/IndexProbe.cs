@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Indexes;
+namespace Moltaro.Lattice.Storage.Hashing;
 
 // Adapted from Garnet/Tsavorite (https://github.com/microsoft/garnet): the walk of a bucket and its
 // overflow buckets in FindTag of libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/TsavoriteBase.cs
@@ -7,9 +7,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //
 // The entries of one hash in one table of a primary index, one after another: the slots of the root
 // entries whose key has that hash, among them the one of the key looked for, if the table holds it.
-// The caller compares each with the key the root stores (Entities.EntityTable). It reads the table as
+// The caller compares each with the key the root stores (Engine.Entities.EntityTable). It reads the table as
 // it is at each step, the main bucket of the hash first and then the overflow buckets its link leads
-// to: a reader inside the protection of reads (Protection.ReadEpochs) may meet an entry the writer is
+// to: a reader inside the protection of reads (Engine.Protection.ReadEpochs) may meet an entry the writer is
 // adding, which it sees whole or not at all, and the slot of an entry the writer has removed, which
 // the protection keeps from being given to another root while the reader is inside. A ref struct, so
 // that it does not outlive the step of the read that made it.

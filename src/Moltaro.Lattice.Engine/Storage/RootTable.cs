@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Storage;
 // only that entry and the directory of pages, which grows by replacing one array with another that
 // holds the same pages, so a reader that still has the old directory finds the same entry. A read by
 // key learns of a slot through an entry of a primary index, which an insert stores with release
-// semantics after it took the slot and wrote its entry (Engine.Indexes.IndexTable.Add), and loads with
+// semantics after it took the slot and wrote its entry (Storage.Hashing.IndexTable.Add), and loads with
 // acquire semantics; so the plain stores of Add, of the directory and of the entry come before what the
 // reader reads. The capture of a load on a master walks the slots below the extent it took instead,
 // whatever lifetime each holds, while the master writes (Engine.Children.Capture): it takes more of an
@@ -132,7 +132,7 @@ internal sealed class RootTable
 
     // A reference to the entry in a slot, whatever lifetime it holds at the moment, for a caller that
     // knows by other means which lifetime that is: a primary index, whose entries name the slot of
-    // the root entry of each key (Engine.Indexes.IndexTable). The reference has the
+    // the root entry of each key (Storage.Hashing.IndexTable). The reference has the
     // lifetime Entry describes. ArgumentOutOfRangeException for a slot that was never given out.
     public ref RootEntry EntryOfSlot(uint slot)
     {

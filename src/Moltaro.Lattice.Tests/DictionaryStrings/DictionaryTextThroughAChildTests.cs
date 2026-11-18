@@ -18,7 +18,7 @@ public sealed class DictionaryTextThroughAChildTests
 
     public static IEnumerable<TheoryDataRow<LatticeStringEncodingEnum>> Encodings => EveryEncoding;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Child_that_loads_while_its_master_holds_Dictionary_texts_reads_the_texts_its_master_reads(LatticeStringEncodingEnum encoding)
     {
@@ -40,7 +40,7 @@ public sealed class DictionaryTextThroughAChildTests
         Assert.Equal("Südwest", child.Set<Code>().Get("NORTH")?.Body);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Each_change_of_the_master_reaches_the_child_with_its_text(LatticeStringEncodingEnum encoding)
     {
@@ -79,7 +79,7 @@ public sealed class DictionaryTextThroughAChildTests
         Assert.Null(child.Set<Place>().Get(0));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Write_through_a_child_of_an_entity_with_Dictionary_fields_reads_back_on_the_child_and_on_the_master(LatticeStringEncodingEnum encoding)
     {

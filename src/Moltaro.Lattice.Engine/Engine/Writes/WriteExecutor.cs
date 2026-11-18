@@ -72,7 +72,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // - Insert: the root is published in the arena and the root entry written while no read by key can
 //   reach them, its state Live last, by a release, for the capture of a load, which reaches entries by
 //   their slots (EntityTable.TryTakeLive); the entry of the index is the store that publishes them to a
-//   read by key (Indexes.IndexTable.Add); then the sequence of the database (PositionClock.Publish).
+//   read by key (Storage.Hashing.IndexTable.Add); then the sequence of the database (PositionClock.Publish).
 // - Replace: the entry's stamp becomes MutationInProgress, then the root, then the sequence of the
 //   database, then the entry's stamp becomes the write's sequence; the old root is retired.
 // - Delete: the entry's stamp becomes MutationInProgress, then its state Deleted, then the sequence of

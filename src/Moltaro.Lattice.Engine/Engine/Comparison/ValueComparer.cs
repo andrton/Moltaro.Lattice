@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Comparison;
 

@@ -21,7 +21,7 @@ public sealed class SharingTests
 
     public static IEnumerable<TheoryDataRow<string>> Encodings => TextSchema.Encodings;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Thousand_values_of_sixteen_texts_have_sixteen_entries_and_the_arena_holds_each_text_once(string encoding)
     {
@@ -42,7 +42,7 @@ public sealed class SharingTests
         tally.ExpectHeldBy(database);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Equal_text_in_two_fields_and_in_another_entity_type_is_one_entry_with_a_reference_for_each_field(string encoding)
     {
@@ -64,7 +64,7 @@ public sealed class SharingTests
         tally.ExpectHeldBy(database);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Texts_that_differ_only_in_case_are_two_entries_also_on_a_field_compared_without_case(string encoding)
     {
@@ -92,7 +92,7 @@ public sealed class SharingTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Empty_text_and_null_take_no_entry(string encoding)
     {
@@ -117,7 +117,7 @@ public sealed class SharingTests
         Assert.Equal(("", ""), (places.Get(2L)!.Region, places.Get(2L)!.Zone));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Plain_text_equal_to_a_Dictionary_text_takes_no_entry_and_shares_none(string encoding)
     {
@@ -143,7 +143,7 @@ public sealed class SharingTests
         tally.ExpectHeldBy(database);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Replace_that_keeps_its_text_keeps_the_count_of_the_text(string encoding)
     {
@@ -177,7 +177,7 @@ public sealed class SharingTests
         tally.ExpectHeldBy(database);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Text_table_reports_at_least_the_address_and_the_count_of_each_entry_as_its_managed_bytes()
     {
         const int Texts = 4_096;

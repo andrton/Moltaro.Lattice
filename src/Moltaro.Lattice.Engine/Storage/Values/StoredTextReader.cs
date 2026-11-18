@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Storage.Values;
 // into memory of the caller, without allocating: what a comparison of stored text with a given text
 // needs, which compares every piece by the rule of the schema (Engine.Comparison.ValueComparer). Text of a
 // UTF-8 database is decoded and text of a UTF-16 database copied, from wherever the value lies:
-// inline in the root block, in a block of its own, or in chunks, which are read one after the other.
+// inline in the root block, in a block of its own, or in chunks, which are read one after the other, and
+// for a field with Dictionary storage in the block or the chunks of its text entry.
 //
 // A piece ends between two characters. It never ends after the first half of a surrogate pair,
 // whether the pair lies in one place or across a chunk boundary, and in UTF-8 a character whose bytes
@@ -43,7 +44,7 @@ internal ref struct StoredTextReader
         _arena = arena;
         _encoding = encoding;
 
-        if (descriptor.Kind == DescriptorKindEnum.Chunked)
+        if (ValueBlocks.LiesInChunks(descriptor))
         {
             _entries = ValueBlocks.Directory(arena, descriptor);
             _bytes = ValueBlocks.Chunk(arena, _entries, 0);

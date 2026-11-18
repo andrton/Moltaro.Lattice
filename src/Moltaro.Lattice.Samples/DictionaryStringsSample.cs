@@ -7,9 +7,6 @@ namespace Moltaro.Lattice.Samples;
 // schema selects StringStorage Dictionary for the field. Nothing else changes for the
 // application: the text reads back exactly as it was written, with its case, also on a field
 // compared without case, and a field may be the key.
-//
-// This shows the intended use. Storing Dictionary text is not implemented yet: the first write
-// below throws NotSupportedException, which Program.cs reports.
 internal static class DictionaryStringsSample
 {
     private const string SchemaJson = """

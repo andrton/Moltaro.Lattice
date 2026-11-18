@@ -1,13 +1,21 @@
 using System.Runtime.CompilerServices;
 
-namespace Moltaro.Lattice.Engine.Indexes;
+namespace Moltaro.Lattice.Storage.Hashing;
 
 // Adapted from Garnet/Tsavorite (https://github.com/microsoft/garnet): the hash bucket and its
 // entries of libs/storage/Tsavorite/cs/src/core/Index/Tsavorite/HashBucket.cs and HashBucketEntry.cs,
 // and the walk of FindTag in TsavoriteBase.cs, at commit 3d104a76ec410499545bc7fb39d0e3168f8ee709;
 // MIT licence, Copyright (c) Microsoft Corporation (see THIRD-PARTY-NOTICES.md).
 //
-// One table of a primary index: a main table of buckets of one cache line, 64 bytes, each of eight
+// One table from a hash of 32 bits to slots: of a primary index (Engine.Indexes.PrimaryIndex), whose
+// slots are those of root entries, and of the text table (Storage.Text.TextTable), whose slots are those
+// of text entries and which only writes use (brief of Epic 1, sprint S13, the planner's decision after the
+// study, point 3: one bucket table, not written a second time). What follows speaks of the primary
+// index, the user that has readers; the text table is changed and searched under the lock of the writes
+// alone and never read by a read, so for it the stores with release semantics order nothing anyone
+// needs, and it replaces a full table by a grown one without retiring the old one.
+//
+// A main table of buckets of one cache line, 64 bytes, each of eight
 // words, and the overflow buckets of the same form that its chains link to (OverflowBuckets). The
 // first seven words of a bucket are entries; the eighth links to an overflow bucket by its address,
 // or is 0. An entry is one machine word, read and written whole, so a reader sees it as it was before
@@ -16,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   bits 63..32: the hash of the key, 32 bits     bits 31..0: the slot of its root entry, plus one
 //
 // and 0 is an empty word. The index holds no key: a lookup compares the hash first and then the key
-// the root stores, which the caller reads through the slot (Entities.EntityTable). The table holds
+// the root stores, which the caller reads through the slot (Engine.Entities.EntityTable). The table holds
 // no reference either, so the collector has nothing to trace in it.
 //
 // What is taken from Tsavorite: the bucket of 64 bytes with seven entries and a link; the entry of
@@ -58,15 +66,15 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // Who reads and writes. Only the thread that holds the lock of the writes changes a table, and it
 // calls Reserve before the publication of every insert, so that Add finds room without allocating;
 // Add checks the room all the same and refuses before it writes. A reader inside the protection of
-// reads (Protection.ReadEpochs) reads the table at the same time, and every way it can reach a word
+// reads (Engine.Protection.ReadEpochs) reads the table at the same time, and every way it can reach a word
 // goes through a load with acquire semantics of a store with release semantics that comes after what
 // it makes reachable (the .NET memory model, not that of x64):
-// - the table itself: PrimaryIndex publishes a grown table by one store, after every word, page and
+// - the table itself: the primary index publishes a grown table by one store, after every word, page and
 //   count of it was written, and a reader loads it with acquire semantics (PrimaryIndex.Find,
 //   TableAndVersion); its version is written by the constructor, before that store, and never
 //   changes;
 // - an entry: Add writes it by a store with release semantics after the insert wrote the root entry
-//   and published the root (Writes.WriteExecutor), into the main table and into an overflow bucket
+//   and published the root (Engine.Writes.WriteExecutor), into the main table and into an overflow bucket
 //   alike, and ReadMain and ReadOverflow load it with acquire semantics, so a reader that sees an
 //   entry sees the root entry and the root it names;
 // - an overflow bucket by key: the link to it, stored with release semantics after the bucket's first
@@ -133,8 +141,8 @@ internal sealed class IndexTable
     public int BucketBits => 64 - _shift;
 
     // Which table of its index this is: 0 for the first, and one more for each growth, since a growth
-    // replaces the table (PrimaryIndex). A position of an enumeration belongs to the table of one
-    // version (Entities.EntityPass).
+    // replaces the table (Engine.Indexes.PrimaryIndex). A position of an enumeration belongs to the table of one
+    // version (Engine.Entities.EntityPass).
     public int Version { get; }
 
     // The entries the table holds. For the writer.
@@ -185,7 +193,7 @@ internal sealed class IndexTable
     // most one bucket and ends one reservation, a withdrawn insert ends one and takes none, and a delete
     // empties a word: the free buckets stay at least the reservations, so an insert that finds no empty
     // word when it is published finds a free bucket, also the one alone whose word another insert,
-    // reserved after it, took. A table that replaces this one is reserved anew (PrimaryIndex.Reserve).
+    // reserved after it, took. A table that replaces this one is reserved anew (Engine.Indexes.PrimaryIndex.Reserve).
     public void Reserve(uint hash, int others)
     {
         if (others == 0 && EmptyWordOf(hash, out _, out _))
@@ -227,7 +235,7 @@ internal sealed class IndexTable
     // Removes the entry of the slot, which the table holds under the hash, by one store of 0, in the
     // main table or in an overflow bucket. A reader that read the word before goes on with the slot it
     // read, which the protection of reads keeps from being given to another root while it is inside
-    // (Protection.RetiredMemory).
+    // (Engine.Protection.RetiredMemory).
     public void Remove(uint hash, uint slot)
     {
         var entry = EntryOf(hash, slot);

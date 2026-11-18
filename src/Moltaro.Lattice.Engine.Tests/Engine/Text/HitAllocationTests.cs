@@ -37,7 +37,7 @@ public sealed class HitAllocationTests
         }
         """);
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [InlineData(9)]
     [InlineData(100)]
     public async Task Replace_to_a_text_the_database_holds_allocates_no_more_managed_memory_than_the_same_replace_of_a_Plain_field(int characters)

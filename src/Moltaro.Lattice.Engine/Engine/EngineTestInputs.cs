@@ -21,9 +21,10 @@ internal sealed class EngineTestInputs
     // count every native byte the database obtained and returned. Null: NativeAllocator itself.
     public NativeAllocator? Allocator { get; init; }
 
-    // The seed with which the primary indexes compute every hash, so that a test can build keys that
-    // share one hash under one seed and show them spread under another (the planner's answer to Q50;
-    // brief of S08, part 2). Null: the instance draws its own when it opens.
+    // The seed with which the primary indexes and the text table compute every hash, so that a test can
+    // build keys that share one hash under one seed and show them spread under another (the planner's
+    // answer to Q50; brief of S08, part 2), and give a child another seed than its master (brief of S13).
+    // Null: the instance draws its own when it opens.
     public ulong? IndexSeed { get; init; }
 
     // The storage step of the commit stage, so that a test can hold a commit until it releases it

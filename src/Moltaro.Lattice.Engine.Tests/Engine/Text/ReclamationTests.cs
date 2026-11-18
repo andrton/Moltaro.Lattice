@@ -28,7 +28,7 @@ public sealed class ReclamationTests
 
     public static IEnumerable<TheoryDataRow<string>> LastReferrerEnds => [new("replace"), new("delete")];
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Entry_with_two_referrers_survives_the_delete_of_one(string encoding)
     {
@@ -53,7 +53,7 @@ public sealed class ReclamationTests
         Assert.Equal("North", places.Get(2L)?.Region);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(LastReferrerEnds))]
     public async Task Entry_whose_last_referrer_ends_is_freed_by_the_next_drain_and_the_arena_holds_what_it_held_before(string end)
     {
@@ -97,7 +97,7 @@ public sealed class ReclamationTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(LastReferrerEnds))]
     public async Task Entry_whose_last_referrer_ends_while_a_read_is_held_stays_until_the_read_left_and_a_drain(string end)
     {
@@ -150,7 +150,7 @@ public sealed class ReclamationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Held_read_returns_a_written_text_while_texts_of_the_same_size_class_are_written_after_the_last_referrer_of_its_text_was_replaced()
     {
         const int Others = 64;
@@ -207,7 +207,7 @@ public sealed class ReclamationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Text_written_again_while_its_last_referrer_waits_for_a_held_read_takes_that_entry_and_keeps_it_after_the_drain()
     {
         var database = await EngineMaster.OpenAsync(TextSchema.Utf8);
@@ -252,7 +252,7 @@ public sealed class ReclamationTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Text_written_after_its_entry_was_freed_makes_a_new_entry_that_reads_back_as_written(string encoding)
     {

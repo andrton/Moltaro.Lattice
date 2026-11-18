@@ -29,7 +29,7 @@ public sealed class CountsUnderLoadTests
 
     private static int Readers => Math.Clamp(Environment.ProcessorCount - 2, 2, 6);
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Counts_equal_the_tally_after_writes_drains_and_reads_on_threads_of_their_own()
     {
         var database = await EngineMaster.OpenAsync(TextSchema.Utf8);

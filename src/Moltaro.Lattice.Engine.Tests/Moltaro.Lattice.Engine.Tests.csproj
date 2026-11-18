@@ -16,24 +16,8 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The tests of Epic 1, sprint S13 that name what its implementation adds to the engine:
-         EngineCounters.TextEntries and TextTableBytes, and EngineDatabase.TextReferences. They do not
-         compile before it, and are skipped with the reason of the sprint as well. The implementer of S13
-         removes this item group. -->
-    <Compile Remove="Engine\Text\EntryCounts.cs" />
-    <Compile Remove="Engine\Text\SharingTests.cs" />
-    <Compile Remove="Engine\Text\ReclamationTests.cs" />
-    <Compile Remove="Engine\Text\TallyTests.cs" />
-    <Compile Remove="Engine\Text\ReleasedWriteTests.cs" />
-    <Compile Remove="Engine\Text\MemoryTests.cs" />
-    <Compile Remove="Engine\Text\LargeTextTests.cs" />
-    <Compile Remove="Engine\Text\CountsUnderLoadTests.cs" />
-    <Compile Remove="Engine\Replication\Text\ChildEntriesTests.cs" />
-  </ItemGroup>
-  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
-    <Using Include="Moltaro.Lattice.TestSupport.Skips" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

@@ -16,7 +16,7 @@ public sealed class LargeTextTests
 
     public static IEnumerable<TheoryDataRow<int>> Lengths => [new(100_000), new(1024 * 1024)];
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Lengths))]
     public async Task Large_text_is_one_entry_that_two_entities_share_and_reads_back_as_written(int bytes)
     {
@@ -42,7 +42,7 @@ public sealed class LargeTextTests
         Assert.True(large == (string?)database.Set("Place").Get(2L)?["Zone"], "The large text of 2 did not read back as written by name.");
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Lengths))]
     public async Task Large_text_survives_the_delete_of_one_referrer_stays_while_a_read_is_held_and_is_freed_after_it(int bytes)
     {

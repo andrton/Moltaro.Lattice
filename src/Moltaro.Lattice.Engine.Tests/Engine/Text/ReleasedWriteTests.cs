@@ -22,7 +22,7 @@ public sealed class ReleasedWriteTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Write_withdrawn_before_its_dispatch_leaves_no_entry_of_its_new_text_and_the_count_of_its_existing_text_as_before()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -75,7 +75,7 @@ public sealed class ReleasedWriteTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Write_cancelled_while_it_is_being_prepared_leaves_no_entry_of_its_new_text_and_the_count_of_its_existing_text_as_before()
     {
         var allocator = new CountingNativeAllocator();
@@ -134,7 +134,7 @@ public sealed class ReleasedWriteTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Write_refused_by_its_condition_or_its_validation_leaves_no_entry_of_its_new_text()
     {
         await using var database = await EngineMaster.OpenAsync(TextSchema.Utf8);

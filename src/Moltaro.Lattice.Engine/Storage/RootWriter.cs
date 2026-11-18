@@ -361,9 +361,10 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Sets the value of a String field with Plain storage: in a UTF-8 database the UTF-8 of its
-    // characters, in a UTF-16 database its code units, placed by its encoded length as RootLayout
-    // says. Only well-formed text is stored, in both encodings (Q04.5): text that is not well-formed
+    // Sets the value of a String field: in a UTF-8 database the UTF-8 of its characters, in a UTF-16
+    // database its code units, placed by its encoded length as RootLayout says for a field with Plain
+    // storage; for a field with Dictionary storage, a text that is not empty in the entry of the text
+    // table that holds the same bytes, found or added (PlaceText), and the empty text inline. Only well-formed text is stored, in both encodings (Q04.5): text that is not well-formed
     // UTF-16, a surrogate without its pair, is refused with LatticeException, ValidationFailed, at
     // the call. Then nothing is allocated for the value, the counters of the arena are the same
     // before and after the call, no character is replaced by another, the field is not set, and the
@@ -396,9 +397,18 @@ internal ref struct RootWriter
             throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The text for the field {Name(field)} is not well-formed: it has a surrogate without its pair.");
         }
 
+        var length = StoredText.EncodedLength(value, _layout.StringEncoding);
+
+        if (stored.IsShared && length > 0)
+        {
+            PlaceText(stored, value, length);
+
+            return;
+        }
+
         var source = ValueSource.Text(value, _layout.StringEncoding);
 
-        PlaceValue(stored, StoredText.EncodedLength(value, _layout.StringEncoding), ref source);
+        PlaceValue(stored, length, ref source);
     }
 
     // Sets the value of a Binary field: the bytes as they are, in their order, placed by their
@@ -651,6 +661,47 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
+    // Places the text of a field with Dictionary storage, length bytes in the encoding of the database,
+    // at least one, which SetString has checked: the descriptor of kind Text names the entry of the text
+    // table that holds these bytes, which the root takes one reference to (Text.TextTable.TryAcquire), or
+    // nothing when the arena refused a block before or refuses a new entry now, since Complete refuses
+    // the entity then. A new entry counts in SlotBytes, as the blocks of a Plain value do: the write
+    // allocated it. For a forwarded write the bytes are kept out of line, as the wire carries them: a
+    // Text descriptor with location 0, its bytes after the root payload in the order of the descriptors
+    // (the planner's decision after the study of S13, point 8). An OutOfMemoryException passes with
+    // nothing taken and the field not set.
+    private void PlaceText(in StoredField stored, ReadOnlySpan<char> value, int length)
+    {
+        if (length > ValueBlocks.MostValueBytes)
+        {
+            throw AboveTheBound(stored.Field);
+        }
+
+        var descriptor = Place(stored);
+
+        if (_refusedByArena)
+        {
+            // Nothing more is allocated for an entity that Complete refuses.
+        }
+        else if (_exported is not null)
+        {
+            var source = ValueSource.Text(value, _layout.StringEncoding);
+
+            _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
+            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
+        }
+        else if (_arena.Texts.TryAcquire(value, _layout.StringEncoding, length, _prepared, descriptor, out var newBytes))
+        {
+            SlotBytes += newBytes;
+        }
+        else
+        {
+            _refusedByArena = true;
+        }
+
+        MarkSet(stored, isNull: false);
+    }
+
     // Records that the field was set; a value that is not null clears the field's null bit.
     private readonly void MarkSet(in StoredField stored, bool isNull)
     {
@@ -664,8 +715,9 @@ internal ref struct RootWriter
         }
     }
 
-    // Frees every block the descriptors of the image name: everything the writer allocated, since
-    // the root block is allocated last, by a Complete that then cannot fail any more.
+    // Frees every block the descriptors of the image name and releases every reference they hold to a
+    // text entry: everything the writer allocated and took, since the root block is allocated last, by a
+    // Complete that then cannot fail any more.
     private void FreeValues()
     {
         // A root for a forwarded write holds no block: its values out of line are managed memory.
@@ -678,7 +730,7 @@ internal ref struct RootWriter
         {
             var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
 
-            ValueBlocks.Free(_arena, ValueBlocks.Read(Image[offset..]));
+            RootStorage.FreeValue(_arena, ValueBlocks.Read(Image[offset..]));
         }
 
         SlotBytes = 0;

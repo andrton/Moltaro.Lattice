@@ -98,7 +98,8 @@ namespace Moltaro.Lattice.Engine;
 // connection, no task and no memory of it is left.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one
-// for each entity type, with its root layout), the primary indexes in Indexes (PrimaryIndex), the
+// for each entity type, with its root layout), the text entries of Dictionary strings in the arena
+// (Storage.Text.TextTable, which only writes use), the primary indexes in Indexes (PrimaryIndex), the
 // writes in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them
 // for the storage step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is retired and the barrier of the close in
 // Protection, the history and the sequence in Positions (PositionClock), the sets of the public
@@ -298,13 +299,39 @@ internal sealed class EngineDatabase : ILatticeDatabase
                         _coordinator.LargestCommitGroupBytes,
                         _arena.MemoryLimit,
                         _delivery!.ActiveCaptures,
-                        _delivery.PendingBytes);
+                        _delivery.PendingBytes,
+                        _arena.Texts.Count,
+                        _arena.Texts.Bytes);
                 }
             }
             finally
             {
                 _barrier.Exit();
             }
+        }
+    }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): every entry of the text table
+    // with its exact stored bytes, in the encoding of the database, and its count of references (brief of
+    // Epic 1, sprint S13, the planner's decision after the study, points 4 and 9), taken as Counters is,
+    // under the lock of the writes between two changes of the engine, on a master and on a child. It does
+    // not drain: what a root a write replaced or deleted holds until a drain frees it is counted.
+    // Unavailable before the open and once Faulted, ObjectDisposedException after the close.
+    public List<(byte[] Text, long References)> TextReferences()
+    {
+        ThrowIfNotReady();
+        _barrier.Enter();
+
+        try
+        {
+            lock (_writes!)
+            {
+                return _arena!.Texts.References();
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
         }
     }
 
@@ -701,11 +728,22 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // The parts are set only when the open published them; an open that the close overtook
             // frees its own arena (Build). The arena is the only native memory of the database;
             // everything else is managed.
+            //
+            // The last drain frees what is retired, and with the roots it frees go their references to
+            // text entries (Storage.Text.TextTable): a change of a count, which runs only on the thread
+            // that holds the lock of the writes (the planner's decision after the study of S13, point 6).
+            // Nothing can contend for the lock here — the barrier has let every write, drain, count and
+            // placement end and admits none, the network has stopped, and the reads have left — so the
+            // close takes it all the same, to keep that rule without an exception, and frees the arena
+            // under it.
             if (_arena is { } arena)
             {
-                _retired!.Drain();
-                _retired.Clear();
-                arena.Dispose();
+                lock (_writes!)
+                {
+                    _retired!.Drain();
+                    _retired.Clear();
+                    arena.Dispose();
+                }
             }
         }
         catch (Exception exception)
@@ -968,22 +1006,21 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // open fails with ObjectDisposedException.
     private void Build(LatticeSchema schema, ulong history, bool child)
     {
+        // The seed of the hashes of the primary indexes and of the text table, drawn at every open from
+        // the random source of the system unless a test fixed it, so that nobody who does not know it can
+        // choose keys or texts that share a hash (the planner's answer to Q50). It is never stored, sent or
+        // shown: a child and a reopened database draw their own, and the order of an enumeration, which
+        // follows the hashes, may differ between two instances that hold the same data.
+        var seed = _testInputs?.IndexSeed ?? DrawSeed();
+        var writes = new Lock();
         var arenaOptions = _testInputs?.Arena ?? new ArenaOptions { MemoryLimit = MemoryLimitInForce() };
-        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator());
+        var arena = new Arena(arenaOptions, _testInputs?.Allocator ?? new NativeAllocator(), seed, writes);
 
         try
         {
             var roots = new RootTable();
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this);
-
-            // The seed of the hashes of the primary indexes, drawn at every open from the random source
-            // of the system unless a test fixed it, so that nobody who does not know it can choose keys
-            // that share a hash (the planner's answer to Q50). It is never stored, sent or shown: a
-            // child and a reopened database draw their own, and the order of an enumeration, which
-            // follows the hashes, may differ between two instances that hold the same data.
-            var seed = _testInputs?.IndexSeed ?? DrawSeed();
-            var writes = new Lock();
             var delivery = new DeliveryTail();
             var executor = new WriteExecutor(arena, roots, retired, clock, _epochs, delivery, schema);
             var coordinator = new WriteCoordinator(

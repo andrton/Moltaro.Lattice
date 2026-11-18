@@ -31,7 +31,7 @@ public sealed class ReceivedTextTests
 
     public static IEnumerable<TheoryDataRow<string>> Damages => MarkedTextRoot.Damages;
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Master_sends_a_Dictionary_text_as_a_Text_descriptor_with_location_0_and_its_bytes_out_of_line()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(MarkedTextRoot.Schema);
@@ -58,7 +58,7 @@ public sealed class ReceivedTextTests
         Assert.Equal(bytes.Length - 1_000 - text.Length, textAt);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Child_that_receives_a_Dictionary_text_in_another_form_fails_its_open_at_once_with_Unavailable_and_holds_nothing(string damage)
     {

@@ -14,11 +14,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The selected index structures, see docs/decisions/index-structures.md. The engine owns
-         this package: no other shipped project references it. -->
-    <PackageReference Include="Arc.Collections" />
-  </ItemGroup>
-  <ItemGroup>
+    <!-- The contract is the engine's one dependency: the engine references no package, and its
+         hash tables are its own (the owner's decision of 18 November 2026). -->
     <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
   </ItemGroup>
   <ItemGroup>

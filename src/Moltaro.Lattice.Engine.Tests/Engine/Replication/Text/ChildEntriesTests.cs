@@ -27,7 +27,7 @@ public sealed class ChildEntriesTests
 
     public static IEnumerable<TheoryDataRow<string>> Encodings => TextSchema.Encodings;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Child_that_loads_values_of_sixteen_texts_holds_sixteen_entries_of_its_own_and_each_text_once(string encoding)
     {
@@ -44,7 +44,7 @@ public sealed class ChildEntriesTests
         EntryCounts.ExpectEqual(tally, master);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Child_holds_each_text_once_after_the_changes_of_the_stream(string encoding)
     {
@@ -77,7 +77,7 @@ public sealed class ChildEntriesTests
         EntryCounts.ExpectEqual(tally, master);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Child_opened_with_another_seed_of_its_hashes_than_its_master_holds_the_same_entries()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(TextSchema.Utf8, new EngineTestInputs { IndexSeed = MasterSeed });
@@ -96,7 +96,7 @@ public sealed class ChildEntriesTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Write_through_a_child_is_stored_with_the_entries_of_the_master_and_of_the_child(string encoding)
     {

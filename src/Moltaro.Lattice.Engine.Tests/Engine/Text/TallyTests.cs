@@ -30,7 +30,7 @@ public sealed class TallyTests
 
     public static IEnumerable<TheoryDataRow<string>> Encodings => TextSchema.Encodings;
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Counts_equal_an_independent_tally_during_and_after_a_churn_of_writes_and_deletes(string encoding)
     {
@@ -49,7 +49,7 @@ public sealed class TallyTests
         Assert.Equal(0, database.Counters.TextEntries);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Counts_equal_the_tally_while_a_held_read_keeps_the_replaced_and_deleted_roots_retired()
     {
         var database = await EngineMaster.OpenAsync(TextSchema.Utf8);
@@ -83,7 +83,7 @@ public sealed class TallyTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Counts_equal_the_tally_while_writes_are_prepared_and_not_published_and_a_withdrawn_one_takes_its_references_with_it()
     {
         var storage = new HeldCommitStorage(holding: false);

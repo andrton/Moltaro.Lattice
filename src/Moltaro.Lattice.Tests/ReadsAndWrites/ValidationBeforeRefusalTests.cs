@@ -3,7 +3,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // A write first checks what needs no engine: its arguments, and the entity against the schema
 // at every depth. Only a write that passes is refused as not implemented. That holds for every
 // entity type whose writes cannot be made yet: those with owned values, collections or
-// references, and those with a unique index or Dictionary storage. Whether an integer is a value
+// references, and those with a unique index. Whether an integer is a value
 // its enum type declares is part of that validation from Epic 1, sprint S07; a check that belongs
 // to what is not implemented is not made: a unique index is not consulted.
 public sealed class ValidationBeforeRefusalTests
@@ -131,7 +131,6 @@ public sealed class ValidationBeforeRefusalTests
 
     [Theory]
     [InlineData("Unique")]
-    [InlineData("Pooled")]
     public async Task Record_of_an_entity_type_that_cannot_be_written_yet_is_validated_first(string entityTypeName)
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
@@ -280,8 +279,8 @@ public sealed class ValidationBeforeRefusalTests
         }
         """);
 
-    // Entity types of the declarations of Epic 1, sprint 2: two that cannot be written yet, a unique
-    // index and Dictionary storage, and two that are written, a comparison that ignores case and an
+    // Entity types of the declarations of Epic 1, sprint 2: one that cannot be written yet, a unique
+    // index, and two that are written, a comparison that ignores case and an
     // enum field; each has a required Text.
     private static LatticeSchema RefusedSchema() => LatticeSchema.Compile($$"""
         {
@@ -298,11 +297,6 @@ public sealed class ValidationBeforeRefusalTests
             {
               "Id": 2, "Name": "Folded",
               "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String", "Comparison": "OrdinalIgnoreCase" } ],
-              "PrimaryKey": [1]
-            },
-            {
-              "Id": 3, "Name": "Pooled",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String", "StringStorage": "Dictionary" } ],
               "PrimaryKey": [1]
             },
             {

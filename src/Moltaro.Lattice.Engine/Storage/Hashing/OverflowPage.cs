@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Indexes;
+namespace Moltaro.Lattice.Storage.Hashing;
 
 // One page of overflow buckets (OverflowBuckets): its pinned array of words and the index of the
 // first word of its first bucket, on a line boundary. Written once, before any bucket of it is

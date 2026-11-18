@@ -19,7 +19,8 @@ internal struct BlockHeader
     public const int Size = 32;
 
     // The root that owns the block. A block of kind SharedText names the text entry that owns it
-    // in this place instead.
+    // in this place instead: the slot of the entry in the text table, with generation 0, which no
+    // root handle has (Text.TextTable).
     public RootHandle Root;
 
     // The block that holds the descriptor referring to this one. Null for a root.

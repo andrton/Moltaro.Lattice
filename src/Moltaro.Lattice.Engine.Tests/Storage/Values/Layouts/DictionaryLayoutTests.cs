@@ -14,7 +14,7 @@ public sealed class DictionaryLayoutTests
     private const string Fields =
         "{ 'Id': 2, 'Name': 'Login', 'Type': 'String' }, { 'Id': 3, 'Name': 'Region', 'Type': 'String'STORAGE }, { 'Id': 4, 'Name': 'Count', 'Type': 'Int32' }, { 'Id': 5, 'Name': 'Zone', 'Type': 'String', 'Nullable': true STORAGE }";
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]
     public void String_field_with_Dictionary_storage_has_the_descriptor_of_16_bytes_every_String_field_has(string encoding)

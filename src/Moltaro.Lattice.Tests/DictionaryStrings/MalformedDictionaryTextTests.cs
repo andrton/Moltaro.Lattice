@@ -38,7 +38,7 @@ public sealed class MalformedDictionaryTextTests
         Assert.Equal(0, batch.Count);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Stored_entity_keeps_its_state_when_a_write_of_it_with_text_that_is_not_well_formed_is_refused(LatticeStringEncodingEnum encoding)
     {
@@ -58,7 +58,7 @@ public sealed class MalformedDictionaryTextTests
         Assert.Single(places.Enumerate());
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint13)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Surrogate_pair_in_its_order_is_stored_in_a_Dictionary_field_and_reads_back(LatticeStringEncodingEnum encoding)
     {
