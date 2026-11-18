@@ -11,7 +11,7 @@ its commits go.
 - **All work happens on a short branch** and reaches `main` through a pull request.
   Nobody commits to `main` directly: not an agent, not the owner.
 - **A release is a tag** `vX.Y.Z` on a commit of `main`. Pushing the tag publishes the
-  packages.
+  packages to nuget.org.
 
 `main` can be both the place where work is integrated and the place releases come from
 because of how features are built here. A feature enters as contract: what is not
@@ -99,7 +99,9 @@ only documents: a required check that does not run would block the pull request.
   `0.x.y` with a pre-release label, for example `0.1.0-alpha.1`.
 - **A release is made by the owner**: with `main` green, tag the commit and push the tag.
   The [Publish](../../.github/workflows/publish.yml) workflow builds, tests and packs that
-  commit and pushes the packages; it refuses a tag that is not on `main`.
+  commit and pushes the packages to nuget.org; it refuses a tag that is not on `main`.
+- **A published version is public at once and stays.** nuget.org never deletes a version;
+  it can only be unlisted. The first push of a package also takes its name there.
 - **A release tag is permanent.** The ruleset in
   [`.github/rulesets/release-tags.json`](../../.github/rulesets/release-tags.json) refuses
   moving or deleting a `v*` tag. A wrong release is followed by a new version, never by a
@@ -113,6 +115,30 @@ git tag v0.1.0-alpha.1
 ```bash
 git push origin v0.1.0-alpha.1
 ```
+
+## Setting up publishing on nuget.org
+
+The workflow stores no API key. It uses Trusted Publishing: nuget.org trusts this
+repository's Publish workflow and gives it a key that lives for an hour. The owner sets
+it up once, before the first release.
+
+1. On nuget.org, signed in as the account that will own the packages: the user menu,
+   **Trusted Publishing**, add a policy with
+
+   | Field | Value |
+   | --- | --- |
+   | Repository Owner | the owner of this repository on GitHub |
+   | Repository | `Moltaro.Lattice` |
+   | Workflow File | `publish.yml` (the file name only) |
+   | Environment | empty |
+
+2. On GitHub, in the settings of this repository, **Secrets and variables → Actions**, a
+   repository secret `NUGET_USER` with the name of that nuget.org account: the profile
+   name, not the e-mail address.
+
+A policy for a private repository is active for seven days and becomes permanent with the
+first release made through it; if the seven days pass first, nuget.org lets the owner
+start them again.
 
 ## Setting it up on GitHub
 
