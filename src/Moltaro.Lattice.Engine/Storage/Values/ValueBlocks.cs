@@ -49,10 +49,12 @@ internal static class ValueBlocks
     public static ArenaAddress AddressOf(in ValueDescriptor descriptor) =>
         new((uint)(descriptor.Location >> 32), (uint)descriptor.Location);
 
-    // Whether the value of the descriptor lies in chunks: of kind Chunked, or of kind Text and longer than
-    // one block takes, by the placement rule its entry follows.
-    public static bool LiesInChunks(in ValueDescriptor descriptor) =>
-        descriptor.Kind == DescriptorKindEnum.Chunked || (descriptor.Kind == DescriptorKindEnum.Text && descriptor.Length > RootLayout.SingleBlockLimit);
+    // Whether the value a descriptor of a root or of a text entry names lies in chunks. A value is
+    // placed by its length alone: inline or in one block up to SingleBlockLimit bytes, in chunks above,
+    // a Plain value and the entry of a Dictionary text alike. RootWriter places every value so, and
+    // Replication.Load.BlockImport refuses any other form on receipt, so the length decides for every
+    // kind and the kind need not be read. Not for the descriptors in a directory, which name chunks.
+    public static bool LiesInChunks(in ValueDescriptor descriptor) => descriptor.Length > RootLayout.SingleBlockLimit;
 
     // Whether the descriptor names bytes out of line, in blocks the wire carries after the root payload:
     // a value of a root in blocks of its own, or the entry of a Dictionary text.
