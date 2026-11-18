@@ -402,7 +402,7 @@ public sealed class ConsistencyTests
 
         using var barrier = new Barrier(2, _ =>
         {
-            ended = Volatile.Read(ref failure) is not null || rounds == MostRounds || racing.Elapsed >= budget;
+            ended = Volatile.Read(ref failure) is not null || rounds == MostRounds || (rounds > 0 && racing.Elapsed >= budget);
 
             if (!ended)
             {
