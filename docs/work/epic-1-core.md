@@ -5272,6 +5272,27 @@ For this sprint:
 - **Out of scope.** Ranges, order, paging, budgets and the agreement of all access paths
   (S15). Uniqueness (S16).
 
+**Carried from the architect's review after S13 (18 November 2026), as notes and not as
+design — the study of this sprint may change the form.** The text table acquires a
+reference only by content; an index entry that names a text entry its root already
+references needs "one more reference to the entry at this address". `TextTable.Release`
+uses only the address of a descriptor, so it can take an address. A retired block of an
+index that holds text references is a kind of retired item of its own, with its bytes
+toward the next look of the drain, as a retired root has since the review of S13.
+
+**Added to the study step by the planner on 18 November 2026.** How an index holds a
+text key is measured in three forms on the prototype: (1) the entry names the root and a
+comparison reads the key from the root; (2) the entry holds a copy of the key, or of a
+bounded prefix with the root as the tie-breaker; (3) the entry and the root reference one
+shared text entry. For each: bytes per entry, search by key, range scan, write, at key
+lengths 8, 32 and 100 bytes. A form that forces an indexed Plain value of 64 bytes or
+less out of the root is reported with what that costs a read by key. The choice comes to
+the owner together with the structure; if it is not form (3), it comes with the dated
+note for `docs/decisions/index-structures.md` and the sentences of the milestone contract
+it replaces. Point 3 of the brief (the entry is a hint checked against the root) holds
+in all three forms. Until figures say otherwise the accepted record stands: an index and
+a root share stored text through stable references.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -5444,6 +5465,15 @@ child stores received bytes through its own allocation.
 - **Measured.** Reported: bytes retained for the fixture's user and group with their Lists.
 - **Out of scope.** Map and Set (S19). Element commands (S20).
 
+**Carried from the architect's review after S13 (18 November 2026).**
+`ValueBlocks.LiesInChunks` decides by the length of a descriptor alone, for the figure of
+a read; for a collection the length of a descriptor is the number of its elements. This
+sprint keeps the descriptors of collections away from that test, or brings the test of
+the kind back with its measured cost. The rule of counts is ready for a descriptor in
+any block; the walks over the descriptors of a root and the validation of a received
+root are tied to the root layout, and entry A4 of the
+[refactoring backlog](refactoring.md) prepares them.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
@@ -5605,6 +5635,13 @@ under the lock of the writes or by the rule this sprint states.
 - **Out of scope.** Refusing writes at the memory budget (S24). Manual maintenance
   commands, which are outside the milestone.
 
+**Carried from the architect's review after S13 (18 November 2026).** Block kinds of
+their own for the directory and the chunks of a text entry are decided here, where
+something first has to tell them apart: today all three are of the kind of shared text
+and only the length in the slot of the text table says which form an entry has. The
+referrers of an entry cannot be found from it, and from S14 an index may be among them.
+The slot array and the bucket table of the text table never shrink.
+
 #### S24 · The memory budget
 
 **Carried from the outside review, 18 November 2026:** a child sizes its primary index
@@ -5643,6 +5680,12 @@ announces, bounded only by its memory limit, and each accepted connection holds 
   budget under the churn trace; the share of the budget each counted part takes on the
   reference fixture.
 - **Out of scope.** Budgets of the journal and of delivery history (S31, S33).
+
+**Carried from the architect's review after S13 (18 November 2026).** Whether a text
+entry is allocated live from the start, instead of prepared and then published, is
+decided here with the charge of the text table to the budget: it changes what
+`PreparedBytes` counts for a write that is later withdrawn, which is accounting and not
+structure, so the refactoring sprint after S13 did not take it.
 
 #### S25 · Reference fixture, managed reference and the memory gate
 

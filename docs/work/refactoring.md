@@ -25,7 +25,9 @@ Gone through by the planner and the coordinator on 18 November 2026.
   16 threads with the allocation of each, so that a fall names its entry. Then the small
   entries in the same files, and the figure for the address validation of
   `Arena.Payload` and `Arena.Header`: no change of it without that figure.
-  T1 of the review of S13 goes with them, after A9, with its figures.
+  T1 of the review of S13 goes with them, after A9, with its figures, and B3 with T1;
+  the one walk of B1 is among the small entries; B2 is a commit of its own that waits
+  for its figures.
 - **S14R**, after S14: A3, A4 (in before S18), A5, A11, A12, A13.
 - Comments never ride in a commit that moves code.
 
@@ -95,7 +97,34 @@ those of the branch of S13 at its merge.
 
 | # | Place | What is wrong | The simpler form | Status |
 | --- | --- | --- | --- | --- |
-| T1 | `Storage/Text/TextSlot.cs` (`State`), `TextTable.cs` (`Publish`, the branch of `TryAcquire` that publishes on a hit, the parameter `prepared`), `ValueBlocks.PublishText`, the `Text` branch of `RootStorage.Publish` | The state Prepared or Published of an entry is kept in the slot beside what the arena already knows of the entry's block, and the same field is the link of the free list; a reader has to hold four places together to see that an entry is published before a read reaches it. Both reviewers named it the hardest part of S13 to follow | One of two, chosen in S13R by which leaves the life of an entry stated in one place: `Publish` asks `Arena.IsPrepared(address)` and the slot keeps no state; or an entry is allocated live always, if nothing depends on a queued write's entry being counted as prepared. Either way the free-list link moves into a field a free slot does not use and the slot is 24 bytes instead of 32. Shown unchanged: the tally tests, `PreparedBytes` and `LiveBytes` in the released-write tests, memory for each distinct entry (51.4 bytes of table today), the writes with a Dictionary text | taken (S13R) |
+| T1 | `Storage/Text/TextSlot.cs` (`State`), `TextTable.cs` (`Publish`, the branch of `TryAcquire` that publishes on a hit, the parameter `prepared`), `ValueBlocks.PublishText`, the `Text` branch of `RootStorage.Publish` | The state Prepared or Published of an entry is kept in the slot beside what the arena already knows of the entry's block, and the same field is the link of the free list; a reader has to hold four places together to see that an entry is published before a read reaches it. Both reviewers named it the hardest part of S13 to follow | `Publish` asks `Arena.IsPrepared(address)` and the slot keeps no state (the other form named by the review, an entry allocated live always, changes what `PreparedBytes` counts and is carried to S24). The free-list link moves into a field a free slot does not use and the slot is 24 bytes instead of 32. Shown unchanged: the tally tests, `PreparedBytes` and `LiveBytes` in the released-write tests, memory for each distinct entry (51.4 bytes of table today), the writes with a Dictionary text | taken (S13R) |
+
+## Architect's review after S13, 18 November 2026
+
+At `main` 851d432, read only. Its judgement: S13 landed cleanly — the text mechanism sits
+in `Storage`, and the rule of counts is implemented for a descriptor in any place, not
+for a root. Gone through by the planner and the coordinator on the same day.
+
+| # | Place | What is wrong | The simpler form | Status |
+| --- | --- | --- | --- | --- |
+| B1 | `Storage/RootStorage.cs` (`FreeValue`, the branch in `Publish`, `TextBytes`, `Retire`); the guards `Kind is Block or Chunked` in `Storage/Values/ValueBlocks.cs` (`Free`, `Publish`, `Retire`, `Adopt`, `SlotBytes`); `Engine/Protection/RetiredMemory.cs` (`RetireBlocks`) | What one descriptor holds outside its block is decided in three forms and five guards, and retiring a root walks its descriptors twice | The operations for one descriptor stand side by side in one place above `Values` and `Text`, taking the arena and the descriptor; the enumerator of A4 makes the operations of a root short loops over them. Shown unchanged: counters equal the tally, the bound on dead text behind retired roots, writes with a Dictionary text, the time of a drain | joined to A4 (S14R), whose definition now includes the dispatch in the body of the walk; the merge of `TextBytes` into `Retire`, one walk, is taken (S13R) as a small entry |
+| B2 | `src/Moltaro.Lattice.Measurements/Scenarios`: `ReadByKeyThreadsScenario.cs`, `WriteCallersScenario.cs`, `ReadWindow.cs`, `DictionaryWritesScenario.cs` | The thread harness "warm-up, window, phases" exists four times, differing in the body of one step; every sprint with a new read path adds one | One window type generic over the step as a struct, so that no call for each read is added; each scenario keeps its report lines. Shown unchanged: read-by-key-threads at 1 and 16 threads, write-callers and the Dictionary reads, before and after on the same machine | taken (S13R), not merged before its figures exist; if no quiet machine comes before the scenarios of S14 are written, S14 writes them in the present form and the entry moves to S14R |
+| B3 | `Storage/Text/TextTable.cs` (`new RootHandle(0, number)`, `Header(address).Root.Slot`), `Storage/BlockHeader.cs` (the comment), `ValueBlocks.TryStoreText` | "The header of a block of shared text names the slot of its entry" is written through one type, read through another member and explained in a third file | `ValueBlocks.TryStoreText` takes the slot as a number and writes the header; `ValueBlocks.TextSlotOf` beside it reads it | taken (S13R), with T1 |
+
+What S13 did to entries above: T1 is carried out in the form that asks
+`Arena.IsPrepared` — allocating an entry live always changes what `PreparedBytes` counts
+and is carried to S24 as a question of accounting. A13 gains the branch of `TextTable`
+for a write that is not prepared, which no product path reaches; T1 does not polish it.
+A11 states the order it leaves: `Roots` → `Text` → `Values` → (`Arena`, `Hashing`,
+`Allocation`); the cycle between the folders that a reviewer of S13 saw is A11 and one
+constructor line of `Arena`. The comment commit of S13R covers the files of S13, which
+cite the points of a decision and a brief, and adds to `LiesInChunks` that the
+descriptor of a collection is not for it.
+
+Sound, leave as it is: the core of `TextTable`; `TextPieces` beside `ValueSource`, which
+are not duplicates — merging them adds a copy to a write that hits; `IndexTable` shared
+from `Storage/Hashing`; `RootWriter.PlaceText` beside `PlaceValue`; the check-then-place
+split of `BlockImport`; the tests of S13 in their folders.
 
 Refused: a text table owned by the database instead of the arena — both reviewers found
 it no plainer: every free of a block has the arena at hand and has to drop the block's
