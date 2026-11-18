@@ -18,16 +18,11 @@ internal sealed class EntityBinding<TEntity>
     private readonly Func<TEntity> _create;
     private readonly BoundProperty[] _properties;
 
-    // Null for a field that holds an owned value or a collection: reading such a field into an
-    // object comes with storing it, until then no entity of such a type is stored.
-    private readonly Action<TEntity, object?>?[] _setters;
-
-    private EntityBinding(LatticeEntityType entityType, Func<TEntity> create, BoundProperty[] properties, Action<TEntity, object?>?[] setters)
+    private EntityBinding(LatticeEntityType entityType, Func<TEntity> create, BoundProperty[] properties)
     {
         EntityType = entityType;
         _create = create;
         _properties = properties;
-        _setters = setters;
     }
 
     public LatticeEntityType EntityType { get; }
@@ -56,10 +51,9 @@ internal sealed class EntityBinding<TEntity>
 
         // The fields are in the order of their ordinals.
         var properties = entityType.Fields.Select(field => binder.Bind(type, field, entityType.Name)).ToArray();
-        var setters = properties.Select(Setter).ToArray();
 
         var create = Expression.Lambda<Func<TEntity>>(Expression.New(constructor)).Compile();
-        return new EntityBinding<TEntity>(entityType, create, properties, setters);
+        return new EntityBinding<TEntity>(entityType, create, properties);
     }
 
     // Entity -> values to store, in the form a record holds and checked against the schema at
@@ -92,40 +86,5 @@ internal sealed class EntityBinding<TEntity>
         }
 
         return values;
-    }
-
-    // Stored values -> a new entity owned by the caller.
-    public TEntity Materialize(object?[] values)
-    {
-        var entity = _create();
-        for (var index = 0; index < values.Length; index++)
-        {
-            var setter = _setters[index]
-                ?? throw new NotSupportedException($"Reading owned values and collections into an object is not implemented yet: '{EntityType.Name}.{_properties[index].Field.Name}' holds one.");
-
-            var value = values[index];
-            setter(entity, value is byte[] bytes ? bytes.Clone() : value);
-        }
-
-        return entity;
-    }
-
-    // Writes a stored value of a field that is not an owned value or a collection to its
-    // property: as it is, or converted to the .NET enum that the property is declared as. The value
-    // is set through the set accessor C# sees for the property, called virtually.
-    private static Action<TEntity, object?>? Setter(BoundProperty property)
-    {
-        var declaration = property.Field.Declaration;
-        if (FieldTypes.IsNested(declaration.Type))
-        {
-            return null;
-        }
-
-        var entity = Expression.Parameter(typeof(TEntity), "entity");
-        var value = Expression.Parameter(typeof(object), "value");
-        var stored = Expression.Convert(value, declaration.PositionType);
-        var set = Expression.Call(entity, property.SetAccessor, Expression.Convert(stored, property.Property.PropertyType));
-
-        return Expression.Lambda<Action<TEntity, object?>>(set, entity, value).Compile();
     }
 }

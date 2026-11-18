@@ -59,12 +59,6 @@ public sealed class LatticeRecord
         _values = new object?[entityType.Fields.Count];
     }
 
-    internal LatticeRecord(LatticeEntityType entityType, object?[] storedValues)
-    {
-        EntityType = entityType;
-        _values = FieldValues.Copy(storedValues);
-    }
-
     /// <summary>The entity type the record belongs to.</summary>
     public LatticeEntityType EntityType { get; }
 
