@@ -617,6 +617,29 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // reads and writes in progress have ended (see the class). The first call begins the close; every
     // later call, of this or of DisposeAsync, joins it. The cancellation token ends only the wait of
     // its call: the database still closes, and the arena is freed when they have ended.
+    //
+    // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
+    // 1. Under the lock of the state the state becomes Closed and the task of the close is made: from
+    //    then on every member refuses, and every later call waits for that task.
+    // 2. The waits for a position end (PositionClock.Close).
+    // 3. The reads are marked closed (ReadEpochs.Close): a read that enters from then on leaves at once,
+    //    and those that entered before announce an epoch below the mark, which step 8 waits for.
+    // 4. The open of a child in progress is cancelled: it ends at its next wait, or at its next
+    //    placement, which the barrier refuses.
+    // 5. The barrier of the close admits no write, drain, count of the counters or placement any more,
+    //    and the rest waits until those in progress have ended, every admitted write with its outcome.
+    // 6. The listener of a master stops (ChildListener.StopAsync): after step 5, because an open of a
+    //    master is an operation while it starts its listener, and because a connection sends its child
+    //    the replies of the admitted writes before it ends.
+    // 7. The open of a child ends, then its following, then its connection to the master closes; the
+    //    master is not waited for.
+    // 8. The reads that entered before the mark leave: after the network, whose copies of roots read
+    //    inside the protection and leave it once their connections end.
+    // 9. Under the lock of the writes the last drain frees what is retired, and the arena is freed: no
+    //    read and no write can reach it any more.
+    // 10. The parts of the database are let go of, so that an instance kept alive holds none of them.
+    // 11. The close completes, with the first failure of a step when one failed: every step runs
+    //     whatever became of the one before.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
     {
         TaskCompletionSource closed;
@@ -636,14 +659,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         if (begins)
         {
+            // Steps 2 to 5 (see above).
             _clock?.Close();
 
-            // The mark first: a read that enters from now on leaves at once, and the reads that entered
-            // before announce an epoch below the one returned here.
             var mark = _epochs.Close();
 
-            // The open of a child in progress ends at its next wait, or at its next placement, which the
-            // barrier refuses from now on.
             _closing.Cancel();
 
             _ = FreeAfterOperationsAsync(_barrier.Close(), mark, closed);
@@ -658,23 +678,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
 
-    // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
-    // counts of the counters in progress have ended, the network of the instance has stopped, and then
-    // the reads that entered before the mark of the close, lets go of the parts of the database, and then
-    // completes the close. When nothing is
-    // in progress it does so before it returns. The wait for the reads runs on a thread of the pool,
-    // because a read may be held by a test while its caller goes on; it ends as
-    // ReadEpochs.WaitForReadsBefore says.
-    //
-    // The network, after the operations: an open of a master is one of them while it starts its
-    // listener, so the listener is set once they have ended. The listener stops and its tasks end
-    // (ChildListener.StopAsync): each connection is reset, and its task leaves the protection of reads
-    // at once, since a copy of a root waits for nothing. The open of a child ended its waits when the
-    // close began, and its task ends at once; then its connection to the master closes.
-    //
-    // Every step runs whatever became of the one before (review round 1 of S10): a task of the network
-    // that faulted, which only a defect can make it, does not keep the arena from being freed. The first
-    // such failure is what the close then reports, once everything is freed.
+    // Steps 6 to 11 of the close (CloseAsync), once the operations in progress have ended. When nothing
+    // is in progress it runs to its end before it returns. The wait for the reads runs on a thread of the
+    // pool, because a read may be held by a test while its caller goes on; it ends as
+    // ReadEpochs.WaitForReadsBefore says. A task of the network that faulted, which only a defect can make
+    // it, does not keep the arena from being freed; the first such failure is what the close reports, once
+    // everything is freed.
     private async Task FreeAfterOperationsAsync(Task operationsEnded, long mark, TaskCompletionSource closed)
     {
         Exception? failure = null;
