@@ -53,9 +53,11 @@ internal static class Protocol
 
     // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
-    // their effects (Replication.Transactions). Another value is another format. 2 since Epic 1, sprint
-    // S11, whose LoadEnd carries S and R and whose stream follows the load.
-    public const int WireFormat = 2;
+    // their effects (Replication.Transactions), and the writes a child forwards with their replies
+    // (Replication.Forwarding). Another value is another format. 3 since Epic 1, sprint S12, whose child
+    // forwards its writes on the connection; 2 was S11, whose LoadEnd carries S and R and whose stream
+    // follows the load.
+    public const int WireFormat = 3;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;
