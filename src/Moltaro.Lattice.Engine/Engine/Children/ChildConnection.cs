@@ -203,6 +203,8 @@ internal sealed class ChildConnection
     // Step 5 of the class, until the connection ends: true when the child ended it in order.
     private async Task<bool> StreamAsync(DeliveryCursor cursor, ulong readiness)
     {
+        // Ending stops both tasks. The wait of the sender for more ends with it and with the close of the
+        // master (_finishing), which does not stop the sender: it then finishes what it owes the child.
         using var ending = new CancellationTokenSource();
         using var waitEnds = CancellationTokenSource.CreateLinkedTokenSource(ending.Token, _finishing.Token);
         var sending = DeliverAsync(cursor, waitEnds.Token, ending.Token);
@@ -211,7 +213,9 @@ internal sealed class ChildConnection
 
         // The sender of a closing master sends Closed, ends its side in order and leaves the receiver to
         // wait for the child's end; any other end of either task ends the other.
-        if (!ReferenceEquals(first, sending) || !sending.IsCompletedSuccessfully)
+        var senderFinished = ReferenceEquals(first, sending) && sending.IsCompletedSuccessfully;
+
+        if (!senderFinished)
         {
             await ending.CancelAsync().ConfigureAwait(false);
         }
@@ -226,8 +230,12 @@ internal sealed class ChildConnection
             // the connection is read from the receiver.
         }
 
-        // The child closed: its end is what the receiving task met.
-        return receiving.Exception?.InnerException is IOException;
+        // The connection reports the end of the stream as an IOException (FrameConnection.ReceiveAsync): the
+        // child ended its side in order. Every other end of the receiver is a reset, a failure, a frame that
+        // is not valid or the cancellation.
+        var childEndedInOrder = receiving.Exception?.InnerException is IOException;
+
+        return childEndedInOrder;
     }
 
     // Sends the child every transaction of the tail after its start, as they come, and the replies owed to

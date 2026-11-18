@@ -54,12 +54,11 @@ namespace Moltaro.Lattice.Engine.Following;
 // valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender
 // that failed, the close of the child — ends its connection and keeps serving its reads at the position it
 // has, Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
-// together is applied. In this order (S12): it marks itself without a master
-// (Forwarding.Forwarder.LoseMaster), so that a write through it is Unavailable and a wait for a position
-// it has not reached ends at once; it ends its side of the connection, and with it the sender; and once
-// the sender has ended, every write it had sent whole and that has no reply ends in IndeterminateOutcome
-// (PendingRequests.Close): the master may have executed it. So the close of a master, which waits until
-// its children have ended their side, finds each child that reads marked.
+// together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
+// write through it is Unavailable and a wait for a position it has not reached ends at once; it ends its
+// side of the connection and the sender; and every write it had sent whole and that has no reply ends in
+// IndeterminateOutcome (PendingRequests.Close): the master may have executed it. FollowAsync says at its
+// lines why they come in this order.
 //
 // The frame Closed (decided at the review of S12, point 2). A master that closes in order sends it after
 // every reply it owes and every transaction of its tail: every request not answered before it was not
@@ -171,20 +170,29 @@ internal sealed class Follower
                 following = await ApplyNextAsync(timeout: null, acknowledges: true, ending.Token).ConfigureAwait(false);
             }
 
-            // The master closed in order (see the class, "The frame Closed").
+            // The master closed in order (see the class, "The frame Closed"). The child is marked without a
+            // master first, so that no write is queued once the writes it sent are ended as not executed.
             _forwarder.LoseMaster();
             _pending.EndNotExecuted();
         }
         catch (Exception)
         {
-            // The child stops following, whatever ended it (see the class): it keeps what it applied.
+            // The child stops following, whatever ended it (see the class, "Stopping"): it keeps what it
+            // applied.
         }
         finally
         {
             _assembler.Reset();
+
+            // For every end; after the frame Closed it changes nothing more. The child is marked before it
+            // ends its side of the connection, so that a master, whose close waits for that end, finds it
+            // marked.
             _forwarder.LoseMaster();
             await ending.CancelAsync().ConfigureAwait(false);
             _link.Dispose();
+
+            // Only once the sender has ended does nothing more go out: every call left was sent whole and
+            // has no reply.
             await sending.ConfigureAwait(false);
             _pending.Close();
         }
