@@ -2,11 +2,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
 // A write first checks what needs no engine: its arguments, and the entity against the schema
 // at every depth. Only a write that passes is refused as not implemented. That holds for every
-// entity type whose writes the placeholder refuses: those with owned values, collections or
-// references, and those of Epic 1, sprint 2, with a unique index, a comparison that ignores
-// case, Dictionary storage, an enum field, or in a schema of the UTF-16 encoding. Whether an
-// integer is a value its enum type declares is part of that validation from Epic 1, sprint S07;
-// a check that belongs to what is not implemented is not made: a unique index is not consulted.
+// entity type whose writes cannot be made yet: those with owned values, collections or
+// references, and those with a unique index or Dictionary storage. Whether an integer is a value
+// its enum type declares is part of that validation from Epic 1, sprint S07; a check that belongs
+// to what is not implemented is not made: a unique index is not consulted.
 public sealed class ValidationBeforeRefusalTests
 {
     [Fact]
@@ -132,10 +131,8 @@ public sealed class ValidationBeforeRefusalTests
 
     [Theory]
     [InlineData("Unique")]
-    [InlineData("Folded")]
     [InlineData("Pooled")]
-    [InlineData("Graded")]
-    public async Task Record_of_an_entity_type_that_the_placeholder_refuses_is_validated_first(string entityTypeName)
+    public async Task Record_of_an_entity_type_that_cannot_be_written_yet_is_validated_first(string entityTypeName)
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
 
@@ -143,15 +140,7 @@ public sealed class ValidationBeforeRefusalTests
     }
 
     [Fact]
-    public async Task Record_in_a_schema_of_the_UTF16_encoding_is_validated_first()
-    {
-        await using var database = await TestData.OpenMasterAsync(schema: Utf16Schema());
-
-        await ExpectValidatedFirstAsync(database, "Note");
-    }
-
-    [Fact]
-    public async Task Object_of_an_entity_type_that_the_placeholder_refuses_is_validated_first()
+    public async Task Object_of_an_entity_type_that_cannot_be_written_yet_is_validated_first()
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
         var unique = database.Set<UniqueItem>();
@@ -166,11 +155,10 @@ public sealed class ValidationBeforeRefusalTests
 
         // Complete.
         await Assert.ThrowsAsync<NotSupportedException>(async () => await unique.InsertAsync(new UniqueItem { Id = 1, Text = "a" }));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await graded.InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 1 }));
     }
 
     [Fact]
-    public async Task Integer_that_its_enum_type_does_not_declare_is_ValidationFailed_before_the_write_is_refused_as_not_implemented()
+    public async Task Integer_that_its_enum_type_does_not_declare_is_ValidationFailed()
     {
         await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
         var graded = database.Set("Graded");
@@ -180,10 +168,6 @@ public sealed class ValidationBeforeRefusalTests
 
         await TestData.ExpectValidationFailedAsync("Level", () => graded.InsertAsync(record));
         await TestData.ExpectValidationFailedAsync("Level", () => database.Set<GradedItem>().InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 7 }));
-
-        // A declared value passes the validation, and the write is refused as not implemented.
-        record["Level"] = (byte)1;
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await graded.InsertAsync(record));
     }
 
     // A record without the required Text, a key of another type, and a complete record, through
@@ -296,8 +280,9 @@ public sealed class ValidationBeforeRefusalTests
         }
         """);
 
-    // One entity type for each declaration of Epic 1, sprint 2, that the placeholder refuses to
-    // write; each has a required Text.
+    // Entity types of the declarations of Epic 1, sprint 2: two that cannot be written yet, a unique
+    // index and Dictionary storage, and two that are written, a comparison that ignores case and an
+    // enum field; each has a required Text.
     private static LatticeSchema RefusedSchema() => LatticeSchema.Compile($$"""
         {
           "Enums": [
@@ -325,15 +310,6 @@ public sealed class ValidationBeforeRefusalTests
               "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" }, { "Id": 3, "Name": "Level", "Type": "Enum", "Enum": "Level" } ],
               "PrimaryKey": [1]
             }
-          ]
-        }
-        """);
-
-    private static LatticeSchema Utf16Schema() => LatticeSchema.Compile("""
-        {
-          "StringEncoding": "Utf16",
-          "EntityTypes": [
-            { "Id": 1, "Name": "Note", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" } ], "PrimaryKey": [1] }
           ]
         }
         """);

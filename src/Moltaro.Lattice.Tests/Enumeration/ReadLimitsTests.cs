@@ -15,8 +15,6 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 //   engine state it (CancelledStepTests).
 // - Without a limit an enumeration of any length runs to its end, also under limits as large as their
 //   types allow, from which a deadline has to be computed without overflow.
-// - The placeholder validates the limits of its options and otherwise does not use them until S12.
-// The tests of the limits run on the engine, which implements them in S08, part 2.
 public sealed class ReadLimitsTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
@@ -150,38 +148,6 @@ public sealed class ReadLimitsTests
 
             Assert.Equal(LongTags, tags.Enumerate().Select(tag => tag.Name).Distinct().Count());
             Assert.Equal(LongTags, (await database.Set("Tag").EnumerateAsync(new LatticeSession()).ToListAsync()).Count);
-        }
-    }
-
-    [Fact]
-    public async Task Placeholder_validates_the_read_limits_of_its_options_and_otherwise_does_not_use_them()
-    {
-        var refused = Assert.Throws<LatticeException>(() => LatticeDatabase.Create(new LatticeDatabaseOptions
-        {
-            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            Schema = TestData.Schema,
-            ReadMemoryLimit = 0,
-        }));
-
-        Assert.Equal(LatticeErrorEnum.InvalidConfiguration, refused.Error);
-
-        // Limits that no pass could meet, which the placeholder does not enforce until S12.
-        await using var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
-        {
-            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            Schema = TestData.Schema,
-            ReadMemoryLimit = 1,
-            ReadTimeLimit = TimeSpan.FromTicks(1),
-        });
-
-        for (var id = 1L; id <= 100; id++)
-        {
-            await database.Set<User>().InsertAsync(new User { Id = id, Name = $"user {id}" });
-        }
-
-        foreach (var form in EnumerationForms.All)
-        {
-            Assert.Equal(100, (await UserPass.Of(database, form).ToListAsync()).Count);
         }
     }
 }
