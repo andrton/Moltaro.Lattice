@@ -45,9 +45,9 @@ namespace Moltaro.Lattice.Storage.Text;
 // retired last (Engine.EngineDatabase). The table takes no lock; in a Debug build every change of a
 // count asserts that the thread holds the lock the database gave the arena, which is how a test shows it.
 //
-// The parts. Slots in a managed array that grows by doubling (TextSlot: the address, the references, the
-// hash, the length, the state or the link of the free list), and the bucket table of the primary index
-// from the hash to the slot (Hashing.IndexTable), the same type and not a second one. The hash is the
+// The parts. Slots in a managed array that grows by doubling up to the longest array of .NET, and refuses
+// an entry beyond it (TryGrowSlots; TextSlot: the address, the references, the hash, the length, the
+// state or the link of the free list), and the bucket table of the primary index from the hash to the slot (Hashing.IndexTable), the same type and not a second one. The hash is the
 // engine's (Hashing.Marvin) over the stored bytes, with the seed of the instance. An entry is keyed by its
 // exact bytes always: North and north are two entries, and the comparison a field declares applies only
 // where text is compared. No read touches the slots or the buckets, so a full bucket table is replaced by
@@ -221,7 +221,8 @@ internal sealed class TextTable
     }
 
     // A new entry of the text: room in the bucket table and a slot first, then the blocks, so that a
-    // refusal of the arena or a failure gives back only the slot.
+    // refusal of the arena or a failure gives back only the slot. An array of slots that cannot grow any
+    // more refuses the entry before anything is taken, as the arena refuses one it cannot hold.
     private bool TryAdd(ref TextPieces pieces, uint hash, int length, bool prepared, Span<byte> place, out long newBytes)
     {
         if (_buckets.IsFull(reserved: 0) && _buckets.BucketBits < IndexTable.MostBucketBits)
@@ -231,7 +232,13 @@ internal sealed class TextTable
 
         _buckets.Reserve(hash, others: 0);
 
-        var number = TakeSlot();
+        if (!TryTakeSlot(out var number))
+        {
+            newBytes = 0;
+
+            return false;
+        }
+
         var source = pieces.Source();
         bool stored;
 
@@ -323,26 +330,47 @@ internal sealed class TextTable
     // The slot of the entry whose first block is at the address, as its header names it.
     private uint SlotOf(ArenaAddress address) => _arena.Header(address).Root.Slot;
 
-    // A free slot, the last freed first, or one never given out, after doubling the array when every
-    // slot was. The new array is allocated before anything changes.
-    private uint TakeSlot()
+    // The length an array of slots of the length given grows to once every slot of it was given out:
+    // twice the length, 4 for an empty array, and at most the longest array of .NET (Array.MaxLength).
+    // False when no longer array can be had. A doubling past 2^30 slots does not fit an int, and the
+    // array is never cut short for it: a table that cannot grow refuses the entry (TryAdd). A limit of
+    // the structure, not an option (milestone contract, "Collections and strings").
+    public static bool TryGrowSlots(int length, out int grown)
+    {
+        grown = (int)Math.Min(Math.Max(4L, 2L * length), Array.MaxLength);
+
+        return grown > length;
+    }
+
+    // A free slot, the last freed first, or one never given out, after the array grew when every slot
+    // was (TryGrowSlots); false, with nothing changed, when it cannot grow. The new array is allocated
+    // before anything changes.
+    private bool TryTakeSlot(out uint number)
     {
         if (_freeSlots != 0)
         {
-            var free = _freeSlots - 1;
+            number = _freeSlots - 1;
+            _freeSlots = _slots[number].State;
+            _slots[number].State = 0;
 
-            _freeSlots = _slots[free].State;
-            _slots[free].State = 0;
-
-            return free;
+            return true;
         }
 
         if (_nextUnusedSlot == _slots.Length)
         {
-            Array.Resize(ref _slots, Math.Max(4, _slots.Length * 2));
+            if (!TryGrowSlots(_slots.Length, out var grown))
+            {
+                number = 0;
+
+                return false;
+            }
+
+            Array.Resize(ref _slots, grown);
         }
 
-        return (uint)_nextUnusedSlot++;
+        number = (uint)_nextUnusedSlot++;
+
+        return true;
     }
 
     // Gives back a slot TakeSlot gave and no entry took.
