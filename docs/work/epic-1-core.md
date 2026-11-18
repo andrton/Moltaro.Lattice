@@ -4854,6 +4854,96 @@ child stores received bytes through its own allocation.
   and as Dictionary.
 - **Out of scope.** Moving text during compaction (S23). Index keys (S14–S15).
 
+**Decided by the planner on 18 November 2026 after the study of S13.** Where a sentence
+above says otherwise, these replace it. The study read the source of Valkey
+(BSD-3-Clause, commit 3fc96b1), DuckDB (MIT, commit d12578e), ClickHouse (Apache-2.0,
+commit 75fcef2), Apache Arrow C++ (Apache-2.0, commit dd7dfc6) and the package `unique`
+of Go (BSD-3-Clause, commit 62495ed); no file is adapted from them. Taken as ideas:
+counts changed only by the one thread that may write, the reader taking none (Valkey); a
+table by content that holds no bytes and serves writes only (ClickHouse, Arrow, DuckDB);
+an entry at zero leaves the table at once and is never revived (Go). None of the five
+keeps a generation.
+
+1. **A root stores the relative address of the entry** for a Dictionary field, in the
+   descriptor of 16 bytes every String field has, with a kind of its own (Text) and the
+   length of the text. No handle and no address table: a Dictionary read pays what a read
+   of a Plain value stored out of line pays. The milestone contract is rewritten by this
+   sprint: "relative address or stable text handle (8)" becomes "relative address (8);
+   for a Dictionary field the address of the shared entry"; "Handles carry generations
+   and cannot be rebound…" becomes "An entry is freed only when the last block that
+   refers to it is freed, which is after the last protected reader that could reach it
+   has left; so a reference never resolves to other text. No generation is kept."; "Use
+   one dictionary gate initially. Moving shared bytes updates the stable entry" and
+   "shared-text movement remains possible through stable handles" become "Shared text is
+   not moved in this milestone unless S23 decides how."
+2. **The entry** is immutable memory of the arena that holds the exact stored bytes and
+   nothing else: one block up to 4 KiB, a directory with chunks above, by the placement
+   rule of a Plain value that does not lie inline. Its blocks are marked as shared text
+   and their header names the slot of the entry in the text table. No count and no hash
+   lie in the entry: a read reads nothing a write changes. An empty text stays inline
+   with length 0 and has no entry. A Dictionary text may be as long as a value may be.
+3. **The text table** is used by writes only, in managed memory, and no read touches it:
+   slots (address, references as Int64, hash, a flag or the link of the free list) and a
+   bucket table from hash to slot. The bucket table is the `IndexTable` of the primary
+   index, which moves with its companions to a folder below both users; it is not
+   written a second time. The hash is the engine's seeded hash over the stored bytes
+   with the seed of the instance. An entry is keyed by its exact bytes always: "North"
+   and "north" are two entries, and the comparison a field declares applies only where
+   text is compared.
+4. **One count for each entry, by one rule:** a block holds one reference for each Text
+   descriptor it contains, from the moment it is written until it is freed. The rule is
+   worded for any block, because S18 and S19 put descriptors into owned values and
+   collections, and an index entry of S14 and S15 holds its reference the same way. The
+   "separate counts of stored, prepared and index references" of 14 November are
+   replaced: the descriptors of a prepared block are the tally of what its write took. A
+   write that is withdrawn, cancelled or ended by a fault drops its references where its
+   blocks are freed.
+5. **No retirement of an entry on its own, and no generation.** A replaced or deleted
+   root is retired as today; when the drain frees it, its references go, and an entry
+   that reaches zero leaves the table and is freed in the same pass. So an entry is
+   freed after the last reference and the last protected reader are gone, because its
+   last referring block is freed only then. A later write of the same text makes a new
+   entry. "A handle is never rebound" is stated by a test: a read held across the replace
+   of the last referrer, then new texts of the same size class written, reads its text.
+6. **Where counts change (the P1 of this sprint).** A count is changed only by the thread
+   that holds the lock of the writes, on a master and on a child. That must be true of
+   every free of a block as well: the drain of retired memory, the release of a
+   withdrawn write, a close, a reader that helps a drain if one does. The implementer
+   says where each runs today; where one runs outside the lock, the change of the count
+   is made safe by the same lock. The place is stated in the code and by a test.
+7. **Memory.** The bytes of entries are bytes of the arena and counted as such; the rule
+   of a write refused for memory covers a new entry. The managed bytes of the text table
+   (slots and buckets) and the number of entries are reported by counters in this
+   sprint. Whether they are charged to the budget is S24, with the primary index; the
+   sentence of the option's documentation ("not counted yet") is not changed here.
+8. **A child.** Text travels as bytes with each root: for a Dictionary field a Text
+   descriptor with location 0 and its bytes out of line. The child checks that form and
+   builds its own entries through its own table with its own seed, for a copy of a load,
+   an effect of the stream and a forwarded write on the master alike. No transfer ids,
+   no state for a connection, the wire format unchanged. Measured for the reference
+   fixture, 100,000 users with one field of 16 texts of 9 bytes: 15.41 MB as bytes
+   against 14.51 MB with ids. If a load target is ever missed for a fixture heavy in
+   Dictionary fields, the first thing to try is keys sent once for a frame of 64 KiB
+   before the roots that use them, with state that lives for one frame; not built.
+9. **Acceptance, restated.** "Reference counts equal an independent tally after a churn
+   of writes and deletes": the tally counts the descriptors in live blocks, in blocks
+   retired and not yet freed, and in prepared blocks. "A child loads shared text once"
+   means once in its memory.
+10. **Measured, and what a finding is.** A read by key of an entity with a Dictionary
+    field against the same entity with a Plain field of the same length stored out of
+    line, at 1 and 16 threads: slower beyond noise is a finding. Against a Plain value
+    small enough to lie in the root the figure is reported, with the length at which the
+    two cross; "inline up to N bytes" is a lever and is not built. 16 readers beside a
+    writer that allocates in the size class of the entries (the metadata of a region on
+    lines the readers read): if it shows, it goes to the planner before a lever is chosen
+    (reading by segment base and offset, regions of their own for entries, short texts
+    inline). Added to the list of the brief: a read with 100,000 distinct texts, cold
+    entries; time and managed bytes for each write that hits, misses, replaces keeping
+    the text, deletes; the time of a drain whose roots hold references; on a child the
+    time to Ready, the bytes on the wire and the number of entries; memory for each
+    distinct entry at 16 and at 1,000,000 distinct texts, arena and table together,
+    against Plain; one repeated text of about 100 KB.
+
 #### S14 · Secondary indexes and exact search
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
@@ -5259,6 +5349,13 @@ during catch-up is recorded and must be resolved by a delete before R.
   generator out is a decision of the owner about the scope, not of this sprint.
 
 #### S23 · Compaction and shrink
+
+**Carried from S13, the first question of the study of this sprint:** a root names a
+shared text entry by its address, so the roots that name an entry cannot be found from
+the entry and it cannot be moved cheaply. Choose between leaving shared entries in place
+(Valkey never moves an object with more than one reference), regions of their own for
+entries, or an address table then — with the figure of what entries that are not moved
+cost G1 after churn.
 
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
