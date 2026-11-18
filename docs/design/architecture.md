@@ -3,9 +3,10 @@
 A schema-driven in-memory object database for .NET. Compact native storage,
 master-coordinated writes and local read replicas, with PostgreSQL durability.
 
-> **First production milestone · accepted design.** The public facade and a managed
-> placeholder exist today. The native, durable and distributed engine still needs
-> implementation and integrated release verification.
+> **First production milestone · accepted design.** The public facade exists and opens
+> the native engine, which today works in memory on a master and its children. The
+> durable and fully distributed engine still needs implementation and integrated release
+> verification; the [repository README](../../README.md) says what works today.
 
 <a id="purpose-and-boundaries"></a>
 <a id="physical-foundation-before-implementation"></a>

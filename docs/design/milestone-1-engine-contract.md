@@ -480,6 +480,19 @@ and load one new arena. Requests may wait at the bounded readiness gate, initial
 Child restart always starts empty. Missing same-history RAM tail or a new history
 requires full reload; ordinary master restart preserves history but may lose the tail.
 
+A child forwards a write as a request on its one connection: the root it validated and
+encoded, which the master checks as a child checks a root of a load, and executes. The
+reply of a forwarded write, a refusal as a success, is recorded before the write leaves
+the master's write path and reaches the child before the transaction of that write. A
+master that closes ends each connection in order: its recorded replies, what it holds
+for that child, one frame Closed, the end of its sending side; then it waits for the
+child to end its side, within a bound. Closed says that every request of the connection
+not answered before it was not executed and will not be: a child that receives it ends
+such a request in Unavailable. A connection that ends without Closed leaves a request
+that was sent whole and not answered with an indeterminate outcome; an end in order of
+the connection alone says nothing about execution (decided at the review of S12 of
+Epic 1, 18 November 2026).
+
 Save forwarded by a child returns only after its local application. Related requests
 carry an opaque minimum history/position; waits have a fixed target and finite timeout,
 not a moving master head. Explicit WaitForPosition is available; subsequent requests

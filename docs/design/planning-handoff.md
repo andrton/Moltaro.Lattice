@@ -17,7 +17,7 @@ not reasons to reopen settled product choices.
 
 1. [AGENTS.md](../../AGENTS.md) and the [development process](../work/process.md).
 2. The [repository README](../../README.md), current public types, samples and tests.
-   The runnable managed store is a placeholder, not the native engine.
+   The engine behind the facade is built in steps; the README says how far it is.
 3. The [milestone 1 engine contract](milestone-1-engine-contract.md), including its
    component ownership, physical layouts, limits, fixture and verification table.
 4. The [decision register](questions.md) and relevant [decision records](../decisions/README.md).
@@ -50,7 +50,7 @@ indexes, Unique indexes, collection support or atomic multi-type WriteBatch from
 accepted engine scope. Do not redesign that package in the core plan.
 The earlier consumer compatibility analysis is retained as historical rationale.
 
-Public facade signatures and placeholder behavior are evidence of what exists today;
+Public facade signatures and the behavior of the engine so far are evidence of what exists today;
 they do not override accepted features that have not reached the API yet. Plan explicit
 contract work for those gaps. Follow the repository's approval/review process for API
 changes, without reopening the already accepted behavior.
@@ -172,7 +172,7 @@ the accepted collections or add product dependencies during documentation work.
 Distinguish a technical sprint from a production milestone: a sprint may finish an
 isolated mechanism, while the milestone requires the integrated system and its gates.
 Plan contract additions and tests ahead of implementation, as the development process
-requires. Do not use temporary placeholder shortcuts as proof of engine completion.
+requires. Do not use temporary shortcuts as proof of engine completion.
 
 ## Deliverable for the planning agent
 

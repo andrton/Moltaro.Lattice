@@ -56,7 +56,7 @@ specification tests, become a check of the finished engine when Epic 2 runs.
 
 The state after the last closed sprint; the coordinator keeps it current.
 
-**In the contract and working in the placeholder.** Opening and closing; master and child;
+**In the contract and working.** Opening and closing; master and child;
 MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
 types, fields, indexes, enum types and owned types, scalar fields, enum and Flags types,
 text policies and the string encoding, owned values, Lists, Maps, Sets and references,
@@ -64,12 +64,13 @@ index parts that are paths into owned values; binary save and load with a digest
 fingerprints; the optional .NET class, bound by one table for every position, with a .NET
 enum that has to agree with its enum type. Records and owned values that hold nested
 values and copy what is set into them. Sets by class and by name, for
-entity types of scalar fields with the default text policies: read, enumerate, insert,
+entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
+and UTF-16: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
-**In the engine, not behind the contract yet.** Mechanisms of
-`Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
+**How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
+opens the engine; the placeholder is deleted. Mechanisms of `Moltaro.Lattice.Engine`: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
 with generations (S04); the root layout compiled from an entity type of scalar fields,
@@ -81,8 +82,7 @@ inserts, reads, replaces, upserts and deletes entities of scalar fields by prima
 by class and by name, with revisions, positions and sessions; layouts compiled at open;
 the lookup claim and the protection of a root, with no code of the application inside
 a gate; reads that allocate the returned copy and nothing else. The scenario tests of
-reads and writes run on it beside the placeholder, through an internal entry (exception
-X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
+reads and writes run on it (S06; through `LatticeDatabase` since S12). By the owner's decisions of 15 November 2026 an entity, a write
 batch and the queue of writes have no limit of their own, and the validation of the core
 refuses text that is not well-formed on both implementations. From S07 the engine
 stores every key type of the catalog — the eight integers, String with either
@@ -110,15 +110,22 @@ calls; a write is withdrawn by its token until it is dispatched; `MemoryLimit` i
 limit of the arena, and a write is refused for memory only when it does not fit beside
 the stored data; a fault of a publication leaves the instance `Faulted`. The close of a
 database is one operation that every later call joins; the token of an asynchronous read
-is honored in every wait of its step; a key is given by name without a box. The public
-entry keeps the refusals of the placeholder until S12. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
+is honored in every wait of its step; a key is given by name without a box. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
 connects over TCP, loads the schema and every entity with its revision, and becomes Ready;
 a frame carries a CRC32C and no address travels; `OpenTimeout` bounds reaching the master
 and the time without a frame. From S11 the master keeps writing while children
 load and follow: a child ends its load at a fixed position of the master and applies the
 master's changes in order, each whole, at the master's positions and revisions; the
 master releases a change when every child has applied it, and until S33 nothing bounds
-what it keeps for a child that falls behind.
+what it keeps for a child that falls behind. From S12 a child forwards its writes to its
+master on its one connection: the child validates and encodes the root, the master checks
+it as a child checks a root of a load and executes it, and the reply reaches the child
+before the transaction of that write; the call returns when the child has applied it. A
+master that closes ends its connections in order and says so with the frame `Closed`, so
+a write it did not execute ends in `Unavailable` and only a connection lost without that
+frame leaves a sent write `IndeterminateOutcome`. A wait for a position wakes only when a
+publication reaches it. A child that lost its master serves reads at its position and
+refuses writes; it does not connect again until S34.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -129,7 +136,7 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
-| Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
+| Storing a String with Dictionary storage | The declaration of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S13 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
@@ -138,7 +145,6 @@ and tests in the sprint named.
 | Feature | Sprint |
 | --- | --- |
 | The memory budget as an option, the budgets of a read as options that are not set by default; resource errors. An entity, a batch and the queue of writes have no limit of their own (decisions O18, O19 and O20) | S08, S09, S17, S24 |
-| A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
 | Protected read-only views | S21–S22 |
 | Operation identities, retained outcomes and safe retry | S26 |
@@ -323,6 +329,14 @@ documentation before this document is removed.
 | S11 | The tail of blocks of 1 MiB against one object and one array for each transaction (the trial that was kept) | allocation per write with a child 446 to 462 bytes against 165 to 182; one caller with one child 331 to 383 k/s against 382 to 437 k/s, write p99 14.6 to 15.9 µs against 9.0 to 12.3 µs, pause of the collector per 2 s 25 to 143 ms against 6.9 to 9.2 ms; 16 readers beside 16 callers with a child: writes 60 to 77 k/s against 127 to 150 k/s, reads 2.02 to 2.52 M/s against 2.51 to 2.98 M/s. Tried without gain and not kept: acknowledgments that do not release, a sender that spins before it waits, a larger gen0 budget. Not built: a pool of tail memory and encoding outside the lock (S33) | development-4 | 18 November 2026 |
 | S11 | One write of 32 MiB with a child following | p50 2.5 to 2.6 ms with no child, 27.6 to 34.8 ms with one; small writes beside large ones 3.7 to 17.9 k/s with no child and 293 to 592 a second with one, p99 42 to 101 ms: they wait while the large write is copied into the tail under the lock. The capture's copy of one root of 32 MiB inside the protection: median 10.4 to 14.9 ms. Carried to S33 | development-4 | 18 November 2026 |
 | S11 | One acknowledgment that releases a million transactions of 64 bytes, under the lock of the writes | 4.0 to 19.6 ms when every header was read, 0.03 to 0.46 ms with the release by whole blocks | development-4 | 18 November 2026 |
+| S12 | The mechanism that wakes waits for a position, before and after its replacement (waiters ordered by target, the lowest target published): the clock alone with 100 and 10,000 waiters; and a child with 10,000 waiters while 16 callers write to its master | alone: 0.95 to 2.1 million publications a second and 0.8 to 1.1 KB allocated per publication before, 175 to 177 million and nothing allocated after, at every count of waiters; on a child: the master wrote 373 to 394 k/s before and 668 to 706 k/s after, the collector paused 515 to 551 ms in 2 s before and 8 to 11 ms after; a read with a satisfied session on a child p50 0.5 to 0.6 µs both ways | development-4 | 18 November 2026 |
+| S12 | One small replace forwarded through a child, one caller, loopback; and its parts | p50 50 to 116 µs, p99 87 to 364 µs (the first round of a process is the slow one). Parts: the write on the master p50 0.7 to 1.3 µs; a round trip of 64 bytes on loopback p50 23 to 28 µs; from the end of the master's write to the end of the child's wait p50 25 to 59 µs. The gate of a write through a child is 50 ms | development-4 | 18 November 2026 |
+| S12 | 16 callers forwarding through one child; and the same beside 4 callers and 4 readers of the master | 50 to 78 k writes a second, p50 196 to 295 µs, p99 0.45 to 1.3 ms; beside the master's own load 15 to 28 k/s forwarded (p99 1.8 to 5.1 ms) while the master wrote 315 to 473 k/s and its reads kept p99 1.6 to 2.8 µs (1.4 to 1.7 µs with no forwarding) | development-4 | 18 November 2026 |
+| S12 | Reads by key on a child, 4 threads, beside 16 callers forwarding through it, the process at its cap of 10 processors | 3.6 to 5.6 million a second, p99 1.4 to 2.1 µs, against 4.9 to 8.4 million and 1.0 to 2.0 µs alone; no code of a read changed, the fall is the processors the callers take | development-4 | 18 November 2026 |
+| S12 | Small forwarded writes beside forwarded writes of 32 MiB through the same child (one connection) | p50 56 to 63 µs, p99 3.5 to 5.2 ms, longest 214 to 349 ms against 4.8 to 16 ms alone; an Applied of a master's write arrives up to 77 to 98 ms late. Carried to S33 with Q52 | development-4 | 18 November 2026 |
+| S12 | The close of a master and of a child with 16 callers forwarding | master: median 2.4 to 3.3 ms after the frame Closed (1.9 to 3.3 ms before it), longest 7.5 ms; child: median 1.7 to 3.1 ms, longest 18 ms | development-4 | 18 November 2026 |
+| S12 | Allocation per forwarded write | about 3.2 KB on the child and 1.1 KB on the master; not reduced in S12, a figure to return to when G3 is measured | development-4 | 18 November 2026 |
+| S12 | A master with no child against the commit before the implementation of S12, alternating rounds | no fall with 4 and 16 callers, readers, and readers beside writers; allocation per write unchanged (160 and 124 bytes); one caller: replace 1.39 to 1.52 M/s against 1.46 to 1.57 M/s, inside the spread between runs (the order of the runs changed the sign) | development-4 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -5339,6 +5353,9 @@ announces, bounded only by its memory limit, and each accepted connection holds 
 
 #### S27 · PostgreSQL provider and Durable open
 
+**Carried from S12:** with Durable, say whether a master can be behind a position a
+session holds, and what a forwarded write that names such a position then does.
+
 **Carried from S09, part 2:** the durable storage step is a log writer behind
 `CommitAsync`: the call hands the group over and returns; the commit to PostgreSQL runs
 behind its task. `CommitAsync` for the next group may be called on the thread that
@@ -5555,6 +5572,14 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Carried from S12:** a forwarded write of 32 MiB delays small forwarded writes of the
+same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
+connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
+master's close (X6) becomes the option that bounds a send to a child that does not read.
+Not tested, because nothing can fault the publication of a child: a faulted child ends a
+forwarded write that holds its reply in `SynchronizationTimeout` with its committed
+position; the test comes with the fault point of a child's publication.
+
 **Carried from S11:** the bound of the tail is decided here, with the figures of S11 in
 "Measured results". Not built in S11 and judged here: a pool of tail memory and encoding
 outside the lock of the writes (it needs the published root kept from being freed until
@@ -5604,6 +5629,13 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Carried from S12:** a forwarded write that waits for its reply waits without an end
+when its master vanishes without closing the connection (X6); the detection of a lost
+master ends it. Decide whether a wait for a position, and a forwarded write that holds
+its reply, continue across a reconnection instead of ending at once; the sentence of the
+contract "On a child that has lost its master or has faulted the wait ends at once" and
+the remark "Not implemented yet" on `Unavailable` (no reconnection) are rewritten here.
 
 **Carried from S11:** a child that stopped following — a malformed transaction, a change
 its arena cannot hold, the end of its connection — stays Ready at its position and does
