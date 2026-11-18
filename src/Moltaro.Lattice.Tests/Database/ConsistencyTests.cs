@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine;
+using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -342,6 +343,37 @@ public sealed class ConsistencyTests
 
         Assert.Equal(before, master.Position);
         Assert.Null(master.Users().Get(2));
+    }
+
+    // A write binds an empty session to the history of its database when it is admitted, before it is
+    // executed (LatticeSession; docs/decisions/session-consistency.md, points 4 and 7): another database
+    // then refuses the session, and the write, once committed, returns its result whatever happened to
+    // the session meanwhile. Through a child as on a master: the child is held back, so that its write is
+    // executed by the master and waits to be applied while the session is used elsewhere.
+    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    public async Task Write_through_a_child_binds_an_empty_session_so_that_another_database_refuses_it_and_the_write_returns_its_result()
+    {
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
+        await using var other = await TestData.OpenMasterAsync();
+        var session = new LatticeSession();
+        Task<LatticeWriteResult> throughTheChild;
+
+        using (Lagging(child))
+        {
+            throughTheChild = child.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" }, session).AsTask();
+            await MasterAndChild.EventuallyAsync(() => master.Set<User>().Get(1) is not null);
+
+            await TestData.ExpectErrorAsync(
+                LatticeErrorEnum.HistoryMismatch,
+                () => other.Set<User>().InsertAsync(new User { Id = 2, Name = "Grace" }, session));
+            Assert.Null(other.Set<User>().Get(2));
+        }
+
+        var written = await throughTheChild;
+
+        Assert.Equal(written.Position, session.MinPosition);
+        Assert.Equal("Ada", child.Set<User>().Get(1)?.Name);
     }
 
     [Fact]
