@@ -23,6 +23,12 @@ public sealed class PublishingLookTests
     // A Name of one MiB: four roots of it reach one segment long before the slots are reached.
     private const int LargeName = 1024 * 1024;
 
+    // The replaces of a Name of one MiB a held read keeps from being freed: 16 MiB.
+    private const int HeldReplaces = 16;
+
+    // The deletes of an absent key, which retire nothing, that a test is ready to make.
+    private const int AbsentDeletes = 2_000;
+
     // One segment of the arena, as the database opens it.
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
@@ -81,36 +87,84 @@ public sealed class PublishingLookTests
         Assert.True(fell, $"RetiredBytes never fell during {writes} replaces of roots of {root} bytes without a drain.");
     }
 
-    // What waits between two looks is bounded by the two thresholds beside what reads hold, until the next
-    // operation of the writer (docs/design/arena-protocol.md, "Deferred reclamation, 16 November 2026"):
-    // a look that a read kept from freeing leaves retired roots behind, and while any remain, a later
-    // published write of any kind looks again, also one that retires nothing. A read is held (HeldRead)
-    // while as many replaces as the epoch table has slots make a look; once it has left, the delete of a
-    // key that is absent, which retires nothing, frees all of them.
+    // What waits between two looks is bounded by the two thresholds (docs/design/arena-protocol.md,
+    // "Deferred reclamation, 16 November 2026"), beside what reads hold. A look that a read kept from
+    // freeing leaves retired roots behind, and they stay counted toward the next look; while anything
+    // retired waits, a published write that retires nothing counts as one thing retired. So once the read
+    // has left, the next look comes within one window of writes of any kind: as many as the epoch table has
+    // slots, or fewer when what is counted reaches one segment of bytes first. A read is held (HeldRead)
+    // while sixteen replaces of a piece with a Name of one MiB retire 16 MiB, whose looks free nothing; once
+    // it has left, deletes of a key that is absent, which retire nothing, free all of it within as many of
+    // them as the epoch table has slots, of the 2,000 the test is ready to make.
     [Fact]
-    public async Task Roots_a_held_read_kept_from_a_look_are_freed_by_the_next_write_after_it_left_also_one_that_retires_nothing()
+    public async Task Memory_a_held_read_kept_from_looks_is_freed_within_one_window_of_writes_after_it_left_also_when_they_retire_nothing()
+    {
+        var slots = new ReadEpochs(new object()).SlotCount;
+
+        await using var database = await PieceSchema.OpenAsync();
+        var pieces = database.Set<PieceSchema.Piece>();
+        await pieces.InsertAsync(PieceSchema.Of(1, name: LargeName));
+        await pieces.InsertAsync(PieceSchema.Of(2, name: 8));
+        database.DrainRetired();
+
+        using var held = await HeldRead.StartAsync(database, () => pieces.Get(2L)?.Count);
+
+        for (var write = 1; write <= HeldReplaces; write++)
+        {
+            await pieces.ReplaceAsync(PieceSchema.Of(1, name: LargeName));
+        }
+
+        Assert.True(database.Counters.Arena.RetiredBytes >= (long)HeldReplaces * LargeName, "The looks the replaces made freed what a held read could reach.");
+        await held.ReleaseAsync();
+
+        var deletes = 0;
+
+        while (database.Counters.Arena.RetiredBytes > 0 && deletes < AbsentDeletes)
+        {
+            Assert.False((await pieces.DeleteAsync(404L)).Changed);
+            deletes++;
+        }
+
+        Assert.True(
+            database.Counters.Arena.RetiredBytes == 0 && deletes <= slots,
+            $"After {deletes} deletes of an absent key the arena holds {database.Counters.Arena.RetiredBytes} retired bytes; one window of writes is {slots} of them.");
+    }
+
+    // With nothing retired waiting, a write that retires nothing counts nothing toward the next look, so a
+    // run of such writes does not bring it forward: 2,000 deletes of a key that is absent, and then replaces
+    // of one root, free nothing until the replaces have filled one window of retirements — as many as the
+    // epoch table has slots, or fewer when their bytes reach one segment first — and the look that window
+    // brings, with no read in progress, frees everything. No member shows a look itself; a look with no read
+    // in progress shows by what it frees.
+    [Fact]
+    public async Task Writes_that_retire_nothing_while_nothing_retired_waits_do_not_bring_the_next_look_forward()
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
         await using var database = await StampSchema.OpenAsync();
         var stamps = database.Set<StampSchema.Stamp>();
         await stamps.InsertAsync(StampSchema.StampOf(1, Numbers));
-        await stamps.InsertAsync(StampSchema.StampOf(2, Numbers));
         database.DrainRetired();
+        var root = HeldBytes(database);
 
-        using var held = await HeldRead.StartAsync(database, () => StampSchema.NumberOf(2, stamps.Get(2L)));
-
-        for (var write = 1; write <= slots; write++)
+        for (var write = 0; write < AbsentDeletes; write++)
         {
-            await stamps.ReplaceAsync(StampSchema.StampOf(1, Numbers + write));
+            Assert.False((await stamps.DeleteAsync(404L)).Changed);
         }
 
-        Assert.True(database.Counters.Arena.RetiredBytes > 0, "The look the replaces made freed what a held read could reach.");
-        Assert.Equal(Numbers, await held.ReleaseAsync());
+        var window = (int)Math.Min(slots, (Segment + root - 1) / root);
 
-        var nothingDeleted = await stamps.DeleteAsync(404L);
+        for (var write = 1; write < window; write++)
+        {
+            await stamps.ReplaceAsync(StampSchema.StampOf(1, Numbers + write));
 
-        Assert.False(nothingDeleted.Changed);
+            Assert.True(
+                database.Counters.Arena.RetiredBytes == write * root,
+                $"After {AbsentDeletes} deletes of an absent key and {write} replaces the arena holds {database.Counters.Arena.RetiredBytes} retired bytes, not the {write * root} the replaces retired: a look came before a window of {window} retirements.");
+        }
+
+        await stamps.ReplaceAsync(StampSchema.StampOf(1, Numbers + window));
+
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
     }
 
