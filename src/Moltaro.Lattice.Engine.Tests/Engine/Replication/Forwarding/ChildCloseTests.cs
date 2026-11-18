@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   application (EngineDatabase.SuspendApplying) and forwards an entity of 32 MiB; once a relay
 //   (FrameRelay) has passed the last frame of its transaction, the child has read nearly all of it, far
 //   more than the buffers of a connection hold, and with it the reply, which comes before the transaction
-//   (ReplyBeforeTransactionTests).
+//   (ReplyBeforeTransactionTests). The child waits for the application of a write beyond the bound
+//   (ReplicationNodes.ChildWaitingBeyondTheBound), so that the write cannot end by its time while the
+//   relay passes the transaction, however long that takes.
 // - A write sent whole whose reply has not arrived ends in IndeterminateOutcome. The storage step of the
 //   master holds it (HeldCommitStorage), so the master has received it whole and does not answer; the
 //   close of the child completes meanwhile.
@@ -30,7 +32,7 @@ public sealed class ChildCloseTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var relay = FrameRelay.Start(master.ListenUri!);
-        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(relay.Address), new EngineTestInputs());
         using var suspension = child.SuspendApplying();
 
         var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8, data: ThirtyTwoMebibytes)).AsTask();

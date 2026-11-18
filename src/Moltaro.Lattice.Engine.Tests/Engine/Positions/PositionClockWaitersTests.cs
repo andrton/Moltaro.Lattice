@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Moltaro.Lattice.Engine.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
@@ -107,51 +109,69 @@ public sealed class PositionClockWaitersTests
 
     // The same rule while a wait races a publication and the loss that follows it, on two threads, round
     // after round on a clock of its own: the wait either finds the position published or waits and is
-    // woken after it, and is never told that the master was lost. A race shows itself rarely, about once
-    // in 200,000 waits before the fix, so the test is a guard of the order of the reads of a wait more than
-    // a proof. The two threads are threads of their own (OwnThread), and the test awaits them rather than
-    // holding a thread of the pool for the rounds.
+    // woken after it, and is never told that the master was lost. A wrong order of the reads of a wait
+    // shows itself rarely, about once in 200,000 waits, so the test is a guard of that order more than a
+    // proof; the two orders that can be made deterministic are stated by the tests above. Each round hands
+    // over between the two threads, which costs what the scheduler of the machine gives, so the test races
+    // for as many rounds as fit a budget of time, at most MostRounds, instead of a number of rounds that a
+    // loaded machine may not finish within the bound. The barrier decides, once for both threads and
+    // between two rounds, whether there is another round and gives its clock (the action after each of its
+    // phases); both read that after they pass it. A loop that throws leaves the barrier, so that the other
+    // one ends at its next pass instead of waiting for ever, and its exception is what the test reports.
+    // The two threads are threads of their own (OwnThread), and the test awaits them rather than holding a
+    // thread of the pool for the rounds.
     [Fact]
     public async Task Wait_that_races_a_publication_and_the_loss_after_it_is_never_told_the_master_was_lost()
     {
-        const int Rounds = 50_000;
-        var clocks = Enumerable.Range(0, Rounds).Select(_ => new PositionClock(History, this)).ToArray();
-        using var barrier = new Barrier(2);
+        const int MostRounds = 50_000;
+        var budget = TimeSpan.FromSeconds(2);
+        var racing = Stopwatch.StartNew();
         var waiting = new ConcurrentQueue<Task>();
+        var rounds = 0;
         var lost = 0;
+        var ended = false;
+        PositionClock? clock = null;
+        Exception? failure = null;
 
-        var losing = OwnThread.Run(() =>
+        using var barrier = new Barrier(2, _ =>
         {
-            foreach (var clock in clocks)
+            ended = Volatile.Read(ref failure) is not null || rounds == MostRounds || racing.Elapsed >= budget;
+
+            if (!ended)
             {
-                barrier.SignalAndWait();
-                clock.Publish(1);
-                clock.Lose();
+                clock = new PositionClock(History, this);
+                rounds++;
             }
         });
-        var waiter = OwnThread.Run(() =>
+
+        var losing = OwnThread.Run(() => Race(() =>
         {
-            foreach (var clock in clocks)
+            clock!.Publish(1);
+            clock.Lose();
+        }));
+        var waiter = OwnThread.Run(() => Race(() =>
+        {
+            try
             {
-                barrier.SignalAndWait();
+                var wait = clock!.WaitAsync(clock.At(1), Hour, CancellationToken.None);
 
-                try
+                if (!wait.IsCompletedSuccessfully)
                 {
-                    var wait = clock.WaitAsync(clock.At(1), Hour, CancellationToken.None);
-
-                    if (!wait.IsCompletedSuccessfully)
-                    {
-                        waiting.Enqueue(wait.AsTask());
-                    }
-                }
-                catch (LatticeException)
-                {
-                    Interlocked.Increment(ref lost);
+                    waiting.Enqueue(wait.AsTask());
                 }
             }
-        });
+            catch (LatticeException)
+            {
+                Interlocked.Increment(ref lost);
+            }
+        }));
 
         await Task.WhenAll(losing, waiter).WaitAsync(Bound);
+
+        if (failure is not null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
 
         foreach (var wait in waiting)
         {
@@ -161,6 +181,31 @@ public sealed class PositionClockWaitersTests
             }
         }
 
-        Assert.Equal(0, lost);
+        Assert.True(rounds > 0, "The threads raced no round.");
+        Assert.True(lost == 0, $"{lost} of {rounds} waits were told the master was lost.");
+
+        // One side of the race: every round after the barrier lets it pass, until the barrier ends the race.
+        void Race(Action round)
+        {
+            try
+            {
+                while (true)
+                {
+                    barrier.SignalAndWait();
+
+                    if (Volatile.Read(ref ended))
+                    {
+                        return;
+                    }
+
+                    round();
+                }
+            }
+            catch (Exception exception)
+            {
+                Interlocked.CompareExchange(ref failure, exception, null);
+                barrier.RemoveParticipant();
+            }
+        }
     }
 }

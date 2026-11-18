@@ -128,15 +128,7 @@ public sealed class LostConnectionTests
             Volatile.Write(ref dropsTheNextTransaction, false);
             return [];
         });
-        await using var child = await ReplicationNodes.OpenChildAsync(
-            new LatticeDatabaseOptions
-            {
-                Role = LatticeRoleEnum.Child,
-                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-                MasterUri = relay.Address,
-                SynchronizationTimeout = TimeSpan.FromHours(1),
-            },
-            new EngineTestInputs());
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(relay.Address), new EngineTestInputs());
 
         Volatile.Write(ref dropsTheNextTransaction, true);
         var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();

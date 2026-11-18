@@ -27,7 +27,7 @@ public sealed class MasterCloseTests
 
         try
         {
-            await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+            await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(master.ListenUri!), new EngineTestInputs());
 
             storage.Hold();
             var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
@@ -62,7 +62,7 @@ public sealed class MasterCloseTests
 
         try
         {
-            await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+            await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(master.ListenUri!), new EngineTestInputs());
             var pieces = child.Set<PieceSchema.Piece>();
 
             storage.Hold();
@@ -107,7 +107,7 @@ public sealed class MasterCloseTests
 
             try
             {
-                await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+                await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(master.ListenUri!), new EngineTestInputs());
                 var pieces = child.Set<PieceSchema.Piece>();
 
                 storage.Hold();
@@ -146,7 +146,7 @@ public sealed class MasterCloseTests
 
         try
         {
-            await using var child = await ReplicationNodes.OpenChildAsync(ChildWaitingAnHour(master), new EngineTestInputs());
+            await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(master.ListenUri!), new EngineTestInputs());
             Task<LatticeWriteResult> late;
             Task closing;
 
@@ -169,13 +169,4 @@ public sealed class MasterCloseTests
             await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
         }
     }
-
-    // A child of the master that waits up to an hour for a write it forwarded to be applied.
-    private static LatticeDatabaseOptions ChildWaitingAnHour(EngineDatabase master) => new()
-    {
-        Role = LatticeRoleEnum.Child,
-        PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-        MasterUri = master.ListenUri,
-        SynchronizationTimeout = TimeSpan.FromHours(1),
-    };
 }

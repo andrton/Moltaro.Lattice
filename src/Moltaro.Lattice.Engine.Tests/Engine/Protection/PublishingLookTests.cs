@@ -23,8 +23,9 @@ public sealed class PublishingLookTests
     // A Name of one MiB: four roots of it reach one segment long before the slots are reached.
     private const int LargeName = 1024 * 1024;
 
-    // The replaces of a Name of one MiB a held read keeps from being freed: 16 MiB.
-    private const int HeldReplaces = 16;
+    // The replaces a held read keeps from being freed, each of a Name as long as one segment: 16 MiB with
+    // the segment of 4 MiB the database opens with.
+    private const int HeldReplaces = 4;
 
     // The deletes of an absent key, which retire nothing, that a test is ready to make.
     private const int AbsentDeletes = 2_000;
@@ -88,22 +89,26 @@ public sealed class PublishingLookTests
     }
 
     // What waits between two looks is bounded by the two thresholds (docs/design/arena-protocol.md,
-    // "Deferred reclamation, 16 November 2026"), beside what reads hold. A look that a read kept from
-    // freeing leaves retired roots behind, and they stay counted toward the next look; while anything
-    // retired waits, a published write that retires nothing counts as one thing retired. So once the read
-    // has left, the next look comes within one window of writes of any kind: as many as the epoch table has
-    // slots, or fewer when what is counted reaches one segment of bytes first. A read is held (HeldRead)
-    // while sixteen replaces of a piece with a Name of one MiB retire 16 MiB, whose looks free nothing; once
-    // it has left, deletes of a key that is absent, which retire nothing, free all of it within as many of
-    // them as the epoch table has slots, of the 2,000 the test is ready to make.
+    // "Deferred reclamation, 16 November 2026"), beside what reads hold. What a look leaves behind, because
+    // a read still holds it, stays retired and is freed by a later look; the count toward the next look
+    // starts at the look, and while anything retired waits, a published write that retires nothing counts
+    // as one item. So the next look comes one window of writes of any kind after the last: as many as the
+    // epoch table has slots, or fewer when the bytes retired reach one segment first. A read is held
+    // (HeldRead) while four replaces of a piece with a Name of one segment's length retire 16 MiB: each
+    // retires a segment of bytes or more, so each ends in a look, which frees nothing. Once the read has left, deletes of a
+    // key that is absent, which retire nothing, count one item each: a window holds more than one item, so
+    // the first delete frees nothing, and the look within the window, as many deletes as the epoch table
+    // has slots, frees everything, of the 2,000 the test is ready to make.
     [Fact]
     public async Task Memory_a_held_read_kept_from_looks_is_freed_within_one_window_of_writes_after_it_left_also_when_they_retire_nothing()
     {
         var slots = new ReadEpochs(new object()).SlotCount;
 
+        Assert.True(slots > 1, $"The epoch table has {slots} slot, so a window of writes is one write.");
+
         await using var database = await PieceSchema.OpenAsync();
         var pieces = database.Set<PieceSchema.Piece>();
-        await pieces.InsertAsync(PieceSchema.Of(1, name: LargeName));
+        await pieces.InsertAsync(PieceSchema.Of(1, name: Segment));
         await pieces.InsertAsync(PieceSchema.Of(2, name: 8));
         database.DrainRetired();
 
@@ -111,13 +116,16 @@ public sealed class PublishingLookTests
 
         for (var write = 1; write <= HeldReplaces; write++)
         {
-            await pieces.ReplaceAsync(PieceSchema.Of(1, name: LargeName));
+            await pieces.ReplaceAsync(PieceSchema.Of(1, name: Segment));
         }
 
-        Assert.True(database.Counters.Arena.RetiredBytes >= (long)HeldReplaces * LargeName, "The looks the replaces made freed what a held read could reach.");
+        Assert.True(database.Counters.Arena.RetiredBytes >= (long)HeldReplaces * Segment, "The looks the replaces made freed what a held read could reach.");
         await held.ReleaseAsync();
 
-        var deletes = 0;
+        Assert.False((await pieces.DeleteAsync(404L)).Changed);
+        Assert.True(database.Counters.Arena.RetiredBytes > 0, "The first delete after the read left made a look: a write looked before its window was full.");
+
+        var deletes = 1;
 
         while (database.Counters.Arena.RetiredBytes > 0 && deletes < AbsentDeletes)
         {
