@@ -227,6 +227,9 @@ internal sealed class ReceivedChanges
     // this thread.
     public void Publish(ulong? position)
     {
+        // Whether a replace or a delete retires what it replaced or deleted.
+        var retires = false;
+
         try
         {
             for (var index = 0; index < _prepared.Count; index++)
@@ -260,10 +263,12 @@ internal sealed class ReceivedChanges
                 {
                     case ChangeKindEnum.Replace:
                         _executor.StampReceivedReplace(change.Table, change.Handle, change.Replaced, change.Sequence);
+                        retires = true;
                         break;
 
                     case ChangeKindEnum.Delete:
                         _executor.StampReceivedDelete(change.Table, change.Key, change.Handle, change.Sequence);
+                        retires = true;
                         break;
                 }
             }
@@ -279,7 +284,7 @@ internal sealed class ReceivedChanges
         SkippedStates += _skipped.Count;
         _skipped.Clear();
         _prepared.Clear();
-        _executor.AfterReceived();
+        _executor.AfterReceived(retiredNothing: !retires);
     }
 
     // Under the lock of the writes: gives back everything the changes prepared since the last Publish
