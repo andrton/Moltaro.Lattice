@@ -109,7 +109,7 @@ internal sealed class RequestReceiver
         var reader = new SequenceReader<byte>(body);
         var request = ForwardEncoding.ReadRequestHead(ref reader);
 
-        if (!_writes.TryGetTable(request.TypeId, out var table))
+        if (!_writes.Tables.TryGetStored(request.TypeId, out var table))
         {
             throw Invalid($"A forwarded write names the entity type {request.TypeId}, which the master does not store.");
         }

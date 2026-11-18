@@ -206,6 +206,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // On a child: where its writes go, to its master (Forwarding.Forwarder); null on a master.
     private Forwarder? _forwarder;
 
+    private EntityTables? _tables;
+
     private Dictionary<LatticeEntityType, SetOperations>? _operations;
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
@@ -775,6 +777,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             _executor = null;
             _delivery = null;
             _forwarder = null;
+            _tables = null;
             _operations = null;
             _recordSets = null;
             _classSets = null;
@@ -825,9 +828,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 // A new identity of the database at every open, for the same reason; its children are
                 // told it in the handshake (the planner's block of 15 November 2026, "Identity").
                 var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
-                var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
-                var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, tables, hello, SchemaTransfer.Saved(schema));
-                var forwarded = new ForwardedWrites(_coordinator!, tables, _arena!, schema);
+                var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, _tables!, hello, SchemaTransfer.Saved(schema));
+                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!, schema);
                 var listener = Listen(listenUri, capture, forwarded);
 
                 lock (_stateLock)
@@ -930,10 +932,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
             Build(schema, master.Master.History, child: true);
 
-            var tables = schema.EntityTypes.Select(entityType => _operations![entityType].Table).ToArray();
+            var tables = _tables!;
             var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, _epochs.Fault);
 
-            PresizeIndexes(tables, counts, memoryLimit);
+            PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
             var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, Fault, tables), memoryLimit, token).ConfigureAwait(false);
 
@@ -976,11 +978,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // decision of 17 November 2026 after the study of S10, point 6). A count of roots of a type the
     // engine does not store is not valid; counts that need more than the memory limit, each root at
     // least one block of its fixed part, cannot be held, and the open ends with Unavailable.
-    private void PresizeIndexes(EntityTable[] tables, long[] counts, long memoryLimit)
+    private void PresizeIndexes(IReadOnlyList<EntityTable> tables, long[] counts, long memoryLimit)
     {
         var least = 0.0;
 
-        for (var index = 0; index < tables.Length; index++)
+        for (var index = 0; index < tables.Count; index++)
         {
             if (counts[index] == 0)
             {
@@ -1002,7 +1004,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         lock (_writes!)
         {
-            for (var index = 0; index < tables.Length; index++)
+            for (var index = 0; index < tables.Count; index++)
             {
                 if (counts[index] > 0)
                 {
@@ -1076,6 +1078,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _options.SynchronizationTimeout,
                 Fault);
             var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
+            var inSchemaOrder = new List<EntityTable>();
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
@@ -1084,9 +1087,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed);
                 var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
 
+                inSchemaOrder.Add(table);
                 operations.Add(entityType, forType);
                 recordSets.Add(entityType, new RecordSet(forType));
             }
+
+            var tables = new EntityTables([.. inSchemaOrder]);
 
             lock (_stateLock)
             {
@@ -1105,6 +1111,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _executor = executor;
                 _delivery = delivery;
                 _forwarder = forwarder;
+                _tables = tables;
                 _operations = operations;
                 _recordSets = recordSets;
             }

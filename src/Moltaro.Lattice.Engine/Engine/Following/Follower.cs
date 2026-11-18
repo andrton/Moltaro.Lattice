@@ -115,8 +115,7 @@ internal sealed class Follower
 
     private readonly TimeSpan _openTimeout;
 
-    // The tables of the entity types of the schema, by the identity of their entity type.
-    private readonly Dictionary<uint, EntityTable> _byTypeId;
+    private readonly EntityTables _tables;
 
     // Guards the count of the suspensions and the task their end completes.
     private readonly Lock _suspensions = new();
@@ -129,7 +128,7 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, EntityTables tables, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
@@ -143,7 +142,7 @@ internal sealed class Follower
         _fault = fault;
         _assembler = new TransactionAssembler(memoryLimit);
         _openTimeout = openTimeout;
-        _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
+        _tables = tables;
     }
 
     // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
@@ -480,7 +479,7 @@ internal sealed class Follower
 
     // The table of an entity type the engine stores.
     private EntityTable TableOf(uint typeId, ulong sequence) =>
-        _byTypeId.TryGetValue(typeId, out var table) && table.Layout is not null
+        _tables.TryGetStored(typeId, out var table)
             ? table
             : throw Invalid($"The transaction {sequence} names the entity type {typeId}, which the schema of the child does not store.");
 }

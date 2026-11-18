@@ -48,22 +48,21 @@ internal sealed class RootPlacement
     // Faults the instance, after the lock, when a publication failed between its stores.
     private readonly Action _fault;
 
-    // The tables of the entity types of the schema, by the identity of their entity type.
-    private readonly Dictionary<uint, EntityTable> _byTypeId;
+    private readonly EntityTables _tables;
 
     // The roots received, and the latest of their last mutations.
     private ulong _received;
 
     private ulong _latest;
 
-    public RootPlacement(Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables)
+    public RootPlacement(Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, EntityTables tables)
     {
         _writes = writes;
         _executor = executor;
         _barrier = barrier;
         _changes = changes;
         _fault = fault;
-        _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
+        _tables = tables;
     }
 
     // Places and publishes the root whose bytes are given: the bytes after its length, as
@@ -77,7 +76,7 @@ internal sealed class RootPlacement
             throw Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
         }
 
-        if (!_byTypeId.TryGetValue((uint)typeId, out var table) || table.Layout is not { } layout)
+        if (!_tables.TryGetStored((uint)typeId, out var table) || table.Layout is not { } layout)
         {
             throw Invalid($"A root names the entity type {(uint)typeId}, which the schema of the child does not store.");
         }

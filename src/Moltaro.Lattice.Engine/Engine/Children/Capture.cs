@@ -53,11 +53,7 @@ internal sealed class Capture
 
     private readonly Lock _writes;
 
-    // The tables of the entity types the engine stores, by the identity of their entity type, and every
-    // table in the order of the schema.
-    private readonly Dictionary<uint, EntityTable> _byTypeId;
-
-    private readonly EntityTable[] _inSchemaOrder;
+    private readonly EntityTables _tables;
 
     public Capture(
         Arena arena,
@@ -66,7 +62,7 @@ internal sealed class Capture
         PositionClock clock,
         Lock writes,
         DeliveryTail tail,
-        EntityTable[] inSchemaOrder,
+        EntityTables tables,
         HelloBody hello,
         byte[] savedSchema)
     {
@@ -76,8 +72,7 @@ internal sealed class Capture
         _clock = clock;
         _writes = writes;
         Tail = tail;
-        _inSchemaOrder = inSchemaOrder;
-        _byTypeId = inSchemaOrder.Where(table => table.Layout is not null).ToDictionary(table => (uint)table.EntityType.Id);
+        _tables = tables;
         Hello = hello;
         SavedSchema = savedSchema;
     }
@@ -105,7 +100,7 @@ internal sealed class Capture
 
             var start = _clock.Sequence;
 
-            return new CaptureStart(start, _roots.SlotExtent, [.. _inSchemaOrder.Select(table => (long)table.Count)], Tail.Subscribe(start));
+            return new CaptureStart(start, _roots.SlotExtent, [.. _tables.InSchemaOrder.Select(table => (long)table.Count)], Tail.Subscribe(start));
         }
     }
 
@@ -136,7 +131,7 @@ internal sealed class Capture
             BinaryPrimitives.WriteUInt64LittleEndian(envelope[sizeof(uint)..], lastMutation);
             buffer.Advance(sizeof(uint) + sizeof(ulong));
 
-            BlockExport.Write(buffer, _arena, _byTypeId[typeId].Layout!, root);
+            BlockExport.Write(buffer, _arena, _tables.Stored(typeId).Layout!, root);
 
             return true;
         }
