@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // Puts forwarded writes or replies together from their frames, one message at a time (brief of Epic 1,
 // sprint S12, the planner's decision after the study, points 3, 6 and 13): the frames of one message
 // come one after another, the first beginning with the announced length of its body (OutgoingMessage),
-// every frame of it with the same correlation id, the last one marked (Protocol.EndsARoot) and no other.
+// every frame of it with the same correlation id, the last one marked (Protocol.EndsABody) and no other.
 //
 // What it checks of a frame, before any of it is used:
 // - While no message is in progress, the frame begins one: at least the announced length, then no more
@@ -76,9 +76,9 @@ internal sealed class MessageAssembler
 
         var complete = (ulong)held.Length == announced;
 
-        if (complete != frame.EndsARoot)
+        if (complete != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Invalid(frame.EndsABody
                 ? $"A {frame.Kind} message announces {announced} bytes, and its last frame ends after {held.Length}."
                 : $"A {frame.Kind} message is complete in its first frame, which is not marked as its end.");
         }
@@ -139,9 +139,9 @@ internal sealed class MessageAssembler
 
         _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsARoot)
+        if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Invalid(frame.EndsABody
                 ? $"A {frame.Kind} frame is marked as the end of the message {_correlationId}, which announces {_remaining} more bytes."
                 : $"A {frame.Kind} frame completes the message {_correlationId} and is not marked as its end.");
         }

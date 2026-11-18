@@ -99,7 +99,7 @@ public sealed class AppliedTests
         var first = await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.Transaction);
 
         Assert.Equal(written, TransactionPayload.SequenceOf(first[^1]));
-        Assert.False(first[^1].EndsARoot, "The transaction of 16 MiB arrived in one frame.");
+        Assert.False(first[^1].EndsABody, "The transaction of 16 MiB arrived in one frame.");
 
         await child.SendAppliedAsync(written);
 

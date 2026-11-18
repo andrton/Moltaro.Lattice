@@ -100,7 +100,7 @@ public sealed class MalformedTransactionTests
             if (damage == LastFrameTooLong)
             {
                 // The first frame that ends a transaction ends the transaction of several frames.
-                if (!frame.EndsARoot || lastFrameDamaged)
+                if (!frame.EndsABody || lastFrameDamaged)
                 {
                     return [frame];
                 }

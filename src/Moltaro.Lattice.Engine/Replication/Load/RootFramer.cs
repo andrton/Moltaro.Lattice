@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Replication.Load;
 // RootAssembler reads on the child:
 // - A frame of whole roots: their count, a UInt32, then for each root its length, a UInt64, and its
 //   bytes: the type id and the last mutation sequence of the capture, then what BlockExport writes.
-//   Every root ends in the frame, so the frame carries Protocol.EndsARoot. Small roots share a frame:
+//   Every root ends in the frame, so the frame carries Protocol.EndsABody. Small roots share a frame:
 //   a root goes into the frame being filled while it fits there.
 // - A root that does not fit an empty frame travels in frames of its own: the first holds the count 1,
 //   the length of the root and its first bytes, without the flag; each next frame holds only its next
@@ -83,7 +83,7 @@ internal sealed class RootFramer
         }
 
         BinaryPrimitives.WriteUInt32LittleEndian(_payload, _count);
-        _connection.Add(FrameKindEnum.Blocks, Protocol.EndsARoot, _payload.AsSpan(0, _used));
+        _connection.Add(FrameKindEnum.Blocks, Protocol.EndsABody, _payload.AsSpan(0, _used));
         _count = 0;
         _used = 0;
 
@@ -109,7 +109,7 @@ internal sealed class RootFramer
 
             bytes.Slice(0, part).CopyTo(_payload);
             bytes = bytes.Slice(part);
-            _connection.Add(FrameKindEnum.Blocks, bytes.Length == 0 ? Protocol.EndsARoot : 0, _payload.AsSpan(0, part));
+            _connection.Add(FrameKindEnum.Blocks, bytes.Length == 0 ? Protocol.EndsABody : 0, _payload.AsSpan(0, part));
             await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
         }
     }

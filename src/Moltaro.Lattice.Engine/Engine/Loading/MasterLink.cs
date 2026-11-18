@@ -153,7 +153,7 @@ internal sealed class MasterLink : IDisposable
 
             bytes.Write(frame.Payload.Span);
 
-            if (frame.EndsARoot)
+            if (frame.EndsABody)
             {
                 return SchemaTransfer.Read(bytes.Sequence);
             }
@@ -220,7 +220,7 @@ internal sealed class MasterLink : IDisposable
 
     // The same, for one frame of a forwarded write, the last one marked.
     public void AddRequest(ulong correlationId, bool last, ReadOnlySpan<byte> payload) =>
-        _connection.Add(FrameKindEnum.WriteRequest, last ? Protocol.EndsARoot : 0, correlationId, payload);
+        _connection.Add(FrameKindEnum.WriteRequest, last ? Protocol.EndsABody : 0, correlationId, payload);
 
     // Sends the frames added. The send waits until the master has taken the bytes, which it does as long
     // as it serves the child; the token ends the wait, and so does the end of the connection.

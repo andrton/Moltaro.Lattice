@@ -89,7 +89,7 @@ public sealed class NotReadyTests
                 return [passed];
             }
 
-            var unchanged = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsARoot, correlationId: 0, frame.StreamSequence, TransactionPayload.Make(readiness, [TransactionPayload.Unchanged]));
+            var unchanged = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsABody, correlationId: 0, frame.StreamSequence, TransactionPayload.Make(readiness, [TransactionPayload.Unchanged]));
 
             added = 1;
 

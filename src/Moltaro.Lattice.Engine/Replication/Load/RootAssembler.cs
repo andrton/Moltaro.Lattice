@@ -101,7 +101,7 @@ internal sealed class RootAssembler
                 continue;
             }
 
-            if (count != 1 || frame.EndsARoot)
+            if (count != 1 || frame.EndsABody)
             {
                 throw Invalid($"A Blocks frame ends {length - available} bytes before the end of a root it announces.");
             }
@@ -118,7 +118,7 @@ internal sealed class RootAssembler
             throw Invalid($"A Blocks frame holds {payload.Length - offset} bytes after the {count} roots it announces.");
         }
 
-        if (!frame.EndsARoot)
+        if (!frame.EndsABody)
         {
             throw Invalid("A Blocks frame whose roots all end in it is not marked as their end.");
         }
@@ -139,9 +139,9 @@ internal sealed class RootAssembler
         _large.Write(payload);
         _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsARoot)
+        if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Invalid(frame.EndsABody
                 ? $"A Blocks frame is marked as the end of a root that announces {_remaining} more bytes."
                 : "A Blocks frame completes a root and is not marked as its end.");
         }

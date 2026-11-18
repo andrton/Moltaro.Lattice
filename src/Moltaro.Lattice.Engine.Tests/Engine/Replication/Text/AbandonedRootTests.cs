@@ -49,7 +49,7 @@ public sealed class AbandonedRootTests
 
             if (first is null)
             {
-                Assert.True(frame.EndsARoot, "The first transaction of the test takes more than one frame.");
+                Assert.True(frame.EndsABody, "The first transaction of the test takes more than one frame.");
                 first = frame;
 
                 return [];
@@ -144,7 +144,7 @@ public sealed class AbandonedRootTests
 
         return
         [
-            WireFrame.Make(FrameKindEnum.Transaction, first.Flags & ~WireFrame.EndsARootFlag, first.CorrelationId, first.StreamSequence, opening),
+            WireFrame.Make(FrameKindEnum.Transaction, first.Flags & ~WireFrame.EndsABodyFlag, first.CorrelationId, first.StreamSequence, opening),
             second.WithPayload(rest),
         ];
     }

@@ -19,7 +19,7 @@ internal struct FrameHeader
 
     public FrameKindEnum Kind;
 
-    // Protocol.EndsARoot or nothing.
+    // Protocol.EndsABody or nothing.
     public uint Flags;
 
     // The bytes after the header: the payload and the check, at most Protocol.MaxBodyOf the kind.

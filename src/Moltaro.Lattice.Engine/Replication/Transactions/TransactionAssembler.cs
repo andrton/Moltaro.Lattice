@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // What it checks of a frame, before any of it is used:
 // - While no transaction is in progress, the frame begins one: its sequence and the length of its
 //   effects, at least one byte, then the first bytes of its effects, no more than the length announces.
-//   The frame carries Protocol.EndsARoot exactly when it holds all of them.
+//   The frame carries Protocol.EndsABody exactly when it holds all of them.
 // - While one is in progress, the frame holds only its next bytes: no more than it still announces, and
 //   the flag exactly when they complete it.
 // Each failure is a LatticeException with ValidationFailed. A transaction announced larger than the
@@ -81,9 +81,9 @@ internal sealed class TransactionAssembler
             throw Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
         }
 
-        if ((held == announced) != frame.EndsARoot)
+        if ((held == announced) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Invalid(frame.EndsABody
                 ? $"The transaction {sequence} announces {announced} bytes of effects, and its last frame ends after {held}."
                 : $"The transaction {sequence} is complete in its first frame, which is not marked as its end.");
         }
@@ -129,9 +129,9 @@ internal sealed class TransactionAssembler
         _large.Write(payload);
         _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsARoot)
+        if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Invalid(frame.EndsABody
                 ? $"A Transaction frame is marked as the end of the transaction {_sequence}, which announces {_remaining} more bytes."
                 : $"A Transaction frame completes the transaction {_sequence} and is not marked as its end.");
         }

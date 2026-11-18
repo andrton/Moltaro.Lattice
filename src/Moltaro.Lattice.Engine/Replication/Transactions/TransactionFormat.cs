@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // - Unchanged: its kind and nothing more.
 // It travels in Transaction frames (FrameKindEnum.Transaction) cut from those bytes in their order: a
 // transaction begins a frame of its own, each frame holds at most Protocol.MaxDataPayload bytes of it,
-// and its last frame carries Protocol.EndsARoot. Its frames are its check: the check of each frame, the
+// and its last frame carries Protocol.EndsABody. Its frames are its check: the check of each frame, the
 // announced length, which the frames end exactly, and its sequence, which follows the one before; no
 // digest of its own is built (decided after the study of S11, point 6).
 //

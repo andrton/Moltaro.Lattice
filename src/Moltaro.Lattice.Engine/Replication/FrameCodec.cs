@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Replication;
 // What TryRead checks, and when. From the header alone, as soon as its 32 bytes are there: the magic, the
 // protocol version, the kind, the body length against the largest body of the kind
 // (Protocol.MaxBodyOf), so that a frame that announces more is refused before anything is read or
-// allocated for its body, and that no flag but Protocol.EndsARoot is set. Then, once the whole frame is
+// allocated for its body, and that no flag but Protocol.EndsABody is set. Then, once the whole frame is
 // there, the check. Each failure is a
 // LatticeException with ValidationFailed: the bytes are not a frame of this protocol, and nothing of
 // them may be used. The order of the frames, their stream sequence, is checked by the connection that
@@ -213,7 +213,7 @@ internal static class FrameCodec
             throw Invalid($"A {header.Kind} frame announces a body of {header.BodyLength} bytes; it has {Protocol.CheckSize} to {maxBody}.");
         }
 
-        if ((header.Flags & ~Protocol.EndsARoot) != 0)
+        if ((header.Flags & ~Protocol.EndsABody) != 0)
         {
             throw Invalid($"A {header.Kind} frame has the flags 0x{header.Flags:X8}; only bit 0 is defined.");
         }

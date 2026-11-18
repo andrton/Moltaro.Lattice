@@ -35,7 +35,7 @@ internal static class Protocol
     // Bit 0 of FrameHeader.Flags: the frame is the last one of a root, or of the schema, or of the
     // whole roots it holds, or of a transaction, or of a forwarded write or its reply. No other flag is
     // defined.
-    public const uint EndsARoot = 1;
+    public const uint EndsABody = 1;
 
     // The payload of Hello and of HelloReply (FrameCodec.WriteHelloBody): a Guid (16), the history (8),
     // the fingerprint of the schema (32) and four Int32 (16).

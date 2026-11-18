@@ -20,7 +20,7 @@ internal sealed class WireFrame
     public const int HeaderSize = 32;
 
     // The bit of the flags that marks the last frame of a root.
-    public const uint EndsARootFlag = 1;
+    public const uint EndsABodyFlag = 1;
 
     public WireFrame(byte[] bytes)
     {
@@ -49,7 +49,7 @@ internal sealed class WireFrame
 
     public uint Check => BinaryPrimitives.ReadUInt32LittleEndian(Bytes.AsSpan(Bytes.Length - Protocol.CheckSize));
 
-    public bool EndsARoot => (Flags & EndsARootFlag) != 0;
+    public bool EndsABody => (Flags & EndsABodyFlag) != 0;
 
     // A valid frame of the payload.
     public static WireFrame Make(FrameKindEnum kind, uint flags, ulong correlationId, ulong streamSequence, ReadOnlySpan<byte> payload) =>

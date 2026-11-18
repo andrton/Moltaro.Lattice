@@ -343,7 +343,7 @@ internal sealed class ChildConnection
     {
         var part = reader.Take(Math.Min(remaining, Protocol.MaxDataPayload));
 
-        _connection.Add(FrameKindEnum.Transaction, part.Length == remaining ? Protocol.EndsARoot : 0, part);
+        _connection.Add(FrameKindEnum.Transaction, part.Length == remaining ? Protocol.EndsABody : 0, part);
 
         return part.Length;
     }
@@ -366,7 +366,7 @@ internal sealed class ChildConnection
 
                 for (var index = 0; index < body.FrameCount; index++)
                 {
-                    _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsARoot : 0, reply.CorrelationId, body.Frame(index));
+                    _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
 
                     if (_connection.PendingBytes >= Protocol.MaxFrame)
                     {
@@ -383,7 +383,7 @@ internal sealed class ChildConnection
         Span<byte> payload = stackalloc byte[sizeof(ulong) + ForwardEncoding.ResultLength];
 
         ForwardEncoding.WriteReply(payload, reply.Result);
-        _connection.Add(FrameKindEnum.WriteReply, Protocol.EndsARoot, reply.CorrelationId, payload);
+        _connection.Add(FrameKindEnum.WriteReply, Protocol.EndsABody, reply.CorrelationId, payload);
     }
 
     // Sends what is waiting.

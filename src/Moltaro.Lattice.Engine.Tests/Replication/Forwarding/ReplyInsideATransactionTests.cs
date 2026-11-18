@@ -31,9 +31,9 @@ public sealed class ReplyInsideATransactionTests
 
             if (!moved && frame.Kind == FrameKindEnum.Transaction)
             {
-                var lastOfSeveral = frame.EndsARoot && inTransaction;
+                var lastOfSeveral = frame.EndsABody && inTransaction;
 
-                if (heldReply is { } reply && !frame.EndsARoot)
+                if (heldReply is { } reply && !frame.EndsABody)
                 {
                     passed = [frame, reply];
                     moved = true;
@@ -44,7 +44,7 @@ public sealed class ReplyInsideATransactionTests
                     passed = [];
                 }
 
-                inTransaction = !frame.EndsARoot;
+                inTransaction = !frame.EndsABody;
             }
             else if (!moved && frame.Kind == ForwardPayload.WriteReply)
             {

@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Replication.Load;
 // then one UInt64 for each entity type, in the order of LatticeSchema.EntityTypes, little-endian: the
 // count a child sizes the primary index of the type from; LoadEnd still verifies the roots it received.
 // They are cut into Schema frames by the rule of a root: every frame full but the last, which carries
-// Protocol.EndsARoot.
+// Protocol.EndsABody.
 internal static class SchemaTransfer
 {
     // The schema in its compiled form, once for every child of a master.
@@ -42,7 +42,7 @@ internal static class SchemaTransfer
             var part = Math.Min(unsent.Length, Protocol.MaxDataPayload);
 
             unsent = unsent[part..];
-            connection.Add(FrameKindEnum.Schema, unsent.IsEmpty ? Protocol.EndsARoot : 0, bytes.AsSpan(bytes.Length - unsent.Length - part, part));
+            connection.Add(FrameKindEnum.Schema, unsent.IsEmpty ? Protocol.EndsABody : 0, bytes.AsSpan(bytes.Length - unsent.Length - part, part));
         }
         while (!unsent.IsEmpty);
     }
