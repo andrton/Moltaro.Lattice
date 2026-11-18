@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -386,7 +385,7 @@ public sealed class ConsistencyTests
     // many rounds as fit a budget of time, at most MostRounds. The barrier decides the next round and its
     // session, once for both sides; a side that fails otherwise leaves it, so that the other ends, and its
     // failure is what the test reports. Both sides are threads of their own (OwnThread).
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Write_through_a_child_that_races_another_database_for_an_empty_session_is_never_executed_and_refused()
     {
         const int MostRounds = 5_000;

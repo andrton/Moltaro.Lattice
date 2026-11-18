@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine.Positions;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 
@@ -99,7 +98,7 @@ public sealed class PositionClockTests
     // history; a session of its history it leaves as it is; a session another history has bound — also
     // one another database bound after the write found it empty, which is how a write that loses that
     // race learns it — it refuses with HistoryMismatch and leaves as it was.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public void Binding_refuses_a_session_another_history_bound_binds_an_empty_one_and_leaves_one_of_its_history_as_it_is()
     {
         var clock = new PositionClock(History, this);
