@@ -114,13 +114,15 @@ namespace Moltaro.Lattice.Engine.Entities;
 //    (ReturnedKeys): that keeps a key from being returned twice, after a growth, whose walk meets
 //    again what was walked, and after a delete and an insert of a returned key, whose new entry the
 //    walk may meet at a later word.
-// 3. Otherwise it copies the root as a read by key does (TryCopy) and skips a root deleted meanwhile.
-//    When the key it is about to remember has room in the pass, it stages the key and the position
-//    after the entry, and the pass takes both once the entity is built outside the protection
-//    (EntityPass.Commit). When it has none, the round gives the copy back and ends before the entry;
-//    outside the protection the room is counted against the memory limit of a read and made, and the
-//    next round reads the entry anew. So the limit fails a pass only for a key it is going to
-//    remember, and nothing large is allocated inside the protection.
+// 3. Otherwise, when the key the entry holds has no room in the pass, the round ends before the entry,
+//    before it copies anything; outside the protection the room is counted against the memory limit of
+//    a read and made, and the next round reads the entry anew. So a step copies the entity it returns
+//    once, the first of a pass and one whose key makes the room grow included, and nothing large is
+//    allocated inside the protection. With room, it copies the root as a read by key does (TryCopy),
+//    skips a root deleted meanwhile, and otherwise stages the key and the position after the entry,
+//    which the pass takes once the entity is built outside the protection (EntityPass.Commit). Room
+//    made for an entry that then turns out deleted is counted all the same: the limit counts the
+//    capacity the pass holds, and the pass holds it whether or not that key is remembered.
 // 4. At the end of the table, the sequence of the database read when the round began is the position
 //    of the end when it is unchanged after the walk, as for an absent key; otherwise, and when the
 //    round walked its words without finding an entity, the next round goes on from the position.
@@ -596,20 +598,20 @@ internal sealed class EntityTable
                             continue;
                         }
 
-                        if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
-                        {
-                            continue;
-                        }
-
-                        // Step 3 of the class: without room, the round ends before the entry, which the
-                        // next one reads again once the room is made.
+                        // Step 3 of the class: without room for its key, the round ends before the
+                        // entry and before it copies anything; the next round reads the entry again
+                        // once the room is made.
                         if (!pass.Returned.HasRoomFor(stored, out var bound))
                         {
-                            copy.Return();
                             position--;
                             room = bound;
 
                             break;
+                        }
+
+                        if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
+                        {
+                            continue;
                         }
 
                         pass.Returned.Stage(hash, stored, bound);

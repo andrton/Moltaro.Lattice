@@ -58,6 +58,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 // key takes besides 2 bytes a code unit of its text, with at most one chunk unused at the end of
 // each. That is all the temporary memory an enumeration holds today: it takes one entry of the index
 // at a time and holds no candidates and no other workspace, which come with the search of an index.
+// Room is counted before it is made, with everything live at once while it is made (decision on
+// queries, docs/decisions/queries.md: "sum simultaneously live buffers", "check before growing"): what
+// this holds and what MakeRoom allocates beside it, since the places a doubling replaces stay live
+// until every key has moved into the new ones, and the list of chunks a longer one replaces until its
+// references are copied.
 //
 // Staged, then committed. A step stages the key of the entity it is about to return (Stage), which
 // copies a String key's text into the room made for it, and the enumeration commits it (Commit) once
@@ -180,26 +185,32 @@ internal sealed class ReturnedKeys
         return PlacesFor(_count + 1, _places) == _places && FitsLastChunk(bound);
     }
 
-    // The bytes this would hold once MakeRoom has made room for one more key whose text takes at most
-    // bound code units. Allocates nothing.
+    // The bytes live while MakeRoom makes room for one more key whose text takes at most bound code
+    // units: what this holds and what MakeRoom allocates beside it (see the class). Allocates nothing.
     public long BytesWithRoomFor(int bound)
     {
-        var bytes = PlaceBytes(PlacesFor(_count + 1, _places), _wordsPerPlace) + _textBytes;
+        var places = PlacesFor(_count + 1, _places);
+        var bytes = _textBytes + (_places == 0 ? 0 : PlaceBytes(_places, _wordsPerPlace));
+
+        if (places != _places)
+        {
+            bytes += PlaceBytes(places, _wordsPerPlace);
+        }
 
         if (FitsLastChunk(bound))
         {
             return bytes;
         }
 
-        var list = _chunkCount < _chunks.Length ? 0 : (long)(Math.Max(1, 2 * _chunks.Length) - _chunks.Length) * sizeof(long);
+        var list = _chunkCount < _chunks.Length ? 0 : (long)Math.Max(1, 2 * _chunks.Length) * sizeof(long);
 
         return bytes + (2L * NextChunkLength(bound)) + list;
     }
 
     // Makes room for one more key whose text takes at most bound code units, allocating what
-    // BytesWithRoomFor counts: doubles the places, placing every key again by its hash, when one more
-    // key would take more than three quarters of them, and adds a chunk when the text does not fit the
-    // last one. Outside the protection of reads (see the class).
+    // BytesWithRoomFor counts beside what this holds: doubles the places, placing every key again by
+    // its hash, when one more key would take more than three quarters of them, and adds a chunk when the
+    // text does not fit the last one. Outside the protection of reads (see the class).
     public void MakeRoom(int bound)
     {
         var places = PlacesFor(_count + 1, _places);

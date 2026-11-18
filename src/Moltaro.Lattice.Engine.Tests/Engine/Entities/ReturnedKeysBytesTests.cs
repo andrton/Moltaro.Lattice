@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -17,7 +16,7 @@ public sealed class ReturnedKeysBytesTests
 {
     private const int Tables = 5;
 
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [InlineData("Int64")]
     [InlineData("Guid")]
     public void Room_for_a_key_that_doubles_the_places_counts_the_old_places_with_the_new(string keyType)

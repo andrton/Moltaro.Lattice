@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -21,7 +20,7 @@ public sealed class StepAllocationTests
 
     public static IEnumerable<TheoryDataRow<string>> Forms => [new("through a class"), new("by name")];
 
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public async Task First_step_of_an_enumeration_of_an_entity_of_1_MiB_allocates_no_more_than_a_read_by_key_of_it_and_what_a_first_step_takes(string form)
     {
@@ -33,7 +32,7 @@ public sealed class StepAllocationTests
             $"The first step allocated {large.Pass - large.Reads} bytes beside a read by key of an entity of 1 MiB, and {small.Pass - small.Reads} beside one of {Small} bytes.");
     }
 
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public async Task Pass_across_the_first_doubling_of_its_keys_allocates_no_more_than_reads_by_key_of_its_entities_and_what_its_steps_take(string form)
     {
