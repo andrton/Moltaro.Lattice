@@ -131,14 +131,22 @@ it up once, before the first release.
    | Repository | `Moltaro.Lattice` |
    | Workflow File | `publish.yml` (the file name only) |
    | Environment | empty |
+   | Scope | push new packages and new versions of packages |
+   | Package pattern | `Moltaro.Lattice*` |
+
+   The pattern says which packages the policy may publish. An id without a star allows
+   that one package only; `Moltaro.Lattice*` covers the packages of this repository and
+   later ones with that prefix. A package whose id does not begin so needs the policy
+   edited first.
 
 2. On GitHub, in the settings of this repository, **Secrets and variables → Actions**, a
    repository secret `NUGET_USER` with the name of that nuget.org account: the profile
    name, not the e-mail address.
 
-A policy for a private repository is active for seven days and becomes permanent with the
-first release made through it; if the seven days pass first, nuget.org lets the owner
-start them again.
+A new policy is active for seven days and stays active for good only after a first
+publish through it. **Before the first release**, when more than seven days have passed
+since the policy was created, the owner starts the seven days again on the policy's page
+on nuget.org and then pushes the tag; otherwise nuget.org refuses the workflow's login.
 
 ## Setting it up on GitHub
 
