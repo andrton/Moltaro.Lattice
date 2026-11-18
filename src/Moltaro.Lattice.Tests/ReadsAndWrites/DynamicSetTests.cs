@@ -156,12 +156,11 @@ public sealed class DynamicSetTests
     [Fact]
     public async Task Child_serves_records_by_name_with_the_schema_of_its_master()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
         var masterSettings = master.Set("Setting");
         await masterSettings.InsertAsync(new LatticeRecord(masterSettings.EntityType) { ["Name"] = "theme", ["Value"] = "dark", ["Priority"] = 1 });
 
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
 
         Assert.Equal(["User", "Tag", "Setting"], child.Schema.EntityTypes.Select(entityType => entityType.Name));
         Assert.True(child.Set("Setting").TryGet("theme", out var record));

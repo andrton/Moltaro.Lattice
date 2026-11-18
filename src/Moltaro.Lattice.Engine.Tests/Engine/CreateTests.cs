@@ -3,12 +3,13 @@ using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine;
 
-// EngineDatabase.Create, the internal entry to the engine until S12 (exception X4), makes an
-// instance without opening it and refuses in the order of LatticeDatabase.Create (brief of Epic 1,
-// sprint S06, "Create"): ArgumentNullException for null options; then Validate, which gives
-// InvalidConfiguration; then NotSupportedException for Durable persistence (until S27). An instance is
-// a MemoryOnly master, with or without a ListenUri, or a child (S10); how the engine refuses an address
-// it cannot use is stated when the instance opens (ListenAddressTests).
+// LatticeDatabase.Create, which opens the engine from Epic 1, sprint S12, makes an instance without
+// opening it and refuses in this order (brief of S06, "Create"): ArgumentNullException for null
+// options; then Validate, which gives InvalidConfiguration; then NotSupportedException for Durable
+// persistence (until S27). An instance is
+// a MemoryOnly master, with or without a ListenUri, or a child (S10); Validate refuses an address of
+// another form (LatticeDatabaseOptionsTests), and a master that cannot listen at its address fails its
+// open (ListenAddressTests).
 public sealed class CreateTests
 {
     private static readonly LatticeSchema Schema = LatticeSchema.Compile("""

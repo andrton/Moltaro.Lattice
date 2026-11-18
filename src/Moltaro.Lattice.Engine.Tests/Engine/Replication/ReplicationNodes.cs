@@ -3,11 +3,11 @@ using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
-// Opens the masters and children of the tests of replication through the internal entry of the engine,
-// EngineDatabase.Create (exceptions X3 and X4, docs/work/exceptions.md); after the open a test uses the
-// public interfaces. A master is MemoryOnly and accepts children on the loopback interface, at a port the
-// system chooses (MasterAndChild.Loopback) unless the test gives the address; a child is given the
-// address its master reports in its ListenUri. Either takes the inputs a test gives (EngineTestInputs),
+// Opens the masters and children of the tests of replication, through LatticeDatabase.Create or, with
+// test inputs, through EngineDatabase.Create (exception X3, docs/work/exceptions.md); after the open a
+// test uses the public interfaces. A master is MemoryOnly and accepts children on the loopback
+// interface, at a port the system chooses (MasterAndChild.Loopback) unless the test gives the address;
+// a child is given the address its master reports in its ListenUri. Either takes the inputs a test gives (EngineTestInputs),
 // such as an allocator that counts the native memory or the seed of the hashes; inputs left empty are
 // what an instance made without them uses.
 internal static class ReplicationNodes

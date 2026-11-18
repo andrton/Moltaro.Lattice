@@ -6,12 +6,14 @@ namespace Moltaro.Lattice.TestSupport.Replication;
 // For tests in which a master and its children run in one process.
 internal static class MasterAndChild
 {
-    // An address of its own for every master, in the form LatticeDatabaseOptions.ListenUri states: the
+    // An address of its own for a master, in the form LatticeDatabaseOptions.ListenUri states: the
     // scheme lattice, the loopback interface and a port, which the system gave a socket bound to port 0
-    // and which is released again before the address is returned. So a test can give a child the
-    // address before its master opens, and tests running at the same time do not reach each other's
-    // master. The address is built as an open master reports it (the host of ListenUri with its port),
-    // so that the address a master reports equals the one it was given.
+    // and which is released again before the address is returned. Another socket may take the port in
+    // between, so a test uses it only where it needs the address before its master opens, or states that
+    // a master reports the address it was given; every other test lets its master listen at Loopback
+    // and gives a child the address the master reports. The address is built as an open master reports
+    // it (the host of ListenUri with its port), so that the address a master reports equals the one it
+    // was given.
     public static Uri NewAddress()
     {
         using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);

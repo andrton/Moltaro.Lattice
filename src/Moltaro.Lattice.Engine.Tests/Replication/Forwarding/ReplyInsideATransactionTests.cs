@@ -6,44 +6,65 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
 // The follower of a child accepts a WriteReply anywhere in the stream of its master, also between the
 // frames of a transaction (brief of Epic 1, sprint S12, decided after the study, point 3). The master
-// writes an entity of 200 KB, whose transaction takes several frames; a relay (FrameRelay) holds its last
-// frame until the reply to a write the child forwards meanwhile comes, and passes that reply before it,
-// each frame numbered at the place it now has. The child applies the large write whole, takes the reply,
-// and its write completes once it has applied it too.
+// writes an entity of 200 KB, whose transaction takes several frames, and then the child forwards a
+// write. A relay (FrameRelay) puts the reply of that write between the frames of the large transaction:
+// a reply the master sends there passes as it is; one that comes after the transaction is passed before
+// its last frame, which the relay holds; one that comes before the transaction, when the sender of the
+// master took the reply before it framed the transaction, waits for the first frame of the transaction
+// and is passed after it. The relay numbers every frame it passes again, in the order it passes them.
+// The child applies the large write whole, takes the reply, and its write completes once it has
+// applied it too.
 public sealed class ReplyInsideATransactionTests
 {
     [Fact]
     public async Task Child_takes_a_reply_between_the_frames_of_a_transaction_and_applies_the_transaction_whole()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
-        WireFrame? held = null;
+        var stream = 0UL;
+        WireFrame? heldFrame = null;
+        WireFrame? heldReply = null;
         var inTransaction = false;
         var moved = false;
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
         {
-            if (frame.Kind == FrameKindEnum.Transaction && !moved)
+            List<WireFrame> passed = [frame];
+
+            if (!moved && frame.Kind == FrameKindEnum.Transaction)
             {
-                var ends = frame.EndsARoot;
-                var lastOfSeveral = ends && inTransaction;
+                var lastOfSeveral = frame.EndsARoot && inTransaction;
 
-                inTransaction = !ends;
-
-                if (lastOfSeveral)
+                if (heldReply is { } reply && !frame.EndsARoot)
                 {
-                    held = frame;
-                    return [];
+                    passed = [frame, reply];
+                    moved = true;
+                }
+                else if (lastOfSeveral)
+                {
+                    heldFrame = frame;
+                    passed = [];
+                }
+
+                inTransaction = !frame.EndsARoot;
+            }
+            else if (!moved && frame.Kind == ForwardPayload.WriteReply)
+            {
+                if (inTransaction)
+                {
+                    moved = true;
+                }
+                else if (heldFrame is { } last)
+                {
+                    passed = [frame, last];
+                    moved = true;
+                }
+                else
+                {
+                    heldReply = frame;
+                    passed = [];
                 }
             }
 
-            // A reply that the master itself sends between the frames of the transaction passes as it is.
-            if (frame.Kind == ForwardPayload.WriteReply && !moved && (held is not null || inTransaction))
-            {
-                moved = true;
-
-                return held is { } last ? [frame.WithStreamSequence(last.StreamSequence), last.WithStreamSequence(frame.StreamSequence)] : [frame];
-            }
-
-            return [frame];
+            return passed.Select(each => each.WithStreamSequence(++stream)).ToList();
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
 

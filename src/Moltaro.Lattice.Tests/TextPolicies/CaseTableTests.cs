@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Tests.TextPolicies;
 //
 // The table has no public surface: it is the internal static class Moltaro.Lattice.Schema.CaseTable of
 // the core, with int Version and static int ToUpper(int scalarValue), which the implementation of the
-// answer to Q46 adds, and this project is a friend of the core. Until the type exists it is reached by
-// its name, the one way the test compiles before the type does.
+// answer to Q46 adds. This project is no friend of the core, so the test reaches the type by its name,
+// through reflection.
 public sealed class CaseTableTests
 {
     private const BindingFlags Static = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;

@@ -269,9 +269,8 @@ public sealed class WriteBatchTests
     [Fact(Skip = ExecutionNotImplemented)]
     public async Task Batch_through_a_child_is_on_that_child_when_it_completes()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
 
         var batch = child.CreateWriteBatch();
         batch.Insert(new User { Id = 1, Name = "Ada" });
@@ -288,9 +287,8 @@ public sealed class WriteBatchTests
     [Fact(Skip = ExecutionNotImplemented)]
     public async Task Batch_follows_a_session_and_moves_it_forward()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         var session = new LatticeSession();
 
         var batch = master.CreateWriteBatch();

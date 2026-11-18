@@ -99,10 +99,10 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task Master_application_and_child_application_work_in_one_process()
     {
-        var address = MasterAndChild.NewAddress();
-        using var masterApp = TestApp.BuildApp(TestApp.MasterOptions(address));
-        using var childApp = TestApp.BuildApp(TestApp.ChildOptions(address));
+        // The master listens at a port the system chooses; the child is given the address it reports.
+        using var masterApp = TestApp.BuildApp(TestApp.MasterOptions(MasterAndChild.Loopback));
         await masterApp.StartAsync();
+        using var childApp = TestApp.BuildApp(TestApp.ChildOptions(masterApp.Services.GetRequiredService<ILatticeDatabase>().ListenUri!));
         await childApp.StartAsync();
 
         // The same service class in both applications; it does not know the role.
@@ -177,20 +177,21 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task Application_can_have_several_replicas_of_different_masters()
     {
-        var usersAddress = MasterAndChild.NewAddress();
-        var settingsAddress = MasterAndChild.NewAddress();
+        // The masters listen at ports the system chooses; the client is given the addresses they report.
         using var masters = BuildApp(services =>
         {
-            services.AddLattice("users", TestApp.MasterOptions(usersAddress));
-            services.AddLattice("settings", TestApp.MasterOptions(settingsAddress));
+            services.AddLattice("users", TestApp.MasterOptions(MasterAndChild.Loopback));
+            services.AddLattice("settings", TestApp.MasterOptions(MasterAndChild.Loopback));
         });
+        await masters.StartAsync();
+        var usersAddress = masters.Services.GetRequiredKeyedService<ILatticeDatabase>("users").ListenUri!;
+        var settingsAddress = masters.Services.GetRequiredKeyedService<ILatticeDatabase>("settings").ListenUri!;
         using var client = BuildApp(services =>
         {
             services.AddLattice("users", TestApp.ChildOptions(usersAddress));
             services.AddLattice("settings", TestApp.ChildOptions(settingsAddress));
             services.AddSingleton<TwoReplicas>();
         });
-        await masters.StartAsync();
         await client.StartAsync();
 
         await masters.Services.GetRequiredKeyedService<ILatticeDatabase>("users").Set<User>().InsertAsync(new User { Id = 1, Name = "from users" });
