@@ -1034,7 +1034,7 @@ Why this order:
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
-| S13 | Text entries and Dictionary strings | Full | Not started |
+| S13 | Text entries and Dictionary strings | Full | In progress |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -4759,6 +4759,19 @@ P1). Both confirmed that a closing master left writes it had not executed as
    wait is carried to S34.
 
 ### Stage 4. Indexes and batches
+
+**The stage, S13 to S17, was approved by the owner on 18 November 2026, as the planner
+relays.** Its contract is the public contract that stands today: `StringStorage`,
+`set.Index(name)`, `Find` and `FindAsync`, `IndexKey`, `IndexBound`, unique indexes and
+`ILatticeWriteBatch` have been in it, with documentation, samples and skipped tests,
+since the plan was approved. The internal types and members of each sprint are written
+in its contract step, after its study, and reviewed in the sprint, as in S10 to S12.
+What changes something the owner approved comes back to him inside the stage: the
+structure of secondary indexes with the fate of `Arc.Collections`, and the form of
+`IndexKey` and `IndexBound` if a measurement changes it, both in S14. The planner's pass
+over the open questions on the same day found none that the stage touches: Q31 and Q33
+are decided with S24; of Q35 the open points are 4 (S20), 5 (S37) and 7 (S18, S19); Q40
+is S26 to S36; Q52 is the owner's after S27.
 
 #### S13 · Text entries and Dictionary strings
 
