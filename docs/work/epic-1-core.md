@@ -1061,6 +1061,8 @@ Why this order:
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
 | S13 | Text entries and Dictionary strings | Full | Done |
 | After S13 | The fixes after the outside review | Full | Done |
+| S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
+| S13R, part 2 | Refactoring that owes a figure: waits for a quiet machine | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -6137,6 +6139,11 @@ stated otherwise here.
   the master's read p99 while 1, 5 and 10 children load together.
 - **Out of scope.** What the evicted or reconnecting child does next (S34). PostgreSQL
   as a source for a child's catch-up, excluded by decision.
+
+**Carried from the fixes after S13.** The test of an acknowledgment for a transaction
+that was not wholly sent relies on 16 MiB being more than the buffers of the loopback
+hold. The bound of the tail built here gives the observable; the test states its premise
+by it then, and no switch is added to the sender for it before.
 
 #### S34 · Reconnect, reload and a restarted master
 
