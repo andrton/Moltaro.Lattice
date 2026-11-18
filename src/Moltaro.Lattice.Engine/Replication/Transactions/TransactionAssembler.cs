@@ -42,6 +42,9 @@ internal sealed class TransactionAssembler
         _largest = largest;
     }
 
+    // Whether a transaction is in progress: the next frame continues it, rather than beginning one.
+    public bool InProgress => _remaining != 0;
+
     // Reads one Transaction frame (see the class): true with the sequence and the effects of the
     // transaction it completes; false while the transaction needs more frames.
     public bool Accept(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects)

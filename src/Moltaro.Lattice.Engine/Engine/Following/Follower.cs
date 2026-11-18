@@ -69,8 +69,9 @@ namespace Moltaro.Lattice.Engine.Following;
 // write it sent and has no reply for in Unavailable, not executed (PendingRequests.EndNotExecuted), and
 // stops following as above; it reads nothing after it, so a frame after Closed changes nothing. A Closed
 // with a correlation id is a frame that is not valid, and one with a body the codec refuses
-// (Replication.Protocol.MaxBodyOf): the child stops following without it, and its writes sent whole stay
-// IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
+// (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or a reply is being put
+// together, since a master sends it only after whole ones: the child stops following without it, and its
+// writes sent whole stay IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
 // no statement about what the master executed. A Closed before Ready fails the open.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
@@ -265,7 +266,7 @@ internal sealed class Follower
             // has been sent, and the table refuses it.
             if (frame.Kind == FrameKindEnum.WriteReply)
             {
-                _pending.Receive(frame);
+                _pending.Receive(frame, _applied);
 
                 continue;
             }
@@ -275,6 +276,11 @@ internal sealed class Follower
                 if (frame.CorrelationId != 0)
                 {
                     throw Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
+                }
+
+                if (_assembler.InProgress || _pending.ReplyInProgress)
+                {
+                    throw Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
                 }
 
                 return false;

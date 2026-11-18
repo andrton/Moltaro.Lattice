@@ -3,7 +3,6 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
@@ -85,7 +84,7 @@ public sealed class AppliedTests
     // child made by hand reads its load, then the first frame of a transaction of 16 MiB, far more than
     // the buffers of a connection on the loopback interface hold, and nothing more: the master waits in a
     // send before the last frame of the transaction while the child acknowledges it.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Master_ends_the_connection_of_a_child_that_acknowledges_a_transaction_whose_last_frame_it_has_not_been_sent()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

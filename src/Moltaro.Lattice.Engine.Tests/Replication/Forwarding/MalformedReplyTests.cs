@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -80,7 +79,7 @@ public sealed class MalformedReplyTests
     // that is not valid, and the child ends its connection as for the replies above. The master holds two
     // pieces, so the child is at the position 2 after its load; the relay gives the success the position
     // the row names.
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(PositionsNotAhead))]
     public async Task Child_that_receives_a_success_whose_position_is_not_above_what_it_has_applied_ends_its_connection_and_the_write_ends_in_IndeterminateOutcome(string position)
     {

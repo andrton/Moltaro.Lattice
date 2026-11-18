@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -90,7 +89,7 @@ public sealed class ClosedFrameTests
     // reply or of a transaction whose rest never comes, and then a Closed that would be valid elsewhere:
     // the reply cut into frames of eight bytes, of which the first holds only its announced length; or the
     // first frame of the transaction after the load, which announces more effects than it holds.
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(MessagesClosedArrivesInside))]
     public async Task Closed_inside_a_reply_or_a_transaction_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome(string inside)
     {
