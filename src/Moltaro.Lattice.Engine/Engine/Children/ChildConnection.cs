@@ -33,10 +33,11 @@ namespace Moltaro.Lattice.Engine.Children;
 // it cannot have applied or forwarded a write that is not valid, or the master closes.
 //
 // Replies (S12, the planner's decision after the study, point 2). The sender sends every reply recorded
-// for the connection (Delivery.RecordedReplies) before it frames its next transaction, and a refusal as
-// soon as it is recorded; a reply of a forwarded write is recorded before its transaction is appended to
-// the tail, so the child never receives the transaction of a write it forwarded before that write's reply.
-// A reply is sent whole: the frames of one reply are not interleaved with those of another.
+// for the connection (Delivery.RecordedReplies) before it frames its next transaction, and between the
+// frames of a transaction, since a reply has priority there; a refusal as soon as it is recorded. A reply
+// of a forwarded write is recorded before its transaction is appended to the tail, so the child never
+// receives the transaction of a write it forwarded before that write's reply. A reply is sent whole: the
+// frames of one reply are not interleaved with those of another.
 //
 // The close of the master (point 4, as the planner widened it with the tests). The listener tells each
 // connection to finish (Finish) once the admitted writes have ended. A connection in its stream has its
@@ -275,6 +276,14 @@ internal sealed class ChildConnection
                 await WaitForMoreAsync(reader, cancellationToken, cancellationToken).ConfigureAwait(false);
 
                 continue;
+            }
+
+            // A reply has priority between the frames of a transaction (milestone contract, "Replication
+            // transport and initial loading"): one recorded now answers a later transaction or none, so
+            // it still comes before the transaction of its write.
+            if (_replies.HasReplies)
+            {
+                await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
             }
 
             remaining -= AddFrame(reader, remaining);

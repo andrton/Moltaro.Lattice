@@ -124,13 +124,19 @@ internal sealed class ChildListener
 
         var ended = Task.WhenAll(running);
 
-        // All together: one bound for every connection, not one after another.
-        if (await Task.WhenAny(ended, Task.Delay(ConnectionEndBound)).ConfigureAwait(false) != ended)
+        // All together: one bound for every connection, not one after another. The bound ends with them,
+        // so that no timer of the instance is left once its close has completed.
+        using (var bound = new CancellationTokenSource())
         {
-            foreach (var connection in connections)
+            if (await Task.WhenAny(ended, Task.Delay(ConnectionEndBound, bound.Token)).ConfigureAwait(false) != ended)
             {
-                connection.Reset();
+                foreach (var connection in connections)
+                {
+                    connection.Reset();
+                }
             }
+
+            await bound.CancelAsync().ConfigureAwait(false);
         }
 
         await ended.ConfigureAwait(false);
