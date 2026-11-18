@@ -27,13 +27,13 @@ public sealed class LatticeEnumType
     // flags.
     private readonly UInt128 _flagBits;
 
-    internal LatticeEnumType(int id, string name, LatticeFieldTypeEnum underlyingType, bool isFlags, IReadOnlyList<LatticeEnumMember> members)
+    internal LatticeEnumType(int id, string name, LatticeFieldTypeEnum underlyingType, bool isFlags, LatticeEnumMember[] members)
     {
         Id = id;
         Name = name;
         UnderlyingType = underlyingType;
         IsFlags = isFlags;
-        Members = members;
+        Members = Array.AsReadOnly(members);
         _range = IntegerRange.Of(underlyingType);
         Values = [.. members.Select(member => member.Value).Distinct().Order()];
 

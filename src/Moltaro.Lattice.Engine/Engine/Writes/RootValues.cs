@@ -17,12 +17,8 @@ internal static class RootValues
     // The writer is passed by reference: it is never copied (RootWriter).
     public static void Write(ref RootWriter writer, LatticeEntityType entityType, object?[] values)
     {
-        var fields = entityType.Fields;
-
-        // By index: a foreach over the list of the schema would allocate its enumerator.
-        for (var index = 0; index < fields.Count; index++)
+        foreach (var field in entityType.FieldsByOrdinal)
         {
-            var field = fields[index];
             var value = values[field.Ordinal];
 
             // A nullable field that is not set is null.
@@ -106,13 +102,8 @@ internal static class RootValues
     // (WriteExecutor).
     public static void Read(in RootReader reader, LatticeEntityType entityType, object?[] values)
     {
-        var fields = entityType.Fields;
-
-        // By index: a foreach over the list of the schema would allocate its enumerator.
-        for (var index = 0; index < fields.Count; index++)
+        foreach (var field in entityType.FieldsByOrdinal)
         {
-            var field = fields[index];
-
             values[field.Ordinal] = reader.IsNull(field) ? null : Value(field, reader);
         }
     }

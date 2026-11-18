@@ -179,6 +179,10 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
         _writing.EndOffset = _writingAt;
         _writing.EndAppended = _appendedBytes;
         _writing = null;
+
+        // The blocks taken are linked from the current block now: the tail keeps them through its list
+        // alone, so that one let go of is not kept reachable from here.
+        _taken = null;
     }
 
     // Registers the cursor of a child whose capture starts at the published position given: every
@@ -314,12 +318,22 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
         {
             // No sender is left: every connection with a cursor ended before its cursor went. With no
             // child and no capture the master retains nothing, its blocks included; the next cursor takes
-            // a block anew (Subscribe).
+            // a block anew (Subscribe). Each block let go of is emptied, as one let go of below is, so
+            // that a block something else still holds keeps no later one reachable.
+            for (var block = _first; block is not null;)
+            {
+                var next = block.Next;
+
+                block.Reset();
+                block = next;
+            }
+
             _releasedBytes = _appendedBytes;
             _first = null;
             _current = null;
             _released = null;
             _spare = null;
+            _taken = null;
 
             return;
         }

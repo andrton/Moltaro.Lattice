@@ -1,8 +1,4 @@
-using System.Buffers.Binary;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Engine.Positions;
-using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -16,10 +12,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 //
 // The test drives ReturnedKeys as a step of a pass does (EntityTable.TryReadNext, EntityPass): for each
 // key it asks whether the key is remembered, whether there is room for it, makes the room when there
-// is none, stages the key and commits it. It needs no database: an entity table of its own, over an
-// arena of its own that it never writes, gives the key type and the hash of the index under a fixed
-// seed (EntityTable.IntegerHash, GuidHash), and each key is read from a copy of the fixed part of a
-// root into which the test writes it (RootReader with a fixed part), where an Int64 and a Guid key lie.
+// is none, stages the key and commits it. It needs no database (StandaloneKeys): an entity table of its
+// own, over an arena of its own that it never writes, gives the key type and the hash of the index under
+// a fixed seed, and each key is read from a copy of the fixed part of a root into which it is written,
+// where an Int64 and a Guid key lie.
 // A String key takes the same pages, as a place of two words as a Guid does; its text lies outside the
 // fixed part, so a String key would need a root in the arena for every key, which makes the test
 // thirty times as long, and the Guid stands for it here. The work runs on a thread of its own and the
@@ -27,8 +23,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 // of hanging it.
 public sealed class ReturnedKeysPagesTests
 {
-    private const ulong Seed = 0x9E3779B97F4A7C15;
-
     private const int Remembered = 1_100_000;
 
     private const int NeverRemembered = 100_000;
@@ -50,48 +44,15 @@ public sealed class ReturnedKeysPagesTests
     // keys not found again, and the others found.
     private static (int FoundBefore, int Lost, int FoundNever) RememberAndFind(string keyType)
     {
-        var schema = KeySchema.Of("Utf8", "Ordinal", keyType);
-
-        Assert.True(schema.TryGetEntityType(keyType, out var entityType));
-
-        var owner = new object();
-        using var arena = new Arena(new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize });
-        var roots = new RootTable();
-        var epochs = new ReadEpochs(owner);
-        var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, owner), Seed);
-        var layout = table.Layout!;
-        var fixedPart = new byte[RootReader.FixedPartLength(layout)];
-        var offset = layout.StoredFieldOf(entityType.Key).Offset - BlockHeader.Size;
-        var keys = new ReturnedKeys(table);
-
-        // Writes the key of the number into the fixed part and returns the hash the index gives it.
-        uint Write(long number)
-        {
-            if (keyType == "Int64")
-            {
-                var key = unchecked(number * (long)0x9E37_79B9_7F4A_7C15);
-
-                BinaryPrimitives.WriteInt64LittleEndian(fixedPart.AsSpan(offset), key);
-
-                return table.IntegerHash(key);
-            }
-
-            // The two halves of the Guid, as the engine holds them, both different for every number.
-            var first = unchecked(number * (long)0xD1B5_4A32_D192_ED03);
-            var second = unchecked((number * (long)0x8CB9_2BA7_2F3D_8DD7) + 1);
-
-            BinaryPrimitives.WriteInt64LittleEndian(fixedPart.AsSpan(offset), first);
-            BinaryPrimitives.WriteInt64LittleEndian(fixedPart.AsSpan(offset + 8), second);
-
-            return table.GuidHash(first, second);
-        }
+        using var standalone = new StandaloneKeys(keyType);
+        var keys = standalone.NewReturnedKeys();
 
         var foundBefore = 0;
 
         for (var number = 1L; number <= Remembered; number++)
         {
-            var hash = Write(number);
-            var stored = new RootReader(layout, fixedPart);
+            var hash = standalone.Write(number);
+            var stored = standalone.Stored;
 
             if (keys.Contains(hash, stored))
             {
@@ -112,9 +73,9 @@ public sealed class ReturnedKeysPagesTests
 
         for (var number = 1L; number <= Remembered; number++)
         {
-            var hash = Write(number);
+            var hash = standalone.Write(number);
 
-            if (!keys.Contains(hash, new RootReader(layout, fixedPart)))
+            if (!keys.Contains(hash, standalone.Stored))
             {
                 lost++;
             }
@@ -124,9 +85,9 @@ public sealed class ReturnedKeysPagesTests
 
         for (var number = Remembered + 1L; number <= Remembered + NeverRemembered; number++)
         {
-            var hash = Write(number);
+            var hash = standalone.Write(number);
 
-            if (keys.Contains(hash, new RootReader(layout, fixedPart)))
+            if (keys.Contains(hash, standalone.Stored))
             {
                 foundNever++;
             }

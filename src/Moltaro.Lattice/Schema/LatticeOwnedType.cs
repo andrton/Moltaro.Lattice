@@ -38,12 +38,18 @@ public sealed class LatticeOwnedType
 {
     private readonly Dictionary<string, LatticeField> _fieldsByName;
 
-    internal LatticeOwnedType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields)
+    // The fields, which the schema alone holds: Fields shows them read-only, so that no caller
+    // changes a compiled schema through a cast (LatticeSchema), and the copy of a value takes them as
+    // a span (FieldsByOrdinal).
+    private readonly LatticeField[] _fields;
+
+    internal LatticeOwnedType(int id, string name, string? clrTypeName, LatticeField[] fields)
     {
         Id = id;
         Name = name;
         ClrTypeName = clrTypeName;
-        Fields = fields;
+        _fields = fields;
+        Fields = Array.AsReadOnly(fields);
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
 
         // An owned type has at least one field, and the owned types it holds are built before
@@ -86,6 +92,11 @@ public sealed class LatticeOwnedType
     /// <see cref="LatticeErrorEnum.InvalidSchema"/>, with the owned type named.
     /// </summary>
     public IReadOnlyList<LatticeField> Fields { get; }
+
+    // The fields in declaration order, which is the order of their ordinals (LatticeField.Ordinal): a
+    // span over the array Fields shows, indexed without a call through an interface and enumerated
+    // without an enumerator.
+    internal ReadOnlySpan<LatticeField> FieldsByOrdinal => _fields;
 
     /// <summary>Finds a field by name.</summary>
     /// <param name="name">The field name.</param>

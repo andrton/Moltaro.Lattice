@@ -134,7 +134,12 @@ its existing text with the index without content interning. A text entry has one
 count: a block holds one reference for each Text descriptor it contains, from the moment
 it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
 to it is freed, which is after the last protected reader that could reach it has left;
-so a reference never resolves to other text. No generation is kept.
+so a reference never resolves to other text. No generation is kept. The slots of the
+entries lie in one managed array that grows by doubling up to the longest array of .NET,
+`Array.MaxLength` slots: a write that needs a new entry beyond it is refused as one the
+memory budget cannot hold, `WriteRejected` with `Memory`, before it takes a slot or stores
+a block, so no count changes. It is a limit of the structure, not an option, and the
+array is never cut short.
 
 Shared text is not moved in this milestone unless S23 decides how; published text is
 immutable. Root-owned movement repairs its parent

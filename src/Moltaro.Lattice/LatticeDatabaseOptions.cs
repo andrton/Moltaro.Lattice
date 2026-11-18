@@ -75,7 +75,8 @@ public sealed class LatticeDatabaseOptions
     /// How long a child waits for its master while it opens: to reach the master and be accepted
     /// by it, and afterwards for the next part of the database to arrive. A load that keeps
     /// arriving is not ended by this timeout, however long it takes; the cancellation token of the
-    /// open call bounds the whole open. 30 seconds by default; finite and positive. A master gives
+    /// open call bounds the whole open. A part is a frame of at most 64 KiB and a header of 32
+    /// bytes; it has to arrive whole within the timeout. 30 seconds by default; finite and positive. A master gives
     /// a node that connects to it the same time to introduce itself, and disconnects one that
     /// does not.
     /// </summary>

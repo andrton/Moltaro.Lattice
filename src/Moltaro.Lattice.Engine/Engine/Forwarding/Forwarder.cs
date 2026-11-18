@@ -15,10 +15,14 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // A call, in its order:
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
 //    the schema (Q25), before it calls. An entity type the engine does not store is NotSupportedException;
-//    a position of another history in the session is HistoryMismatch, here, before anything is queued
-//    (the planner's decision after the study, point 9); the master checks it again. A token cancelled
-//    already ends the call. The child does not wait for the position of the session: the master orders
-//    the write after it (session consistency, "Facade handoff", point 4).
+//    the session is bound to the history of the child, which is its master's, here, before anything is
+//    queued (Positions.PositionClock.Bind): an empty one is bound, and one of another history, also one
+//    another database bound first, is HistoryMismatch, since no node can order a write after it
+//    (docs/decisions/session-consistency.md, point 7); the master checks it again. So the session of a
+//    write the master committed always moves to its position (step 4). A token cancelled already ends
+//    the call. The child
+//    does not wait for the position of the session: the master orders the write after it (session
+//    consistency, "Facade handoff", point 4).
 // 2. The request (Replication.Forwarding.ForwardEncoding): the kind, the entity type, the expected
 //    revision, the position of the session, the key, and for an insert, a replace or an upsert the root of
 //    the entity in the load format, which the root writer writes without the arena of the child
@@ -98,12 +102,14 @@ internal sealed class Forwarder
         cancellationToken.ThrowIfCancellationRequested();
         _clock.ThrowIfClosed();
 
-        var minimumPosition = session?.MinPosition;
-
-        if (minimumPosition is { } position)
+        // Before anything is queued (see the class, step 1); the dependency is read once the session is
+        // bound.
+        if (session is not null)
         {
-            _clock.CheckHistory(position);
+            _clock.Bind(session);
         }
+
+        var minimumPosition = session?.MinPosition;
 
         if (_sender is not { } sender)
         {

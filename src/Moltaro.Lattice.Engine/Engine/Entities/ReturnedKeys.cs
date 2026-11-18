@@ -58,6 +58,12 @@ namespace Moltaro.Lattice.Engine.Entities;
 // key takes besides 2 bytes a code unit of its text, with at most one chunk unused at the end of
 // each. That is all the temporary memory an enumeration holds today: it takes one entry of the index
 // at a time and holds no candidates and no other workspace, which come with the search of an index.
+// Room is counted before it is made, as the most that is live at once while it is made (decision on
+// queries, docs/decisions/queries.md: "sum simultaneously live buffers", "check before growing"). It is
+// made in three moments, in this order: the places double, the old ones live beside the new until
+// every key has moved; the list of chunks grows, the old list beside the new until its references are
+// copied; the chunk is taken. What is let go of at one moment is not live at the next, so the count is
+// the largest of the three, each beside everything else this holds then (MakeRoom).
 //
 // Staged, then committed. A step stages the key of the entity it is about to return (Stage), which
 // copies a String key's text into the room made for it, and the enumeration commits it (Commit) once
@@ -180,26 +186,45 @@ internal sealed class ReturnedKeys
         return PlacesFor(_count + 1, _places) == _places && FitsLastChunk(bound);
     }
 
-    // The bytes this would hold once MakeRoom has made room for one more key whose text takes at most
-    // bound code units. Allocates nothing.
+    // The most bytes live at once while MakeRoom makes room for one more key whose text takes at most
+    // bound code units, at one of its moments (see the class). Allocates nothing.
     public long BytesWithRoomFor(int bound)
     {
-        var bytes = PlaceBytes(PlacesFor(_count + 1, _places), _wordsPerPlace) + _textBytes;
+        var places = PlacesFor(_count + 1, _places);
+        var held = _places == 0 ? 0 : PlaceBytes(_places, _wordsPerPlace);
+        var grown = places == _places ? held : PlaceBytes(places, _wordsPerPlace);
+
+        // The places double: the old ones beside the new, with the text.
+        var most = (places == _places ? 0 : held) + grown + _textBytes;
 
         if (FitsLastChunk(bound))
         {
-            return bytes;
+            return most;
         }
 
-        var list = _chunkCount < _chunks.Length ? 0 : (long)(Math.Max(1, 2 * _chunks.Length) - _chunks.Length) * sizeof(long);
+        var text = _textBytes;
 
-        return bytes + (2L * NextChunkLength(bound)) + list;
+        if (_chunkCount == _chunks.Length)
+        {
+            // The list of chunks grows: the old list, which the text counts, beside the new one.
+            var list = (long)Math.Max(1, 2 * _chunks.Length) * sizeof(long);
+
+            most = Math.Max(most, grown + text + list);
+            text += list - ((long)_chunks.Length * sizeof(long));
+        }
+
+        // The chunk is taken.
+        return Math.Max(most, grown + text + (2L * NextChunkLength(bound)));
     }
 
-    // Makes room for one more key whose text takes at most bound code units, allocating what
-    // BytesWithRoomFor counts: doubles the places, placing every key again by its hash, when one more
-    // key would take more than three quarters of them, and adds a chunk when the text does not fit the
-    // last one. Outside the protection of reads (see the class).
+    // Makes room for one more key whose text takes at most bound code units: doubles the places,
+    // placing every key again by its hash, when one more key would take more than three quarters of
+    // them, and adds a chunk when the text does not fit the last one. Outside the protection of reads
+    // (see the class).
+    //
+    // The order is what BytesWithRoomFor counts: the old places are let go of before the list of chunks
+    // grows, and the old list before the chunk is taken (Grow, AddChunk), so no moment holds two of
+    // them. Another order changes what is live at once, and the count has to change with it.
     public void MakeRoom(int bound)
     {
         var places = PlacesFor(_count + 1, _places);

@@ -57,6 +57,36 @@ public sealed class ReleasedTransactionsTests
         GC.KeepAlive(reader);
     }
 
+    public static IEnumerable<TheoryDataRow<string>> LastChildren =>
+    [
+        new("a child that applied everything"),
+        new("a child that lags"),
+    ];
+
+    // With no child and no capture the tail retains nothing (docs/design/milestone-1-engine-contract.md,
+    // "Replication transport and initial loading"), whatever the child that left last had applied: one
+    // that applied everything, or one that lags, whose transactions the tail held for it until it left.
+    // Its last transaction is larger than a block, so that it continues in blocks taken for it.
+    [Theory]
+    [MemberData(nameof(LastChildren))]
+    public void Tail_whose_last_child_has_left_retains_none_of_its_blocks(string child)
+    {
+        var tail = new DeliveryTail();
+        var read = SubscribeWriteReadAndLeave(tail, acknowledges: child == "a child that applied everything");
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var reachable = read.Count(block => block.IsAlive);
+
+        Assert.True(read.Count > Blocks, $"The sender read from {read.Count} blocks, fewer than the test means it to.");
+        Assert.False(tail.Retains);
+        Assert.Equal(0, tail.PendingBytes);
+        Assert.True(reachable == 0, $"{reachable} of the {read.Count} blocks the sender read from are still reachable from the tail once its last child has left.");
+        GC.KeepAlive(tail);
+    }
+
     // In a frame of its own, so that nothing of the test's frame holds a block: appends the transactions
     // of one round, lets the sender read them as it reads the tail for its connection, noting every block
     // it reads from, and acknowledges the last.
@@ -67,9 +97,51 @@ public sealed class ReleasedTransactionsTests
 
         for (var sequence = firstSequence; sequence <= last; sequence++)
         {
-            Append(tail, sequence);
+            Append(tail, sequence, EffectsLength);
         }
 
+        ReadAll(cursor, reader, read);
+
+        Assert.Equal(last, cursor.Sent);
+        Assert.True(tail.Acknowledge(cursor, last));
+    }
+
+    // In a frame of its own, so that nothing of the test's frame holds a block, a cursor or a reader: one
+    // child subscribes, the tail is given blocks' worth of transactions and then one of three blocks, the
+    // sender reads them all, the child acknowledges the last of them or nothing, and leaves. Returns a
+    // weak reference to every block the sender read from.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static List<WeakReference> SubscribeWriteReadAndLeave(DeliveryTail tail, bool acknowledges)
+    {
+        var cursor = tail.Subscribe(startPosition: 0);
+        var reader = new DeliveryReader(cursor);
+        var read = new List<WeakReference>();
+        var last = (ulong)Transactions + 1;
+
+        tail.EndCapture(cursor);
+
+        for (var sequence = 1UL; sequence < last; sequence++)
+        {
+            Append(tail, sequence, EffectsLength);
+        }
+
+        Append(tail, last, 3L * DeliveryTail.BlockSize);
+        ReadAll(cursor, reader, read);
+
+        if (acknowledges)
+        {
+            Assert.True(tail.Acknowledge(cursor, last));
+        }
+
+        tail.Unsubscribe(cursor);
+
+        return read;
+    }
+
+    // Lets the sender read every transaction there is, as it reads the tail for its connection, noting
+    // every block it reads from.
+    private static void ReadAll(DeliveryCursor cursor, DeliveryReader reader, List<WeakReference> read)
+    {
         while (reader.HasBytes())
         {
             var (sequence, length) = reader.Transaction();
@@ -83,22 +155,19 @@ public sealed class ReleasedTransactionsTests
                 length -= reader.Take(length).Length;
             }
         }
-
-        Assert.Equal(last, cursor.Sent);
-        Assert.True(tail.Acknowledge(cursor, last));
     }
 
-    // A transaction of the sequence, as a write appends it in the hold that publishes it: its header, then
-    // its effects, whose bytes the tail does not read.
-    private static void Append(DeliveryTail tail, ulong sequence)
+    // A transaction of the sequence with effects of the length given, as a write appends it in the hold
+    // that publishes it: its header, then its effects, whose bytes the tail does not read.
+    private static void Append(DeliveryTail tail, ulong sequence, long effectsLength)
     {
-        tail.Begin(sequence, EffectsLength);
-        TransactionFormat.WriteHeader(tail.GetSpan(TransactionFormat.HeaderSize), sequence, EffectsLength);
+        tail.Begin(sequence, effectsLength);
+        TransactionFormat.WriteHeader(tail.GetSpan(TransactionFormat.HeaderSize), sequence, effectsLength);
         tail.Advance(TransactionFormat.HeaderSize);
 
-        for (var left = EffectsLength; left > 0;)
+        for (var left = effectsLength; left > 0;)
         {
-            var count = Math.Min(tail.GetSpan().Length, left);
+            var count = (int)Math.Min(tail.GetSpan().Length, left);
 
             tail.Advance(count);
             left -= count;

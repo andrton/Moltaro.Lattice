@@ -1,6 +1,8 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
+using Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 using Moltaro.Lattice.Replication;
+using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -128,20 +130,15 @@ public sealed class LostConnectionTests
             Volatile.Write(ref dropsTheNextTransaction, false);
             return [];
         });
-        await using var child = await ReplicationNodes.OpenChildAsync(
-            new LatticeDatabaseOptions
-            {
-                Role = LatticeRoleEnum.Child,
-                PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-                MasterUri = relay.Address,
-                SynchronizationTimeout = TimeSpan.FromHours(1),
-            },
-            new EngineTestInputs());
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(relay.Address), new EngineTestInputs());
+
+        // Named before the write, from what the child has applied: a write is visible to a read on its
+        // master before the master's position moves, so a position read after the write may not be its own.
+        var committed = ForwardPayload.PositionOf(ForwardPayload.HistoryOf(child.Position), PositionSequence.Of(child.Position) + 1);
 
         Volatile.Write(ref dropsTheNextTransaction, true);
         var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
         await Eventually.HoldsAsync(() => master.Set<PieceSchema.Piece>().Get(1L) is not null, "The master did not execute the write.");
-        var committed = master.Position;
 
         await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8));
         await relay.ChildEndedAsync();

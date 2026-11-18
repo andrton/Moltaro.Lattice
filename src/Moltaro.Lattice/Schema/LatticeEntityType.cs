@@ -11,14 +11,20 @@ public sealed class LatticeEntityType
     private readonly Dictionary<string, LatticeField> _fieldsByName;
     private readonly Dictionary<string, LatticeIndex> _indexesByName;
 
-    internal LatticeEntityType(int id, string name, string? clrTypeName, IReadOnlyList<LatticeField> fields, LatticeField key, IReadOnlyList<LatticeIndex> indexes, LatticeStringEncodingEnum stringEncoding, LatticeFingerprint layoutFingerprint)
+    // The fields, which the schema alone holds: Fields shows them read-only, so that no caller
+    // changes a compiled schema through a cast (LatticeSchema), and the paths of a read and a write
+    // take them as a span (FieldsByOrdinal).
+    private readonly LatticeField[] _fields;
+
+    internal LatticeEntityType(int id, string name, string? clrTypeName, LatticeField[] fields, LatticeField key, LatticeIndex[] indexes, LatticeStringEncodingEnum stringEncoding, LatticeFingerprint layoutFingerprint)
     {
         Id = id;
         Name = name;
         ClrTypeName = clrTypeName;
-        Fields = fields;
+        _fields = fields;
+        Fields = Array.AsReadOnly(fields);
         Key = key;
-        Indexes = indexes;
+        Indexes = Array.AsReadOnly(indexes);
         StringEncoding = stringEncoding;
         LayoutFingerprint = layoutFingerprint;
         _fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
@@ -41,6 +47,11 @@ public sealed class LatticeEntityType
 
     /// <summary>All fields in declaration order.</summary>
     public IReadOnlyList<LatticeField> Fields { get; }
+
+    // The fields in declaration order, which is the order of their ordinals (LatticeField.Ordinal), for
+    // the paths of a read and a write: a span over the array Fields shows, indexed without a call
+    // through an interface and enumerated without an enumerator.
+    internal ReadOnlySpan<LatticeField> FieldsByOrdinal => _fields;
 
     /// <summary>The primary key field.</summary>
     public LatticeField Key { get; }

@@ -254,10 +254,7 @@ internal sealed class ChildConnection
 
                 var (sequence, length) = reader.Transaction();
 
-                // Before its frames are added: the child may apply and acknowledge the transaction as soon
-                // as its last frame is sent, which can be before this task goes on.
-                cursor.Sent = sequence;
-                await AddTransactionAsync(reader, length, cancellationToken).ConfigureAwait(false);
+                await AddTransactionAsync(reader, cursor, sequence, length, cancellationToken).ConfigureAwait(false);
 
                 continue;
             }
@@ -290,11 +287,14 @@ internal sealed class ChildConnection
         _connection.Add(FrameKindEnum.Closed, 0, ReadOnlySpan<byte>.Empty);
     }
 
-    // Cuts the transaction into Transaction frames, its last one marked, each within one block of the
-    // tail, and sends whenever a frame's worth is waiting. A transaction is appended whole, but the link
-    // to a block it continues in is stored after the end of the block before, so the rest may be a wait
-    // away.
-    private async ValueTask AddTransactionAsync(DeliveryReader reader, long length, CancellationToken cancellationToken)
+    // Cuts the transaction of the sequence into Transaction frames, its last one marked, each within one
+    // block of the tail, and sends whenever a frame's worth is waiting. A transaction is appended whole,
+    // but the link to a block it continues in is stored after the end of the block before, so the rest
+    // may be a wait away. The cursor counts the transaction as sent when its last frame is added, before
+    // that frame is sent: the child may apply and acknowledge it as soon as it is sent, which can be before
+    // this task goes on, and an Applied of a transaction whose last frame was not added is refused
+    // (Delivery.DeliveryTail.Acknowledge).
+    private async ValueTask AddTransactionAsync(DeliveryReader reader, DeliveryCursor cursor, ulong sequence, long length, CancellationToken cancellationToken)
     {
         var remaining = length;
 
@@ -325,6 +325,11 @@ internal sealed class ChildConnection
             }
 
             remaining -= AddFrame(reader, remaining);
+
+            if (remaining == 0)
+            {
+                cursor.Sent = sequence;
+            }
 
             if (_connection.PendingBytes >= Protocol.MaxFrame)
             {

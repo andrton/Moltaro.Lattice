@@ -1,5 +1,8 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Storage.Values;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -275,6 +278,74 @@ public sealed class ReclamationTests
         EntryCounts.ExpectEqual(tally, database);
         tally.ExpectHeldBy(database);
         Assert.Equal(("North", "North"), (places.Get(2L)!.Region, places.Get(2L)!.Zone));
+    }
+
+    public static IEnumerable<TheoryDataRow<int>> EntryLengths =>
+    [
+        new(100),
+        new(20_000),
+    ];
+
+    // A reference never resolves to other text, read through the very root a read took (Storage.Text.TextTable:
+    // an entry is freed only after its last reference and the last protected reader that could reach it are
+    // gone). A read enters the protection of reads and takes the root of its entity; then the entity is
+    // replaced, its old root retired, texts of the same length, which take blocks of the same size class,
+    // are written and deleted, and the retired roots are drained; the read reads the text of its entity
+    // through the root it took, and finds the text that root was written with. Once the read has left, a
+    // drain frees the old root and the entry of its text. The test works the parts themselves — the arena
+    // with its text table, the epochs of the protection of reads and the retired list
+    // (Protection.RetiredMemory) — with an entry of one block and one in chunks.
+    [Theory]
+    [MemberData(nameof(EntryLengths))]
+    public void Read_that_took_a_root_reads_its_text_through_it_after_a_replace_texts_of_the_same_size_written_and_deleted_and_a_drain(int length)
+    {
+        using var item = new RootArena(ItemSchema.Compile("{ 'Id': 2, 'Name': 'Region', 'Type': 'String', 'StringStorage': 'Dictionary' }"));
+        var epochs = new ReadEpochs(new object());
+        var retired = new RetiredMemory(epochs, item.Arena, new RootTable());
+        var written = new string('N', length);
+        var root = Write(item, 1, written);
+
+        var protection = epochs.Enter();
+        var taken = root;
+
+        try
+        {
+            var replacement = Write(item, 1, new string('S', length));
+
+            retired.Reserve();
+            retired.RetireRoot(item.Layout, root);
+
+            for (var other = 'a'; other <= 'p'; other++)
+            {
+                RootStorage.Free(item.Arena, item.Layout, Write(item, 2, new string(other, length)));
+            }
+
+            retired.Drain();
+
+            Assert.Equal(written, item.Reader(taken).GetString(item.Field("Region")));
+            Assert.Equal(2, item.Arena.Texts.Count);
+            Assert.Equal(new string('S', length), item.Reader(replacement).GetString(item.Field("Region")));
+        }
+        finally
+        {
+            epochs.Exit(protection);
+        }
+
+        retired.Drain();
+
+        Assert.Equal(0, item.Arena.Counters.RetiredBytes);
+        Assert.Equal(1, item.Arena.Texts.Count);
+    }
+
+    // A live root of Item with the key and the Region given.
+    private static ArenaAddress Write(RootArena item, long id, string region)
+    {
+        var writer = item.Writer();
+
+        writer.SetInteger(item.Field("Id"), id);
+        writer.SetString(item.Field("Region"), region);
+
+        return writer.Complete();
     }
 
     // The number of the text the read returned among the texts given, after the read; null when it found

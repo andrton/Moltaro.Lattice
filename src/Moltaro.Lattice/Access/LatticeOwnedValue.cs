@@ -51,7 +51,7 @@ public sealed class LatticeOwnedValue
     {
         ArgumentNullException.ThrowIfNull(ownedType);
         OwnedType = ownedType;
-        Values = new object?[ownedType.Fields.Count];
+        Values = new object?[ownedType.FieldsByOrdinal.Length];
     }
 
     /// <summary>The owned type the value belongs to.</summary>

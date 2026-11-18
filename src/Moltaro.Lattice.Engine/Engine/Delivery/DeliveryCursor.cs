@@ -38,9 +38,9 @@ internal sealed class DeliveryCursor
     // Under the lock of the writes: whether its capture is still copying (EngineCounters.ActiveCaptures).
     public bool Capturing { get; set; }
 
-    // The last sequence the sender of the child has handed to the connection; written by the sender,
-    // read under the lock of the writes, where an Applied beyond it is refused: a child cannot have
-    // applied what it was not sent.
+    // The last sequence the sender of the child has handed to the connection whole, its last frame
+    // included; written by the sender, read under the lock of the writes, where an Applied beyond it is
+    // refused: a child cannot have applied what it was not sent.
     public ulong Sent
     {
         get => Volatile.Read(ref _sent);

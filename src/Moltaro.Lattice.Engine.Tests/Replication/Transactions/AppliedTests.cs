@@ -78,6 +78,35 @@ public sealed class AppliedTests
         await NothingRegistered.ExpectAsync(master, 100);
     }
 
+    // A child applies a transaction only once all of it has arrived (docs/design/milestone-1-engine-contract.md,
+    // "Replication transport and initial loading"), so it cannot have applied one whose last frame the
+    // master has not sent, and an Applied of it ends the connection as the acknowledgments above do. The
+    // child made by hand reads its load, then the first frame of a transaction of 16 MiB, far more than
+    // the buffers of a connection on the loopback interface hold, and nothing more: the master waits in a
+    // send before the last frame of the transaction while the child acknowledges it.
+    [Fact]
+    public async Task Master_ends_the_connection_of_a_child_that_acknowledges_a_transaction_whose_last_frame_it_has_not_been_sent()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+        await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
+        var handshake = await Handshake.RecordAsync(master);
+        using var child = await Peer.ConnectAsync(master.ListenUri!);
+
+        await child.SendAsync(handshake.Hello);
+        await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
+
+        var written = PositionSequence.Of((await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8, data: 16 * 1024 * 1024))).Position);
+        var first = await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.Transaction);
+
+        Assert.Equal(written, TransactionPayload.SequenceOf(first[^1]));
+        Assert.False(first[^1].EndsARoot, "The transaction of 16 MiB arrived in one frame.");
+
+        await child.SendAppliedAsync(written);
+
+        await child.ReceiveUntilTheEndAsync();
+        await NothingRegistered.ExpectAsync(master, 100);
+    }
+
     [Fact]
     public async Task Child_acknowledges_the_sequences_it_has_applied_in_their_order_and_none_before_its_readiness_position()
     {

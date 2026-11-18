@@ -80,7 +80,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //   entry are retired. The entry keeps the address of the retired root.
 // - A delete of an absent key publishes only its sequence.
 // Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
-// look (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
+// look, a write that retired nothing counting as one thing from a look that left something behind
+// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
 // defect, or when the managed heap cannot hold a block of the tail of the children (below); the
 // write that failed and those after it stay unpublished, and the coordinator faults the database.
 //
@@ -221,16 +222,28 @@ internal sealed class WriteExecutor
         var writes = group.Writes;
         var published = 0;
 
+        // The writes whose publication retires nothing: an insert and a delete of an absent key. An
+        // insert that grew the index retired the old table when it was prepared and is counted here as
+        // well, which only brings a look earlier.
+        var retiredNothing = 0;
+
         failure = null;
 
         try
         {
             for (; published < writes.Count; published++)
             {
-                PublishOne(writes[published], firstSequence + (ulong)published);
+                var prepared = writes[published];
+
+                PublishOne(prepared, firstSequence + (ulong)published);
+
+                if (prepared.Kind is PublicationKindEnum.Insert or PublicationKindEnum.NothingToDelete)
+                {
+                    retiredNothing++;
+                }
             }
 
-            _retired.AfterWrite();
+            _retired.AfterWrite(retiredNothing);
         }
         catch (Exception exception)
         {
@@ -486,7 +499,7 @@ internal sealed class WriteExecutor
             return default;
         }
 
-        var values = new object?[table.EntityType.Fields.Count];
+        var values = new object?[table.EntityType.FieldsByOrdinal.Length];
 
         try
         {
@@ -617,9 +630,10 @@ internal sealed class WriteExecutor
     // the child: S at the end of its load, then the sequence of each transaction it applies.
     public void PublishPosition(ulong sequence) => _clock.Publish(sequence);
 
-    // For a child, under the lock of the writes, after what it received is published: what was retired is
-    // freed as after a write (RetiredMemory.AfterWrite), by the applying thread.
-    public void AfterReceived() => _retired.AfterWrite();
+    // For a child, under the lock of the writes, after what it received is published, a transaction or a
+    // root of its load, which counts as one write that retired nothing when retiredNothing is true: what
+    // was retired is freed as after a write (RetiredMemory.AfterWrite), by the applying thread.
+    public void AfterReceived(bool retiredNothing) => _retired.AfterWrite(retiredNothing ? 1 : 0);
 
     // For a child, under the lock of the writes: a place in the retired list for the root a received change
     // will replace or delete, so that its publication allocates nothing; given back when the change is

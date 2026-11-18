@@ -22,19 +22,33 @@ namespace Moltaro.Lattice.Engine.Protection;
 // because the arena, the table of root entries and the indexes take no lock and have one writer.
 // A read never frees. Freeing happens on the path of the operations of the database, and no thread
 // or timer is started for it:
-// - after every group of writes published, the writer looks once enough was retired since its last
+// - after every group of writes published, the writer looks once enough was counted since its last
 //   look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
 //   moves the epoch on and reads every slot, which costs about what reading the slots costs, so the
 //   look is made once for as many retired things as there are slots: about one read of a slot for
 //   each, measured at 50 to 850 ns a look in phase 1 of S08. The bytes bound what one look can
 //   leave unfreed to one segment's worth beside what reads hold, whatever the size of the roots.
-//   They are derived from the table and the arena, not options. The bytes of a retired root are
-//   the slots of its own blocks and those of the entry of every Dictionary text it names: an entry
-//   whose last reference lies in retired roots stays live until the drain frees them, and is freed
-//   with them, so it waits for the same look. A text that other roots share is counted for each
-//   root that names it; that only makes a look come earlier, and a look frees nothing a read can
-//   still reach.
+//   They are derived from the table and the arena, not options.
+//   A look sets both counts to zero.
+//   What a look could not free, because a read could still reach it, stays retired: in RetiredBytes
+//   and in the list. A later look frees it, once that read has left.
+//   A look that leaves retired things behind arms a second trigger: until a look leaves nothing
+//   behind, a published write that retires nothing counts as one thing.
+//   Without such a look a write that retires nothing counts nothing, also while something retired
+//   waits below the thresholds, so a load without a held read looks as often as it would without
+//   that trigger, and a load that retires nothing never looks.
+//   So after a look that left something behind, the next look comes within one window of writes of
+//   any kind, and what waits between two looks is what reads held at the last look and at most one
+//   window more: bounded by the two thresholds beside what reads hold (docs/design/arena-protocol.md,
+//   "Deferred reclamation, 16 November 2026").
+//   What a look could not free does not count toward the next look: under a read held long, it would
+//   keep the counts at the thresholds, and every write would look.
+//   The bytes of a retired root are the slots of its own blocks and those of the entry of every
+//   Dictionary text it names: an entry whose last reference lies in retired roots stays live until the
+//   drain frees them, and is freed with them, so it waits for the same look. A text that other roots
+//   share is counted for each root that names it; that only makes a look come earlier, and a look
+//   frees nothing a read can still reach.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
 // - a write that the arena refused, which drains, and in its resolution waits, outside the lock, for
@@ -60,7 +74,8 @@ internal sealed class RetiredMemory
     // In the order they were retired, and so in the order of their epochs.
     private readonly Queue<RetiredItem> _items = new();
 
-    // The things and the bytes retired since the last look, and how many of each make a look.
+    // The things and the bytes retired since the last look, a write that retired nothing counted as one
+    // thing while the count of such writes is armed, and how many of each make a look (see the class).
     private readonly int _itemsPerLook;
 
     private readonly long _bytesPerLook;
@@ -68,6 +83,10 @@ internal sealed class RetiredMemory
     private int _itemsSinceLook;
 
     private long _bytesSinceLook;
+
+    // Whether the last look left retired things behind, which arms the count of the writes that retire
+    // nothing until a look leaves nothing behind (see the class).
+    private bool _leftBehind;
 
     // The epoch of the last thing retired.
     private long _newest;
@@ -119,9 +138,16 @@ internal sealed class RetiredMemory
         Add(RetiredKindEnum.IndexTable, layout: null, default, default, table, bytes);
     }
 
-    // After a write: looks when enough was retired since the last look.
-    public void AfterWrite()
+    // After a publication, with the number of its writes that retired nothing: looks when enough was
+    // counted since the last look, those writes counting one thing each while the last look left
+    // something behind (see the class).
+    public void AfterWrite(int retiredNothing)
     {
+        if (_leftBehind)
+        {
+            _itemsSinceLook += retiredNothing;
+        }
+
         if (_itemsSinceLook >= _itemsPerLook || _bytesSinceLook >= _bytesPerLook)
         {
             Drain();
@@ -147,6 +173,8 @@ internal sealed class RetiredMemory
             _items.Dequeue();
             Free(item);
         }
+
+        _leftBehind = _items.Count > 0;
 
         // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
         // large: a read held for a second beside a million writes a second leaves a million places.

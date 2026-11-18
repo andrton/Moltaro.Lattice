@@ -75,6 +75,36 @@ public sealed class ClosedFrameTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, forwarded.Child.State);
     }
 
+    public static IEnumerable<TheoryDataRow<string>> MessagesClosedArrivesInside =>
+    [
+        new("a reply"),
+        new("a transaction"),
+    ];
+
+    // A master sends Closed after every reply and every transaction it sends, each of them whole
+    // (docs/design/milestone-1-engine-contract.md, the close of a master that forwards), so a Closed that
+    // arrives while the child is putting a reply or a transaction together is a frame that is not valid:
+    // the child ends its connection as at an end without Closed, and the request it sent whole without a
+    // reply ends in IndeterminateOutcome. In the place of the reply the relay passes the first frame of a
+    // reply or of a transaction whose rest never comes, and then a Closed that would be valid elsewhere:
+    // the reply cut into frames of eight bytes, of which the first holds only its announced length; or the
+    // first frame of the transaction after the load, which announces more effects than it holds.
+    [Theory]
+    [MemberData(nameof(MessagesClosedArrivesInside))]
+    public async Task Closed_inside_a_reply_or_a_transaction_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome(string inside)
+    {
+        await using var forwarded = await ClosingRelay.StartAsync(reply =>
+            inside == "a reply"
+                ? [ForwardPayload.Frames(ForwardPayload.WriteReply, reply.CorrelationId, 0, ForwardPayload.BodyOf([reply]), framePayload: 8)[0], ForwardPayload.ClosedFrame(0)]
+                : [WireFrame.Make(FrameKindEnum.Transaction, flags: 0, correlationId: 0, streamSequence: 0, TransactionPayload.Make(1, announcedLength: 2, [TransactionPayload.Unchanged])), ForwardPayload.ClosedFrame(0)]);
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(ReplicationNodes.Bound));
+        await forwarded.Relay.ChildEndedAsync();
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, forwarded.Child.State);
+    }
+
     [Theory]
     [MemberData(nameof(BeforeReady))]
     public async Task Closed_before_the_child_is_Ready_fails_its_open_with_Unavailable(string inPlaceOfFrame)

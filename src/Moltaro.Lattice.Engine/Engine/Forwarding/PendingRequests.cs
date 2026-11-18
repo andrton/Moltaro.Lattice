@@ -10,9 +10,11 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // A call enters when the sender takes it (ChildSender), before its first frame, so that a reply finds it
 // however soon it comes; it leaves when its reply arrives, or when the connection ends. A reply is checked
 // whole before it is used: a body that is not valid, the correlation id 0, which stays the load and the
-// stream, an id no request of the connection has, or one answered already, and a position of another
-// history than the child's, are a frame of the master that is not valid (ValidationFailed), and the child
-// ends its connection. When the connection has ended, nothing more arrives: Close empties the table, every
+// stream, an id no request of the connection has, or one answered already, a position of another history
+// than the child's, and a success at a position not above the sequence the child has applied when the
+// reply arrives, are a frame of the master that is not valid (ValidationFailed), and the child ends its
+// connection. The last holds because a master sends the reply of a write before its transaction
+// (Children.ChildConnection). When the connection has ended, nothing more arrives: Close empties the table, every
 // call in it was sent whole and is not answered, and the table refuses every registration afterwards. The
 // frame Closed of a master that closed in order empties it before that, each call not executed
 // (EndNotExecuted; Following.Follower, "The frame Closed").
@@ -64,9 +66,12 @@ internal sealed class PendingRequests
         }
     }
 
-    // For the follower: a WriteReply frame (see the class); the call it answers gets the reply once the
-    // reply is whole.
-    public void Receive(in ReceivedFrame frame)
+    // Whether a reply is being put together: its next frame is still to come.
+    public bool ReplyInProgress => _replies.InProgress;
+
+    // For the follower: a WriteReply frame (see the class), received when the child has applied the
+    // sequence given; the call it answers gets the reply once the reply is whole.
+    public void Receive(in ReceivedFrame frame, ulong applied)
     {
         if (_replies.Accept(frame, long.MaxValue, out var correlationId, out var body) != MessageStepEnum.Whole)
         {
@@ -80,9 +85,17 @@ internal sealed class PendingRequests
 
         var reply = ForwardEncoding.ReadReply(body);
 
-        if (reply.Result is { } result && result.Position.History != _history)
+        if (reply.Result is { } result)
         {
-            throw Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
+            if (result.Position.History != _history)
+            {
+                throw Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
+            }
+
+            if (result.Position.Sequence <= applied)
+            {
+                throw Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
+            }
         }
 
         ForwardedCall? call;

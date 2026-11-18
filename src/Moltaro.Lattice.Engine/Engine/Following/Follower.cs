@@ -69,8 +69,9 @@ namespace Moltaro.Lattice.Engine.Following;
 // write it sent and has no reply for in Unavailable, not executed (PendingRequests.EndNotExecuted), and
 // stops following as above; it reads nothing after it, so a frame after Closed changes nothing. A Closed
 // with a correlation id is a frame that is not valid, and one with a body the codec refuses
-// (Replication.Protocol.MaxBodyOf): the child stops following without it, and its writes sent whole stay
-// IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
+// (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or a reply is being put
+// together, since a master sends it only after whole ones: the child stops following without it, and its
+// writes sent whole stay IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
 // no statement about what the master executed. A Closed before Ready fails the open.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
@@ -99,6 +100,10 @@ internal sealed class Follower
 
     private readonly WriteExecutor _executor;
 
+    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
+    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
+    private readonly WriteCoordinator _coordinator;
+
     private readonly CloseBarrier _barrier;
 
     private readonly ReceivedChanges _changes;
@@ -124,7 +129,7 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
@@ -132,6 +137,7 @@ internal sealed class Follower
         _sender = new ChildSender(link, _pending);
         _writes = writes;
         _executor = executor;
+        _coordinator = coordinator;
         _barrier = barrier;
         _changes = changes;
         _fault = fault;
@@ -265,7 +271,7 @@ internal sealed class Follower
             // has been sent, and the table refuses it.
             if (frame.Kind == FrameKindEnum.WriteReply)
             {
-                _pending.Receive(frame);
+                _pending.Receive(frame, _applied);
 
                 continue;
             }
@@ -275,6 +281,11 @@ internal sealed class Follower
                 if (frame.CorrelationId != 0)
                 {
                     throw Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
+                }
+
+                if (_assembler.InProgress || _pending.ReplyInProgress)
+                {
+                    throw Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
                 }
 
                 return false;
@@ -355,6 +366,7 @@ internal sealed class Follower
 
             if (retired && epoch != 0)
             {
+                _coordinator.RunWaitHold();
                 _executor.WaitForReads(epoch, cancellationToken);
 
                 lock (_writes)

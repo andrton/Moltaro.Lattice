@@ -17,8 +17,11 @@ namespace Moltaro.Lattice;
 /// <see cref="LatticePosition.ToString"/>, and create a session from it.
 /// </para>
 /// <para>
-/// A session belongs to one database history. Operations on a database with another
-/// history fail with <see cref="LatticeErrorEnum.HistoryMismatch"/>; start a new session.
+/// A session belongs to one database history. The first read or write with a session binds
+/// it to the history of that database. Waiting with a session that is not yet bound waits
+/// for nothing and does not bind it; waiting with a session bound to another history fails
+/// as a read with it does. Operations on a database with another history fail with
+/// <see cref="LatticeErrorEnum.HistoryMismatch"/>; start a new session.
 /// A session is safe to use from several threads, but it is not meant to be shared by
 /// unrelated users: each would then wait for the others' writes.
 /// </para>

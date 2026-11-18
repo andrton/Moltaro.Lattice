@@ -84,6 +84,17 @@ internal static class ReplicationNodes
         MasterUri = masterUri,
     };
 
+    // The options of a child of the master at the address whose waits for a position, among them the wait
+    // of a write it forwarded for its application, last beyond the bound of the tests, so that a test that
+    // holds a write there for as long as it needs never sees it end by its time.
+    public static LatticeDatabaseOptions ChildWaitingBeyondTheBound(Uri masterUri) => new()
+    {
+        Role = LatticeRoleEnum.Child,
+        PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+        MasterUri = masterUri,
+        SynchronizationTimeout = BeyondTheBound,
+    };
+
     // The options of a child of the master at the address, with the open timeout and the memory limit
     // given; null for the default limit.
     public static LatticeDatabaseOptions ChildOptions(Uri masterUri, TimeSpan openTimeout, long? memoryLimit = null) => new()
