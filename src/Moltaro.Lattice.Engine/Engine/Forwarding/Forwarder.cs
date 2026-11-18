@@ -12,6 +12,23 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // call returns once the master has executed it and this child has applied it (brief of Epic 1, sprint S12;
 // decision Q08.1.2, "Completion of a write forwarded through a child"; session consistency).
 //
+// A write through a child, end to end, across the two nodes:
+// 1. The set of the child (Sets.SetOperations) calls WriteAsync, which checks the write, encodes its
+//    request and queues it (steps 1 to 3 of a call, below).
+// 2. The sender of the child's connection (ChildSender) registers the call (PendingRequests) and sends
+//    the frames of the request (Loading.MasterLink).
+// 3. On the master, the receiver of the connection (Children.ChildConnection, Children.RequestReceiver)
+//    puts the request together (Replication.Forwarding.MessageAssembler), checks it and its root
+//    (Replication.Load.BlockImport) and submits it to the write path (Writes.WriteCoordinator.Forward).
+// 4. The write path prepares it, placing the root it brought (Writes.WriteExecutor), and publishes it as
+//    any write of the master; its reply is recorded for the connection (Delivery.RecordedReplies) before
+//    its transaction is appended to the tail of the children.
+// 5. The sender of that connection sends the reply, then the transaction.
+// 6. On the child, the follower hands the reply to the table of the pending requests, which completes the
+//    call (Following.Follower, PendingRequests), and applies the transaction (Loading.ReceivedChanges).
+// 7. WriteAsync waits until the clock of the child has the position of the write, moves the session to
+//    it, and returns (step 4 of a call).
+//
 // A call, in its order:
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
 //    the schema (Q25), before it calls. An entity type the engine does not store is NotSupportedException;
