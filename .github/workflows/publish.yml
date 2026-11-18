@@ -1,15 +1,21 @@
 name: Publish
 
 # Pushing a tag such as v0.1.0 or v0.2.0-alpha.1 builds, tests and publishes that version
-# of the packages to the GitHub Packages feed of the repository owner. A release is cut
-# from main only; see docs/work/branches.md.
+# of the packages to nuget.org. A release is cut from main only; see docs/work/branches.md.
+#
+# No API key is stored. The workflow proves to nuget.org which repository and workflow it
+# is (Trusted Publishing) and receives a key that lives for an hour. Two things have to
+# exist before the first release, and docs/work/branches.md lists them: the trusted
+# publishing policy in the owner's account on nuget.org, and the repository secret
+# NUGET_USER with the name of that account.
 on:
   push:
     tags: ['v*']
 
 permissions:
   contents: read
-  packages: write
+  # Lets the job ask GitHub for the token that nuget.org exchanges for the key.
+  id-token: write
 
 defaults:
   run:
@@ -33,8 +39,14 @@ jobs:
       - run: dotnet build --configuration Release -p:Version=$PACKAGE_VERSION
       - run: dotnet test --configuration Release --no-build
       - run: dotnet pack --configuration Release --no-build -p:Version=$PACKAGE_VERSION --output ../artifacts
-      - name: Push to GitHub Packages
+      # Asked for after the build and the tests, right before the push: the key lives an hour.
+      - name: Get a short-lived key from nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Push to nuget.org
         run: >
           dotnet nuget push "../artifacts/*.nupkg"
-          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --source "https://api.nuget.org/v3/index.json"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"

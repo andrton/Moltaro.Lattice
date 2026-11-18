@@ -19,7 +19,8 @@
     <PackageProjectUrl>https://github.com/andrton/Moltaro.Lattice</PackageProjectUrl>
     <RepositoryUrl>https://github.com/andrton/Moltaro.Lattice</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <!-- GitHub Packages has no symbol server, so the debug symbols travel inside the assembly. -->
+    <!-- The debug symbols travel inside the assembly: a debugger finds them wherever the package
+         came from, and there is no second package of symbols to publish and keep in step. -->
     <DebugType>embedded</DebugType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
