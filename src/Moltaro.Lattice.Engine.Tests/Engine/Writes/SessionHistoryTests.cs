@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -14,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // takes the same empty session.
 public sealed class SessionHistoryTests
 {
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Write_admitted_with_an_empty_session_binds_it_so_that_a_write_on_another_database_with_it_is_refused_and_the_first_returns_its_result()
     {
         var storage = new HeldCommitStorage();

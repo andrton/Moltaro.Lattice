@@ -16,9 +16,12 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
 //    the schema (Q25), before it calls. An entity type the engine does not store is NotSupportedException;
 //    a position of another history in the session is HistoryMismatch, here, before anything is queued
-//    (the planner's decision after the study, point 9); the master checks it again. A token cancelled
-//    already ends the call. The child does not wait for the position of the session: the master orders
-//    the write after it (session consistency, "Facade handoff", point 4).
+//    (the planner's decision after the study, point 9); the master checks it again. An empty session is
+//    bound to the history of the child, which is its master's, here as well (Positions.PositionClock.Bind),
+//    and is HistoryMismatch when another database bound it first; so the session of a write the master
+//    committed always moves to its position (step 4). A token cancelled already ends the call. The child
+//    does not wait for the position of the session: the master orders the write after it (session
+//    consistency, "Facade handoff", point 4).
 // 2. The request (Replication.Forwarding.ForwardEncoding): the kind, the entity type, the expected
 //    revision, the position of the session, the key, and for an insert, a replace or an upsert the root of
 //    the entity in the load format, which the root writer writes without the arena of the child
@@ -98,11 +101,17 @@ internal sealed class Forwarder
         cancellationToken.ThrowIfCancellationRequested();
         _clock.ThrowIfClosed();
 
+        // The dependency travels as the session had it; an empty session is bound here, before anything
+        // is queued (see the class, step 1).
         var minimumPosition = session?.MinPosition;
 
         if (minimumPosition is { } position)
         {
             _clock.CheckHistory(position);
+        }
+        else if (session is not null)
+        {
+            _clock.Bind(session);
         }
 
         if (_sender is not { } sender)

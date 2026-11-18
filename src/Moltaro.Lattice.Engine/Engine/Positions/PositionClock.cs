@@ -195,6 +195,20 @@ internal sealed class PositionClock
         return new ValueTask(WaitForLaterAsync(position, timeout, cancellationToken));
     }
 
+    // For a write, when it is admitted and before it runs: binds a session that has no position yet to
+    // this history, at the last published position, which every operation here has reached; the first
+    // read or write with a session binds it (LatticeSession). A session that has a position keeps it,
+    // and its history is checked where it is used. When another database bound the session since it
+    // was read here, the session holds a position of another history, and Advance refuses this one with
+    // HistoryMismatch.
+    public void Bind(LatticeSession session)
+    {
+        if (session.MinPosition is null)
+        {
+            session.Advance(Position);
+        }
+    }
+
     // Completes when the position the session depends on is published, with the session's timeout or
     // the given one; at once for a session without a position, unless the token is cancelled.
     public ValueTask WaitAsync(LatticeSession session, TimeSpan timeout, CancellationToken cancellationToken)

@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Engine;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -350,7 +349,7 @@ public sealed class ConsistencyTests
     // then refuses the session, and the write, once committed, returns its result whatever happened to
     // the session meanwhile. Through a child as on a master: the child is held back, so that its write is
     // executed by the master and waits to be applied while the session is used elsewhere.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Write_through_a_child_binds_an_empty_session_so_that_another_database_refuses_it_and_the_write_returns_its_result()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);

@@ -501,6 +501,13 @@ internal sealed class WriteCoordinator
     // one, so that the write is inside the barrier from its wait on (see the class, "The order of writes
     // to one entity"); waited completes when the position is published. False, with the refusal and
     // outside the barrier: ObjectDisposedException after the close; for the session, HistoryMismatch.
+    //
+    // The session is bound to the history of this database here, when the write is admitted and before
+    // it runs (PositionClock.Bind; decision on session consistency, points 4 and 7): a session of another
+    // history, and an empty one that another database bound first, is refused before anything is
+    // executed. So the session of a write that committed is of this history, and moving it to the
+    // position of the write cannot fail: the result of a commit is never replaced by a failure of the
+    // session (Outcome, Deliver).
     private bool TryEnter(LatticeSession? session, CancellationToken cancellationToken, out ValueTask waited, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out Exception? refusal)
     {
         waited = default;
@@ -524,6 +531,7 @@ internal sealed class WriteCoordinator
 
         try
         {
+            _clock.Bind(session);
             waited = _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
 
             return true;
@@ -688,10 +696,11 @@ internal sealed class WriteCoordinator
         return write.Task;
     }
 
-    // The outcome of a write its call gives itself: its session moves to its position, the write leaves
-    // the barrier of the close, and the call returns. A forwarded write has its refusal recorded as its
-    // reply before it leaves, and its success was recorded by the hold that published it; its task
-    // carries nothing, since no one looks at it (Forward).
+    // The outcome of a write its call gives itself: its session moves to its position, which cannot fail
+    // for a session bound at admission (TryEnter), the write leaves the barrier of the close, and the
+    // call returns. A forwarded write has its refusal recorded as its reply before it leaves, and its
+    // success was recorded by the hold that published it; its task carries nothing, since no one looks
+    // at it (Forward).
     private ValueTask<LatticeWriteResult> Outcome(LatticeSession? session, ForwardedOrigin? forwarded, LatticeWriteResult result, Exception? failure)
     {
         if (forwarded is not null)
@@ -706,21 +715,12 @@ internal sealed class WriteCoordinator
             return default;
         }
 
-        try
+        if (failure is null)
         {
-            if (failure is null)
-            {
-                session?.Advance(result.Position);
-            }
+            session?.Advance(result.Position);
         }
-        catch (Exception exception)
-        {
-            failure = exception;
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
+
+        _barrier.Exit();
 
         return failure is null ? new ValueTask<LatticeWriteResult>(result) : ValueTask.FromException<LatticeWriteResult>(failure);
     }
@@ -1472,9 +1472,10 @@ internal sealed class WriteCoordinator
     }
 
     // After the lock: the outcome of a write another thread decided. Its session moves to its position,
-    // its call returns, and the write leaves the barrier of the close last. A forwarded write has no call:
-    // its refusal is recorded as its reply here, and its success was recorded by the hold that published
-    // it (see the class, "Forwarded writes").
+    // which cannot fail for a session bound at admission (TryEnter), its call returns, and the write
+    // leaves the barrier of the close last. A forwarded write has no call: its refusal is recorded as its
+    // reply here, and its success was recorded by the hold that published it (see the class, "Forwarded
+    // writes").
     private void Deliver(PendingWrite write)
     {
         write.Registration.Unregister();
@@ -1492,15 +1493,8 @@ internal sealed class WriteCoordinator
         }
         else
         {
-            try
-            {
-                write.Session?.Advance(write.Outcome.Position);
-                write.Succeed(write.Outcome);
-            }
-            catch (Exception exception)
-            {
-                write.Fail(exception);
-            }
+            write.Session?.Advance(write.Outcome.Position);
+            write.Succeed(write.Outcome);
         }
 
         _barrier.Exit();
