@@ -94,7 +94,12 @@ while a read is inside the protection, so a read holds retired memory back only 
 length of one step. The publishing thread looks at the readers when the items retired since its
 last look reach the number of slots or their bytes reach one segment, and whenever
 memory is short, a drain is asked for or the database closes; what waits between two
-looks is bounded by those two thresholds. An enumeration enters and leaves at each step,
+looks is bounded by those two thresholds. The bytes of a retired root are the slots of its
+own blocks and those of the entry of every Dictionary text it names: an entry whose last
+reference lies in retired roots stays live until the drain frees them and is freed with
+them, so it waits for the same look. A text that other roots share is counted for each
+root that names it. That over-counts, which is safe: it only makes a look come earlier,
+and a look frees nothing a read can still reach. An enumeration enters and leaves at each step,
 and within a long step after each bounded piece of walking, and holds nothing between
 two steps. A reader that finds no free slot of the epoch
 table waits for one and never fails. A published root is never changed: a partial update

@@ -1,7 +1,6 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -42,7 +41,7 @@ public sealed class RetiredTextBoundTests
         }
         """);
 
-    [Fact(Skip = SkipReason.BeforeSprint13)]
+    [Fact]
     public async Task Text_whose_last_reference_lies_in_a_retired_root_waits_for_a_look_no_longer_than_a_Plain_value()
     {
         var plain = await MostHeldAsync("Plain");

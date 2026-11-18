@@ -23,5 +23,10 @@ public enum LatticeStringStorageEnum : byte
     /// <see cref="LatticeStringComparisonEnum.OrdinalIgnoreCase"/> field <c>North</c> and
     /// <c>north</c> are still stored as two spellings.
     /// </summary>
+    /// <remarks>
+    /// Dictionary pays when values repeat. For text that is mostly distinct, Plain retains less
+    /// memory and writes faster; the decision record on strings, <c>docs/decisions/strings.md</c>
+    /// in the repository, gives the details.
+    /// </remarks>
     Dictionary = 2,
 }
