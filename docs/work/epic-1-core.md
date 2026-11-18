@@ -5377,6 +5377,64 @@ index through the read-only view of the schema, two interface calls for a part; 
 search becomes a read path it takes a span over the private array, as the fields do, if
 its measurement asks for it.
 
+**The study of S14, 18 November 2026: what it found; nothing is decided.** The choice of
+the structure and of the form of a text key is the owner's and waits for the timing
+figures, which need a quiet machine. The prototype is
+`src/Prototypes/SecondaryIndexComparison/Ordered`; its sources, with licence and commit,
+are named in its README.
+
+- **Read:** the skip list of LevelDB (BSD-3-Clause) and RocksDB (under Apache-2.0), the
+  copy-on-write B+tree of LMDB (OpenLDAP Public License), the B+tree with optimistic
+  versions of LeanStore (MIT), the adaptive radix tree of DuckDB (MIT) and its
+  synchronization after Leis and Scheibner (Apache-2.0), nbtree of PostgreSQL,
+  `OrderedMultiMap` of `Arc.Collections` (MIT), `ImmutableSortedSet` of .NET (MIT).
+- **Recommended by the study:** a B+tree of the engine's own whose published nodes never
+  change — a write copies the node it changes and publishes the copy with one store of
+  its address into the live parent; a reader takes no lock, checks no version and never
+  retries. After LMDB, with the publication by one store of the radix tree's
+  synchronization and LeanStore's walk from leaf to leaf by a new descent at the fence.
+  Second: the same tree changed in place under optimistic versions — cheaper writes,
+  readers that validate and restart beside a writer, fixed keys only. Third: a skip list
+  — 68 to 81 bytes for an entry in the arena, and every backward step a new search from
+  the head. Not built: a radix tree, which needs keys whose bytes compare in the order
+  of the values, a second definition of order beside the comparison service. Excluded:
+  `OrderedMultiMap` behind a lock around readers; 72 to 88 managed bytes for an entry.
+- **Measured, bytes for an entry** (1,000,000 entries, nodes of 1 KiB, the key and an
+  identity of 8 bytes): both B+trees 18.8, 25.1 and 38.6 for a key of 4, 8 and 16 bytes
+  in random order; 12.9, 17.2 and 26.5 ascending; 46.3 for an Int64 key after a random
+  half was deleted.
+- **Correct under change:** a walker forwards and backwards beside a writer, 30 s for a
+  case in Debug and Release — no entry out of order, none twice, none missed that was
+  present for the whole walk, also inside one key of 6,000 identities.
+- **What a write costs in the recommended tree:** the copy of one leaf for each index, a
+  retired node for each index write, a reservation before the commit of at most
+  2·(h+2)+1 nodes. Several entries of one write are published each by its own store, in
+  the order: insert the new entries, publish the root, remove the old entries; the check
+  of a found entry against its root covers the windows between.
+- **A text key.** The form in which an entry names the root and a comparison reads the
+  key from the root, and the form of a bounded prefix with the root as the tie-breaker,
+  are not safe: a separator of an inner node goes on steering searches after its entity
+  is gone, and a replace that changes the key leaves the entry where the old key
+  belongs. They stay in the timing run as reference lines only. Left for the owner: a
+  copy of the key in the entry when the value lies inline in the root, 64 bytes or less,
+  and a shared text entry with a prefix of 8 bytes above that (the study's
+  recommendation; it departs from "Search key ownership" of the decision on index
+  structures for short values) — or a shared text entry throughout, which puts an
+  indexed Plain value of 8 bytes out of the root at 96 bytes more for an entity and one
+  more dependent load on a read by key. Bytes for an entity at keys of 8, 32 and 100
+  bytes: a copy 92, 164, 420; shared 185, 201, 281; shared with a prefix 199, 215, 294.
+  A shared entry needs a reference held for an entry of the index and released when the
+  retired leaf that last holds it is freed; the rule of one reference for each
+  descriptor of each block would add and release about 60 on every write to every index.
+- **Not modelled by the prototype:** the cost of the comparison service, entries of
+  variable length, nulls, composite keys, several entries in one hold, ARM64, and the
+  checks `Arena.Payload` makes on every read, which the path of an index pays at every
+  level unless an address is translated more cheaply — measured together with the
+  figure for that validation.
+- **Third-party notices:** decided at the contract step of this sprint by what the code
+  then follows; if it follows the code of LMDB closely, the notices gain the OpenLDAP
+  licence. The prototype ports no code.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -5449,6 +5507,18 @@ For this sprint:
   indexes, with and without a writer.
 - **Out of scope.** Uniqueness (S16). A query language, automatic choice of an index,
   continuation by key.
+
+**Carried from the study of S14.** If the identity in an entry of an index is the handle
+of the root, an entity that is deleted and created again with the same primary key under
+the same index key during a pass has a new handle and can be returned a second time,
+against "no identity twice". This sprint chooses: a run of equal keys ordered by the
+primary key, 8 to 16 bytes more for an entry with an Int64 or a Guid key; lifetimes
+created after the pass began are passed over, which needs a stamp of creation for a
+lifetime; or a remembered set, as an enumeration has. A step that holds nothing works on
+the studied tree: it enters the protection, seeks after the last key and identity in
+either direction, and reaches the next leaf by a new descent at the fence. Offset is
+linear in the entries passed over; nulls last in both directions is a rule of the walk.
+The tree needs an order from the comparison service, beside its equality.
 
 #### S16 · Unique indexes
 
