@@ -4661,7 +4661,16 @@ address takes a loopback port by binding port 0, reading the port and releasing 
   the last frame of a request and before the master received it. No deterministic signal
   tells a test that the child's sender has seen its last send complete.
 - The shapes the tests assume are in `Replication/Forwarding/ForwardPayload.cs` of the
-  engine's tests and are accepted. Carried to S27: with Durable, say whether a master can be behind a position a
+  engine's tests and are accepted.
+- An operation in flight on an instance that is being closed, which the close does not
+  let finish, ends in `Unavailable`: a wait for a position, the first step of an
+  `EnumerateAsync` that waits for one, and on a child a write its master has not taken. A
+  started write of a master reaches its outcome. An `OpenAsync` that still waits is
+  cancelled: the caller has no instance yet to be unavailable. The behavior was there;
+  the contract now says it.
+
+The owner agreed with the decisions of the tests step and with this rule of the close on
+18 November 2026, as the planner relays. Carried to S27: with Durable, say whether a master can be behind a position a
 session holds.
 
 ### Stage 4. Indexes and batches
