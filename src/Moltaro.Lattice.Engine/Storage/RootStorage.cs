@@ -81,16 +81,23 @@ internal static class RootStorage
         arena.Publish(root);
     }
 
-    // The bytes of the slots of the text entries that the Text descriptors of a root name: each as a
-    // value of its length out of line takes them (ValueBlocks.SlotBytesOf), whether or not other blocks
-    // share the entry. For the drain of retired memory, which counts them toward its next look. The
-    // root is recognized as Free recognizes it, and refused in the same cases.
-    public static long TextBytes(Arena arena, RootLayout layout, ArenaAddress root)
+    // Retires a published root that a write replaced or deleted: the root block and every block it
+    // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
+    // whole state, and its bytes leave the live counters. The entry of a Dictionary text is not retired:
+    // it stays live, and the retired root keeps its reference until Free frees it. It changes no byte
+    // and allocates nothing. The root is recognized as Free recognizes it, and refused in the same
+    // cases before anything is retired. Free frees it later, once no read can reach it.
+    //
+    // Returns the bytes of the slots of the text entries that the Text descriptors of the root name:
+    // each as a value of its length out of line takes them (ValueBlocks.SlotBytesOf), whether or not
+    // other blocks share the entry. For the drain of retired memory, which counts them toward its next
+    // look.
+    public static long Retire(Arena arena, RootLayout layout, ArenaAddress root)
     {
         ArgumentNullException.ThrowIfNull(layout);
 
         var payload = layout.RootPayload(arena, root);
-        var bytes = 0L;
+        var textBytes = 0L;
 
         for (var index = 0; index < layout.DescriptorCount; index++)
         {
@@ -99,32 +106,14 @@ internal static class RootStorage
 
             if (descriptor.Kind == DescriptorKindEnum.Text)
             {
-                bytes += ValueBlocks.SlotBytesOf((int)descriptor.Length);
+                textBytes += ValueBlocks.SlotBytesOf((int)descriptor.Length);
             }
-        }
 
-        return bytes;
-    }
-
-    // Retires a published root that a write replaced or deleted: the root block and every block it
-    // owns become retired (Arena.Retire), so that the reads that reached it before go on reading one
-    // whole state, and its bytes leave the live counters. The entry of a Dictionary text is not retired:
-    // it stays live, and the retired root keeps its reference until Free frees it. It changes no byte
-    // and allocates nothing. The root is recognized as Free recognizes it, and refused in the same
-    // cases before anything is retired. Free frees it later, once no read can reach it.
-    public static void Retire(Arena arena, RootLayout layout, ArenaAddress root)
-    {
-        ArgumentNullException.ThrowIfNull(layout);
-
-        var payload = layout.RootPayload(arena, root);
-
-        for (var index = 0; index < layout.DescriptorCount; index++)
-        {
-            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
-
-            ValueBlocks.Retire(arena, ValueBlocks.Read(payload[offset..]));
+            ValueBlocks.Retire(arena, descriptor);
         }
 
         arena.Retire(root);
+
+        return textBytes;
     }
 }

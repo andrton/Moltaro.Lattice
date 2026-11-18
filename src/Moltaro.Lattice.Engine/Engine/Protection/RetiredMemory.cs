@@ -220,10 +220,9 @@ internal sealed class RetiredMemory
     private long RetireBlocks(RootLayout layout, ArenaAddress root)
     {
         var before = _arena.Counters.RetiredBytes;
+        var textBytes = RootStorage.Retire(_arena, layout, root);
 
-        RootStorage.Retire(_arena, layout, root);
-
-        return _arena.Counters.RetiredBytes - before + RootStorage.TextBytes(_arena, layout, root);
+        return _arena.Counters.RetiredBytes - before + textBytes;
     }
 
     // Retires a thing into the place its write reserved.
