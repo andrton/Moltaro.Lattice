@@ -71,6 +71,13 @@ public enum LatticeErrorEnum
     /// </summary>
     /// <remarks>
     /// <para>
+    /// An operation in flight on an instance that is being closed, which the close does not let
+    /// finish, is reported so as well: a wait for a position, and on a child a write its master
+    /// has not taken. A started write of a master reaches its outcome. An
+    /// <see cref="ILatticeDatabase.OpenAsync"/> that still waits is cancelled instead, as it
+    /// states.
+    /// </para>
+    /// <para>
     /// A write through a child is reported so as well when the child has no connection to its
     /// master, when the connection ended or the child was closed before the child had sent the
     /// whole write, and when a master that was closing did not execute it. In each case the

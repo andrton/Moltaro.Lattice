@@ -86,6 +86,9 @@ public interface ILatticeSet
     /// Reads the entity with the given primary key after this node has applied the position
     /// the session depends on. Moves the session forward to the position of the answer.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </remarks>
     /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="session">The consistency context of the caller.</param>
@@ -124,6 +127,12 @@ public interface ILatticeSet
     /// when it returns nothing. The traversal and the limits follow the rules of
     /// <see cref="ILatticeSet{TEntity}.EnumerateAsync"/>.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>:
+    /// a first step that waits for the position of the session when the instance is closed
+    /// ends so. A step after the close of an enumeration that had started is
+    /// <see cref="ObjectDisposedException"/>.
+    /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">
     /// Cancels the wait and the enumeration, with <see cref="OperationCanceledException"/>,

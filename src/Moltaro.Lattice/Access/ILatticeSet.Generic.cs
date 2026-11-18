@@ -164,6 +164,9 @@ public interface ILatticeSet<TEntity>
     /// Reads the entity with the given primary key after this node has applied the position
     /// the session depends on. Moves the session forward to the position of the answer.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </remarks>
     /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="session">The consistency context of the caller.</param>
@@ -224,10 +227,18 @@ public interface ILatticeSet<TEntity>
     /// is not a snapshot.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The session moves forward to cover everything the enumeration returns, also when it
     /// returns nothing. The wait for the position of the session is not counted against
     /// <see cref="LatticeDatabaseOptions.ReadTimeLimit"/>; the timeout of the session bounds
     /// it.
+    /// </para>
+    /// <para>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>:
+    /// a first step that waits for the position of the session when the instance is closed
+    /// ends so. A step after the close of an enumeration that had started is
+    /// <see cref="ObjectDisposedException"/>.
+    /// </para>
     /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">

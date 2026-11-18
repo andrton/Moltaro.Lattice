@@ -66,6 +66,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// nothing is locked. To keep the guarantee if the instance reloads in between, pass
     /// the same position, through a <see cref="LatticeSession"/>, to the reads that follow.
     /// </para>
+    /// <para>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </para>
     /// </remarks>
     /// <param name="position">The position to wait for.</param>
     /// <param name="timeout">
@@ -88,6 +91,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// session's timeout. Completes at once for a session without a position. See
     /// <see cref="WaitForPositionAsync(LatticePosition, TimeSpan?, CancellationToken)"/>.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">Cancels the wait, nothing else.</param>
     /// <exception cref="LatticeException">
@@ -116,9 +122,12 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// A master and its children can be opened in one process. Cancelling or failing the
     /// call closes the instance; a cancelled call ends in <see cref="OperationCanceledException"/>.
     /// If the instance is closed while the open waits, the open ends in
-    /// <see cref="OperationCanceledException"/> as well; an open called on a closed instance is
-    /// <see cref="ObjectDisposedException"/>. An open that fails, times out or is cancelled leaves nothing of the instance behind: no
-    /// connection, no work that still runs and no memory it holds.
+    /// <see cref="OperationCanceledException"/> as well, not in
+    /// <see cref="LatticeErrorEnum.Unavailable"/> as other operations in flight do: the caller has
+    /// no instance yet that could be unavailable, and closing it withdraws the request to open.
+    /// An open called on a closed instance is <see cref="ObjectDisposedException"/>. An open that
+    /// fails, times out or is cancelled leaves nothing of the instance behind: no connection, no
+    /// work that still runs and no memory it holds.
     /// </para>
     /// </remarks>
     /// <param name="cancellationToken">
@@ -276,23 +285,38 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// outcome and releases the memory. Closing a closed database does nothing.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Entities returned by earlier reads stay valid. A MemoryOnly database saves nothing:
     /// its data is gone after closing. A child whose master has closed keeps serving its
-    /// local reads. A child does not wait for its master when it closes. A write through it
-    /// whose reply has arrived returns its result, also one that still waited for the child to
-    /// apply it. A write it has sent whole and whose reply has not arrived ends in
+    /// local reads.
+    /// </para>
+    /// <para>
+    /// An operation in flight on an instance that is being closed, which the close does not let
+    /// finish, ends in <see cref="LatticeErrorEnum.Unavailable"/>: a wait for a position, and on
+    /// a child a write its master has not taken. A started write of a master reaches its
+    /// outcome. An <see cref="OpenAsync"/> that still waits is cancelled, as it states. An
+    /// operation called after the close is <see cref="ObjectDisposedException"/>.
+    /// </para>
+    /// <para>
+    /// A child does not wait for its master when it closes. A write through it whose reply has
+    /// arrived returns its result, also one that still waited for the child to apply it. A write
+    /// it has sent whole and whose reply has not arrived ends in
     /// <see cref="LatticeErrorEnum.IndeterminateOutcome"/>. A write it has not begun to send, or
-    /// has sent only in part, ends in <see cref="LatticeErrorEnum.Unavailable"/>: it was not
-    /// executed. A write called after the close is <see cref="ObjectDisposedException"/>, as
-    /// every operation is. A master also stops accepting
-    /// children and ends every connection to them, and its close completes only once no work of
-    /// the instance runs any more and its port is free: another instance can listen at the
-    /// address as soon as the close has completed.
+    /// has sent only in part, is one its master has not taken: it ends in
+    /// <see cref="LatticeErrorEnum.Unavailable"/> and was not executed.
+    /// </para>
+    /// <para>
+    /// A master also stops accepting children and ends every connection to them, and its close
+    /// completes only once no work of the instance runs any more and its port is free: another
+    /// instance can listen at the address as soon as the close has completed.
+    /// </para>
+    /// <para>
     /// Disposing the database closes it in the same way. A call made while an
     /// earlier close is in progress, and a dispose, starts no other close: it completes when
     /// that close completes, once the memory is released; the token of a call cancels the wait
     /// of that call alone. The synchronous <see cref="IDisposable.Dispose"/> blocks its thread
     /// until the close has completed.
+    /// </para>
     /// </remarks>
     /// <param name="cancellationToken">
     /// Cancels waiting for the close to finish. The database still closes.
