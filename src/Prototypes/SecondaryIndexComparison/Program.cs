@@ -6,6 +6,11 @@ internal static class Program
 {
     public static int Main(string[] args)
     {
+        if (args is ["ordered", ..])
+        {
+            return Ordered.OrderedProgram.Run(args.AsSpan(1));
+        }
+
         try
         {
             object result;
