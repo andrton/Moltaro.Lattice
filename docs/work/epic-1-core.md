@@ -5518,6 +5518,16 @@ effect, which is quadratic in the effects of one transaction, and both lists kee
 capacity of the largest transaction. One effect for a transaction today; a batch needs a
 set.
 
+**Decided by the planner on 18 November 2026, on a question of the architect's review.** A
+batch is one member of a commit group: one pending write, one position, several changes.
+"Consecutive positions from the first sequence" of the storage step stays true, and a
+position never falls inside a batch. The master does not get a loop of its own for the
+three steps of a publication: it uses the shared type of entry D1 of the
+[refactoring backlog](refactoring.md), which takes the changes of one publication as a
+span for this reason. A batch is one publication for the drain of retired memory, and it
+retired something if any of its changes did. The envelopes of the effects of a
+transaction move beside the code that reads them in this sprint (entry D5).
+
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references

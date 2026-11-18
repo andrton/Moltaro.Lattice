@@ -22,8 +22,10 @@ Gone through by the planner and the coordinator on 18 November 2026.
 - **S13R is carried out in two parts**, because the owner's machine could give no
   measurement on 18 November 2026. Part 1, what owes no figure, is done and merged: A7,
   A1, A8, A14 to A17, N1, N2, U2, U5, U7 to U10, U12, the one walk of B1 and the
-  comments. Part 2 waits for a quiet machine, each commit with its figure: A2, A6, A9,
-  T1 with B3, B2, and the figure for the address validation. The first plan follows.
+  comments. Part 2 waits for a quiet machine, each commit with its figure, in this
+  order: A2 in the cut of D1 with D2, D3 and D4; A6; T1 with B3 if S14 needs it before
+  its implementation, otherwise after; A9; B2; and the figure for the address
+  validation. The first plan follows.
 - **S13R**, after S13 and the fix package of the outside review, before S14: A7, A2, A1,
   A6, A9 in that order, by one implementer. Each is a commit of its own with the whole
   suite passing; after A2, A6 and A9 the write and the read by key are measured at 1 and
@@ -103,6 +105,30 @@ those of the branch of S13 at its merge.
 | # | Place | What is wrong | The simpler form | Status |
 | --- | --- | --- | --- | --- |
 | T1 | `Storage/Text/TextSlot.cs` (`State`), `TextTable.cs` (`Publish`, the branch of `TryAcquire` that publishes on a hit, the parameter `prepared`), `ValueBlocks.PublishText`, the `Text` branch of `RootStorage.Publish` | The state Prepared or Published of an entry is kept in the slot beside what the arena already knows of the entry's block, and the same field is the link of the free list; a reader has to hold four places together to see that an entry is published before a read reaches it. Both reviewers named it the hardest part of S13 to follow | `Publish` asks `Arena.IsPrepared(address)` and the slot keeps no state (the other form named by the review, an entry allocated live always, changes what `PreparedBytes` counts and is carried to S24). The free-list link moves into a field a free slot does not use and the slot is 24 bytes instead of 32. Shown unchanged: the tally tests, `PreparedBytes` and `LiveBytes` in the released-write tests, memory for each distinct entry (51.4 bytes of table today), the writes with a Dictionary text | taken (S13R) |
+
+## Architect's review after the fixes of S13 and part 1 of S13R, 18 November 2026
+
+Read at 8717b13, nothing run. Its judgement: part 1 did what it claimed and the fix
+package added no structure of its own; one seam remains, and S14 lands on it. Gone
+through by the planner and the coordinator on the same day.
+
+| # | Place | What is wrong | The simpler form | Status |
+| --- | --- | --- | --- | --- |
+| D1 | `Engine/Writes/WriteExecutor.cs` (`Release`, the reservations of the three preparations, `PublishInsert`, `ReplaceRoot`, `DeleteRoot`, the five stores), `Engine/Writes/PreparedWrite.cs`; `Engine/Loading/ReceivedChanges.cs` (`TryPrepareWrite`, `PrepareDelete`, `Publish`, `Abandon`, `GiveBack`, the private `Change` and `ChangeKindEnum`) | "The effects of a write are installed" is one place for the stores only: a prepared change is recorded in two types, reserved in two places and given back in four, and its kind is switched on in seven. S14 would write the reservation, the release and the record of index entries twice | A2 in a wider cut: one struct for a prepared change (kind, table, key, handle, root, replaced root) and one small type that reserves, releases, and makes the stores before the position and after it. The type is sealed and called directly, no interface, and takes the prepared changes of one publication as a span — a transaction on a child has several today, a master passes one — so the three steps exist once and the batch of S17 writes only its loop. `Loading` no longer depends on `WriteExecutor`. Shown unchanged: the order of the stores and both fault points, a MemoryOnly write allocates nothing, the write of one caller and of sixteen, the child follow figure | taken (S13R, part 2), as A2, first in its order |
+| D2 | `Engine/Loading/ReceivedChanges.cs` (`Place` with `PlaceUnderTheLock`, `Apply`, the field of the coordinator); `WriteExecutor.ReadsToWaitFor` | One rule, "refused for memory: drain, retry", in two shapes; a pass-through that survived U8, with a flag that repeats what `RetiredMemory.ReadsToWaitFor` already says; the whole coordinator taken for one test switch | `Place` takes the shape of `Apply` over a `TryPlace`; both callers ask the retired memory; the switch moves to `ReadEpochs`, beside the hold of a read it already carries for tests | taken (S13R, part 2), with the child figure |
+| D3 | `Replication/Load/BlockImport.cs` (`Check`), and the schema passed through `WriteExecutor`, `ReceivedChanges` and `ForwardedWrites` for it | A check that the layout is one of the schema: a lookup by name for every received root, an exception no test asserts | Remove the check and its field — on one condition, which the reviewer of part 2 shows by reading: the layout that reaches the check is always taken from the node's own schema and never selected by received bytes. If a received byte can select it, the check is part of what a node checks of a peer: it stays, gets a test, and the decision on trust between nodes names it | taken (S13R, part 2), on that condition |
+| D4 | `Engine/Writes/WriteExecutor.cs`, `Engine/Loading/ReceivedChanges.cs`, `Engine/Protection/RetiredMemory.cs` (`AfterWrite`) | Whether a publication retired nothing is worked out by the callers from the kind of each write, for a write on a master and for a transaction on a child, although the retired memory sees every addition itself; S14 changes which kinds retire | `RetiredMemory` notes whether anything was retired since the previous publication; `AfterWrite` takes no argument. The unit is the publication of one position, on a master and on a child. Shown unchanged: the moves of the epoch for each 10,000 writes recorded with the fixes after S13 | taken (S13R, part 2), with D1 |
+| D5 | `Engine/Delivery/TransactionEncoder.cs`; `Replication/Transactions/TransactionFormat.cs` | The envelopes of the effects of a transaction are written by hand in one folder and read in another, and each writer welds the header of the transaction to its one effect | `TransactionFormat` writes the three envelopes beside the code that reads them; the bytes are identical | joined (S17), which splits those methods |
+| D6 | `Engine/Loading/RootPlacement.cs` (a repeated test for a layout); comments in `WriteCoordinator`, `EngineDatabase`, `ReceivedChanges` and the head of `Follower` that still send the reader to `Follower` for what `ReceivedChanges` does since A1; citations of briefs left in `Engine/Writes` (`PreparedWrite`, `CommitGroup`, `ICommitStorage`, `ForwardedOrigin`, `MemoryOnlyStorage`, `EngineFaultPointEnum`) | Small leftovers | Corrected as the files are touched; the implementer of S14 is told | taken, with the next commit of comments |
+
+**The order before the implementation of S14,** which its study and its contract step do
+not wait for: part 1 merged and the branch of S14 rebased on it; D1 as A2, with D2, D3
+and D4; A6, because S14 gives `EntityTable` its secondary indexes and an entry unique by
+the key of the index and the identity of the entity needs the key of a type that A6
+takes out; T1 with B3 only if the study of S14 chooses one shared text entry for an
+index and a root. A9 and B2 do not touch what S14 builds on. All of these owe figures and
+wait for a quiet machine; whether A2 and A6 may be merged with their figures owed, if no
+machine comes, is a question for the owner and is not decided.
 
 ## Architect's review after S13, 18 November 2026
 
