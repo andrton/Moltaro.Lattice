@@ -1019,7 +1019,7 @@ Why this order:
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
-| S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
+| S12 | Writes through a child, sessions; the placeholder is removed | Full | In progress |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
