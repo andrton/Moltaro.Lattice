@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
@@ -154,9 +155,6 @@ internal sealed class EntityTable
     // microsecond. A step that finds an entity among the first words, as every step does while the
     // index does not grow, takes one round.
     private const int WordsPerRound = 256;
-
-    // UTF-8 that refuses bytes that are not well-formed, for the text of a received key (ReadKey).
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
     // surrogates.
@@ -403,7 +401,7 @@ internal sealed class EntityTable
 
                 try
                 {
-                    text = StrictUtf8.GetString(input.UnreadSequence.Slice(0, length));
+                    text = Protocol.StrictUtf8.GetString(input.UnreadSequence.Slice(0, length));
                 }
                 catch (DecoderFallbackException exception)
                 {

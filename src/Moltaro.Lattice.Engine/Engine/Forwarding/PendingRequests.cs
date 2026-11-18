@@ -80,7 +80,7 @@ internal sealed class PendingRequests
 
         if (correlationId == 0)
         {
-            throw Invalid("The master sent a reply with the correlation id 0, which no request has.");
+            throw Protocol.Invalid("The master sent a reply with the correlation id 0, which no request has.");
         }
 
         var reply = ForwardEncoding.ReadReply(body);
@@ -89,12 +89,12 @@ internal sealed class PendingRequests
         {
             if (result.Position.History != _history)
             {
-                throw Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
+                throw Protocol.Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
             }
 
             if (result.Position.Sequence <= applied)
             {
-                throw Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
+                throw Protocol.Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
             }
         }
 
@@ -107,7 +107,7 @@ internal sealed class PendingRequests
 
         if (call is null)
         {
-            throw Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
+            throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
         call.Answer(reply);
@@ -145,6 +145,4 @@ internal sealed class PendingRequests
             call.Fail(failure());
         }
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

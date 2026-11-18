@@ -63,7 +63,7 @@ internal sealed class MessageAssembler
 
         if (payload.Length < sizeof(ulong))
         {
-            throw Invalid($"The first {frame.Kind} frame of a message has {payload.Length} bytes, fewer than its announced length takes.");
+            throw Protocol.Invalid($"The first {frame.Kind} frame of a message has {payload.Length} bytes, fewer than its announced length takes.");
         }
 
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(payload);
@@ -71,14 +71,14 @@ internal sealed class MessageAssembler
 
         if ((ulong)held.Length > announced)
         {
-            throw Invalid($"The first {frame.Kind} frame of a message holds {held.Length} bytes of its body, more than the {announced} it announces.");
+            throw Protocol.Invalid($"The first {frame.Kind} frame of a message holds {held.Length} bytes of its body, more than the {announced} it announces.");
         }
 
         var complete = (ulong)held.Length == announced;
 
         if (complete != frame.EndsABody)
         {
-            throw Invalid(frame.EndsABody
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A {frame.Kind} message announces {announced} bytes, and its last frame ends after {held.Length}."
                 : $"A {frame.Kind} message is complete in its first frame, which is not marked as its end.");
         }
@@ -120,8 +120,6 @@ internal sealed class MessageAssembler
         _held = 0;
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // The next bytes of the message in progress.
     private MessageStepEnum Continue(in ReceivedFrame frame, ReadOnlySpan<byte> payload, out ReadOnlySequence<byte> body)
     {
@@ -129,19 +127,19 @@ internal sealed class MessageAssembler
 
         if (frame.CorrelationId != _correlationId)
         {
-            throw Invalid($"A {frame.Kind} frame of the message {frame.CorrelationId} arrived in the middle of the message {_correlationId}.");
+            throw Protocol.Invalid($"A {frame.Kind} frame of the message {frame.CorrelationId} arrived in the middle of the message {_correlationId}.");
         }
 
         if ((ulong)payload.Length > _remaining)
         {
-            throw Invalid($"A {frame.Kind} frame holds {payload.Length} bytes of the message {_correlationId}, which announces {_remaining} more.");
+            throw Protocol.Invalid($"A {frame.Kind} frame holds {payload.Length} bytes of the message {_correlationId}, which announces {_remaining} more.");
         }
 
         _remaining -= (ulong)payload.Length;
 
         if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsABody
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A {frame.Kind} frame is marked as the end of the message {_correlationId}, which announces {_remaining} more bytes."
                 : $"A {frame.Kind} frame completes the message {_correlationId} and is not marked as its end.");
         }

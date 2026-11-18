@@ -60,7 +60,7 @@ internal static class SchemaTransfer
 
         if (rest != (long)types * sizeof(ulong))
         {
-            throw Invalid($"The schema of the master is followed by {rest} bytes, not by a count for each of its {types} entity types.");
+            throw Protocol.Invalid($"The schema of the master is followed by {rest} bytes, not by a count for each of its {types} entity types.");
         }
 
         var counts = new long[types];
@@ -74,7 +74,7 @@ internal static class SchemaTransfer
 
             if (value > int.MaxValue)
             {
-                throw Invalid($"The master announces {value} roots of {schema.EntityTypes[index].Name}, more than a database holds.");
+                throw Protocol.Invalid($"The master announces {value} roots of {schema.EntityTypes[index].Name}, more than a database holds.");
             }
 
             counts[index] = (long)value;
@@ -82,6 +82,4 @@ internal static class SchemaTransfer
 
         return (schema, counts);
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

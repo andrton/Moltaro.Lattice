@@ -99,7 +99,7 @@ internal static class FrameCodec
 
         if (FrameCheck.Of(frame.Slice(0, length - Protocol.CheckSize)) != BinaryPrimitives.ReadUInt32LittleEndian(check))
         {
-            throw Invalid($"The check of a {header.Kind} frame does not match its bytes.");
+            throw Protocol.Invalid($"The check of a {header.Kind} frame does not match its bytes.");
         }
 
         body = frame.Slice(Protocol.HeaderSize, header.BodyLength - Protocol.CheckSize);
@@ -134,7 +134,7 @@ internal static class FrameCodec
     {
         if (body.Length != Protocol.HelloPayloadSize)
         {
-            throw Invalid($"The payload of a Hello has {Protocol.HelloPayloadSize} bytes, not {body.Length}.");
+            throw Protocol.Invalid($"The payload of a Hello has {Protocol.HelloPayloadSize} bytes, not {body.Length}.");
         }
 
         Span<byte> span = stackalloc byte[Protocol.HelloPayloadSize];
@@ -165,7 +165,7 @@ internal static class FrameCodec
     {
         if (body.Length != Protocol.RefusePayloadSize)
         {
-            throw Invalid($"The payload of a Refuse has {Protocol.RefusePayloadSize} bytes, not {body.Length}.");
+            throw Protocol.Invalid($"The payload of a Refuse has {Protocol.RefusePayloadSize} bytes, not {body.Length}.");
         }
 
         Span<byte> span = stackalloc byte[Protocol.RefusePayloadSize];
@@ -174,7 +174,7 @@ internal static class FrameCodec
 
         var reason = (RefuseReasonEnum)BinaryPrimitives.ReadUInt16LittleEndian(span);
 
-        return Enum.IsDefined(reason) ? reason : throw Invalid($"A Refuse names the reason {(ushort)reason}, which is none.");
+        return Enum.IsDefined(reason) ? reason : throw Protocol.Invalid($"A Refuse names the reason {(ushort)reason}, which is none.");
     }
 
     // The fields of a header, checked as the class says.
@@ -193,33 +193,31 @@ internal static class FrameCodec
 
         if (header.Magic != Protocol.Magic)
         {
-            throw Invalid($"A frame begins with 0x{header.Magic:X8}, not with the magic of the protocol.");
+            throw Protocol.Invalid($"A frame begins with 0x{header.Magic:X8}, not with the magic of the protocol.");
         }
 
         if (header.ProtocolVersion != Protocol.Version)
         {
-            throw Invalid($"A frame has the protocol version {header.ProtocolVersion}, not {Protocol.Version}.");
+            throw Protocol.Invalid($"A frame has the protocol version {header.ProtocolVersion}, not {Protocol.Version}.");
         }
 
         var maxBody = Protocol.MaxBodyOf(header.Kind);
 
         if (maxBody == 0)
         {
-            throw Invalid($"A frame has the kind {(ushort)header.Kind}, which is none.");
+            throw Protocol.Invalid($"A frame has the kind {(ushort)header.Kind}, which is none.");
         }
 
         if (header.BodyLength < Protocol.CheckSize || header.BodyLength > maxBody)
         {
-            throw Invalid($"A {header.Kind} frame announces a body of {header.BodyLength} bytes; it has {Protocol.CheckSize} to {maxBody}.");
+            throw Protocol.Invalid($"A {header.Kind} frame announces a body of {header.BodyLength} bytes; it has {Protocol.CheckSize} to {maxBody}.");
         }
 
         if ((header.Flags & ~Protocol.EndsABody) != 0)
         {
-            throw Invalid($"A {header.Kind} frame has the flags 0x{header.Flags:X8}; only bit 0 is defined.");
+            throw Protocol.Invalid($"A {header.Kind} frame has the flags 0x{header.Flags:X8}; only bit 0 is defined.");
         }
 
         return header;
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

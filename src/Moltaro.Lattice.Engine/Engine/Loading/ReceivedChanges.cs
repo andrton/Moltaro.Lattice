@@ -2,6 +2,7 @@ using System.Buffers;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
@@ -258,8 +259,6 @@ internal sealed class ReceivedChanges
         }
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // The root placed by the rule of a write refused for memory (see the class).
     private void PlaceUnderTheLock(SequenceReader<byte> start, EntityTable table, ulong lastMutation, ulong received)
     {
@@ -329,7 +328,7 @@ internal sealed class ReceivedChanges
 
                 if (lastMutation != sequence)
                 {
-                    throw Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {lastMutation}.");
+                    throw Protocol.Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {lastMutation}.");
                 }
 
                 return TryPrepareWrite(written, sequence, ref root);
@@ -352,7 +351,7 @@ internal sealed class ReceivedChanges
     private EntityTable TableOf(uint typeId, ulong sequence) =>
         _tables.TryGetStored(typeId, out var table)
             ? table
-            : throw Invalid($"The transaction {sequence} names the entity type {typeId}, which the schema of the child does not store.");
+            : throw Protocol.Invalid($"The transaction {sequence} names the entity type {typeId}, which the schema of the child does not store.");
 
     // Under the lock of the writes: checks the root of the entity type of the table that the rest of the
     // input holds, from its layout version on, whose last mutation is given, and prepares its state by

@@ -58,7 +58,7 @@ internal sealed class TransactionAssembler
 
         if (payload.Length < TransactionFormat.HeaderSize)
         {
-            throw Invalid($"A Transaction frame of {payload.Length} bytes is shorter than the start of a transaction.");
+            throw Protocol.Invalid($"A Transaction frame of {payload.Length} bytes is shorter than the start of a transaction.");
         }
 
         sequence = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span);
@@ -68,7 +68,7 @@ internal sealed class TransactionAssembler
 
         if (announced == 0)
         {
-            throw Invalid($"The transaction {sequence} announces no effect.");
+            throw Protocol.Invalid($"The transaction {sequence} announces no effect.");
         }
 
         if (announced > (ulong)_largest)
@@ -78,12 +78,12 @@ internal sealed class TransactionAssembler
 
         if (held > announced)
         {
-            throw Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
+            throw Protocol.Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
         }
 
         if ((held == announced) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsABody
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"The transaction {sequence} announces {announced} bytes of effects, and its last frame ends after {held}."
                 : $"The transaction {sequence} is complete in its first frame, which is not marked as its end.");
         }
@@ -112,8 +112,6 @@ internal sealed class TransactionAssembler
         _remaining = 0;
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // The next bytes of the transaction in progress.
     private bool Continue(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects)
     {
@@ -123,7 +121,7 @@ internal sealed class TransactionAssembler
 
         if ((ulong)payload.Length > _remaining)
         {
-            throw Invalid($"A Transaction frame holds {payload.Length} bytes of the transaction {_sequence}, which announces {_remaining} more.");
+            throw Protocol.Invalid($"A Transaction frame holds {payload.Length} bytes of the transaction {_sequence}, which announces {_remaining} more.");
         }
 
         _large.Write(payload);
@@ -131,7 +129,7 @@ internal sealed class TransactionAssembler
 
         if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsABody
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A Transaction frame is marked as the end of the transaction {_sequence}, which announces {_remaining} more bytes."
                 : $"A Transaction frame completes the transaction {_sequence} and is not marked as its end.");
         }

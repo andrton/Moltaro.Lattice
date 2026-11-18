@@ -47,9 +47,6 @@ namespace Moltaro.Lattice.Replication.Load;
 // The arena has one changing thread at a time: the caller holds the lock of the writes of the child.
 internal sealed class BlockImport
 {
-    // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
     private readonly Arena _arena;
 
     private readonly LatticeSchema _schema;
@@ -140,7 +137,7 @@ internal sealed class BlockImport
         {
             try
             {
-                return StrictUtf8.GetString(bytes);
+                return Protocol.StrictUtf8.GetString(bytes);
             }
             catch (DecoderFallbackException exception)
             {

@@ -436,9 +436,6 @@ internal sealed class WriteCoordinator
         Finish(ref pass);
     }
 
-    private static LatticeException Unavailable() =>
-        new(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
-
     // Takes the write out of a list linked by Next, which holds it; linear in the list (see
     // FindLastOfEntity).
     private static void Unlink(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
@@ -636,7 +633,7 @@ internal sealed class WriteCoordinator
             // ended those in them.
             if (_faulted)
             {
-                failure = Unavailable();
+                failure = ReadEpochs.FaultedRefusal();
             }
             else
             {
@@ -768,7 +765,7 @@ internal sealed class WriteCoordinator
     {
         if (_faulted)
         {
-            End(write, Unavailable(), ref pass);
+            End(write, ReadEpochs.FaultedRefusal(), ref pass);
             AdvanceChain(write, ref pass);
 
             return;
@@ -1064,7 +1061,7 @@ internal sealed class WriteCoordinator
 
             if (_faulted)
             {
-                End(write, Unavailable(), ref pass);
+                End(write, ReadEpochs.FaultedRefusal(), ref pass);
             }
             else if (cancelled is not null)
             {
@@ -1369,7 +1366,7 @@ internal sealed class WriteCoordinator
             _preparedFirst = prepared.Next;
             prepared.Next = null;
             _executor.Release(prepared.Prepared!);
-            End(prepared, Unavailable(), ref pass);
+            End(prepared, ReadEpochs.FaultedRefusal(), ref pass);
             AdvanceChain(prepared, ref pass);
         }
 
@@ -1378,7 +1375,7 @@ internal sealed class WriteCoordinator
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving)
         {
             _resolving = null;
-            End(resolving, Unavailable(), ref pass);
+            End(resolving, ReadEpochs.FaultedRefusal(), ref pass);
             AdvanceChain(resolving, ref pass);
         }
 
@@ -1388,7 +1385,7 @@ internal sealed class WriteCoordinator
 
             if (waiter.State == PendingWriteStateEnum.WaitingForEarlier)
             {
-                End(waiter, Unavailable(), ref pass);
+                End(waiter, ReadEpochs.FaultedRefusal(), ref pass);
                 AdvanceChain(waiter, ref pass);
             }
 

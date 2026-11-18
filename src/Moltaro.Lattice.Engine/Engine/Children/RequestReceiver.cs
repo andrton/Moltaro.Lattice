@@ -75,7 +75,7 @@ internal sealed class RequestReceiver
         {
             if (frame.CorrelationId != _lastId + 1)
             {
-                throw Invalid($"A forwarded write has the correlation id {frame.CorrelationId}, where {_lastId + 1} comes next.");
+                throw Protocol.Invalid($"A forwarded write has the correlation id {frame.CorrelationId}, where {_lastId + 1} comes next.");
             }
 
             _lastId = frame.CorrelationId;
@@ -100,8 +100,6 @@ internal sealed class RequestReceiver
         }
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // Checks the request and submits it (see the class).
     private void Submit(ulong correlationId, ReadOnlySequence<byte> body)
     {
@@ -110,7 +108,7 @@ internal sealed class RequestReceiver
 
         if (!_writes.Tables.TryGetStored(request.TypeId, out var table))
         {
-            throw Invalid($"A forwarded write names the entity type {request.TypeId}, which the master does not store.");
+            throw Protocol.Invalid($"A forwarded write names the entity type {request.TypeId}, which the master does not store.");
         }
 
         var key = table.ReadKey(ref reader);
@@ -140,12 +138,12 @@ internal sealed class RequestReceiver
 
         if (!RootEnvelope.TryRead(ref reader, out var rootTypeId, out var lastMutation))
         {
-            throw Invalid("The root of a forwarded write ends before its type id and its last mutation.");
+            throw Protocol.Invalid("The root of a forwarded write ends before its type id and its last mutation.");
         }
 
         if (rootTypeId != typeId || lastMutation != 0)
         {
-            throw Invalid("The root of a forwarded write names another entity type than the write, or a last mutation that is not 0.");
+            throw Protocol.Invalid("The root of a forwarded write names another entity type than the write, or a last mutation that is not 0.");
         }
 
         var rest = reader.UnreadSequence;
@@ -153,7 +151,7 @@ internal sealed class RequestReceiver
 
         if (!HoldsKey(table, received, key))
         {
-            throw Invalid($"The root of a forwarded write of {table.EntityType.Name} does not hold the key '{key}' of the write.");
+            throw Protocol.Invalid($"The root of a forwarded write of {table.EntityType.Name} does not hold the key '{key}' of the write.");
         }
 
         return rest;

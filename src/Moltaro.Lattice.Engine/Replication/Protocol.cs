@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Moltaro.Lattice.Replication;
 
 // The fixed numbers of the replication transport between a master and its children (brief of Epic 1,
@@ -62,6 +64,9 @@ internal static class Protocol
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;
 
+    // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
+    public static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     // The format of the bytes of a root as the sender stores them: the version of the root layout
     // (Storage.RootLayout.LayoutVersion) in the low 16 bits, and BigEndianLayout when the machine stores
     // numbers big-endian. A root travels as the bytes of the arena, so a node of the other byte order
@@ -81,4 +86,7 @@ internal static class Protocol
         FrameKindEnum.Closed => CheckSize,
         _ => 0,
     };
+
+    // The refusal of what a peer sent that breaks a rule of the format: ValidationFailed with the reason.
+    public static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

@@ -30,9 +30,6 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // of the engine makes, with ValidationFailed, before anything of it is used.
 internal static class ForwardEncoding
 {
-    // UTF-8 that refuses bytes that are not well-formed, for the message of a refusal.
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
     // The most bytes of UTF-8 one character takes.
     private const int MostBytesOfACharacter = 4;
 
@@ -69,7 +66,7 @@ internal static class ForwardEncoding
     {
         if (!body.TryRead(out var kind) || kind > (byte)WriteKindEnum.Delete)
         {
-            throw Invalid("A forwarded write is empty or names a kind of write that is none.");
+            throw Protocol.Invalid("A forwarded write is empty or names a kind of write that is none.");
         }
 
         if (!body.TryReadLittleEndian(out int typeId))
@@ -92,7 +89,7 @@ internal static class ForwardEncoding
             // for a replace.
             if ((WriteKindEnum)kind == WriteKindEnum.Insert)
             {
-                throw Invalid("A forwarded insert carries an expected revision, which no insert has.");
+                throw Protocol.Invalid("A forwarded insert carries an expected revision, which no insert has.");
             }
         }
 
@@ -120,7 +117,7 @@ internal static class ForwardEncoding
 
         if ((ulong)length != (ulong)body.Remaining)
         {
-            throw Invalid($"A forwarded write announces a root of {(ulong)length} bytes, and {body.Remaining} follow.");
+            throw Protocol.Invalid($"A forwarded write announces a root of {(ulong)length} bytes, and {body.Remaining} follow.");
         }
 
         var root = body.UnreadSequence;
@@ -135,7 +132,7 @@ internal static class ForwardEncoding
     {
         if (!body.End)
         {
-            throw Invalid($"A forwarded delete goes on for {body.Remaining} bytes after its key.");
+            throw Protocol.Invalid($"A forwarded delete goes on for {body.Remaining} bytes after its key.");
         }
     }
 
@@ -196,7 +193,7 @@ internal static class ForwardEncoding
 
             if (!reader.TryRead(out var changed) || changed > 1)
             {
-                throw Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
+                throw Protocol.Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
             }
 
             ExpectEndOfReply(reader);
@@ -206,23 +203,23 @@ internal static class ForwardEncoding
 
         if (!reader.TryReadLittleEndian(out int error) || !Enum.IsDefined((LatticeErrorEnum)error))
         {
-            throw Invalid("The refusal of a forwarded write ends before its error, or names an error that is none.");
+            throw Protocol.Invalid("The refusal of a forwarded write ends before its error, or names an error that is none.");
         }
 
         if (!reader.TryReadLittleEndian(out int length) || (uint)length > (ulong)reader.Remaining)
         {
-            throw Invalid("The refusal of a forwarded write does not hold the message it announces.");
+            throw Protocol.Invalid("The refusal of a forwarded write does not hold the message it announces.");
         }
 
         string message;
 
         try
         {
-            message = StrictUtf8.GetString(reader.UnreadSequence.Slice(0, length));
+            message = Protocol.StrictUtf8.GetString(reader.UnreadSequence.Slice(0, length));
         }
         catch (DecoderFallbackException exception)
         {
-            throw Invalid($"The message of the refusal of a forwarded write is not well-formed UTF-8 ({exception.Message}).");
+            throw Protocol.Invalid($"The message of the refusal of a forwarded write is not well-formed UTF-8 ({exception.Message}).");
         }
 
         reader.Advance(length);
@@ -233,7 +230,7 @@ internal static class ForwardEncoding
         {
             if (!reader.TryReadLittleEndian(out int value) || !Enum.IsDefined((LatticeLimitEnum)value))
             {
-                throw Invalid("The refusal of a forwarded write ends in its limit, or names a limit that is none.");
+                throw Protocol.Invalid("The refusal of a forwarded write ends in its limit, or names a limit that is none.");
             }
 
             limit = (LatticeLimitEnum)value;
@@ -263,15 +260,13 @@ internal static class ForwardEncoding
         });
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
-    private static LatticeException Truncated(string part) => Invalid($"A forwarded write or its reply ends before {part}.");
+    private static LatticeException Truncated(string part) => Protocol.Invalid($"A forwarded write or its reply ends before {part}.");
 
     private static void ExpectEndOfReply(in SequenceReader<byte> reader)
     {
         if (!reader.End)
         {
-            throw Invalid($"The reply of a forwarded write goes on for {reader.Remaining} bytes after its end.");
+            throw Protocol.Invalid($"The reply of a forwarded write goes on for {reader.Remaining} bytes after its end.");
         }
     }
 
@@ -280,7 +275,7 @@ internal static class ForwardEncoding
     {
         if (!reader.TryRead(out var mark) || mark > 1)
         {
-            throw Invalid($"A forwarded write or its reply ends before {part}, or marks it with a value that is neither 0 nor 1.");
+            throw Protocol.Invalid($"A forwarded write or its reply ends before {part}, or marks it with a value that is neither 0 nor 1.");
         }
 
         return mark == 1;
@@ -333,7 +328,7 @@ internal static class ForwardEncoding
 
         if (history == 0)
         {
-            throw Invalid($"A forwarded write or its reply gives {part} with the history 0, which is no position.");
+            throw Protocol.Invalid($"A forwarded write or its reply gives {part} with the history 0, which is no position.");
         }
 
         return new LatticePosition((ulong)history, (ulong)sequence);

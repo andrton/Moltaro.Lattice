@@ -94,7 +94,7 @@ internal sealed class Capture
         {
             if (_epochs.IsFaulted)
             {
-                throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
+                throw ReadEpochs.FaultedRefusal();
             }
 
             var start = _clock.Sequence;

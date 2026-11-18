@@ -222,8 +222,6 @@ internal sealed class Follower
         resumed?.TrySetResult();
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // Receives the next transaction whole and applies it; false, with nothing applied, when the master sent
     // Closed (see the class). After Ready it acknowledges what it has applied whenever no more of the
     // stream waits and the next frame has to be read from the socket, within a transaction as well as
@@ -259,12 +257,12 @@ internal sealed class Follower
             {
                 if (frame.CorrelationId != 0)
                 {
-                    throw Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
+                    throw Protocol.Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
                 }
 
                 if (_assembler.InProgress || _pending.ReplyInProgress)
                 {
-                    throw Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
+                    throw Protocol.Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
                 }
 
                 return false;
@@ -272,7 +270,7 @@ internal sealed class Follower
 
             if (frame.Kind != FrameKindEnum.Transaction)
             {
-                throw Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
+                throw Protocol.Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
             }
 
             if (_assembler.Accept(frame, out sequence, out effects))
@@ -283,7 +281,7 @@ internal sealed class Follower
 
         if (sequence != _applied + 1)
         {
-            throw Invalid($"The master sent the transaction {sequence} after {_applied}: a transaction is missing or repeated.");
+            throw Protocol.Invalid($"The master sent the transaction {sequence} after {_applied}: a transaction is missing or repeated.");
         }
 
         // The effects stay where they were received: no frame is received while the suspension lasts.

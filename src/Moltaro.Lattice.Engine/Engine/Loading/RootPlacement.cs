@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Engine.Loading;
@@ -49,17 +50,17 @@ internal sealed class RootPlacement
 
         if (!RootEnvelope.TryRead(ref reader, out var typeId, out var lastMutation))
         {
-            throw Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
+            throw Protocol.Invalid($"A root of {bytes.Length} bytes is shorter than its envelope.");
         }
 
         if (!_tables.TryGetStored(typeId, out var table) || table.Layout is not { } layout)
         {
-            throw Invalid($"A root names the entity type {typeId}, which the schema of the child does not store.");
+            throw Protocol.Invalid($"A root names the entity type {typeId}, which the schema of the child does not store.");
         }
 
         if (lastMutation == 0)
         {
-            throw Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
+            throw Protocol.Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
         }
 
         _changes.Place(table, lastMutation, reader, _received);
@@ -73,16 +74,14 @@ internal sealed class RootPlacement
     {
         if (_received != end.Roots)
         {
-            throw Invalid($"The child received {_received} roots, and the master announces {end.Roots} at the end of the load.");
+            throw Protocol.Invalid($"The child received {_received} roots, and the master announces {end.Roots} at the end of the load.");
         }
 
         if (_latest > end.End)
         {
-            throw Invalid($"A root has the last mutation {_latest}, after the end position {end.End} of the capture.");
+            throw Protocol.Invalid($"A root has the last mutation {_latest}, after the end position {end.End} of the capture.");
         }
 
         _changes.EndLoad(end.Start);
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

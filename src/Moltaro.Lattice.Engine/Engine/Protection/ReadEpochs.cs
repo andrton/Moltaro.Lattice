@@ -162,8 +162,12 @@ internal sealed class ReadEpochs
     {
         ObjectDisposedException.ThrowIf((Volatile.Read(ref _state) & Closed) != 0, _owner);
 
-        throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
+        throw FaultedRefusal();
     }
+
+    // The refusal of an operation of a database that faulted: Unavailable, for good.
+    public static LatticeException FaultedRefusal() =>
+        new(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and it serves nothing until a new instance is opened.");
 
     // Leaves the slot a read took. The release orders everything the read read before the slot is
     // seen free (see the class).

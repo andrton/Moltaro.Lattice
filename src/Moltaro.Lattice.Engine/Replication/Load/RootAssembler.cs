@@ -59,7 +59,7 @@ internal sealed class RootAssembler
 
         if (payload.Length < sizeof(uint))
         {
-            throw Invalid($"A Blocks frame of {payload.Length} bytes holds no count of roots.");
+            throw Protocol.Invalid($"A Blocks frame of {payload.Length} bytes holds no count of roots.");
         }
 
         var count = BinaryPrimitives.ReadUInt32LittleEndian(payload.Span);
@@ -67,14 +67,14 @@ internal sealed class RootAssembler
 
         if (count == 0)
         {
-            throw Invalid("A Blocks frame holds no root.");
+            throw Protocol.Invalid("A Blocks frame holds no root.");
         }
 
         for (var index = 0u; index < count; index++)
         {
             if (payload.Length - offset < sizeof(ulong))
             {
-                throw Invalid($"A Blocks frame announces {count} roots and ends before the length of root {index + 1}.");
+                throw Protocol.Invalid($"A Blocks frame announces {count} roots and ends before the length of root {index + 1}.");
             }
 
             var length = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span[offset..]);
@@ -83,7 +83,7 @@ internal sealed class RootAssembler
 
             if (length < EnvelopeSize)
             {
-                throw Invalid($"A root announces {length} bytes, fewer than the {EnvelopeSize} of the envelope of a root.");
+                throw Protocol.Invalid($"A root announces {length} bytes, fewer than the {EnvelopeSize} of the envelope of a root.");
             }
 
             if (length > (ulong)_largestRoot)
@@ -103,7 +103,7 @@ internal sealed class RootAssembler
 
             if (count != 1 || frame.EndsABody)
             {
-                throw Invalid($"A Blocks frame ends {length - available} bytes before the end of a root it announces.");
+                throw Protocol.Invalid($"A Blocks frame ends {length - available} bytes before the end of a root it announces.");
             }
 
             _large.Clear();
@@ -115,16 +115,14 @@ internal sealed class RootAssembler
 
         if (offset != payload.Length)
         {
-            throw Invalid($"A Blocks frame holds {payload.Length - offset} bytes after the {count} roots it announces.");
+            throw Protocol.Invalid($"A Blocks frame holds {payload.Length - offset} bytes after the {count} roots it announces.");
         }
 
         if (!frame.EndsABody)
         {
-            throw Invalid("A Blocks frame whose roots all end in it is not marked as their end.");
+            throw Protocol.Invalid("A Blocks frame whose roots all end in it is not marked as their end.");
         }
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 
     // The next bytes of the root in progress.
     private void Continue(in ReceivedFrame frame, List<ReadOnlySequence<byte>> completed)
@@ -133,7 +131,7 @@ internal sealed class RootAssembler
 
         if ((ulong)payload.Length > _remaining)
         {
-            throw Invalid($"A Blocks frame holds {payload.Length} bytes of a root that announces {_remaining} more.");
+            throw Protocol.Invalid($"A Blocks frame holds {payload.Length} bytes of a root that announces {_remaining} more.");
         }
 
         _large.Write(payload);
@@ -141,7 +139,7 @@ internal sealed class RootAssembler
 
         if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsABody
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A Blocks frame is marked as the end of a root that announces {_remaining} more bytes."
                 : "A Blocks frame completes a root and is not marked as its end.");
         }

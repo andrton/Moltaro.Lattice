@@ -90,7 +90,7 @@ internal static class BlockExport
 
             if (!ValueBlocks.LiesInChunks(descriptor))
             {
-                Copy(output, ValueBlocks.Contiguous(arena, descriptor, payload));
+                output.Write(ValueBlocks.Contiguous(arena, descriptor, payload));
 
                 continue;
             }
@@ -99,22 +99,8 @@ internal static class BlockExport
 
             for (var chunk = 0; chunk < entries.Length / ValueBlocks.DescriptorSize; chunk++)
             {
-                Copy(output, ValueBlocks.Chunk(arena, entries, chunk));
+                output.Write(ValueBlocks.Chunk(arena, entries, chunk));
             }
-        }
-    }
-
-    // Copies the bytes into the output in as many spans as it gives.
-    private static void Copy(IBufferWriter<byte> output, ReadOnlySpan<byte> bytes)
-    {
-        while (!bytes.IsEmpty)
-        {
-            var place = output.GetSpan();
-            var count = Math.Min(place.Length, bytes.Length);
-
-            bytes[..count].CopyTo(place);
-            output.Advance(count);
-            bytes = bytes[count..];
         }
     }
 }

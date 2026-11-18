@@ -63,7 +63,7 @@ internal static class TransactionFormat
             case EffectKindEnum.Write:
                 if (!effects.TryReadLittleEndian(out long rootLength) || rootLength < RootAssembler.EnvelopeSize || rootLength > effects.Remaining)
                 {
-                    throw Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
+                    throw Protocol.Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
                 }
 
                 root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, rootLength));
@@ -75,7 +75,7 @@ internal static class TransactionFormat
             case EffectKindEnum.Delete:
                 if (!effects.TryReadLittleEndian(out int deletedId))
                 {
-                    throw Invalid($"A Delete of the transaction {sequence} ends before its type id.");
+                    throw Protocol.Invalid($"A Delete of the transaction {sequence} ends before its type id.");
                 }
 
                 typeId = (uint)deletedId;
@@ -86,7 +86,7 @@ internal static class TransactionFormat
                 return EffectKindEnum.Unchanged;
 
             default:
-                throw Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
+                throw Protocol.Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
         }
     }
 
@@ -102,6 +102,4 @@ internal static class TransactionFormat
 
         return BinaryPrimitives.ReadUInt64LittleEndian(payload);
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }
