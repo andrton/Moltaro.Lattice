@@ -26,6 +26,7 @@ as it closes instead of waiting for the whole epic.
 | `main` | — | The integrated, green state; the source of every release | Always | — |
 | `epic-<n>/sprint-<nn>-<name>` | `main` | One sprint of an epic, on the full track | Until the sprint closes | Pull request, squash |
 | `fix/<name>`, `docs/<name>`, `chore/<name>` | `main` | The light track: a fix, a document, repository upkeep | A day or two | Pull request, squash |
+| `refactor/<name>` | `main` | A refactoring sprint, named after the sprint it follows: `refactor/s13r` | Until it closes | Pull request, squash |
 
 Examples: `epic-1/sprint-03-index-search`, `fix/child-reconnect-timeout`,
 `docs/branching`.

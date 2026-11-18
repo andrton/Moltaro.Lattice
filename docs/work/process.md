@@ -175,6 +175,21 @@ is handed a conclusion confirms it.
 - That every file the sprint added stands where `AGENTS.md` puts it — one type per file,
   a folder for one responsibility — in the tests and the samples as in the libraries. A
   folder that only collects files is a finding, whoever started it.
+- **Claims are probed, not only read.** Every sentence of the change or of its documents
+  that says something retains nothing or releases its memory is held by a test with weak
+  references; every limit is probed at a boundary where a structure grows; everything
+  called immutable or read-only is cast and written to. The reviewer writes such a probe
+  itself where the sprint has none, and reports it.
+- **Simplicity.** What in this sprint's change could be removed, merged or written more
+  plainly without losing a guarantee or a measured figure: a mechanism without a test or
+  a number that needs it; an option, a state or a branch nobody reaches; a type that only
+  passes calls on; a method or a file that does several things; a comment that is needed
+  because the code is not readable. Such a finding is a P3 with the simpler form named,
+  not a remark of taste; the implementer takes it or says which guarantee or figure
+  forbids it. From S14 of Epic 1 on, a comment that breaks the convention for comments
+  of `AGENTS.md` in code the sprint adds or changes is a P3 as well. Each reviewer also
+  names the one part of the change it found hardest to follow, and why; that sentence
+  goes into the record of the sprint's review even when nothing is changed.
 
 **A finding states** where it is, which rule, decision or requirement it breaks, and what
 goes wrong because of it: a concrete failure or a concrete cost. Then its severity:
@@ -221,6 +236,53 @@ sprint. The decision is recorded in the epic document, and in the
 [exceptions](exceptions.md) as well when it departs from a rule of `AGENTS.md`. A sprint is never closed with an
 open P1, P2 or P3 on the coordinator's own word. The report of a closed sprint says how
 many rounds it took.
+
+## The architect's review
+
+After every merged sprint the coordinator starts one more agent, in the role of the
+architect of the system. It is not a reviewer of the sprint: the reviewers of a sprint
+look for defects in a change, the architect looks at what the system has become. Its
+concern is the cleanliness of the code and whether the system stays manageable and
+extensible.
+
+- **Who.** A separate agent that took no part in the sprint, on the strongest model in
+  use, with the whole repository to read and nothing to write. Its brief says, every
+  time, that KISS holds for a refactoring as for any change: its task is to remove
+  technical debt where it can — to keep the code clean, understandable and easy to
+  modify, and free of duplicates — and that this is always a balance. A refactoring that
+  adds a type, an interface or a level of indirection has to remove more than it adds;
+  one that only moves code around, or that a reader would not thank it for, is not
+  proposed.
+- **What it looks at.** The code the sprint touched and what that code leans on, two or
+  three sprints back; once per stage, the whole engine. It asks: what could be removed,
+  merged or written more plainly without losing a guarantee or a measured figure; where
+  one type or one file has taken several responsibilities; where two places do the same
+  thing; where the direction of dependencies between folders is bent; what a later sprint
+  of the plan will find hard to extend, named with that sprint; what a reader without the
+  history cannot follow, and why.
+- **What it returns.** A short list, the most valuable first. Each entry names the place,
+  what is wrong in one sentence, the simpler form, what the change costs — files, risk,
+  the tests that cover it — and which guarantee or measurement must be shown unchanged.
+  It also says what it looked at and found sound. It proposes no change of behavior and
+  none of the public contract; such an idea is a question for the planner.
+- **What becomes of it.** The planner goes through the list with the coordinator. Each
+  entry is taken as a refactoring task, joined to a coming sprint that changes the same
+  code, or refused with its reason written beside it. A taken entry is entered in the
+  [refactoring backlog](refactoring.md) with its status. What would change a rule or the
+  scope goes to the owner.
+- **The refactoring sprint.** After a sprint is merged and the architect's list is gone
+  through, the entries that were taken are carried out as one sprint of their own, before
+  the next sprint of the plan starts; it is named after the sprint it follows (S13R after
+  S13). Nothing else is in it: no new behavior, no fix of a defect. No assertion of a
+  test changes and no test is removed; the whole suite and the format check pass before
+  and after; where it touches a path that has a measured figure, the figure is measured
+  again and does not fall. One reviewer answers one question: is the code simpler to
+  read, and is everything it guaranteed still guaranteed. When the list has nothing
+  taken, there is no refactoring sprint. An entry too large for one such sprint is
+  planned by the planner as a sprint of the plan, with its place.
+- **The measure** is not the number of lines. It is that a reader who knows the
+  guarantees can follow the code, and that the next sprint of the plan can be built
+  without untangling this one first.
 
 ## A study comes before a design
 

@@ -55,6 +55,24 @@ blurring a boundary or pushing the difficulty onto the caller. The target is the
 design that keeps every accepted guarantee. When simple and correct disagree, correct
 wins. When simple and fast disagree, measure before choosing.
 
+Simplicity and readability are what keeps this system possible to maintain and to extend,
+and they are guarded as correctness is. The system is complex and its performance targets
+are high; that is the reason to keep every part as plain as its guarantees and its
+measured figures allow, never a licence for clever code. Where a simpler or more readable
+form keeps the same guarantee and the same figure, it is the form to write. Code that is
+not in that form is technical debt.
+
+- Technical debt is looked for, not waited for. After every sprint a separate agent in
+  the role of the architect steps back over what has been built, not only over the last
+  change, and names what should be refactored; the
+  [development process](docs/work/process.md#the-architects-review) says how.
+- What it names becomes a task with a place in the plan, or is refused with a written
+  reason. It does not stay a remark.
+- Refactoring is part of the work and has a place of its own in the plan: a refactoring
+  sprint between two sprints, so that a change of structure is never mixed with a change
+  of behavior. It changes no behavior and no assertion of a test; the tests are what
+  makes it safe.
+
 ## Architectural Principles
 
 These hold across the contract and the engine.
@@ -131,6 +149,9 @@ row left to right: an earlier quality is not traded for a later one.
   simpler code stays.
 - The contract must not make the engine slow: a signature that forces boxing, copying or
   an allocation per call on a read path is a defect of the contract.
+- **Readability is third in the engine, not optional.** It gives way only to a guarantee
+  or to a measured figure, and then a comment at that place says which. Without one of
+  the two, the readable form stays.
 
 ## Design Patterns
 
@@ -210,6 +231,21 @@ Writing code:
 - Keep a method focused, without splitting a simple operation across needless helpers.
 - Comments are in English and explain why: an invariant, an ordering requirement, who
   owns mutable data, what a lock protects. They do not repeat the code.
+- A comment has to be readable by someone who was not here when the code was written. It
+  states the rule and its reason in its own words. It refers only to what lasts: a
+  decision record or a design document by its file, an entry of the exceptions register
+  by its number, a third-party source with its licence and commit. It does not cite a
+  sprint, a review round, a date, a role or a working document — "the brief of S09",
+  "review round 1", "the planner's point 4": that history belongs to the commit message,
+  and the working documents of an epic are removed when it is finished.
+- What is not built yet is said once, where it is refused, without a sprint number.
+- The head of a type says what the type is for, what it guarantees and what protects its
+  state, in about twenty lines, and points to the design document for the narrative.
+  Reasoning that exists nowhere else moves into that document in the same change; a
+  measured figure that justifies a constant stays beside the constant, as the number and
+  what it measured.
+- A prefix that states the context of a method is welcome and kept: "Under the lock:",
+  "After the lock:", "For a child:".
 - Distinguish "not loaded", "confirmed empty" and "failed". Never return an invented empty
   result in place of a failure.
 - No reflection on a call path. No duplicated checks. No redundant models.
