@@ -5526,6 +5526,12 @@ under the lock of the writes or by the rule this sprint states.
 
 #### S24 · The memory budget
 
+**Carried from the outside review, 18 November 2026:** a child sizes its primary index
+from the count its master announces after checking only that this many entities, each at
+its least size, fit its memory limit; the bytes of the index itself are not in that
+check. When the index is charged to the budget, the check becomes "the index for this
+count plus the least root bytes fit", and the refusal stays `Unavailable` at the open.
+
 **Carried from the review of S11:** decide whether the budget report shows the memory
 the delivery tail retains (whole blocks, the spare included) as its own figure, next to
 `PendingDeliveryBytes`.
