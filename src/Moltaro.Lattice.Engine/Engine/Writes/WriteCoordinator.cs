@@ -115,7 +115,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // everything it prepared (WriteExecutor.TryPrepare); it frees what is retired and tries again. Refused
 // again, it is resolved alone, holding nothing:
 // 1. It waits for every write admitted before it to complete (WaitingForEarlier). The writes that
-//    concern it are those of the list of the writes admitted that waited (_oldest, PendingWrite.Older):
+//    concern it are those of the list of the writes admitted that waited (_oldestWaiter, PendingWrite.Older):
 //    a write enters that list when its call leaves the lock with the write not completed, and leaves it
 //    when it completes, so the list is in the order of admission, and a write that completed in the
 //    hold of its call, which no other write could wait for, never enters it. While it waits in step 1,
@@ -227,11 +227,11 @@ internal sealed class WriteCoordinator
     // FormGroup takes into it, through the storage step, until it is published or the database faults.
     private bool _groupPending;
 
-    // The writes admitted and not completed that waited, in the order of their admission (see the
-    // class, "The refusal").
-    private PendingWrite? _oldest;
+    // The writes admitted and not completed that waited, the waiters, in the order of their admission
+    // (see the class, "The refusal").
+    private PendingWrite? _oldestWaiter;
 
-    private PendingWrite? _newest;
+    private PendingWrite? _newestWaiter;
 
     // The writes held back while a refused write is resolved, in the order they were held.
     private PendingWrite? _heldFirst;
@@ -650,7 +650,7 @@ internal sealed class WriteCoordinator
 
                 if (!pass.OwnEnded)
                 {
-                    List(write);
+                    AddWaiter(write);
                 }
                 else
                 {
@@ -818,11 +818,11 @@ internal sealed class WriteCoordinator
     // a busy durable step needs a structure that finds them faster is settled in the brief of S27.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
-        for (var listed = write.Listed ? write.Older : _newest; listed is not null; listed = listed.Older)
+        for (var waiter = write.IsWaiter ? write.Older : _newestWaiter; waiter is not null; waiter = waiter.Older)
         {
-            if (listed.IsOfSameEntity(write))
+            if (waiter.IsOfSameEntity(write))
             {
-                return listed;
+                return waiter;
             }
         }
 
@@ -899,7 +899,7 @@ internal sealed class WriteCoordinator
     {
         // The write of the call that holds the lock enters the list of the writes that waited now: every
         // write in it was admitted before it.
-        List(write);
+        AddWaiter(write);
 
         if (write.Older is not null)
         {
@@ -941,35 +941,36 @@ internal sealed class WriteCoordinator
 
     // Under the lock: the write enters the list of the writes admitted that waited, last, unless it is
     // in it.
-    private void List(PendingWrite write)
+    private void AddWaiter(PendingWrite write)
     {
-        if (write.Listed)
+        if (write.IsWaiter)
         {
             return;
         }
 
-        write.Listed = true;
-        write.Older = _newest;
+        write.IsWaiter = true;
+        write.Older = _newestWaiter;
 
-        if (_newest is null)
+        if (_newestWaiter is null)
         {
-            _oldest = write;
+            _oldestWaiter = write;
         }
         else
         {
-            _newest.Newer = write;
+            _newestWaiter.Newer = write;
         }
 
-        _newest = write;
+        _newestWaiter = write;
     }
 
-    // Under the lock: the write leaves the list of the writes admitted that waited, when it is in it; when
-    // it was the oldest and the next one waits in step 1 of its resolution, that one is resolved now.
-    private void Unlist(PendingWrite write, ref Pass pass)
+    // Under the lock: the write leaves the list of the writes admitted that waited, when it is in it.
+    // Returns the write that became the oldest of the list by it, or null when the write was not the
+    // oldest, was not in the list, or was its last.
+    private PendingWrite? RemoveWaiter(PendingWrite write)
     {
-        if (!write.Listed)
+        if (!write.IsWaiter)
         {
-            return;
+            return null;
         }
 
         var older = write.Older;
@@ -977,7 +978,7 @@ internal sealed class WriteCoordinator
 
         if (older is null)
         {
-            _oldest = newer;
+            _oldestWaiter = newer;
         }
         else
         {
@@ -986,7 +987,7 @@ internal sealed class WriteCoordinator
 
         if (newer is null)
         {
-            _newest = older;
+            _newestWaiter = older;
         }
         else
         {
@@ -995,12 +996,9 @@ internal sealed class WriteCoordinator
 
         write.Older = null;
         write.Newer = null;
-        write.Listed = false;
+        write.IsWaiter = false;
 
-        if (older is null && newer is { State: PendingWriteStateEnum.WaitingForEarlier } && !_faulted)
-        {
-            BecomeResolved(newer, ref pass);
-        }
+        return older is null ? newer : null;
     }
 
     // Under the lock: whether a write is prepared and not published, and so holds prepared memory: one
@@ -1384,17 +1382,17 @@ internal sealed class WriteCoordinator
             AdvanceChain(resolving, ref pass);
         }
 
-        for (var listed = _oldest; listed is not null;)
+        for (var waiter = _oldestWaiter; waiter is not null;)
         {
-            var newer = listed.Newer;
+            var newer = waiter.Newer;
 
-            if (listed.State == PendingWriteStateEnum.WaitingForEarlier)
+            if (waiter.State == PendingWriteStateEnum.WaitingForEarlier)
             {
-                End(listed, Unavailable(), ref pass);
-                AdvanceChain(listed, ref pass);
+                End(waiter, Unavailable(), ref pass);
+                AdvanceChain(waiter, ref pass);
             }
 
-            listed = newer;
+            waiter = newer;
         }
 
         // The held writes and the writes of every chain start, and end with Unavailable (Start).
@@ -1431,7 +1429,13 @@ internal sealed class WriteCoordinator
     {
         write.State = PendingWriteStateEnum.Completed;
         _queued--;
-        Unlist(write, ref pass);
+
+        // The end of the oldest write that waited makes the next one the oldest: when it waits in step 1
+        // of its resolution, it is resolved now (see the class, "The refusal").
+        if (RemoveWaiter(write) is { State: PendingWriteStateEnum.WaitingForEarlier } oldest && !_faulted)
+        {
+            BecomeResolved(oldest, ref pass);
+        }
 
         if (ReferenceEquals(write, pass.Own))
         {
