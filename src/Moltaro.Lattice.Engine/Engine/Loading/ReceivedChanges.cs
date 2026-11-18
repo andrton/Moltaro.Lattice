@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
@@ -66,10 +67,10 @@ namespace Moltaro.Lattice.Engine.Loading;
 // a deleted key does so after step 3, at s or later. With one effect this is the order of the write of a
 // master. Once step 1 has begun nothing can fail: every store goes to what the preparation took and
 // reserved, and nothing allocates. Should one fail anyway, a defect, the reads are marked faulted at once,
-// under the lock (the action given to the constructor, which takes no lock), so that a read that backs off
+// under the lock (ReadEpochs.Fault, which takes no lock), so that a read that backs off
 // on a mark gives up with Unavailable instead of waiting for a stamp that will never come, as on a master;
-// once it has left the lock it faults the rest of the instance, its state and its clock (the second
-// action given to the constructor; EngineDatabase, the order of the locks).
+// once it has left the lock it faults the rest of the instance, its state and its clock (the action
+// given to the constructor; EngineDatabase, the order of the locks).
 //
 // Memory. A root or a transaction the arena refuses follows the rule of a write refused for memory: what
 // is retired is freed and it is tried once more. For a root of the load that is all: before the
@@ -82,6 +83,12 @@ internal sealed class ReceivedChanges
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
+
+    private readonly RetiredMemory _retired;
+
+    private readonly PositionClock _clock;
+
+    private readonly ReadEpochs _epochs;
 
     private readonly WriteExecutor _executor;
 
@@ -96,9 +103,6 @@ internal sealed class ReceivedChanges
     private readonly WriteCoordinator _coordinator;
 
     private readonly BlockImport _import;
-
-    // Marks the reads faulted, when a publication fails between its stores (see the class).
-    private readonly Action _faultReads;
 
     // Faults the instance, after the lock, when a publication failed between its stores.
     private readonly Action _fault;
@@ -125,23 +129,27 @@ internal sealed class ReceivedChanges
     public ReceivedChanges(
         Arena arena,
         RootTable roots,
+        RetiredMemory retired,
+        PositionClock clock,
+        ReadEpochs epochs,
         WriteExecutor executor,
         LatticeSchema schema,
         EntityTables tables,
         Lock writes,
         CloseBarrier barrier,
         WriteCoordinator coordinator,
-        Action faultReads,
         Action fault)
     {
         _arena = arena;
         _roots = roots;
+        _retired = retired;
+        _clock = clock;
+        _epochs = epochs;
         _executor = executor;
         _tables = tables;
         _writes = writes;
         _barrier = barrier;
         _coordinator = coordinator;
-        _faultReads = faultReads;
         _fault = fault;
         _import = new BlockImport(arena, schema);
     }
@@ -186,7 +194,7 @@ internal sealed class ReceivedChanges
         {
             lock (_writes)
             {
-                _executor.PublishPosition(start);
+                _clock.Publish(start);
             }
         }
         finally
@@ -212,7 +220,7 @@ internal sealed class ReceivedChanges
 
             lock (_writes)
             {
-                _executor.DrainRetired();
+                _retired.Drain();
             }
 
             if (TryApply(sequence, effects))
@@ -228,11 +236,11 @@ internal sealed class ReceivedChanges
             if (retired && epoch != 0)
             {
                 _coordinator.RunWaitHold();
-                _executor.WaitForReads(epoch, cancellationToken);
+                _epochs.WaitForReadsBefore(epoch, cancellationToken);
 
                 lock (_writes)
                 {
-                    _executor.DrainRetired();
+                    _retired.Drain();
                 }
 
                 if (TryApply(sequence, effects))
@@ -271,7 +279,7 @@ internal sealed class ReceivedChanges
             return;
         }
 
-        _executor.DrainRetired();
+        _retired.Drain();
         reader = start;
 
         if (TryPrepareWrite(table, lastMutation, ref reader))
@@ -421,7 +429,7 @@ internal sealed class ReceivedChanges
             }
             else
             {
-                _executor.ReserveRetirement();
+                _retired.Reserve();
             }
         }
         catch
@@ -460,7 +468,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            _executor.ReserveRetirement();
+            _retired.Reserve();
         }
         catch
         {
@@ -488,22 +496,22 @@ internal sealed class ReceivedChanges
                 switch (change.Kind)
                 {
                     case ChangeKindEnum.Insert:
-                        _executor.InstallReceived(change.Table, change.Key, change.Handle, change.Root, change.Sequence);
+                        _executor.Install(change.Table, change.Key, change.Handle, change.Root, change.Sequence);
                         break;
 
                     case ChangeKindEnum.Replace:
-                        _prepared[index] = change with { Replaced = _executor.MarkReceivedReplace(change.Table, change.Handle, change.Root) };
+                        _prepared[index] = change with { Replaced = _executor.MarkReplace(change.Table.Layout!, change.Handle, change.Root) };
                         break;
 
                     default:
-                        _executor.MarkReceivedDelete(change.Handle);
+                        _executor.MarkDelete(change.Handle);
                         break;
                 }
             }
 
             if (position is { } sequence)
             {
-                _executor.PublishPosition(sequence);
+                _clock.Publish(sequence);
             }
 
             foreach (var change in _prepared)
@@ -511,12 +519,12 @@ internal sealed class ReceivedChanges
                 switch (change.Kind)
                 {
                     case ChangeKindEnum.Replace:
-                        _executor.StampReceivedReplace(change.Table, change.Handle, change.Replaced, change.Sequence);
+                        _executor.StampReplace(change.Table.Layout!, change.Handle, change.Replaced, change.Sequence);
                         retires = true;
                         break;
 
                     case ChangeKindEnum.Delete:
-                        _executor.StampReceivedDelete(change.Table, change.Key, change.Handle, change.Sequence);
+                        _executor.StampDelete(change.Table, change.Key, change.Handle, change.Sequence);
                         retires = true;
                         break;
                 }
@@ -525,7 +533,7 @@ internal sealed class ReceivedChanges
         catch
         {
             _publicationFailed = true;
-            _faultReads();
+            _epochs.Fault();
             throw;
         }
 
@@ -533,7 +541,7 @@ internal sealed class ReceivedChanges
         SkippedStates += _skipped.Count;
         _skipped.Clear();
         _prepared.Clear();
-        _executor.AfterReceived(retiredNothing: !retires);
+        _retired.AfterWrite(retiredNothing: retires ? 0 : 1);
     }
 
     // Under the lock of the writes: gives back everything the changes prepared since the last Publish
@@ -554,11 +562,11 @@ internal sealed class ReceivedChanges
 
                 case ChangeKindEnum.Replace:
                     RootStorage.Free(_arena, change.Table.Layout!, change.Root);
-                    _executor.ReleaseRetirement();
+                    _retired.Release();
                     break;
 
                 default:
-                    _executor.ReleaseRetirement();
+                    _retired.Release();
                     break;
             }
         }

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -202,6 +203,13 @@ internal sealed class WriteCoordinator
 
     private readonly WriteExecutor _executor;
 
+    private readonly RetiredMemory _retired;
+
+    private readonly ReadEpochs _epochs;
+
+    // The tail of the transactions for the children, whose senders are woken after a hold that appended.
+    private readonly DeliveryTail _delivery;
+
     private readonly ICommitStorage _storage;
 
     private readonly CloseBarrier _barrier;
@@ -265,10 +273,23 @@ internal sealed class WriteCoordinator
 
     // The coordinator of a master. A child has one as well, which admits no write: its writes are
     // forwarded to its master (Forwarding.Forwarder).
-    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase)
+    public WriteCoordinator(
+        Lock writes,
+        WriteExecutor executor,
+        RetiredMemory retired,
+        ReadEpochs epochs,
+        DeliveryTail delivery,
+        ICommitStorage storage,
+        CloseBarrier barrier,
+        PositionClock clock,
+        TimeSpan synchronizationTimeout,
+        Action faultDatabase)
     {
         _writes = writes;
         _executor = executor;
+        _retired = retired;
+        _epochs = epochs;
+        _delivery = delivery;
         _storage = storage;
         _barrier = barrier;
         _clock = clock;
@@ -877,7 +898,7 @@ internal sealed class WriteCoordinator
         write.Token.ThrowIfCancellationRequested();
 
         // Refused once: what is retired is freed, and the write tries again.
-        _executor.DrainRetired();
+        _retired.Drain();
 
         if (_executor.TryPrepare(write, out prepared, out _))
         {
@@ -1041,7 +1062,9 @@ internal sealed class WriteCoordinator
 
             try
             {
-                _executor.WaitForReads(epoch, write.Token);
+                // Finite: a read inside the protection waits for nothing and runs no code of the
+                // application, so it leaves within one step (exception X6).
+                _epochs.WaitForReadsBefore(epoch, write.Token);
             }
             catch (OperationCanceledException exception)
             {
@@ -1089,7 +1112,7 @@ internal sealed class WriteCoordinator
     {
         try
         {
-            _executor.DrainRetired();
+            _retired.Drain();
 
             if (_executor.TryPrepare(write, out var prepared, out var refusal))
             {
@@ -1456,12 +1479,12 @@ internal sealed class WriteCoordinator
 
         if (pass.Published)
         {
-            _executor.WakePositions();
+            _clock.Wake();
         }
 
         if (pass.Delivered)
         {
-            _executor.WakeDelivery();
+            _delivery.Wake();
         }
 
         for (var write = pass.Ended; write is not null;)

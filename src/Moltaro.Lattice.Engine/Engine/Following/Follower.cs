@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Diagnostics;
 using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Loading;
-using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
@@ -94,7 +94,7 @@ internal sealed class Follower
 
     private readonly Forwarder _forwarder;
 
-    private readonly WriteExecutor _executor;
+    private readonly PositionClock _clock;
 
     private readonly ReceivedChanges _changes;
 
@@ -113,13 +113,13 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, WriteExecutor executor, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
-        _pending = new PendingRequests(history);
+        _pending = new PendingRequests(clock.History);
         _sender = new ChildSender(link, _pending);
-        _executor = executor;
+        _clock = clock;
         _changes = changes;
         _assembler = new TransactionAssembler(memoryLimit);
         _openTimeout = openTimeout;
@@ -289,7 +289,7 @@ internal sealed class Follower
         _changes.Apply(sequence, effects, cancellationToken);
 
         _applied = sequence;
-        _executor.WakePositions();
+        _clock.Wake();
 
         return true;
     }

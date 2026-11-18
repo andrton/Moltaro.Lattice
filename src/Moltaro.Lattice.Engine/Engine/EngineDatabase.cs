@@ -347,7 +347,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // wait and takes no timeout: with no read in progress it leaves nothing retired, and what a read
     // in progress can still reach stays retired until a later drain (brief of S08, "Counters and the
     // drain, part 1"). It is what a test calls before it counts; a write under memory pressure and a
-    // close drain in the same way (WriteExecutor.DrainRetired, FreeAfterOperationsAsync). Unavailable
+    // close drain in the same way (RetiredMemory.Drain, FreeAfterOperationsAsync). Unavailable
     // before the open and once Faulted, ObjectDisposedException after the close. It runs under the lock
     // of the writes, between two changes of the engine, because only that thread frees (RetiredMemory).
     public void DrainRetired()
@@ -933,7 +933,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, tables, _writes!, _barrier, _coordinator!, _epochs.Fault, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, _executor!, schema, tables, _writes!, _barrier, _coordinator!, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
@@ -951,7 +951,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _state = LatticeDatabaseStateEnum.CatchingUp;
             }
 
-            var follower = new Follower(master, _forwarder!, _clock!.History, _executor!, changes, memoryLimit, _options.OpenTimeout);
+            var follower = new Follower(master, _forwarder!, _clock!, changes, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
@@ -1072,6 +1072,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var coordinator = new WriteCoordinator(
                 writes,
                 executor,
+                retired,
+                _epochs,
+                delivery,
                 _testInputs?.CommitStorage ?? new MemoryOnlyStorage(),
                 _barrier,
                 clock,
