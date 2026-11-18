@@ -72,8 +72,9 @@ public enum LatticeErrorEnum
     /// <remarks>
     /// <para>
     /// A write through a child is reported so as well when the child has no connection to its
-    /// master, when the connection ended before the child had sent the whole write, and when a
-    /// master that was closing did not execute it. In each case the write was not executed.
+    /// master, when the connection ended or the child was closed before the child had sent the
+    /// whole write, and when a master that was closing did not execute it. In each case the
+    /// write was not executed.
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> A child whose connection to its master has ended does not

@@ -68,6 +68,12 @@ public sealed class LatticeSession
     /// <see langword="null"/> to use <see cref="LatticeDatabaseOptions.SynchronizationTimeout"/>
     /// of the database. The wait is always finite.
     /// </summary>
+    /// <remarks>
+    /// On a child it also bounds how long a write made with this session waits until the child
+    /// has applied it. It bounds only the waits on the node that serves the call: a write
+    /// through a child does not carry it to the master, which waits for
+    /// <see cref="MinPosition"/> with its own <see cref="LatticeDatabaseOptions.SynchronizationTimeout"/>.
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">The value is not a finite positive time.</exception>
     public TimeSpan? SynchronizationTimeout
     {

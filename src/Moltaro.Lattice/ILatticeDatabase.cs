@@ -41,14 +41,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <see cref="LatticeDatabaseOptions.ListenUri"/> and for a child.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// A child of this master is given this address as <see cref="LatticeDatabaseOptions.MasterUri"/>.
-    /// It does not change after the open.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> No instance listens on the network: the database that
-    /// <c>LatticeDatabase</c> opens today returns the configured address as it is.
-    /// </para>
+    /// It is the host of <see cref="LatticeDatabaseOptions.ListenUri"/> with the port the master
+    /// listens at. A child of this master is given this address as
+    /// <see cref="LatticeDatabaseOptions.MasterUri"/>. It does not change after the open.
     /// </remarks>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
@@ -130,6 +125,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </param>
     /// <exception cref="InvalidOperationException">The database has already been opened.</exception>
     /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a master could not listen at its
+    /// <see cref="LatticeDatabaseOptions.ListenUri"/>, because the address is already in use for
+    /// example; the message gives the reason the system reports, and the instance is closed.
     /// <see cref="LatticeErrorEnum.Unavailable"/>: a child could not reach its master, or received
     /// nothing from it, for <see cref="LatticeDatabaseOptions.OpenTimeout"/>, or a failure that
     /// another attempt cannot mend ended its open at once, as
@@ -278,10 +276,13 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <remarks>
     /// Entities returned by earlier reads stay valid. A MemoryOnly database saves nothing:
     /// its data is gone after closing. A child whose master has closed keeps serving its
-    /// local reads. A child does not wait for its master when it closes: a write through it
+    /// local reads. A child does not wait for its master when it closes. A write through it
     /// whose reply has arrived returns its result, also one that still waited for the child to
-    /// apply it, and a write it has sent whose reply has not arrived ends in
-    /// <see cref="LatticeErrorEnum.IndeterminateOutcome"/>. A master also stops accepting
+    /// apply it. A write it has sent whole and whose reply has not arrived ends in
+    /// <see cref="LatticeErrorEnum.IndeterminateOutcome"/>. A write it has not begun to send, or
+    /// has sent only in part, ends in <see cref="LatticeErrorEnum.Unavailable"/>: it was not
+    /// executed. A write called after the close is <see cref="ObjectDisposedException"/>, as
+    /// every operation is. A master also stops accepting
     /// children and ends every connection to them, and its close completes only once no work of
     /// the instance runs any more and its port is free: another instance can listen at the
     /// address as soon as the close has completed.
