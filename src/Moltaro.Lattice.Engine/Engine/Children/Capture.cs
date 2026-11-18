@@ -97,9 +97,9 @@ internal sealed class Capture
                 throw ReadEpochs.FaultedRefusal();
             }
 
-            var start = _clock.Sequence;
+            var captureStart = _clock.Sequence;
 
-            return new CaptureStart(start, _roots.SlotExtent, [.. _tables.InSchemaOrder.Select(table => (long)table.Count)], Tail.Subscribe(start));
+            return new CaptureStart(captureStart, _roots.SlotExtent, [.. _tables.InSchemaOrder.Select(table => (long)table.Count)], Tail.Subscribe(captureStart));
         }
     }
 

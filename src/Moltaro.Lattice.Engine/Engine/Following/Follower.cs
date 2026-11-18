@@ -132,9 +132,9 @@ internal sealed class Follower
         var applied = _changes.AppliedStates;
         var skipped = _changes.SkippedStates;
 
-        _applied = end.Start;
+        _applied = end.CaptureStart;
 
-        while (_applied < end.End)
+        while (_applied < end.Readiness)
         {
             if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
             {
@@ -147,7 +147,7 @@ internal sealed class Follower
         // that task begins with the sender (FollowAsync).
         _forwarder.Attach(_sender);
 
-        return new CatchUpReport(end.Start, end.End, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
+        return new CatchUpReport(end.CaptureStart, end.Readiness, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
     }
 
     // Follows the master once the child is Ready, and forwards the writes of the child through its sender,

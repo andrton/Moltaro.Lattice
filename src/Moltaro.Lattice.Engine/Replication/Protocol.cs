@@ -46,7 +46,7 @@ internal static class Protocol
     // The payload of Refuse: its reason as a UInt16.
     public const int RefusePayloadSize = 2;
 
-    // The payload of LoadEnd: the start position S of the capture, its end position R and the number of
+    // The payload of LoadEnd: the capture start S, the readiness position R and the number of
     // roots sent, each a UInt64 (Load.LoadEndBody).
     public const int LoadEndPayloadSize = 24;
 

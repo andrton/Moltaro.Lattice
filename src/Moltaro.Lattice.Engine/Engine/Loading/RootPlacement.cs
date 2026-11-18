@@ -22,7 +22,7 @@ namespace Moltaro.Lattice.Engine.Loading;
 // nothing of the root is left.
 //
 // At the end of the load (End), the number of roots received has to be the number LoadEnd announces, and
-// R, the end position of the capture, at least the last mutation of every root; then S, its start, becomes
+// the readiness position R at least the last mutation of every root; then the capture start S becomes
 // the sequence of the child, which applies the transactions after it up to R before it is Ready
 // (Following.Follower).
 internal sealed class RootPlacement
@@ -77,11 +77,11 @@ internal sealed class RootPlacement
             throw Protocol.Invalid($"The child received {_received} roots, and the master announces {end.Roots} at the end of the load.");
         }
 
-        if (_latest > end.End)
+        if (_latest > end.Readiness)
         {
-            throw Protocol.Invalid($"A root has the last mutation {_latest}, after the end position {end.End} of the capture.");
+            throw Protocol.Invalid($"A root has the last mutation {_latest}, after the end position {end.Readiness} of the capture.");
         }
 
-        _changes.EndLoad(end.Start);
+        _changes.EndLoad(end.CaptureStart);
     }
 }

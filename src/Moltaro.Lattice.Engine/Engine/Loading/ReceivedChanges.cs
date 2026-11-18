@@ -185,8 +185,8 @@ internal sealed class ReceivedChanges
         }
     }
 
-    // The end of the load: S, the start of the capture, becomes the sequence of the child (RootPlacement.End).
-    public void EndLoad(ulong start)
+    // The end of the load: the capture start S becomes the sequence of the child (RootPlacement.End).
+    public void EndLoad(ulong captureStart)
     {
         _barrier.Enter();
 
@@ -194,7 +194,7 @@ internal sealed class ReceivedChanges
         {
             lock (_writes)
             {
-                _clock.Publish(start);
+                _clock.Publish(captureStart);
             }
         }
         finally
