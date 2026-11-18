@@ -4509,6 +4509,115 @@ says otherwise, these replace it.
    callers through one child, and the master's own writes beside them — the first figure
    of forwarding under load.
 
+**Decided by the planner on 18 November 2026 after the study of S12.** Where a sentence
+above says otherwise, these replace it. The study read the source of PostgreSQL
+(PostgreSQL Licence, commit 11591f2), etcd (Apache-2.0, commits 65fe41f and, for raft,
+99f9ffb), Valkey (BSD-3-Clause, commit 97ff16e), Garnet (MIT, commit fcc018a) and TiKV
+(Apache-2.0, commit 4d8fde7); no file is adapted from them.
+
+1. **The entity of a `WriteRequest`** is the root in the load format of S10; "the logical
+   encoding of S11" leaves the comment of `ForwardEncoding`. The child writes the last
+   mutation sequence as 0 and the master stamps it at preparation. "The master validates
+   again" means exactly: (a) the check a child makes of a root received in a load — type
+   id, layout version, structure, lengths inside the announced length, every out-of-line
+   value inside its bytes, the sizes a value may have; (b) the key of the request equals
+   the key in the root, strict text; (c) the conditions of the write path (duplicate, not
+   found, expected revision, memory). The value rules of the schema (well-formed text,
+   declared enum members) are checked once, on the child, which is the same engine with
+   the schema agreed in the Hello; the master trusts a child's values to the degree a
+   child trusts a master's in a load. No second validator over root bytes is built. If
+   check (a) does not bound every read the master later makes inside the root, that is a
+   P1 of memory safety and goes to the planner.
+2. **The reply comes before the transaction.** A forwarded write carries its origin (the
+   connection and the correlation id) into the write path; the hold that publishes it
+   records the reply for that connection before the commit of the tail; the sender of the
+   connection sends the recorded replies before it frames its next transaction.
+   Invariant, with a test: a child never receives the transaction of a write it forwarded
+   before that write's reply. Not the id on the Transaction frame (the tail is shared and
+   encoded once), and not a child that receives independently of applying.
+3. **One sender on the child.** One task owns the send side of the child's connection: a
+   queue of requests in the order of the calls and the newest applied sequence. It sends a
+   request a frame at a time. The acknowledgment rule of S11 is reworded and keeps its
+   guarantee and its test: the follower publishes its applied sequence and wakes the
+   sender; the sender sends the newest applied sequence before each request frame it
+   sends and whenever it is woken with nothing else to send; never before R. The follower
+   accepts a `WriteReply` anywhere, also between the frames of a transaction.
+   `FrameHeader.CorrelationId` pairs a reply with its request: ids start at 1 on each
+   connection and 0 stays the load and the stream. The table of pending requests is
+   emptied on every way out and closes when the link ends; a registration after that is
+   refused.
+4. **The close of a master** (no new public option). After its admitted writes have
+   ended, for each connection: it sends the recorded replies, shuts down its sending side
+   (not a reset) and waits until the child has ended its side; a child that reads the end
+   marks itself without a master before it ends its side. So when `CloseAsync` of the
+   master returns, every child that reads has observed the end, and
+   `Child_keeps_serving_reads_after_the_master_closes` holds as written: the child refuses
+   with `Unavailable` because it has no connection, and nothing is sent. The wait for a
+   connection is bounded by an internal constant of 5 s, after which the connection is
+   reset; all connections are waited together, not in turn. The constant is entered in X6
+   until S33, where the deadline of a send to a child that does not read becomes an option
+   and bounds this wait too. If a test of the contract with `SuspendApplying` held and a
+   master's close would wait out the 5 s, the planner is told which before anything is
+   changed.
+5. **A write the master did not execute is never `IndeterminateOutcome`.** A request a
+   closing master did not execute is answered `Unavailable`, "not executed". An exception
+   that is not a `LatticeException`, thrown by the submit of a forwarded request before
+   its dispatch, is answered `Unavailable` with its message: it is a defect of the child's
+   validation.
+6. A `WriteReply` larger than a frame is cut into frames like a request.
+7. **Two moments of "sent".** Taken by the sender (its first frame begins): a cancellation
+   no longer withdraws the write. Last frame accepted by the socket: a connection that
+   ends before it gives `Unavailable` ("not executed"), after it `IndeterminateOutcome`.
+   The master never executes a request whose last frame it did not receive; stated and
+   tested.
+8. **A child's close with a write that has its reply and waits for its application:** the
+   call returns its real result, the success with revision and position, and so does a
+   refusal already received. The wait for the local application exists so that a read on
+   this instance sees the write; a closed instance serves no read. A write sent and not
+   answered stays `IndeterminateOutcome`; one not taken by the sender ends as a write not
+   dispatched.
+9. **No timeout travels in the request.** The master uses its own
+   `SynchronizationTimeout` for the wait for `MinPosition`; on a master of the same
+   history that wait ends at once, and another history is refused — on the child before
+   the request is queued, and again on the master.
+10. **X6** gains the wait of a forwarded write for its reply when the master vanishes
+    without a reset, until S34.
+11. **A switch that cuts the child's link**, for the test of point 7, is allowed in
+    `Moltaro.Lattice.Engine.Tests` only, through `EngineTestInputs` or the internal
+    overload of `OpenAsync`; the friend access of `Moltaro.Lattice.Tests` keeps only
+    `SuspendApplying`.
+12. **A request received whole is a submitted write:** it runs although its child's
+    connection ended; its reply is dropped, and the child has reported
+    `IndeterminateOutcome`. No token of a connection goes into the write path. An
+    incomplete request is dropped.
+13. **An announced length above the master's `MemoryLimit`** is refused at the first frame
+    with `WriteRejected`, `Limit = Memory`; the master reads and drops the remaining
+    frames of that request and keeps the connection. For every other request the buffer
+    grows with the bytes received, never by the announced length, and a request whose
+    frames exceed what it announced is malformed and ends the connection.
+14. **`PositionClock`.** It wakes every waiter at every publication. Measured first with
+    0, 100 and 10,000 waiters on a child; replaced only with the figure, by waiters
+    ordered by target with a published lowest target (the form of PostgreSQL's
+    `xlogwait.c`: one read when nobody is reached, a full fence between publishing the
+    sequence and reading the lowest target, waiters of one target sharing a signal, a
+    waiter that timed out leaving), and then with a session read on a child measured
+    beside it: that read must not pay.
+15. **History.** A position carries its history and the clock refuses another one; a
+    MemoryOnly master draws a new history at every open. Enough for this sprint.
+16. **Measured, added:** the parts of a small forwarded write (child, network, master,
+    application, wake-up); the clock with 0, 100 and 10,000 waiters, at spread and at
+    equal targets; small forwarded writes beside writes of 32 MiB through the same child,
+    and how late an Applied arrives during one; the time of a master's close with
+    forwarded writes in flight and of a child's close with pending requests; allocation
+    per forwarded write on both sides; reads by key on the child on 4 threads beside 16
+    callers forwarding through it, against the same child with none; 1,000 runs each of
+    `Timeout_after_the_master_committed_does_not_undo_the_write` and
+    `Child_keeps_serving_reads_after_the_master_closes`.
+
+The planner reports points 1, 4 and 8 to the owner as its decisions, which he may
+overturn. Carried to S27: with Durable, say whether a master can be behind a position a
+session holds.
+
 ### Stage 4. Indexes and batches
 
 #### S13 · Text entries and Dictionary strings
