@@ -10,7 +10,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // changes nothing; a write that committed returns its result, and the session is never a reason to
 // replace that result with a failure. The storage step of the first database holds its commit
 // (HeldCommitStorage), so that its write is admitted and executed while a write on another database
-// takes the same empty session.
+// takes the same empty session. A write that completes in the hold of its own call has no test of its
+// own: the binding runs before execution on every path, and nothing can hold a write between that hold
+// and its outcome.
 public sealed class SessionHistoryTests
 {
     [Fact]

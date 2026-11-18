@@ -43,6 +43,10 @@ public sealed class NothingHeldAfterCloseTests
         GC.KeepAlive(database);
     }
 
+    // The figure stands for the managed memory of the root entries, the primary index and the text table,
+    // which grows with the entities and the texts. The delivery tail and the retired list are small in an
+    // instance with no child and nothing retired, and the figure does not test them; the tail has a test
+    // of its own with weak references (ReleasedTransactionsTests).
     [Fact]
     public void Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_root_entries_its_index_and_its_text_table()
     {

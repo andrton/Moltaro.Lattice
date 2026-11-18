@@ -4,14 +4,16 @@ using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
-// Before it is ready a child serves nothing (brief of Epic 1, sprint S10, Acceptance; the coordinator's
-// reading of 17 November 2026, "The state of a child before Ready"): it is Connecting while it has no
-// connection to its master, and Loading from the accepted handshake until the load is complete; in
-// both every operation is Unavailable (NotReady). A child whose master cannot be reached is held in
-// Connecting by a port at which nothing listens (ClosedPort); a child in the middle of its load is held
-// in Loading by a link that holds back the rest of what the master sends (HeldLink). Neither needs a
-// switch inside the engine, and neither test sleeps: each waits, bounded, for the state it holds the
-// child in. Both children have an open timeout far beyond the bound, so that no timeout ends them.
+// Before it is ready a child serves nothing. Its startup goes Connecting, Loading, CatchingUp, Ready
+// (decision on replication and hosting, docs/decisions/replication-and-hosting.md): it is Connecting
+// while it has no connection to its master, Loading from the accepted handshake until its load has
+// ended, and CatchingUp from the end of its load until it has applied the changes up to its readiness
+// position; in every state before Ready every operation is Unavailable (NotReady). A child whose master
+// cannot be reached is held in Connecting by a port at which nothing listens (ClosedPort); a child in
+// the middle of its load is held in Loading by a link that holds back the rest of what the master sends
+// (HeldLink); a child that catches up is held in CatchingUp by a relay (FrameRelay), as its test says.
+// None needs a switch inside the engine, and none sleeps: each waits, bounded, for the state it holds
+// the child in. Every child has an open timeout far beyond the bound, so that no timeout ends it.
 public sealed class NotReadyTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
