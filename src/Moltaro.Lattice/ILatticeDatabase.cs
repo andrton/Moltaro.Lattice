@@ -115,7 +115,9 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <para>
     /// A master and its children can be opened in one process. Cancelling or failing the
     /// call closes the instance; a cancelled call ends in <see cref="OperationCanceledException"/>.
-    /// An open that fails, times out or is cancelled leaves nothing of the instance behind: no
+    /// If the instance is closed while the open waits, the open ends in
+    /// <see cref="OperationCanceledException"/> as well; an open called on a closed instance is
+    /// <see cref="ObjectDisposedException"/>. An open that fails, times out or is cancelled leaves nothing of the instance behind: no
     /// connection, no work that still runs and no memory it holds.
     /// </para>
     /// </remarks>

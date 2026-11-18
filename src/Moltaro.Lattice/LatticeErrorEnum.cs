@@ -87,8 +87,14 @@ public enum LatticeErrorEnum
     /// <summary>
     /// The node did not reach the required position within the synchronization timeout.
     /// Nothing stale was returned. When <see cref="LatticeException.CommittedPosition"/> is
-    /// set, the write itself is committed and only its arrival on this node is late.
+    /// set, the master has committed the write, and only its arrival on this node is late.
     /// </summary>
+    /// <remarks>
+    /// On a child that has lost its master the wait ends at once, because the position cannot
+    /// arrive. A write through the child that has its reply and waits for the child to apply it
+    /// ends so when the connection ends, with <see cref="LatticeException.CommittedPosition"/>
+    /// set: the write is committed and must not be repeated.
+    /// </remarks>
     SynchronizationTimeout = 11,
 
     /// <summary>
