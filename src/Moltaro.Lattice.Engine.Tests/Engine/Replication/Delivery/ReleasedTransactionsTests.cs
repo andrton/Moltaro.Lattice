@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Replication.Transactions;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
@@ -68,7 +67,7 @@ public sealed class ReleasedTransactionsTests
     // "Replication transport and initial loading"), whatever the child that left last had applied: one
     // that applied everything, or one that lags, whose transactions the tail held for it until it left.
     // Its last transaction is larger than a block, so that it continues in blocks taken for it.
-    [Theory(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Theory]
     [MemberData(nameof(LastChildren))]
     public void Tail_whose_last_child_has_left_retains_none_of_its_blocks(string child)
     {
