@@ -349,6 +349,7 @@ documentation before this document is removed.
 | S13 | Memory for each value when all 1,000,000 texts are distinct, 9 bytes each | 163 bytes as Dictionary against 80 as Plain; the table takes 51.4 bytes for each distinct entry | development-5 | 18 November 2026 |
 | S13 | A child that loads 100,000 such users | the bytes on the wire are those of Plain (15,410,268); the child holds 16 entries; Ready about 0.12 µs later for each Dictionary value | development-5 | 18 November 2026 |
 | S13 | Bytes the arena holds while one text of 1 MiB is replaced 100 times with no read in progress | 101 MiB as Dictionary against 4.0 MiB as Plain before the fix of the review; after it the test holds Dictionary to at most twice Plain | development-5 | 18 November 2026 |
+| After S13 | Moves of the epoch for each 10,000 writes, counted by a probe, before the fixes and after | replaces 78 and 78, with a read held or not; deletes of an absent key beside a held read 0 and 78, one look for a window; 99 inserts to 1 replace, pure inserts, nothing retired: 0 and 0. No time was measured | — | 18 November 2026 |
 | S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. **Open: to be measured again on a quiet machine, with the base against itself** | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
@@ -1059,6 +1060,7 @@ Why this order:
 | S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
 | S13 | Text entries and Dictionary strings | Full | Done |
+| After S13 | The fixes after the outside review | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -4036,7 +4038,10 @@ says otherwise, these replace it.
   master, the back-off between attempts included; `Loading` from the accepted handshake
   until the load is complete. In both every operation is `Unavailable`. This is what the
   states of `LatticeDatabaseStateEnum` say; the sentence "Before it is Ready a child is
-  `Loading`" above means the second of them.
+  `Loading`" above means the second of them. Since the fixes after S13 the child is
+  `CatchingUp` from the end of its load until it has applied the changes up to its
+  readiness position, as the decision on replication says; every operation stays
+  `Unavailable` in it.
 - **A port in use.** The engine reports a failure to bind as the system reports it; the
   placeholder reports an address held by another master of the process with
   `InvalidConfiguration` and keeps doing so until it is removed in S12. Tests of a failed
@@ -5157,6 +5162,80 @@ a limit at a growth boundary, a cast of a public collection. The coordinator tel
 planner only: a contradiction with a brief, a test of the contract that asserts the old
 behavior (items 1, 11, 14), and the figures of item 13.
 
+**Carried out and reviewed on 18 November 2026.** Tests first by another agent than the
+implementer; two reviewers on commit cbed8db, a second round by one of them on 85dfb13.
+Where a sentence above says otherwise, these replace it.
+
+1. **Item 6 was narrowed twice by the planner, on what the implementer and the reviewers
+   showed.** As written above, every published write would have looked while anything
+   retired waited, which moves the epoch — a line of memory every read loads — on every
+   write beside a held read. The rule that is built: a look resets its two counts; what
+   it could not free stays retired and a later look frees it; a look that leaves retired
+   items behind arms a second trigger — until a look leaves nothing behind, a published
+   write that retires nothing counts as one item, so the next look comes within one
+   window of writes of any kind. Without such a look a write that retires nothing counts
+   nothing, and every load without a held read keeps the rate of looks it had. The bound:
+   what waits between two looks is at most what reads held at the last look and one
+   window. Counted by the reviewers as moves of the epoch for each 10,000 writes, before
+   and after: replaces 78 and 78, with a read held or not; deletes of an absent key or
+   inserts beside a held read 0 and 78; 99 inserts to 1 replace, pure inserts and
+   nothing retired 0 and 0; after the held read left, 8,688 bytes kept for ever before
+   and freed at the 128th write after.
+2. **A P1 of the first round: item 1 was not closed for a write through a child.** The
+   forwarder read the session as empty, a write on another database bound it, and the
+   binding then returned without checking the history: the master executed the write and
+   the call ended in `HistoryMismatch` (13 to 75 of 20,000 racing rounds; none on a
+   master). Binding now checks the history of a session that has a position and binds an
+   empty one, in one step for the session; a master and a child each bind once before
+   execution. After the fix: none in 80,000 rounds. A test at the clock states it, and a
+   bounded race guards it — put back on the old code it fails every time.
+3. **The sentence of `LatticeSession`,** as the planner worded it: "The first read or
+   write with a session binds it to the history of that database. Waiting with a session
+   that is not yet bound waits for nothing and does not bind it; waiting with a session
+   bound to another history fails as a read with it does." A write that completes in the
+   hold of its own call has no test of its own for the binding: it runs before execution
+   on every path and nothing can hold a write there.
+4. **Item 11 is exact, and covers the list of chunks of String keys.** The limit counts
+   the largest of the three moments while room is made — the places double, the list of
+   chunks grows, the chunk is taken — because each releases what it replaces before the
+   next allocates. `ReadMemoryLimitTests` stated no exact threshold, so none moved.
+5. **Item 13:** the nine collections are read-only views over private arrays, made once
+   for a schema; the engine reads the arrays through an internal span where it read an
+   interface before. Its measurement is owed (see below).
+6. **Item 17:** the slot array grows to the longest array there is and a write beyond it
+   is refused for memory before a slot is taken or a block stored. **Item 10** covers the
+   text table.
+7. **No existing test asserted an old behavior** of items 1, 11 or 14; two comments that
+   stated the old reading of item 14 were corrected.
+8. **Two tests that failed once under load were wrong, the engine right,** each shown by
+   a probe. The race of a wait with a publication and a loss made 50,000 handoffs between
+   two threads inside a bound of one minute, which a loaded machine does not manage; it
+   now races within a budget of time. The test of a child that closes before applying a
+   write whose reply has arrived read the master's position after seeing the insert
+   through a read — an insert is visible before the position moves — and let the default
+   synchronization timeout run; it now names the sequence before the write and waits
+   beyond the bound. One more test had the first pattern and was corrected.
+9. **Left:** the test of an acknowledgment for a transaction not wholly sent still relies
+   on 16 MiB being more than the buffers of the loopback hold; the only observable would
+   be a switch in the sender of the master.
+10. **Probes of the reviewers, all passing on the last commit:** weak references to every
+    part of a closed instance that is kept alive, master and child, with and without a
+    child having been connected (24 to 53 parts, none alive), and to the blocks of the
+    delivery tail after the last child left; `ReadMemoryLimit` one byte below, at and one
+    byte above what is live at every growth for Int64, Guid and String keys (87 runs);
+    casts of every public collection of a compiled and a loaded schema; a churn of
+    writers with shared and fresh sessions on two databases with a close in the middle.
+11. **The hardest part to follow,** named by both reviewers: what counts toward the next
+    look in `RetiredMemory`. Its head was rewritten as separate statements in the round.
+12. **Carried on:** the close clears fourteen fields one by one and a part added later
+    has to be added to that list — entry B4 of the [refactoring backlog](refactoring.md);
+    notes for S14 and S17 at their briefs.
+13. **To measure on a quiet machine,** which the owner could not give on 18 November
+    2026; kept by the coordinator and run in one session: the read by key against the
+    commit before S13 and the base against itself (S13); the read by key and the write
+    before and after item 13; writes beside 16 readers and the read by key on 16 threads
+    beside a writer for item 6.
+
 #### S14 · Secondary indexes and exact search
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
@@ -5293,6 +5372,11 @@ it replaces. Point 3 of the brief (the entry is a hint checked against the root)
 in all three forms. Until figures say otherwise the accepted record stands: an index and
 a root share stored text through stable references.
 
+**Carried from the fixes after S13.** `Access/Sets/IndexCriteria` reads the parts of an
+index through the read-only view of the schema, two interface calls for a part; when a
+search becomes a read path it takes a span over the private array, as the fields do, if
+its measurement asks for it.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -5425,6 +5509,12 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
   of 1, 32, 1,000 and 10,000 entities.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
+
+**Carried from the fixes after S13.** `ReceivedChanges` checks "a transaction names each
+key once" by scanning the changes it has prepared and the keys it has skipped for every
+effect, which is quadratic in the effects of one transaction, and both lists keep the
+capacity of the largest transaction. One effect for a transaction today; a batch needs a
+set.
 
 ### Stage 5. The full type model and access
 
@@ -6106,6 +6196,13 @@ in `ListenUri` as it was given; decide each here.
 - **Measured.** Reported: time to resume and time to reload on the reference fixture,
   against the 30-second wait.
 - **Out of scope.** Election or promotion, which are not part of the design.
+
+**Carried from the fixes after S13.** One receive deadline covers a whole frame and is
+not renewed by partial reads, so a load that keeps arriving below about 17 kbit/s at the
+default, or under a small `OpenTimeout`, is ended. The deadline becomes a time without
+bytes, decided here together with the case of bytes that wait. Until then `OpenTimeout`
+says that a part is a frame of at most 64 KiB and its header and has to arrive whole
+within the timeout.
 
 #### S35 · Cluster verification
 
