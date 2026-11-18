@@ -60,8 +60,9 @@ namespace Moltaro.Lattice.Engine;
 // nothing can reach it any more: it marks the reads closed, so that a read that enters afterwards
 // leaves at once (ReadEpochs), lets no write, drain or count of the counters start (CloseBarrier),
 // waits for those in progress, every admitted write in whatever step it is among them, and then for
-// the reads that entered before the mark, and only then frees the arena with everything retired. It
-// does not wait for that inside the call: CloseAsync returns a task that completes then, and a
+// the reads that entered before the mark, and only then frees the arena with everything retired; then
+// it lets go of the parts of the database, so that an instance kept alive after its close holds none
+// of them (FreeAfterOperationsAsync). It does not wait for that inside the call: CloseAsync returns a task that completes then, and a
 // cancellation of its token ends only the wait of the caller. A wait for a position ends with the
 // close. The close is one operation (brief of S09, part 2, the first finding of the outside review it
 // carries): the first call of CloseAsync or DisposeAsync begins it and keeps its task, and every
@@ -167,8 +168,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // instance, which uses what each null member of EngineTestInputs stands for.
     private readonly EngineTestInputs? _testInputs;
 
-    // The sets of classes, made once for each class and shared.
-    private readonly ConcurrentDictionary<Type, object> _classSets = new();
+    // The sets of classes, made once for each class and shared; null once the close has let go of the
+    // parts of the database.
+    private ConcurrentDictionary<Type, object>? _classSets = new();
 
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
 
@@ -177,7 +179,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     private TaskCompletionSource? _closed;
 
     // The parts of the open database. Set by the open before the state becomes Ready, which a member
-    // reads first, and never changed afterwards.
+    // reads first, and let go of by the close once it has freed the arena, all but the schema, the clock
+    // and the lock of the writes, which are small and which a member may still read after the close
+    // (FreeAfterOperationsAsync, Part).
     private LatticeSchema? _schema;
 
     private Arena? _arena;
@@ -206,7 +210,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
 
-    // The network of the instance, set under the lock of the state and never changed afterwards: the
+    // The network of the instance, set under the lock of the state and let go of only by the close: the
     // listener of a master with a ListenUri, set by the open while it is inside the barrier of the close,
     // so that a close that begins meanwhile finds it once the open has left the barrier; and on a child,
     // the connection to its master, set when the master accepted the child, and the end of the task of
@@ -218,7 +222,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     private TaskCompletionSource? _loaded;
 
     // On a child that is Ready: how it follows its master, and the task that does, which the close waits
-    // for. Set under the lock of the state before the state becomes Ready, and never changed afterwards.
+    // for. Set under the lock of the state before the state becomes Ready, and let go of only by the
+    // close.
     private Follower? _follower;
 
     private Task? _following;
@@ -395,7 +400,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        _operations![entityType].Table.HoldNextGrowth(hold);
+        Part(_operations)[entityType].Table.HoldNextGrowth(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
@@ -415,7 +420,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        _coordinator!.HoldNextWait(hold);
+        Part(_coordinator).HoldNextWait(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write
@@ -445,7 +450,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentOutOfRangeException.ThrowIfNegative(skippedPasses);
         ThrowIfNotReady();
 
-        _coordinator!.ArmFault(point, skippedPasses);
+        Part(_coordinator).ArmFault(point, skippedPasses);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md; brief of Epic 1, sprint S11,
@@ -462,7 +467,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         ThrowIfNotReady();
 
-        return _follower?.Suspend() ?? throw new InvalidOperationException("A master applies nothing it receives; only a child holds back its application.");
+        return _options.Role == LatticeRoleEnum.Child
+            ? Part(_follower).Suspend()
+            : throw new InvalidOperationException("A master applies nothing it receives; only a child holds back its application.");
     }
 
     // For the measurement program (brief of Epic 1, sprint S11, the planner's decision after the study,
@@ -500,7 +507,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             ThrowIfNotReady();
 
-            return _listener?.Address;
+            return _options.ListenUri is null ? null : Part(_listener).Address;
         }
     }
 
@@ -584,7 +591,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ThrowIfNotReady();
 
         // A class that does not bind throws from the factory, and nothing is kept for it.
-        return (ILatticeSet<TEntity>)_classSets.GetOrAdd(typeof(TEntity), static (_, database) => database.ClassSetOf<TEntity>(), this);
+        return (ILatticeSet<TEntity>)Part(_classSets).GetOrAdd(typeof(TEntity), static (_, database) => database.ClassSetOf<TEntity>(), this);
     }
 
     public ILatticeSet Set(string entityName)
@@ -593,7 +600,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ThrowIfNotReady();
 
         return _schema!.TryGetEntityType(entityName, out var entityType)
-            ? _recordSets![entityType]
+            ? Part(_recordSets)[entityType]
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
@@ -651,7 +658,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
     // Frees the arena, and with it every block, the retired ones included, once the writes, drains and
     // counts of the counters in progress have ended, the network of the instance has stopped, and then
-    // the reads that entered before the mark of the close, and then completes the close. When nothing is
+    // the reads that entered before the mark of the close, lets go of the parts of the database, and then
+    // completes the close. When nothing is
     // in progress it does so before it returns. The wait for the reads runs on a thread of the pool,
     // because a read may be held by a test while its caller goes on; it ends as
     // ReadEpochs.WaitForReadsBefore says.
@@ -752,6 +760,28 @@ internal sealed class EngineDatabase : ILatticeDatabase
         catch (Exception exception)
         {
             failure ??= exception;
+        }
+
+        // Nothing uses the parts any more: every member reaches them only once it has found the state
+        // Ready, through the barrier, which admits nothing now, or through Part. So an instance kept
+        // alive after its close holds none of them, nor the managed memory of its root entries, its
+        // indexes and its text table.
+        lock (_stateLock)
+        {
+            _arena = null;
+            _roots = null;
+            _retired = null;
+            _coordinator = null;
+            _executor = null;
+            _delivery = null;
+            _forwarder = null;
+            _operations = null;
+            _recordSets = null;
+            _classSets = null;
+            _listener = null;
+            _master = null;
+            _follower = null;
+            _following = null;
         }
 
         if (failure is null)
@@ -1124,7 +1154,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         var binding = EntityBinding<TEntity>.For(_schema!);
 
-        return new ClassSet<TEntity>(_operations![binding.EntityType], binding);
+        return new ClassSet<TEntity>(Part(_operations)[binding.EntityType], binding);
     }
 
     private void ThrowIfNotReady()
@@ -1137,5 +1167,18 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The database is {state}, not Ready.");
         }
+    }
+
+    // After ThrowIfNotReady, for a member that reaches a part of the open database without passing the
+    // barrier of the close: the part, which is null only once the close has let go of it, and the state
+    // was Closed before that (FreeAfterOperationsAsync). So a member that read the state Ready just
+    // before a close that then ran to its end reports ObjectDisposedException as every member after the
+    // close does.
+    private T Part<T>(T? part)
+        where T : class
+    {
+        ObjectDisposedException.ThrowIf(part is null, this);
+
+        return part;
     }
 }

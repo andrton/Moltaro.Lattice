@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -26,7 +25,7 @@ public sealed class NothingHeldAfterCloseTests
 
     private const long Mebibyte = 1024 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Closed_instance_that_is_kept_alive_holds_neither_its_sets_nor_its_primary_indexes_nor_its_write_coordinator()
     {
         var database = await EngineMaster.OpenAsync(TextSchema.Utf8);
@@ -44,7 +43,7 @@ public sealed class NothingHeldAfterCloseTests
         GC.KeepAlive(database);
     }
 
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public void Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_root_entries_its_index_and_its_text_table()
     {
         var (open, closed, instance) = OpenFillAndClose();
