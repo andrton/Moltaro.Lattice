@@ -17,6 +17,14 @@ namespace Moltaro.Lattice.Engine.Tests;
 //   as well. Only the exact pin keeps the package from floating, also in the dependency of the
 //   engine package, so the third check reads the declaration itself in the central package
 //   versions (Q3 of docs/work/open-questions.md).
+//
+// By the owner's decision of 18 November 2026, which rides in Epic 1, sprint S13, the engine uses no
+// code of Arc.Collections and the unused package leaves it: the engine then references no package at
+// all, only the contract, no project of the product solution references Arc.Collections, and the central
+// package versions do not declare it. The prototypes under src/Prototypes pin their own versions and are
+// not projects of the product solution. The checks of what holds after that change follow the three
+// above, which state the rule before it; the project files and the central package versions are read
+// where the build of this project read them, above the directory of this test assembly.
 public sealed class DependencyTests
 {
     [Fact]
@@ -44,7 +52,7 @@ public sealed class DependencyTests
     [Fact]
     public void Arc_Collections_is_declared_with_the_exact_pin_of_version_2_2_0()
     {
-        var declarations = XDocument.Load(CentralPackageVersions())
+        var declarations = XDocument.Load(AboveTheTestAssembly("Directory.Packages.props"))
             .Descendants("PackageVersion")
             .Where(package => (string?)package.Attribute("Include") == "Arc.Collections");
 
@@ -52,16 +60,71 @@ public sealed class DependencyTests
         Assert.Equal("[2.2.0]", (string?)Assert.Single(declarations).Attribute("Version"));
     }
 
-    // The central package versions the build of this project read: the nearest
-    // Directory.Packages.props above the directory of this test assembly, which lies inside the
-    // project.
-    private static string CentralPackageVersions()
+    [Fact]
+    public void The_engine_assembly_references_only_the_contract_and_assemblies_of_dotnet()
+    {
+        var engine = Assembly.Load("Moltaro.Lattice.Engine");
+
+        var others = engine.GetReferencedAssemblies()
+            .Where(reference => reference.Name != "Moltaro.Lattice" && !BuiltDependencies.IsPartOfDotnet(reference))
+            .Select(reference => reference.FullName);
+
+        Assert.Empty(others);
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint13)]
+    public void The_engine_depends_only_on_the_contract()
+    {
+        var dependencies = BuiltDependencies.Recorded(typeof(DependencyTests).Assembly, "Moltaro.Lattice.Engine");
+
+        Assert.Equal(["Moltaro.Lattice"], dependencies.Keys);
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint13)]
+    public void The_engine_project_references_no_package()
+    {
+        var engine = XDocument.Load(Path.Combine(Path.GetDirectoryName(AboveTheTestAssembly("Moltaro.Lattice.slnx"))!, "Moltaro.Lattice.Engine", "Moltaro.Lattice.Engine.csproj"));
+
+        Assert.Empty(engine.Descendants("PackageReference"));
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint13)]
+    public void No_project_of_the_product_solution_references_Arc_Collections()
+    {
+        var solution = AboveTheTestAssembly("Moltaro.Lattice.slnx");
+        var projects = XDocument.Load(solution).Descendants("Project").Select(project => (string)project.Attribute("Path")!).ToArray();
+
+        Assert.Contains("Moltaro.Lattice.Engine/Moltaro.Lattice.Engine.csproj", projects);
+
+        foreach (var project in projects)
+        {
+            var references = XDocument.Load(Path.Combine(Path.GetDirectoryName(solution)!, project))
+                .Descendants("PackageReference")
+                .Where(package => (string?)package.Attribute("Include") == "Arc.Collections");
+
+            Assert.True(!references.Any(), $"The project {project} references Arc.Collections.");
+        }
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint13)]
+    public void The_central_package_versions_do_not_declare_Arc_Collections()
+    {
+        var declarations = XDocument.Load(AboveTheTestAssembly("Directory.Packages.props"))
+            .Descendants("PackageVersion")
+            .Where(package => (string?)package.Attribute("Include") == "Arc.Collections");
+
+        Assert.Empty(declarations);
+    }
+
+    // The file of the name that the build of this project read: the nearest one above the directory of
+    // this test assembly, which lies inside the project, so inside src.
+    private static string AboveTheTestAssembly(string fileName)
     {
         var directory = new DirectoryInfo(Path.GetDirectoryName(typeof(DependencyTests).Assembly.Location)!);
 
         while (directory is not null)
         {
-            var path = Path.Combine(directory.FullName, "Directory.Packages.props");
+            var path = Path.Combine(directory.FullName, fileName);
 
             if (File.Exists(path))
             {
@@ -71,6 +134,6 @@ public sealed class DependencyTests
             directory = directory.Parent;
         }
 
-        throw new FileNotFoundException("No Directory.Packages.props lies above the test assembly.");
+        throw new FileNotFoundException($"No {fileName} lies above the test assembly.");
     }
 }
