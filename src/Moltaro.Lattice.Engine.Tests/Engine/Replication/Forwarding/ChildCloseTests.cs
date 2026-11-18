@@ -35,9 +35,10 @@ public sealed class ChildCloseTests
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(relay.Address), new EngineTestInputs());
         using var suspension = child.SuspendApplying();
 
+        // Named before the write, from what the child has applied: a write is visible to a read on its
+        // master before the master's position moves, so a position read after the write may not be its own.
+        var sequence = PositionSequence.Of(child.Position) + 1;
         var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8, data: ThirtyTwoMebibytes)).AsTask();
-        await Eventually.HoldsAsync(() => master.Set<PieceSchema.Piece>().Get(1L) is not null, "The master did not execute the write.");
-        var sequence = PositionSequence.Of(master.Position);
         await Eventually.HoldsAsync(() => PassedTheWholeTransaction(relay, sequence), "The relay did not pass the transaction of the write.");
 
         Assert.False(writing.IsCompleted, "The write completed while its child held back its application.");
