@@ -33,11 +33,10 @@ namespace Moltaro.Lattice.Engine.Children;
 // it cannot have applied or forwarded a write that is not valid, or the master closes.
 //
 // Replies (S12, the planner's decision after the study, point 2). The sender sends every reply recorded
-// for the connection (Delivery.RecordedReplies) before it frames its next transaction, and between the
-// frames of a transaction, since a reply has priority there; a refusal as soon as it is recorded. A reply
-// of a forwarded write is recorded before its transaction is appended to the tail, so the child never
-// receives the transaction of a write it forwarded before that write's reply. A reply is sent whole: the
-// frames of one reply are not interleaved with those of another.
+// for the connection before it frames its next transaction, and between the frames of a transaction, since
+// a reply has priority there; a refusal as soon as it is recorded. So the child never receives the
+// transaction of a write it forwarded before that write's reply (Delivery.RecordedReplies, "The order that
+// matters"). A reply is sent whole: the frames of one reply are not interleaved with those of another.
 //
 // The close of the master (point 4, as the planner widened it with the tests, and decided at the review
 // of S12, point 2). The listener tells each connection to finish (Finish) once its barrier has closed and
@@ -256,8 +255,7 @@ internal sealed class ChildConnection
 
             if (reader.HasBytes())
             {
-                // The transaction is there, so every reply recorded before it was appended is seen now, and
-                // goes before it (see the class).
+                // The replies before the transaction (Delivery.RecordedReplies, "The order that matters").
                 await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
 
                 var (sequence, length) = reader.Transaction();

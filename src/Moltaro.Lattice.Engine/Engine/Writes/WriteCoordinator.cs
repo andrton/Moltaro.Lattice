@@ -181,10 +181,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // as any write does. It has no token: a request received whole is a submitted write and runs although its
 // child's connection ends. It brings the root the child sent instead of values (ForwardedOrigin), which the
 // executor places when it prepares the write. It has no caller: its outcome is its reply, recorded for the
-// child before the write leaves the barrier of the close, whatever the outcome. A success is recorded in
-// the hold that publishes it, before its transaction is appended to the tail (WriteExecutor), so that the
-// child takes the reply before the transaction; a refusal where its outcome is given, after the hold that
-// decided it (Deliver, Outcome), or at once when it is refused before its admission. So once the barrier
+// child before the write leaves the barrier of the close, whatever the outcome: a success in the hold that
+// publishes it (WriteExecutor), a refusal where its outcome is given, after the hold that decided it
+// (Deliver, Outcome), or at once when it is refused before its admission; why the child takes the reply
+// before the transaction, Delivery.RecordedReplies says ("The order that matters"). So once the barrier
 // has drained, every forwarded write admitted has its reply recorded, and nothing of one runs any more: no
 // task of it is awaited.
 //
