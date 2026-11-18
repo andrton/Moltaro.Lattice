@@ -98,7 +98,8 @@ internal static class MarkedRoot
         return layout.StoredFieldOf(field);
     }
 
-    private static int OnlyPlaceOf(ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> value, string what)
+    // Where the value stands in the bytes, which hold it once; MarkedTextRoot finds its marks the same way.
+    public static int OnlyPlaceOf(ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> value, string what)
     {
         var first = bytes.IndexOf(value);
 
