@@ -382,6 +382,8 @@ Use one arena; on failure dispose it after readers drain and report recovery fai
 Use a long-lived full-duplex TCP connection to the configured master URL, with bounded
 binary frames and asynchronous I/O. The host owns network exposure and optional TLS
 termination/configuration; no message broker, service discovery or election dependency.
+A node checks the structure of everything it receives and does not validate the values
+of fields again: [trust between the nodes of one database](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database).
 The handshake checks compatibility, not identity: it authenticates nobody. That the
 replication port is reachable only from the nodes of this database is a deployment
 precondition, accepted by the owner on 14 November 2026; the engine adds no shared

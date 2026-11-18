@@ -19,6 +19,7 @@ explicitly unresolved details are not silently approved.
 - [Q08.1.3](#q08.1.3-how-does-a-replica-recover-after-falling-behind)
 - [Q11](#q11-can-the-master-run-inside-the-application-process)
 - [Q15](#q15-configured-master-and-child-connection)
+- [Trust between the nodes of one database](#trust-between-the-nodes-of-one-database)
 
 ## Q08: Can a child load everything before accepting reads?
 
@@ -1511,3 +1512,31 @@ measurement work. No service, failover mechanism or new benchmark is implemented
 syntax for the engine: `lattice://host:port`, where port 0 in a master's address lets
 the system choose the port and the open master reports the one it chose
 ([brief of S10](../work/epic-1-core.md)). The accepted text above is unchanged.
+
+<a id="trust-between-the-nodes-of-one-database"></a>
+
+## Trust between the nodes of one database
+
+**Decided by the owner on 18 November 2026.**
+
+The nodes of one database are the same engine with the schema agreed in the handshake. A
+node checks the structure of everything it receives — frame, root, transaction, request,
+reply — so that no read or write leaves the bytes it received and nothing is allocated
+by a length a peer announced. It does not validate the values of fields again: a child
+validates an entity against the schema before it forwards the write, and a child trusts
+the values its master sends in a load and in the stream.
+
+**Consequence, accepted.** A peer that sends values this engine never produces — an
+out-of-range date, text that is not well-formed — can make a node hold an entity whose
+read throws or shows replacement characters, and that entity is replicated like any
+other. It cannot make a node read or write outside its memory.
+
+**Why.** A second validator over received bytes would run for every forwarded write, on
+the master under the lock of the writes, and for every root of a load, to guard against
+a peer that the design does not admit. The replication port authenticates nobody in this
+milestone; what a hostile peer can do is decided with the authentication of the port,
+not before.
+
+**For a reviewer.** A finding that a node accepts invalid field values from a peer
+restates this decision. A finding that a peer can make a node touch memory outside what
+it received, or allocate by an announced length, is a defect.

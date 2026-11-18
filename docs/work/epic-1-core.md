@@ -601,7 +601,7 @@ child that is not ready in time fails with `Unavailable` and is closed. The text
 history and schema and authenticates nobody. That the port is reachable only from the
 nodes of the database is a precondition of deployment, stated in the product
 documentation in S10. *Not chosen:* a shared secret in the handshake; TLS inside the
-engine.
+engine. What a node therefore trusts of a peer is decision O21.
 
 **O9. One store has one master at a time, and the engine enforces it.** The owner first
 chose to detect a superseded master by an epoch, and on the same day replaced that with
@@ -789,6 +789,17 @@ process, and principle 9 says so since S03.
 **The exceptions register.** A departure from a rule of `AGENTS.md` is recorded in
 [exceptions to the rules](exceptions.md) with its reason: entered when the owner approves
 it, and moved to **In force** by the change that introduces it.
+
+**O21. Values received from another node stay trusted.** Decided on 18 November 2026,
+when an outside reviewer called it a P1. The planner asked whether values received from
+another node stay trusted or a validator on receipt is added; the owner, as the planner
+relays, answered that they stay trusted and that it is written into the decision, so that
+other reviewers see it and it does not keep coming up. A node checks the structure of everything it receives and
+does not validate the values of fields again; the decision, its consequence and what
+remains a defect are in
+[trust between the nodes of one database](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database).
+*Not chosen:* a second validator over received bytes, on the master under the lock of
+the writes and for every root of a load.
 
 ### Where two design documents differ
 

@@ -89,6 +89,8 @@ The same engine runs embedded in an application or in a dedicated service.</p>
 concurrently. Writes are prepared and published one at a time; when the storage step is
 slow, the writes that arrive meanwhile form short bounded groups that commit and publish
 in order (<a href="write-path.md">how a write is executed</a>). Children forward writes and apply the master's confirmed changes.
+A node checks the structure of what a peer sends and does not validate field values
+again: <a href="../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database">trust between the nodes of one database</a>.
 Lattice has no second master and no node that accepts a write by itself: a child that
 cannot reach the master cannot write, and goes on reading its own memory.</p>
 <p><strong>Local reads.</strong> How reads are protected while writes run: <a href="epoch-protection.md">epochs</a>. A ready child reads its own arena. PostgreSQL belongs to the Durable

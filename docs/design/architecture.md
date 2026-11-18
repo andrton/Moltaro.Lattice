@@ -22,6 +22,8 @@ The same engine runs embedded in an application or in a dedicated service.
 concurrently. Writes are prepared and published one at a time; when the storage step is
 slow, the writes that arrive meanwhile form short bounded groups that commit and publish
 in order ([how a write is executed](write-path.md)). Children forward writes and apply the master's confirmed changes.
+A node checks the structure of what a peer sends and does not validate field values
+again: [trust between the nodes of one database](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database).
 Lattice has no second master and no node that accepts a write by itself: a child that
 cannot reach the master cannot write, and goes on reading its own memory.
 
