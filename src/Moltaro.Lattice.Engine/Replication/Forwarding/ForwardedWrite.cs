@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Access;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 

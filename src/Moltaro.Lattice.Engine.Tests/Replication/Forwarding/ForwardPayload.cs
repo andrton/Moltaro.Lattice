@@ -33,7 +33,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //   and its correlation id is 0. Every request of the connection not answered before it was not executed.
 //
 // The body of a request.
-// - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Storage.WriteKindEnum.
+// - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Access.WriteKindEnum.
 // - The type id of its entity type (UInt32).
 // - The expected revision: 0, or 1 and the two UInt64 of LatticeRevision in the order it holds them.
 // - The minimum position: 0, or 1, its history (UInt64) and its sequence (UInt64).

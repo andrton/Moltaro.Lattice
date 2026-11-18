@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Unicode;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
@@ -11,7 +10,7 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // planner's block of 15 November 2026, "Forwarding had no frames in the brief", and his decisions after the
 // study, points 1, 3 and 6). Every number is little-endian; a mark of presence is one byte, 0 or 1.
 //
-// A request: its kind (one byte, the value of Storage.WriteKindEnum), the type id of its entity type
+// A request: its kind (one byte, the value of Access.WriteKindEnum), the type id of its entity type
 // (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them;
 // always 0 for an insert, decided at the review of S12, point 4), the minimum position (0, or 1, its history and its sequence, each a UInt64), then the key, in the form
 // of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey); a Delete ends there. An

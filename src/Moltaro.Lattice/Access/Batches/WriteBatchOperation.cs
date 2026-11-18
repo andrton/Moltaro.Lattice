@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Access.Batches;
 

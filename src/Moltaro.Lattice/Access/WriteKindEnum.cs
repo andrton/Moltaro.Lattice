@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Access;
 
 // The intent of a write, checked against the stored state when the master executes it.
 internal enum WriteKindEnum
