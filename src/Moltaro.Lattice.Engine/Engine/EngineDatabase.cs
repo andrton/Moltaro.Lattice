@@ -933,11 +933,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, _epochs.Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _executor!, schema, tables, _writes!, _barrier, _coordinator!, _epochs.Fault, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
-            var end = await master.ReceiveRootsAsync(new RootPlacement(_writes!, _executor!, _barrier, changes, Fault, tables), memoryLimit, token).ConfigureAwait(false);
+            var end = await master.ReceiveRootsAsync(new RootPlacement(changes, tables), memoryLimit, token).ConfigureAwait(false);
 
             // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
             // until it has applied R, and then Ready.
@@ -951,7 +951,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _state = LatticeDatabaseStateEnum.CatchingUp;
             }
 
-            var follower = new Follower(master, _forwarder!, _clock!.History, _writes!, _executor!, _coordinator!, _barrier, changes, Fault, tables, memoryLimit, _options.OpenTimeout);
+            var follower = new Follower(master, _forwarder!, _clock!.History, _executor!, changes, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 

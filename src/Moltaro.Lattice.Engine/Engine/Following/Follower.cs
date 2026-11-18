@@ -1,9 +1,7 @@
 using System.Buffers;
 using System.Diagnostics;
-using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Loading;
-using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
@@ -48,7 +46,7 @@ namespace Moltaro.Lattice.Engine.Following;
 // Memory. A transaction the arena of the child cannot hold is applied by the rule of a write refused for
 // memory: what is retired is freed and the transaction is tried again; refused again, the reads that hold
 // retired memory are waited for, what they held is freed, and it is tried once more (the planner's block of
-// 17 November 2026, point 5). Refused then, it cannot be held: before Ready the open fails with
+// 17 November 2026, point 5; ReceivedChanges.Apply). Refused then, it cannot be held: before Ready the open fails with
 // Unavailable; after it the child stops following. So does a transaction announced larger than the memory
 // limit of the child, before anything is taken for it.
 //
@@ -84,7 +82,7 @@ namespace Moltaro.Lattice.Engine.Following;
 // for the reads that hold retired memory, which leave within a step, and the close of the child ends it; at
 // the end, the end of the sender, which the end of the connection brings at once. The sends are the
 // sender's (Forwarding.ChildSender). Every
-// application passes the barrier of the close, so that a close frees the arena only once no application is
+// application passes the barrier of the close (ReceivedChanges.Apply), so that a close frees the arena only once no application is
 // in progress; one after the close is refused, and the child stops.
 internal sealed class Follower
 {
@@ -96,26 +94,13 @@ internal sealed class Follower
 
     private readonly Forwarder _forwarder;
 
-    private readonly Lock _writes;
-
     private readonly WriteExecutor _executor;
 
-    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
-    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
-    private readonly WriteCoordinator _coordinator;
-
-    private readonly CloseBarrier _barrier;
-
     private readonly ReceivedChanges _changes;
-
-    // Faults the instance, after the lock, when a publication failed between its stores.
-    private readonly Action _fault;
 
     private readonly TransactionAssembler _assembler;
 
     private readonly TimeSpan _openTimeout;
-
-    private readonly EntityTables _tables;
 
     // Guards the count of the suspensions and the task their end completes.
     private readonly Lock _suspensions = new();
@@ -128,21 +113,16 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, EntityTables tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, ulong history, WriteExecutor executor, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
         _pending = new PendingRequests(history);
         _sender = new ChildSender(link, _pending);
-        _writes = writes;
         _executor = executor;
-        _coordinator = coordinator;
-        _barrier = barrier;
         _changes = changes;
-        _fault = fault;
         _assembler = new TransactionAssembler(memoryLimit);
         _openTimeout = openTimeout;
-        _tables = tables;
     }
 
     // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
@@ -308,7 +288,7 @@ internal sealed class Follower
 
         // The effects stay where they were received: no frame is received while the suspension lasts.
         await WhileSuspendedAsync(cancellationToken).ConfigureAwait(false);
-        Apply(sequence, effects, cancellationToken);
+        _changes.Apply(sequence, effects, cancellationToken);
 
         _applied = sequence;
         _executor.WakePositions();
@@ -332,154 +312,4 @@ internal sealed class Follower
     // Tells the sender what the child has applied; the sender tells the master unless it has told it
     // already.
     private void Acknowledge() => _sender.Acknowledge(_applied);
-
-    // Applies one transaction whole, by the rule of a write refused for memory (see the class).
-    private void Apply(ulong sequence, ReadOnlySequence<byte> effects, CancellationToken cancellationToken)
-    {
-        _barrier.Enter();
-
-        try
-        {
-            if (TryApply(sequence, effects))
-            {
-                return;
-            }
-
-            long epoch;
-            bool retired;
-
-            lock (_writes)
-            {
-                _executor.DrainRetired();
-            }
-
-            if (TryApply(sequence, effects))
-            {
-                return;
-            }
-
-            lock (_writes)
-            {
-                epoch = _executor.ReadsToWaitFor(out retired);
-            }
-
-            if (retired && epoch != 0)
-            {
-                _coordinator.RunWaitHold();
-                _executor.WaitForReads(epoch, cancellationToken);
-
-                lock (_writes)
-                {
-                    _executor.DrainRetired();
-                }
-
-                if (TryApply(sequence, effects))
-                {
-                    return;
-                }
-            }
-
-            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The memory limit of this child cannot hold the transaction {sequence} of its master.");
-        }
-        catch
-        {
-            // After the lock, which TryApply takes and leaves: the reads were marked faulted under it
-            // (ReceivedChanges).
-            if (_changes.PublicationFailed)
-            {
-                _fault();
-            }
-
-            throw;
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
-    }
-
-    // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
-    // them. False when the arena refused one, with nothing of the transaction left.
-    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects)
-    {
-        lock (_writes)
-        {
-            var reader = new SequenceReader<byte>(effects);
-
-            try
-            {
-                while (!reader.End)
-                {
-                    if (!TryPrepareEffect(ref reader, sequence))
-                    {
-                        return false;
-                    }
-                }
-            }
-            catch
-            {
-                _changes.Abandon();
-                throw;
-            }
-
-            _changes.Publish(sequence);
-
-            return true;
-        }
-    }
-
-    // Prepares the next effect of the transaction (see the class): false when the arena refused it.
-    private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence)
-    {
-        reader.TryRead(out var kind);
-
-        switch ((EffectKindEnum)kind)
-        {
-            case EffectKindEnum.Write:
-                if (!reader.TryReadLittleEndian(out long rootLength) || rootLength < RootAssembler.EnvelopeSize || rootLength > reader.Remaining)
-                {
-                    throw Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
-                }
-
-                var root = new SequenceReader<byte>(reader.UnreadSequence.Slice(0, rootLength));
-
-                reader.Advance(rootLength);
-                root.TryReadLittleEndian(out int typeId);
-                root.TryReadLittleEndian(out long lastMutation);
-
-                var written = TableOf((uint)typeId, sequence);
-
-                if ((ulong)lastMutation != sequence)
-                {
-                    throw Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {(ulong)lastMutation}.");
-                }
-
-                return _changes.TryPrepareWrite(written, sequence, ref root);
-
-            case EffectKindEnum.Delete:
-                if (!reader.TryReadLittleEndian(out int deletedId))
-                {
-                    throw Invalid($"A Delete of the transaction {sequence} ends before its type id.");
-                }
-
-                var deleted = TableOf((uint)deletedId, sequence);
-                var key = deleted.ReadKey(ref reader);
-
-                _changes.PrepareDelete(deleted, key, sequence);
-
-                return true;
-
-            case EffectKindEnum.Unchanged:
-                return true;
-
-            default:
-                throw Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
-        }
-    }
-
-    // The table of an entity type the engine stores.
-    private EntityTable TableOf(uint typeId, ulong sequence) =>
-        _tables.TryGetStored(typeId, out var table)
-            ? table
-            : throw Invalid($"The transaction {sequence} names the entity type {typeId}, which the schema of the child does not store.");
 }

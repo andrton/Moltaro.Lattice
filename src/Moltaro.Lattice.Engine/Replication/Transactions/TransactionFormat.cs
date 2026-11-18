@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
@@ -47,6 +49,54 @@ internal static class TransactionFormat
         BinaryPrimitives.WriteUInt64LittleEndian(bytes[sizeof(ulong)..], (ulong)effectsLength);
     }
 
+    // Reads the envelope of the next effect from the effects of the transaction of the sequence and returns
+    // its kind: for a Write the root, whose type id and last mutation are read, with the effects advanced
+    // past it; for a Delete its type id, with the effects left at its key; for an Unchanged nothing more.
+    // ValidationFailed for a Write whose bytes do not hold the root it announces, a Delete that ends before
+    // its type id, and a kind that is none.
+    public static EffectKindEnum ReadEffect(ref SequenceReader<byte> effects, ulong sequence, out uint typeId, out ulong lastMutation, out SequenceReader<byte> root)
+    {
+        typeId = 0;
+        lastMutation = 0;
+        root = default;
+
+        effects.TryRead(out var kind);
+
+        switch ((EffectKindEnum)kind)
+        {
+            case EffectKindEnum.Write:
+                if (!effects.TryReadLittleEndian(out long rootLength) || rootLength < RootAssembler.EnvelopeSize || rootLength > effects.Remaining)
+                {
+                    throw Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
+                }
+
+                root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, rootLength));
+                effects.Advance(rootLength);
+                root.TryReadLittleEndian(out int writtenId);
+                root.TryReadLittleEndian(out long writtenMutation);
+                typeId = (uint)writtenId;
+                lastMutation = (ulong)writtenMutation;
+
+                return EffectKindEnum.Write;
+
+            case EffectKindEnum.Delete:
+                if (!effects.TryReadLittleEndian(out int deletedId))
+                {
+                    throw Invalid($"A Delete of the transaction {sequence} ends before its type id.");
+                }
+
+                typeId = (uint)deletedId;
+
+                return EffectKindEnum.Delete;
+
+            case EffectKindEnum.Unchanged:
+                return EffectKindEnum.Unchanged;
+
+            default:
+                throw Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
+        }
+    }
+
     public static void WriteApplied(Span<byte> payload, ulong sequence) => BinaryPrimitives.WriteUInt64LittleEndian(payload, sequence);
 
     // ValidationFailed when the payload is not Protocol.AppliedPayloadSize bytes long.
@@ -59,4 +109,6 @@ internal static class TransactionFormat
 
         return BinaryPrimitives.ReadUInt64LittleEndian(payload);
     }
+
+    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

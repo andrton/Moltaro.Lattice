@@ -1,7 +1,5 @@
 using System.Buffers;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Engine.Loading;
@@ -10,14 +8,10 @@ namespace Moltaro.Lattice.Engine.Loading;
 // the load (brief of Epic 1, sprints S10 and S11; the planner's block of 17 November 2026, points 2, 4, 5
 // and 9, and his decisions after the studies of S10, points 2 and 3, and of S11, points 4 and 7).
 //
-// One changing thread: the arena of a child, as of a master, is changed only by whoever holds the lock of
-// the writes. A root is placed and published under the child's lock of the writes, as a write is, by the
-// one rule the child applies what it receives by (ReceivedChanges): a key arrives twice in a load when the
-// master wrote while its capture walked its slots, and the later state stays. No second way of changing
-// an arena is built, and no storage step runs. The lock is held for the work of one root in memory, never
-// across a receive. Each placement passes the barrier of the close, as a write does, so a close frees the
-// arena only once no placement is in progress, and a placement after the close is refused with
-// ObjectDisposedException.
+// A root is placed and published by the one rule the child applies what it receives by, under the child's
+// lock of the writes and inside the barrier of the close, as a write is (ReceivedChanges.Place): a key
+// arrives twice in a load when the master wrote while its capture walked its slots, and the later state
+// stays. A root the arena refuses is placed by the rule of a write refused for memory (ReceivedChanges).
 //
 // What a root brings and what is checked of it, beyond what BlockImport checks: its type id names an
 // entity type of the schema the engine stores, and its last mutation sequence is not 0. The key comes
@@ -26,27 +20,13 @@ namespace Moltaro.Lattice.Engine.Loading;
 // sequence of its last mutation there. Each failure is a LatticeException with ValidationFailed, and
 // nothing of the root is left.
 //
-// Memory. A root is placed by the rule of a write refused for memory: when the arena refuses it, what is
-// retired is freed and the root is tried once more; before the child is Ready no read can hold retired
-// memory, so there is nothing else to wait for. A root refused again cannot be held: the open of the
-// child ends with Unavailable and the reason (the planner's block of 17 November 2026, point 9).
-//
 // At the end of the load (End), the number of roots received has to be the number LoadEnd announces, and
 // R, the end position of the capture, at least the last mutation of every root; then S, its start, becomes
 // the sequence of the child, which applies the transactions after it up to R before it is Ready
 // (Following.Follower).
 internal sealed class RootPlacement
 {
-    private readonly Lock _writes;
-
-    private readonly WriteExecutor _executor;
-
-    private readonly CloseBarrier _barrier;
-
     private readonly ReceivedChanges _changes;
-
-    // Faults the instance, after the lock, when a publication failed between its stores.
-    private readonly Action _fault;
 
     private readonly EntityTables _tables;
 
@@ -55,13 +35,9 @@ internal sealed class RootPlacement
 
     private ulong _latest;
 
-    public RootPlacement(Lock writes, WriteExecutor executor, CloseBarrier barrier, ReceivedChanges changes, Action fault, EntityTables tables)
+    public RootPlacement(ReceivedChanges changes, EntityTables tables)
     {
-        _writes = writes;
-        _executor = executor;
-        _barrier = barrier;
         _changes = changes;
-        _fault = fault;
         _tables = tables;
     }
 
@@ -86,29 +62,7 @@ internal sealed class RootPlacement
             throw Invalid($"A root of {layout.EntityType.Name} has no last mutation.");
         }
 
-        _barrier.Enter();
-
-        try
-        {
-            lock (_writes)
-            {
-                PlaceUnderTheLock(reader, table, (ulong)lastMutation);
-            }
-        }
-        catch
-        {
-            // After the lock: the reads were marked faulted under it (ReceivedChanges).
-            if (_changes.PublicationFailed)
-            {
-                _fault();
-            }
-
-            throw;
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
+        _changes.Place(table, (ulong)lastMutation, reader, _received);
 
         _received++;
         _latest = Math.Max(_latest, (ulong)lastMutation);
@@ -127,47 +81,8 @@ internal sealed class RootPlacement
             throw Invalid($"A root has the last mutation {_latest}, after the end position {end.End} of the capture.");
         }
 
-        _barrier.Enter();
-
-        try
-        {
-            lock (_writes)
-            {
-                _executor.PublishPosition(end.Start);
-            }
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
+        _changes.EndLoad(end.Start);
     }
 
     private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
-    // The root placed by the rule of a write refused for memory (see the class).
-    private void PlaceUnderTheLock(SequenceReader<byte> start, EntityTable table, ulong lastMutation)
-    {
-        var reader = start;
-
-        if (_changes.TryPrepareWrite(table, lastMutation, ref reader))
-        {
-            _changes.Publish(position: null);
-
-            return;
-        }
-
-        _executor.DrainRetired();
-        reader = start;
-
-        if (_changes.TryPrepareWrite(table, lastMutation, ref reader))
-        {
-            _changes.Publish(position: null);
-
-            return;
-        }
-
-        throw new LatticeException(
-            LatticeErrorEnum.Unavailable,
-            $"The memory limit of this child cannot hold the database of its master: a root of {table.EntityType.Name} of {start.Remaining} bytes does not fit beside the {_received} roots received before it.");
-    }
 }
