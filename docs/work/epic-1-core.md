@@ -4673,6 +4673,26 @@ The owner agreed with the decisions of the tests step and with this rule of the 
 18 November 2026, as the planner relays. Carried to S27: with Durable, say whether a master can be behind a position a
 session holds.
 
+**Settled by the planner on 18 November 2026, with the implementation of S12.** Accepted
+as the implementer decided them: the wire format is 3, so a peer of the format of S11 is
+refused in the handshake; the master requires the correlation id of each request to be
+the previous one plus 1 and anything else is malformed; a reply whose position belongs to
+another history is a malformed reply and the child ends its connection; a child writes
+the root of a forwarded write without its arena; no switch that cuts a link was needed;
+`PositionClock` is replaced on its figure. Two items go to the fixes after the review:
+
+1. **One result for "committed, will not arrive on this node".** A forwarded write that
+   holds its reply and waits for its application ends at once in `SynchronizationTimeout`
+   with `CommittedPosition` when the child has faulted, as it does when the master is lost
+   or the timeout elapses; the session moves to the committed position in each. Not
+   `Unavailable`: an application retries on `Unavailable`, and this write is committed.
+   The sentence of the contract becomes "On a child that has lost its master or has
+   faulted the wait ends at once, because the position cannot arrive."
+2. **A forwarded replace has no rule of its own for the spelling of a key.** A test states
+   that a replace through a child gives the stored entity the same key spelling as the
+   same replace made on the master directly. Where the two paths differ, the forwarded
+   one is the defect.
+
 ### Stage 4. Indexes and batches
 
 #### S13 · Text entries and Dictionary strings
