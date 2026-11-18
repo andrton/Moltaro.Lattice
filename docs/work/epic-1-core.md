@@ -4614,8 +4614,8 @@ above says otherwise, these replace it. The study read the source of PostgreSQL
     `Timeout_after_the_master_committed_does_not_undo_the_write` and
     `Child_keeps_serving_reads_after_the_master_closes`.
 
-The planner reports points 1, 4 and 8 to the owner as its decisions, which he may
-overturn. Carried to S27: with Durable, say whether a master can be behind a position a
+The planner reported points 1, 4 and 8 to the owner as its decisions, which he may
+overturn; the owner agreed with all of them on 18 November 2026, as the planner relays. Carried to S27: with Durable, say whether a master can be behind a position a
 session holds.
 
 ### Stage 4. Indexes and batches
