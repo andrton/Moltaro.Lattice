@@ -54,7 +54,7 @@ internal static class EnumerateScenario
     private const int GrowthPasses = 7;
 
     // The entries the main table of a primary index of 100,000 to 131,072 entries holds before it
-    // grows: 32,768 buckets of four entries on average (Engine.Indexes.IndexTable, "The capacity
+    // grows: 32,768 buckets of four entries on average (Storage.Hashing.IndexTable, "The capacity
     // policy"); the switch inside a growth shows that the series met it.
     private const long EntriesBeforeGrowth = 4 * 32_768;
 

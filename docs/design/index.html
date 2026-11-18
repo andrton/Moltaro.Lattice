@@ -89,6 +89,8 @@ The same engine runs embedded in an application or in a dedicated service.</p>
 concurrently. Writes are prepared and published one at a time; when the storage step is
 slow, the writes that arrive meanwhile form short bounded groups that commit and publish
 in order (<a href="write-path.md">how a write is executed</a>). Children forward writes and apply the master's confirmed changes.
+A node checks the structure of what a peer sends and does not validate field values
+again: <a href="../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database">trust between the nodes of one database</a>.
 Lattice has no second master and no node that accepts a write by itself: a child that
 cannot reach the master cannot write, and goes on reading its own memory.</p>
 <p><strong>Local reads.</strong> How reads are protected while writes run: <a href="epoch-protection.md">epochs</a>. A ready child reads its own arena. PostgreSQL belongs to the Durable
@@ -166,7 +168,8 @@ Unicode; malformed input is rejected before commit.</li>
 <li><strong>Plain by default.</strong> Fields explicitly marked Dictionary share equal original text
 through one dictionary per database. There is no automatic policy switching.</li>
 <li><strong>Stable text references.</strong> Indexes share protected text instead of copying it.
-Stored, prepared and index references are counted; reclamation waits for active users.</li>
+An entry has one count of the blocks that refer to it; it is freed when the last of
+them is freed, after the readers that could reach it have left.</li>
 <li><strong>Schema-owned comparison.</strong> Ordinal is the default; individual fields may use
 OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.</li>
 </ul>
@@ -202,7 +205,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </tr>
 <tr>
 <td>Declared secondary index</td>
-<td>Arc.Collections OrderedMultiMap; single or composite keys</td>
+<td>An ordered structure of the engine's own, chosen in the sprint that builds it after a study; single or composite keys; not built yet</td>
 </tr>
 <tr>
 <td>Application-defined traversal</td>

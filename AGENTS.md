@@ -24,7 +24,7 @@ This repository is going to be public. Nothing specific to a private product goe
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
 | `src/Moltaro.Lattice` | The core library: the public contract except its entry point. No package dependencies |
-| `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library. It holds the reference to `Arc.Collections`, which no code uses yet |
+| `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library and on no package |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
@@ -54,6 +54,24 @@ Simple is not the goal by itself. Do not make something simpler by dropping a gu
 blurring a boundary or pushing the difficulty onto the caller. The target is the simplest
 design that keeps every accepted guarantee. When simple and correct disagree, correct
 wins. When simple and fast disagree, measure before choosing.
+
+Simplicity and readability are what keeps this system possible to maintain and to extend,
+and they are guarded as correctness is. The system is complex and its performance targets
+are high; that is the reason to keep every part as plain as its guarantees and its
+measured figures allow, never a licence for clever code. Where a simpler or more readable
+form keeps the same guarantee and the same figure, it is the form to write. Code that is
+not in that form is technical debt.
+
+- Technical debt is looked for, not waited for. After every sprint a separate agent in
+  the role of the architect steps back over what has been built, not only over the last
+  change, and names what should be refactored; the
+  [development process](docs/work/process.md#the-architects-review) says how.
+- What it names becomes a task with a place in the plan, or is refused with a written
+  reason. It does not stay a remark.
+- Refactoring is part of the work and has a place of its own in the plan: a refactoring
+  sprint between two sprints, so that a change of structure is never mixed with a change
+  of behavior. It changes no behavior and no assertion of a test; the tests are what
+  makes it safe.
 
 ## Architectural Principles
 
@@ -99,9 +117,9 @@ These hold across the contract and the engine.
     several. No static mutable state, except where a comment says why.
 11. **Dependencies point one way.** Three assemblies make the database. `Moltaro.Lattice`,
     the public contract, depends on nothing outside .NET. `Moltaro.Lattice.Engine` depends
-    on the contract and owns the index package. `Moltaro.Lattice.PostgreSql` depends on
-    the engine and owns the PostgreSQL driver. No other shipped assembly references those
-    two packages.
+    on the contract and on no package: its structures are its own.
+    `Moltaro.Lattice.PostgreSql` depends on the engine and owns the PostgreSQL driver. No
+    other shipped assembly references the PostgreSQL driver.
     Inside an assembly a folder is a namespace and one responsibility, and folders depend
     on each other in one direction. A folder that holds several layers of one
     responsibility has a sub-folder for each: the sub-folders are parts of that
@@ -131,6 +149,9 @@ row left to right: an earlier quality is not traded for a later one.
   simpler code stays.
 - The contract must not make the engine slow: a signature that forces boxing, copying or
   an allocation per call on a read path is a defect of the contract.
+- **Readability is third in the engine, not optional.** It gives way only to a guarantee
+  or to a measured figure, and then a comment at that place says which. Without one of
+  the two, the readable form stays.
 
 ## Design Patterns
 
@@ -210,6 +231,21 @@ Writing code:
 - Keep a method focused, without splitting a simple operation across needless helpers.
 - Comments are in English and explain why: an invariant, an ordering requirement, who
   owns mutable data, what a lock protects. They do not repeat the code.
+- A comment has to be readable by someone who was not here when the code was written. It
+  states the rule and its reason in its own words. It refers only to what lasts: a
+  decision record or a design document by its file, an entry of the exceptions register
+  by its number, a third-party source with its licence and commit. It does not cite a
+  sprint, a review round, a date, a role or a working document — "the brief of S09",
+  "review round 1", "the planner's point 4": that history belongs to the commit message,
+  and the working documents of an epic are removed when it is finished.
+- What is not built yet is said once, where it is refused, without a sprint number.
+- The head of a type says what the type is for, what it guarantees and what protects its
+  state, in about twenty lines, and points to the design document for the narrative.
+  Reasoning that exists nowhere else moves into that document in the same change; a
+  measured figure that justifies a constant stays beside the constant, as the number and
+  what it measured.
+- A prefix that states the context of a method is welcome and kept: "Under the lock:",
+  "After the lock:", "For a child:".
 - Distinguish "not loaded", "confirmed empty" and "failed". Never return an invented empty
   result in place of a failure.
 - No reflection on a call path. No duplicated checks. No redundant models.

@@ -10,6 +10,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Hashing;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -63,7 +64,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // write of it is refused with NotSupportedException, a read of it by key finds nothing and an
 // enumeration of it is empty (brief of S06, "What is refused until a later sprint"). From S07 every
 // key type of the catalog is stored; a String key is equal to another, and hashed, under the
-// comparison its field declares, by the comparison of the schema (Comparison.ValueComparer).
+// comparison its field declares, by the comparison of the schema (Comparison.ValueComparer). From S13 a
+// String key may have Dictionary storage, as any String field may: the root then names the entry of its
+// text in the text table, and the comparison reads the text there, as a read reads it.
 //
 // A read by key, in its order. It enters the protection of reads, takes no lock and writes nothing
 // but its slot of the protection:
@@ -274,8 +277,7 @@ internal sealed class EntityTable
             }
             catch (NotSupportedException exception)
             {
-                // A field the root layout cannot store yet: an owned value, a collection, a reference,
-                // a String with Dictionary storage.
+                // A field the root layout cannot store yet: an owned value, a collection, a reference.
                 refusal = $"{exception.Message} The engine does not store the entity type {entityType.Name} yet, so it cannot be written.";
             }
         }
@@ -707,8 +709,8 @@ internal sealed class EntityTable
     };
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
-    // itself; null when nothing of this list applies. The root layout refuses Dictionary storage, an
-    // owned value, a collection and a reference.
+    // itself; null when nothing of this list applies. The root layout refuses an owned value, a
+    // collection and a reference.
     private static string? RefusalOf(LatticeEntityType entityType)
     {
         foreach (var index in entityType.Indexes)

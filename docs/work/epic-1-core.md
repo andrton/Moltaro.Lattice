@@ -65,7 +65,7 @@ fingerprints; the optional .NET class, bound by one table for every position, wi
 enum that has to agree with its enum type. Records and owned values that hold nested
 values and copy what is set into them. Sets by class and by name, for
 entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
-and UTF-16: read, enumerate, insert,
+and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
@@ -95,8 +95,14 @@ and not by the runtime: keys, Map keys, Set members and the identity of a batch 
 through one rule. From S08, part 1, a read of the engine is protected by an epoch and
 takes no lock; what a write replaces or removes is retired and freed once the reads that
 could reach it have left; the primary index is a hash table of the engine's own that is
-read while a write is published, and `Arc.Collections` is referenced by the engine and
-used by none of its code until the ordered indexes of S14 settle it. From S08, part 2,
+read while a write is published; the package `Arc.Collections`, referenced by the engine
+and used by none of its code, was removed in S13 by the owner's decision of 18 November
+2026, and the ordered indexes of S14 are decided by their study. Since S13 a String field
+with Dictionary storage is stored once for the database: a text entry of the arena that
+holds the exact bytes, the root holding its relative address, one count of the blocks
+that refer to it changed only under the lock of the writes, and a table by content that
+only writes use; a read of such a field costs what a read of a Plain value out of line
+costs, and a child builds its own entries from the bytes it receives. From S08, part 2,
 an enumeration of the engine goes on while entities change and the index grows: it
 remembers the keys it has returned, returns no identity twice and every entity nobody
 changed, and holds nothing between two steps; the options `ReadMemoryLimit` and
@@ -136,7 +142,6 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
-| Storing a String with Dictionary storage | The declaration of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S13 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
@@ -165,7 +170,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | # | Requirement | Decided in | Level | Today | Sprints |
 | --- | --- | --- | --- | --- | --- |
 | R1 | One database per instance, no partitions. Embedded and hosted masters use the same engine. Many callers submit writes; only the configured master executes them | [Q11, Q15](../decisions/replication-and-hosting.md), [Q12](../decisions/database-scope.md) | Must | Works | S06–S12 |
-| R2 | The public library keeps no package dependency. Arc.Collections and the PostgreSQL driver each have one owning assembly, and dependencies point one way | [Handoff](../design/planning-handoff.md#planning-obligations) | Must | Holds; no engine yet | S01, S27 |
+| R2 | The public library keeps no package dependency. The PostgreSQL driver has one owning assembly, and dependencies point one way. The engine references no package since S13: `Arc.Collections` was removed by the owner's decision of 18 November 2026 | [Handoff](../design/planning-handoff.md#planning-obligations) | Must | Holds | S01, S13, S27 |
 | R3 | The schema catalog owns stable positive identities of entity types, fields and indexes, a catalog version and deterministic layout fingerprints; one compiler serves every input | [Engine contract](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration), [Q03.9](../decisions/schema-and-types.md) | Must | Partly: indexes have no identity, no fingerprint | S02 |
 | R4 | The accepted scalar catalog and its rules: eight integers, Float32, Float64, Decimal, Boolean, String, Guid, the temporal types, Binary; enum and Flags; explicit nullability; String comparison Ordinal or OrdinalIgnoreCase per field | [Q03.1–Q03.8](../decisions/schema-and-types.md), [Q04](../decisions/strings.md) | Must | Field types work; enums and text policies absent | S02, S05, S06–S08 |
 | R5 | Owned entity trees, ordered Lists, Maps, Sets and references by key without integrity enforcement, with the accepted input, null and comparer rules | [Q02, Q02.1, Q02.2](../decisions/document-model.md), [Q03.3, Q03.4.2](../decisions/schema-and-types.md) | Must | Absent | S03, S18, S19 |
@@ -173,10 +178,10 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R7 | Ordinary reads return owned copies, coherent for one entity | [Q06, Q06.1](../decisions/memory-and-access.md) | Must | Works | S06–S08 |
 | R8 | Short synchronous protected read-only views: no copy, no escape, no nested database call | [Q06.2, Q06.3](../decisions/memory-and-access.md) | Must | Absent | S21–S22 |
 | R9 | Native segments, size classes, relative addressing, stable managed root entries, large values in bounded chunks | [Q05](../decisions/memory-and-access.md), [Q16](../decisions/physical-storage.md) | Must | Absent | S04, S05 |
-| R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Absent | S05, S13 |
+| R10 | Text: Plain and Dictionary storage, the database encoding, stable text entries, safe sharing and reclamation, well-formed Unicode only | [Q04.1–Q04.5](../decisions/strings.md) | Must | Works for String fields; text in collections and index keys with their sprints | S05, S13 |
 | R11 | Space is reused for the life of the database: size-class reuse, bounded incremental compaction, collection shrink, release of empty segments | [Q17](../decisions/allocation-and-compaction.md) | Must | Absent | S04, S23–S24 |
 | R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
-| R13 | Arc UnorderedMapSlim for the primary index and Arc OrderedMultiMap for secondary indexes, behind engine-owned protection, rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
+| R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
 | R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | On the engine an enumeration goes on while entities change, with the budget of the options; index traversal follows | S06–S08, S14–S15 |
@@ -337,6 +342,14 @@ documentation before this document is removed.
 | S12 | The close of a master and of a child with 16 callers forwarding | master: median 2.4 to 3.3 ms after the frame Closed (1.9 to 3.3 ms before it), longest 7.5 ms; child: median 1.7 to 3.1 ms, longest 18 ms | development-4 | 18 November 2026 |
 | S12 | Allocation per forwarded write | about 3.2 KB on the child and 1.1 KB on the master; not reduced in S12, a figure to return to when G3 is measured | development-4 | 18 November 2026 |
 | S12 | A master with no child against the commit before the implementation of S12, alternating rounds | no fall with 4 and 16 callers, readers, and readers beside writers; allocation per write unchanged (160 and 124 bytes); one caller: replace 1.39 to 1.52 M/s against 1.46 to 1.57 M/s, inside the spread between runs (the order of the runs changed the sign) | development-4 | 18 November 2026 |
+| S13 | Read by key of an entity whose field is stored as Dictionary against the same field as Plain out of line, by class | 1 thread 1.57 to 1.93 M/s against 1.22 to 1.62 M/s; 16 threads 7.9 to 9.2 M/s against 6.3 to 8.1 M/s: not slower. Against a Plain value small enough to lie in the root the two cross at 65 bytes | development-5 | 18 November 2026 |
+| S13 | Reads beside a writer that allocates in the size class of the entries, 7 readers and the writer on 8 processors, 16 rounds of each, Plain and Dictionary alternating, the machine 27 to 50 % busy with other work | reads beside the writer over reads alone: Plain median 0.875 (0.75 to 1.01), Dictionary 0.86 (0.64 to 0.97), the ratio of the medians 0.98; reads alone 8.17 M/s Plain and 9.96 M/s Dictionary, beside the writer 7.30 and 8.41 M/s; the writer 795 k/s beside Plain readers and 704 k/s beside Dictionary readers. With 16 readers: 0.93 and 0.95 | development-5 | 18 November 2026 |
+| S13 | Writes of an entity with a text of 9 bytes, the field as Dictionary against Plain | 12 to 20 % fewer writes a second as Dictionary; a write whose text is already stored costs 60 to 110 ns more, one whose text is new about 330 ns more (reads win over writes; the advice is in the decision on strings) | development-5 | 18 November 2026 |
+| S13 | Memory of 100,000 users of the fixture with one field of 16 distinct texts of 9 bytes | 16.0 MB as Dictionary against 17.6 MB as Plain, 9.1 % less | development-5 | 18 November 2026 |
+| S13 | Memory for each value when all 1,000,000 texts are distinct, 9 bytes each | 163 bytes as Dictionary against 80 as Plain; the table takes 51.4 bytes for each distinct entry | development-5 | 18 November 2026 |
+| S13 | A child that loads 100,000 such users | the bytes on the wire are those of Plain (15,410,268); the child holds 16 entries; Ready about 0.12 µs later for each Dictionary value | development-5 | 18 November 2026 |
+| S13 | Bytes the arena holds while one text of 1 MiB is replaced 100 times with no read in progress | 101 MiB as Dictionary against 4.0 MiB as Plain before the fix of the review; after it the test holds Dictionary to at most twice Plain | development-5 | 18 November 2026 |
+| S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. **Open: to be measured again on a quiet machine, with the base against itself** | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -547,8 +560,8 @@ on the one before it. `Moltaro.Lattice` is the public contract and what needs no
 options, errors, the schema and its compiler, the access interfaces and values; it has no
 package dependency. `Moltaro.Lattice.Engine` holds arena, indexes, coordinator,
 replication, MemoryOnly and the entry point `LatticeDatabase`, which keeps its namespace;
-it owns `Arc.Collections`, pinned to exactly 2.2.0, the version the evidence was measured
-on. `Moltaro.Lattice.PostgreSql` is the Durable provider and owns `Npgsql`; a child never
+it owned `Arc.Collections`, pinned to exactly 2.2.0, the version the evidence was measured
+on, until the owner removed the unused reference on 18 November 2026 (S13). `Moltaro.Lattice.PostgreSql` is the Durable provider and owns `Npgsql`; a child never
 loads it. Dependency injection references the engine, because it opens the database; the
 Identity package references only the contract. The options take the storage as an object
 of the provider package, and `StorageConnectionString` is removed. *Not chosen:* the
@@ -600,7 +613,7 @@ child that is not ready in time fails with `Unavailable` and is closed. The text
 history and schema and authenticates nobody. That the port is reachable only from the
 nodes of the database is a precondition of deployment, stated in the product
 documentation in S10. *Not chosen:* a shared secret in the handshake; TLS inside the
-engine.
+engine. What a node therefore trusts of a peer is decision O21.
 
 **O9. One store has one master at a time, and the engine enforces it.** The owner first
 chose to detect a superseded master by an epoch, and on the same day replaced that with
@@ -788,6 +801,17 @@ process, and principle 9 says so since S03.
 **The exceptions register.** A departure from a rule of `AGENTS.md` is recorded in
 [exceptions to the rules](exceptions.md) with its reason: entered when the owner approves
 it, and moved to **In force** by the change that introduces it.
+
+**O21. Values received from another node stay trusted.** Decided on 18 November 2026,
+when an outside reviewer called it a P1. The planner asked whether values received from
+another node stay trusted or a validator on receipt is added; the owner, as the planner
+relays, answered that they stay trusted and that it is written into the decision, so that
+other reviewers see it and it does not keep coming up. A node checks the structure of everything it receives and
+does not validate the values of fields again; the decision, its consequence and what
+remains a defect are in
+[trust between the nodes of one database](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database).
+*Not chosen:* a second validator over received bytes, on the master under the lock of
+the writes and for every root of a load.
 
 ### Where two design documents differ
 
@@ -1034,7 +1058,7 @@ Why this order:
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
-| S13 | Text entries and Dictionary strings | Full | Not started |
+| S13 | Text entries and Dictionary strings | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -4760,6 +4784,19 @@ P1). Both confirmed that a closing master left writes it had not executed as
 
 ### Stage 4. Indexes and batches
 
+**The stage, S13 to S17, was approved by the owner on 18 November 2026, as the planner
+relays.** Its contract is the public contract that stands today: `StringStorage`,
+`set.Index(name)`, `Find` and `FindAsync`, `IndexKey`, `IndexBound`, unique indexes and
+`ILatticeWriteBatch` have been in it, with documentation, samples and skipped tests,
+since the plan was approved. The internal types and members of each sprint are written
+in its contract step, after its study, and reviewed in the sprint, as in S10 to S12.
+What changes something the owner approved comes back to him inside the stage: the
+structure of secondary indexes with the fate of `Arc.Collections`, and the form of
+`IndexKey` and `IndexBound` if a measurement changes it, both in S14. The planner's pass
+over the open questions on the same day found none that the stage touches: Q31 and Q33
+are decided with S24; of Q35 the open points are 4 (S20), 5 (S37) and 7 (S18, S19); Q40
+is S26 to S36; Q52 is the owner's after S27.
+
 #### S13 · Text entries and Dictionary strings
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -4841,6 +4878,285 @@ child stores received bytes through its own allocation.
   and as Dictionary.
 - **Out of scope.** Moving text during compaction (S23). Index keys (S14–S15).
 
+**Decided by the planner on 18 November 2026 after the study of S13.** Where a sentence
+above says otherwise, these replace it. The study read the source of Valkey
+(BSD-3-Clause, commit 3fc96b1), DuckDB (MIT, commit d12578e), ClickHouse (Apache-2.0,
+commit 75fcef2), Apache Arrow C++ (Apache-2.0, commit dd7dfc6) and the package `unique`
+of Go (BSD-3-Clause, commit 62495ed); no file is adapted from them. Taken as ideas:
+counts changed only by the one thread that may write, the reader taking none (Valkey); a
+table by content that holds no bytes and serves writes only (ClickHouse, Arrow, DuckDB);
+an entry at zero leaves the table at once and is never revived (Go). None of the five
+keeps a generation.
+
+1. **A root stores the relative address of the entry** for a Dictionary field, in the
+   descriptor of 16 bytes every String field has, with a kind of its own (Text) and the
+   length of the text. No handle and no address table: a Dictionary read pays what a read
+   of a Plain value stored out of line pays. The milestone contract is rewritten by this
+   sprint: "relative address or stable text handle (8)" becomes "relative address (8);
+   for a Dictionary field the address of the shared entry"; "Handles carry generations
+   and cannot be rebound…" becomes "An entry is freed only when the last block that
+   refers to it is freed, which is after the last protected reader that could reach it
+   has left; so a reference never resolves to other text. No generation is kept."; "Use
+   one dictionary gate initially. Moving shared bytes updates the stable entry" and
+   "shared-text movement remains possible through stable handles" become "Shared text is
+   not moved in this milestone unless S23 decides how."
+2. **The entry** is immutable memory of the arena that holds the exact stored bytes and
+   nothing else: one block up to 4 KiB, a directory with chunks above, by the placement
+   rule of a Plain value that does not lie inline. Its blocks are marked as shared text
+   and their header names the slot of the entry in the text table. No count and no hash
+   lie in the entry: a read reads nothing a write changes. An empty text stays inline
+   with length 0 and has no entry. A Dictionary text may be as long as a value may be.
+3. **The text table** is used by writes only, in managed memory, and no read touches it:
+   slots (address, references as Int64, hash, a flag or the link of the free list; as
+   built also the length of the text, so that a lookup passes over texts of another length
+   without touching the arena: 32 bytes a slot) and a
+   bucket table from hash to slot. The bucket table is the `IndexTable` of the primary
+   index, which moves with its companions to a folder below both users; it is not
+   written a second time. The hash is the engine's seeded hash over the stored bytes
+   with the seed of the instance. An entry is keyed by its exact bytes always: "North"
+   and "north" are two entries, and the comparison a field declares applies only where
+   text is compared.
+4. **One count for each entry, by one rule:** a block holds one reference for each Text
+   descriptor it contains, from the moment it is written until it is freed. The rule is
+   worded for any block, because S18 and S19 put descriptors into owned values and
+   collections, and an index entry of S14 and S15 holds its reference the same way. The
+   "separate counts of stored, prepared and index references" of 14 November are
+   replaced: the descriptors of a prepared block are the tally of what its write took. A
+   write that is withdrawn, cancelled or ended by a fault drops its references where its
+   blocks are freed.
+5. **No retirement of an entry on its own, and no generation.** A replaced or deleted
+   root is retired as today; when the drain frees it, its references go, and an entry
+   that reaches zero leaves the table and is freed in the same pass. So an entry is
+   freed after the last reference and the last protected reader are gone, because its
+   last referring block is freed only then. A later write of the same text makes a new
+   entry. "A handle is never rebound" is stated by a test: a read held across the replace
+   of the last referrer, then new texts of the same size class written, reads its text.
+6. **Where counts change (the P1 of this sprint).** A count is changed only by the thread
+   that holds the lock of the writes, on a master and on a child. That must be true of
+   every free of a block as well: the drain of retired memory, the release of a
+   withdrawn write, a close, a reader that helps a drain if one does. The implementer
+   says where each runs today; where one runs outside the lock, the change of the count
+   is made safe by the same lock. The place is stated in the code and by a test.
+7. **Memory.** The bytes of entries are bytes of the arena and counted as such; the rule
+   of a write refused for memory covers a new entry. The managed bytes of the text table
+   (slots and buckets) and the number of entries are reported by counters in this
+   sprint. Whether they are charged to the budget is S24, with the primary index; the
+   sentence of the option's documentation ("not counted yet") is not changed here.
+8. **A child.** Text travels as bytes with each root: for a Dictionary field a Text
+   descriptor with location 0 and its bytes out of line. The child checks that form and
+   builds its own entries through its own table with its own seed, for a copy of a load,
+   an effect of the stream and a forwarded write on the master alike. No transfer ids,
+   no state for a connection, the wire format unchanged. Measured for the reference
+   fixture, 100,000 users with one field of 16 texts of 9 bytes: 15.41 MB as bytes
+   against 14.51 MB with ids. If a load target is ever missed for a fixture heavy in
+   Dictionary fields, the first thing to try is keys sent once for a frame of 64 KiB
+   before the roots that use them, with state that lives for one frame; not built.
+9. **Acceptance, restated.** "Reference counts equal an independent tally after a churn
+   of writes and deletes": the tally counts the descriptors in live blocks, in blocks
+   retired and not yet freed, and in prepared blocks. "A child loads shared text once"
+   means once in its memory.
+10. **Measured, and what a finding is.** A read by key of an entity with a Dictionary
+    field against the same entity with a Plain field of the same length stored out of
+    line, at 1 and 16 threads: slower beyond noise is a finding. Against a Plain value
+    small enough to lie in the root the figure is reported, with the length at which the
+    two cross; "inline up to N bytes" is a lever and is not built. 16 readers beside a
+    writer that allocates in the size class of the entries (the metadata of a region on
+    lines the readers read): if it shows, it goes to the planner before a lever is chosen
+    (reading by segment base and offset, regions of their own for entries, short texts
+    inline). Added to the list of the brief: a read with 100,000 distinct texts, cold
+    entries; time and managed bytes for each write that hits, misses, replaces keeping
+    the text, deletes; the time of a drain whose roots hold references; on a child the
+    time to Ready, the bytes on the wire and the number of entries; memory for each
+    distinct entry at 16 and at 1,000,000 distinct texts, arena and table together,
+    against Plain; one repeated text of about 100 KB.
+
+**Decided at the review of S13, 18 November 2026** (two reviewers on commit 9d6c036; no
+P1). Both confirmed by tracing and by probes that no count is changed outside the lock of
+the writes, that no read reaches freed or reused text, that a received root is refused
+before anything is placed, and that no read touches the text table. By the planner's
+decision of the same day the sprint had one round of fixes, for P1 and P2 only, and no
+second review; what else was named went where its kind belongs.
+
+1. **Three kinds of free path that drop a text reference had no test** (both reviewers):
+   a preparation that took a reference and then fails, the abandon of a child with a root
+   placed, the free of a placed forwarded root on a master. Tests were added and pass on
+   the code as it was: the code was right.
+2. **Dead text that only retired roots still name was not counted toward the next look of
+   the drain** (one reviewer, by probe): one entity whose text of 1 MiB was replaced 100
+   times held 101 MiB against 4 MiB as Plain, until the 128th retired item. Fixed, test
+   first: a retired root counts toward the next look the slots of its own blocks and
+   those of the entry of every Text descriptor it holds. Shared text is counted for each
+   root that names it, which only makes a look come earlier. `RetiredBytes` keeps its
+   meaning, the bytes of retired blocks.
+3. **`LiesInChunks` compares the length alone.** As built it also read the kind, one more
+   comparison on every read of a non-empty String or Binary value, Plain included. A
+   value is placed by its length for every kind — the writer places it so and a received
+   root of another form is refused — so the length decides. Taken into the sprint because
+   the read by key of the reference fixture did not close against the commit before the
+   implementation (see the measured results); a proposal to test for an inline value
+   first is superseded by it.
+4. **Carried to the fix package after S13**, because they change behavior and a
+   refactoring sprint may not: the slot array of the text table doubles past 2^30 slots
+   into a truncated array where the write has to be refused for memory; a closed instance
+   that is kept alive still holds the text table (it joins item 10 of the package); the
+   test of "a reference never resolves to other text" does not read through the old
+   root, and a stronger one does.
+5. **Carried to S13R** ([refactoring backlog](refactoring.md), T1): the state Prepared or
+   Published of a slot repeats what the arena knows of the entry's block.
+6. **Left as it is:** the text table is owned by the arena. Both reviewers were asked
+   whether a table owned by the database is plainer and both found it is not: every free
+   of a block has the arena at hand and has to drop the references of that block.
+7. **The hardest part to follow**, named by both reviewers: the life of an entry from
+   prepared to published — the state in the slot, the branch of `TryAcquire` that
+   publishes on a hit, `TextTable.Publish` called for each descriptor from
+   `RootStorage.Publish`, and the prepared accounting of the arena have to be read
+   together to see that every path publishes an entry before a read can reach it. T1
+   answers it.
+8. **Remarks, recorded and not acted on:** the table and the slot array never shrink
+   (S23); `TextTable.Publish` asserts no lock; `Marvin`'s append of bytes in pieces and
+   two texts of one 32-bit hash have no test of their own (the reviewers' probes pass);
+   the branch of `TryAcquire` for a write that is not prepared is reached by no product
+   path; the head of `IndexTable` still speaks of the primary index only; the encoded
+   size of a forwarded write does not count a new entry, which only grouping reads; a
+   write of a Dictionary text clears 512 bytes of stack it does not use in UTF-16.
+
+#### After S13 · Findings of the outside review
+
+**Entered on 18 November 2026 as the planner wrote it.** An outside reviewer, who was
+given none of the reviews of this epic, read `main` at commit e7b6e0e (after S12). It
+reported 16 findings; the planner verified each against the code at that commit, refuted
+none and corrected the severities. This is a fix package of its own on the full track —
+tests first, by another agent than the implementer — on a branch of its own, started
+right after S13 is merged, because S13 changes files the package changes. It is merged
+before S14 starts; item 5 at the latest before S17.
+
+No finding is a P1 in the scale of this epic: nothing is lost, doubled or returned stale
+in ordinary use. Four of the reviewer's five P1 need a peer that sends what this engine
+never produces; they are closed anyway where the check is exact and cheap.
+
+**Fix, each with a test that fails before the fix.**
+
+1. A committed write can end in `HistoryMismatch` (`WriteCoordinator`, `Deliver` and the
+   synchronous `Outcome`; the same in the `finally` of `Forwarder.WriteAsync`). An empty
+   session is admitted without being bound; a concurrent write on another database binds
+   it; `Advance` throws after the commit. Rule: a session is bound to the history of the
+   database at admission, before the write is executed; a session of another history, or
+   one that loses that race, is refused with `HistoryMismatch` before execution; after a
+   commit the result is never replaced by a failure of the session. One sentence is added
+   to `LatticeSession`: "The first operation with a session binds it to that database's
+   history." P3.
+3. A success reply to a forwarded write whose sequence is not above the sequence the
+   child has applied when it receives the reply is malformed: the child ends its
+   connection (`PendingRequests.Receive`). P4, hardening, exact.
+4. `Closed` that arrives while a reply or a transaction is being assembled is malformed:
+   the connection ends as one that ended without `Closed`, so sent and unanswered writes
+   are `IndeterminateOutcome` (`Follower`). The reviewer's premise is wrong — a success
+   reply is one frame and a correct master never puts `Closed` inside a message — and the
+   check is still right. P4.
+5. `ReceivedChanges`: "a transaction names each key once" holds for skipped effects too —
+   a delete of an absent key (`PrepareDelete`) and every skipped state record their key
+   for the duplicate check. Test rows: a delete of an absent key and then a write of it;
+   a skipped write and then anything on that key. P3; S17 relies on it.
+6. `RetiredMemory.Drain` resets both triggers even when a reader kept it from freeing,
+   and writes that retire nothing never look again (16 MiB stayed through 2,000 deletes
+   of absent keys). Rule: while retired items remain after a look, a later published
+   write of any kind looks again; the sentence of the arena protocol "what waits between
+   two looks is bounded by those two thresholds … until its next operation" becomes
+   true. P2.
+8. `ChildConnection`: `cursor.Sent` moves when the last frame of the transaction is
+   added, not before the first, so an Applied for a transaction not wholly sent is
+   refused. Accounting only. P4.
+9. `DeliveryTail`: `_taken` is cleared at the end of `Commit` and in the branch of
+   `Release` without a cursor, and blocks let go are reset; a test with weak references
+   states that after the last child has left the tail retains nothing, as the brief of
+   S11 and the milestone contract say. The wider case the verification found is checked
+   too: the whole unreleased tail of a child that lags, reachable through `_taken`. P2.
+10. A closed database drops what it held: after the arena is disposed, the references to
+    the root table, the index, the sets, the delivery tail, the retired list and the
+    coordinator are released under the lock of the state; every entry point already ends
+    in `ObjectDisposedException` before it touches them, and each is verified. A test
+    with weak references on a closed instance that is kept alive. P3.
+11. `ReadMemoryLimit` counts what is live at once (the decision on queries: "Sum
+    simultaneously live buffers … check before growing"): during a growth of
+    `ReturnedKeys` the old table is counted with the new. The exact thresholds of
+    `ReadMemoryLimitTests` move; the test author restates them from the rule. P3.
+13. The compiled schema is immutable, as `LatticeSchema` says: the nine public
+    collections (`EntityTypes`, `EnumTypes`, `OwnedTypes`, `LatticeEntityType.Fields` and
+    `.Indexes`, `LatticeOwnedType.Fields`, `LatticeEnumType.Members`,
+    `LatticeIndex.Parts`, `LatticeIndexPart.Path`) are not arrays a caller can cast and
+    write. The array is kept privately for the engine where a path indexes it; the read
+    by key and the write are measured before and after — no fall. P2.
+14. `CatchingUp`. The accepted decision on replication ("Connecting → Loading →
+    CatchingUp → Ready") and the documentation of the enum say a child shows it while it
+    applies changes up to its readiness position; the code folds it into `Loading` by a
+    reading of 17 November 2026 that is recorded nowhere. The code follows the accepted
+    decision: the state of the child is `CatchingUp` from the end of the load until R is
+    applied; operations stay `Unavailable`. A test that asserts `Loading` in that phase is
+    reported to the planner before it is touched. P2, low effect.
+15. A step of the enumeration does not copy an entity it then cannot remember: room for
+    the key of the entry is made before the copy, from the key in the entry, so the first
+    entity of every pass and every growth boundary are copied once. Charging the limit
+    for capacity grown for an entry that then turns out deleted is accepted: capacity is
+    memory held; the comment of `EntityTable` is reworded to that. Asserted by
+    allocation: `Enumerate().First()` of an entity of 1 MiB allocates no more than a
+    read by key plus the table. P3.
+16. `ChildArenaFullTests`: the sleep is replaced by an observable — a counter or a signal
+    of "the applier waits for reads that hold retired memory", reachable by the tests of
+    the engine — so the test proves the wait. P4.
+
+17. From the review of S13. The slot array of the text table (`TextTable.TakeSlot`)
+    doubles its length without a bound: at 2^30 slots the doubling overflows and the array
+    is cut to 4 slots. The behavior: the write is refused with the memory refusal the
+    engine already has (`WriteRejected`, memory) before anything is taken, never a
+    truncated table; no new error and no option — it is a limit of the structure, stated
+    once in the engine contract. The test reads the growth function at the boundary, not
+    a billion entries. P3.
+18. From the review of S13. The test of "a reference never resolves to other text" holds
+    a read before it has taken its root, so the released read copies the new root. The
+    stronger form: take the old root inside the hold, replace, write and delete texts of
+    the same size class, drain, and read the old text through the old root, for one block
+    and for a chunked entry. The reviewer's probe of that form passes; no fix is expected.
+    P3.
+
+Item 10 also covers the text table of S13: a closed instance that is kept alive holds
+its slots and buckets today, as it holds the root table and the index.
+
+**Document, no code.**
+
+2. Values inside a received root are trusted (point 1 after the study of S12; decision
+   O8: the replication port authenticates nobody). It lived only in this document. A
+   dated paragraph goes into `docs/decisions/replication-and-hosting.md`: "A node checks
+   the structure of what it receives so that no read leaves the received bytes; it does
+   not validate field values again: a peer is the same engine with the schema agreed in
+   the handshake, and a child validates before it forwards. A peer that sends invalid
+   values can make a node hold an entity whose read throws or shows replacement
+   characters; it cannot make it read or write outside its memory. Authentication of the
+   port and what a hostile peer can do are outside this milestone (O8)." The header
+   comment of `StoredText` ("only well-formed text is stored") says on which assumption.
+   The verification found no memory unsafety and did not trace malformed chunked UTF-8
+   and UTF-16 of odd length to the end: both are added to the tests of a received root
+   as "throws a managed exception or is refused, never reads outside".
+7. The read of an absent key repeats its lookup while writes are published during it
+   (`EntityTable`), inside one protected section, without looking at the token; unbounded
+   only at a rate of publication no lock of the writes reaches. The arena protocol gains,
+   beside "a read holds retired memory back only for the length of one step": "a read of
+   an absent key repeats its lookup when a write was published during it; the step ends
+   with the first lookup no write crossed." P4.
+12. One receive deadline covers a whole frame and is not renewed by partial reads, so "a
+    load that keeps arriving is not ended" is false below about 17 kbit/s at the default
+    and for a small `OpenTimeout`. The note carried to S34 from S12 is extended with this
+    case: the deadline becomes a time without bytes, decided there with the case of
+    bytes that wait. Until then one sentence at `OpenTimeout`: "A part is a frame of at
+    most 64 KiB; it has to arrive whole within the timeout."
+
+**Remarks for the coordinator.** The reviewer verified 1, 6, 9, 10, 11, 13 and 15 by
+probes. The two reviewers of each sprint missed 6, 9, 10, 11, 13 and 15, which are
+defects of ordinary operation; the report of the package says so, with the kind of check
+that would have found each: a test with weak references of "retains nothing", a probe of
+a limit at a growth boundary, a cast of a public collection. The coordinator tells the
+planner only: a contradiction with a brief, a test of the contract that asserts the old
+behavior (items 1, 11, 14), and the figures of item 13.
+
 #### S14 · Secondary indexes and exact search
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
@@ -4877,6 +5193,13 @@ Common to S13, S14 and S15:
 
 For this sprint:
 
+0. **The package reference is gone** (the owner's decision of 18 November 2026, made with
+   S13: a first release on nuget.org would have carried a dependency no code uses). The
+   study still measures `OrderedMultiMap` of `Arc.Collections` behind a reader-writer
+   protection for contrast, in a prototype or in the measurement program with a pinned
+   reference of its own. If the study chose the package after all, the reference would
+   come back with the code that uses it, and principle 11 of `AGENTS.md` ("depends on the
+   contract and on no package: its structures are its own") would go back to the owner.
 1. **The structure is not decided.** The milestone contract names `Arc.Collections`
    `OrderedMultiMap` "until the contract of S14 reviews it"; that structure needs a lock
    around every reader, which the rule above excludes. By the owner's word of 16 November
@@ -5247,6 +5570,13 @@ during catch-up is recorded and must be resolved by a delete before R.
 
 #### S23 · Compaction and shrink
 
+**Carried from S13, the first question of the study of this sprint:** a root names a
+shared text entry by its address, so the roots that name an entry cannot be found from
+the entry and it cannot be moved cheaply. Choose between leaving shared entries in place
+(Valkey never moves an object with more than one reference), regions of their own for
+entries, or an address table then — with the figure of what entries that are not moved
+cost G1 after churn.
+
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
 
@@ -5276,6 +5606,12 @@ under the lock of the writes or by the rule this sprint states.
   commands, which are outside the milestone.
 
 #### S24 · The memory budget
+
+**Carried from the outside review, 18 November 2026:** a child sizes its primary index
+from the count its master announces after checking only that this many entities, each at
+its least size, fit its memory limit; the bytes of the index itself are not in that
+check. When the index is charged to the budget, the check becomes "the index for this
+count plus the least root bytes fit", and the refusal stays `Unavailable` at the open.
 
 **Carried from the review of S11:** decide whether the budget report shows the memory
 the delivery tail retains (whole blocks, the spare included) as its own figure, next to

@@ -32,24 +32,35 @@ internal readonly record struct StoredBytes(long LiveBytes, long ClassSlackBytes
             {
                 rootBytes += length;
             }
-            else if (length <= RootLayout.SingleBlockLimit)
-            {
-                stored += Block(length);
-            }
             else
             {
-                var chunks = (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
-
-                stored += Block(16 * chunks);
-
-                for (var chunk = 0; chunk < chunks; chunk++)
-                {
-                    stored += Block(Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload));
-                }
+                stored += OutOfLine(length);
             }
         }
 
         return stored + Block(rootBytes - BlockHeader.Size);
+    }
+
+    // What a value of this many encoded bytes holds outside a root block: one block of its own of at
+    // most SingleBlockLimit bytes, or a directory with a descriptor for each chunk and the chunks. The
+    // entry of a Dictionary text is placed by the same rule, its payload the stored bytes of the text and
+    // nothing else (brief of Epic 1, sprint S13, the planner's decision after the study, point 2).
+    public static StoredBytes OutOfLine(int length)
+    {
+        if (length <= RootLayout.SingleBlockLimit)
+        {
+            return Block(length);
+        }
+
+        var chunks = (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
+        var stored = Block(16 * chunks);
+
+        for (var chunk = 0; chunk < chunks; chunk++)
+        {
+            stored += Block(Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload));
+        }
+
+        return stored;
     }
 
     // What the arena holds at the moment, in these two counters.

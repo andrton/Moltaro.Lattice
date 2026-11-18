@@ -3,7 +3,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // What the engine cannot store until a later sprint, and what it does with such an entity type
 // (brief of Epic 1, sprint S06, "What the engine does where the block above does not say"). From S07
 // it stores every key type of the catalog, a String compared with either comparison, an Enum field
-// and both encodings (brief of S07), and it still refuses, as S06 says: Dictionary storage until S13,
+// and both encodings (brief of S07), Dictionary storage from S13, and it still refuses, as S06 says:
 // an entity type with a unique index until S16, and the field types of S03 until S18 and S19. Every write of such an entity type, an insert, a replace, an
 // upsert and a delete, with or without a revision, is refused with NotSupportedException at the
 // write, after the checks of its arguments and the validation of the entity, in the order of Q25. A
@@ -16,7 +16,6 @@ public sealed class NotStoredYetTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
     {
-        Case.Of("Text in Dictionary storage", text: ", 'StringStorage': 'Dictionary'"),
         Case.Of("Unique index", unique: true),
         Case.WithValue<Stamp>(
             "Owned field",

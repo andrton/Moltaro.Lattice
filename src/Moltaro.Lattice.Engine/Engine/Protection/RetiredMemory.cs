@@ -29,7 +29,12 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   look is made once for as many retired things as there are slots: about one read of a slot for
 //   each, measured at 50 to 850 ns a look in phase 1 of S08. The bytes bound what one look can
 //   leave unfreed to one segment's worth beside what reads hold, whatever the size of the roots.
-//   They are derived from the table and the arena, not options.
+//   They are derived from the table and the arena, not options. The bytes of a retired root are
+//   the slots of its own blocks and those of the entry of every Dictionary text it names: an entry
+//   whose last reference lies in retired roots stays live until the drain frees them, and is freed
+//   with them, so it waits for the same look. A text that other roots share is counted for each
+//   root that names it; that only makes a look come earlier, and a look frees nothing a read can
+//   still reach.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
 // - a write that the arena refused, which drains, and in its resolution waits, outside the lock, for
@@ -182,13 +187,15 @@ internal sealed class RetiredMemory
         IndexBytes = 0;
     }
 
+    // Retires the blocks of the root and returns what it counts toward the next look: the slots of
+    // its blocks, now retired, and those of the text entries it names (see the class).
     private long RetireBlocks(RootLayout layout, ArenaAddress root)
     {
         var before = _arena.Counters.RetiredBytes;
 
         RootStorage.Retire(_arena, layout, root);
 
-        return _arena.Counters.RetiredBytes - before;
+        return _arena.Counters.RetiredBytes - before + RootStorage.TextBytes(_arena, layout, root);
     }
 
     // Retires a thing into the place its write reserved.

@@ -78,7 +78,8 @@ on import/recovery before any dereference.
 
 A compiled root layout consists of its header, nullable bitmap, fixed-width fields
 and 16-byte variable descriptors in stable field-ID order. A descriptor contains
-kind/flags (4), length/count (4), and relative address or stable text handle (8).
+kind/flags (4), length/count (4), and relative address (8); for a Dictionary field the
+address of the shared entry.
 Fixed-layout size must fit one 64-KiB block; large values live outside it. Schema
 compilation reports an oversized fixed layout before data admission. Numeric widths
 come from the schema; do not widen all small integer fields to Int64.
@@ -129,13 +130,14 @@ Plain strings preserve their original encoded bytes. Dictionary fields use one
 database-wide content table with exact-text equality, preserving case/spelling even
 when a field's search policy ignores case. No automatic Plain/Dictionary switching.
 All text used by an index has a stable text entry; an indexed Plain value can share
-its existing text with the index without content interning. Text entries track saved,
-prepared and index references separately. Reclaim only when every reference and
-protected reader has drained. Handles carry generations and cannot be rebound to
-different text while an old key still refers to them.
+its existing text with the index without content interning. A text entry has one
+count: a block holds one reference for each Text descriptor it contains, from the moment
+it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
+to it is freed, which is after the last protected reader that could reach it has left;
+so a reference never resolves to other text. No generation is kept.
 
-Use one dictionary gate initially. Moving shared bytes updates the stable entry
-under that gate; published text is immutable. Root-owned movement repairs its parent
+Shared text is not moved in this milestone unless S23 decides how; published text is
+immutable. Root-owned movement repairs its parent
 descriptor and child owner backlinks under the root gate. Scalar/location movement
 does not change logical revisions or write a durable relocation record.
 
@@ -188,7 +190,7 @@ the instance Faulted before reopening access. No partially published state is se
 
 The compactor first selects a sparse region from counters, releases allocator
 protection, then tries to claim its owner and rechecks it. Skip roots reserved for
-logical writes; shared-text movement remains possible through stable handles. Move
+logical writes. Shared text is not moved in this milestone unless S23 decides how. Move
 at most one bounded block per step, repair descriptors/backlinks, then free the old
 slot. Start at <50% live occupancy with destination headroom; stop after a region
 is empty or its estimated recoverable capacity is insufficient. Budget approximately
@@ -382,6 +384,8 @@ Use one arena; on failure dispose it after readers drain and report recovery fai
 Use a long-lived full-duplex TCP connection to the configured master URL, with bounded
 binary frames and asynchronous I/O. The host owns network exposure and optional TLS
 termination/configuration; no message broker, service discovery or election dependency.
+A node checks the structure of everything it receives and does not validate the values
+of fields again: [trust between the nodes of one database](../decisions/replication-and-hosting.md#trust-between-the-nodes-of-one-database).
 The handshake checks compatibility, not identity: it authenticates nobody. That the
 replication port is reachable only from the nodes of this database is a deployment
 precondition, accepted by the owner on 14 November 2026; the engine adds no shared

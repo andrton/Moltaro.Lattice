@@ -184,6 +184,12 @@ bytes-per-entry target or ordered-secondary-tree choice follows from the primary
 
 ## Secondary index: Arc OrderedMultiMap
 
+**Superseded on 18 November 2026 (owner).** The engine depends on no package; its
+structures are its own. `Arc.Collections` is removed from the product, and the structure
+of the ordered secondary index is chosen after a study of established implementations,
+with figures. The text below is kept as the record of the earlier selection and of its
+measurements; it no longer selects anything.
+
 **Accepted on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `OrderedMultiMap<SearchKey, RootLocator>` for the first ordered
 secondary-index implementation in v1. The choice accepts its measured retained-memory

@@ -186,9 +186,9 @@ public sealed class LatticeDatabaseOptions
     /// an enumeration remembers, which <see cref="ReadMemoryLimit"/> bounds when it is set. It
     /// counts the native memory in which the entities are stored, with the room that writes in
     /// progress have prepared there and the memory a write replaced or removed until the reads
-    /// that could still reach it have left. The indexes, the text that Dictionary storage shares
-    /// and the entries the engine keeps to find each entity are not counted yet. The budget is not
-    /// a limit on the memory of the process.
+    /// that could still reach it have left, the text that Dictionary storage shares included. The
+    /// indexes, the table that finds that shared text and the entries the engine keeps to find each
+    /// entity are not counted yet. The budget is not a limit on the memory of the process.
     /// </para>
     /// <para>
     /// A write that the budget cannot hold is refused before it has any effect, with

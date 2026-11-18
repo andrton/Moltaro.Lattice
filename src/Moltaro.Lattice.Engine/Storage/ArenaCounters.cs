@@ -22,6 +22,8 @@ namespace Moltaro.Lattice.Storage;
 // RetiredBytes: the capacity of the slots of retired blocks, detached from their owner but not
 // reusable yet, because a reader or another retainer may still reach them. They are freed once the
 // reads that could reach them have left (arena protocol, "Deferred reclamation, 16 November 2026").
+// The entry of a Dictionary text is never retired on its own: one that only retired roots still name
+// is not in RetiredBytes but live, and the drain that frees the last of those roots frees it.
 //
 // FreeRegions: the regions of the segments in use that serve no size class at the moment, such as
 // a region returned to its segment when its last block was freed. The regions of reserved

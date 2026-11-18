@@ -24,9 +24,10 @@ A managed struct control entry identifies one root lifetime: key, generation,
 published revision, root address, live/deleted state and temporary lookup claims.
 The primary index reaches this entry, never an unprotected native pointer. Owned
 chunks identify the root entry and the descriptor position that must be repaired
-when they move. Shared dictionary text instead belongs to a stable dictionary
-entry, with its own address and root, prepared-root and index reference counts.
-The index count includes prepared index replacements until they publish or abort.
+when they move. Shared dictionary text instead belongs to a text entry
+with its own address and one count of the blocks that refer to it: a root, a prepared root
+or, later, a block of an index holds one reference for each Text descriptor it contains,
+from the moment it is written until it is freed.
 
 All addresses are internal. Relocation changes addresses, not keys, revisions or
 logical contents. Published dictionary text is immutable; an update acquires a
@@ -93,7 +94,12 @@ while a read is inside the protection, so a read holds retired memory back only 
 length of one step. The publishing thread looks at the readers when the items retired since its
 last look reach the number of slots or their bytes reach one segment, and whenever
 memory is short, a drain is asked for or the database closes; what waits between two
-looks is bounded by those two thresholds. An enumeration enters and leaves at each step,
+looks is bounded by those two thresholds. The bytes of a retired root are the slots of its
+own blocks and those of the entry of every Dictionary text it names: an entry whose last
+reference lies in retired roots stays live until the drain frees them and is freed with
+them, so it waits for the same look. A text that other roots share is counted for each
+root that names it. That over-counts, which is safe: it only makes a look come earlier,
+and a look frees nothing a read can still reach. An enumeration enters and leaves at each step,
 and within a long step after each bounded piece of walking, and holds nothing between
 two steps. A reader that finds no free slot of the epoch
 table waits for one and never fails. A published root is never changed: a partial update

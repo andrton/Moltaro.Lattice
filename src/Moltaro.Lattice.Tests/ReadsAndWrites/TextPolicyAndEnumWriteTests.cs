@@ -1,8 +1,6 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// The schema declares text policies, the string encoding and enum types. Storing text in the
-// Dictionary storage is not implemented yet: an entity type that declares it cannot be written yet,
-// and the write is refused rather than accepted under rules other than the declared ones. An entity
+// The schema declares text policies, the string encoding and enum types. An entity
 // type that states only the defaults, in a schema of the default encoding, is written as before.
 // Records and bound classes are held to the same rule. What the engine does with a comparison that
 // ignores case, a field of an enum type and the UTF-16 encoding, which it stores from Epic 1, sprint
@@ -30,14 +28,6 @@ public sealed class TextPolicyAndEnumWriteTests
               "PrimaryKey": [1]
             },
             {
-              "Id": 2, "Name": "Region",
-              "Fields": [
-                { "Id": 1, "Name": "Id", "Type": "Int64" },
-                { "Id": 2, "Name": "Text", "Type": "String", "StringStorage": "Dictionary" }
-              ],
-              "PrimaryKey": [1]
-            },
-            {
               "Id": 3, "Name": "Alarm",
               "Fields": [
                 { "Id": 1, "Name": "Id", "Type": "Int64" },
@@ -56,19 +46,6 @@ public sealed class TextPolicyAndEnumWriteTests
           ]
         }
         """;
-
-    [Fact]
-    public async Task Entity_type_with_text_in_the_Dictionary_storage_is_not_writable_yet()
-    {
-        await using var database = await TestData.OpenMasterAsync(schema: LatticeSchema.Compile(Json));
-        var set = database.Set("Region");
-        var record = new LatticeRecord(set.EntityType) { ["Id"] = 1L, ["Text"] = "north" };
-
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.InsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.UpsertAsync(record));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await set.DeleteAsync(1L));
-        Assert.Empty(set.Enumerate());
-    }
 
     [Fact]
     public async Task Entity_type_that_states_only_the_default_text_policies_is_written()

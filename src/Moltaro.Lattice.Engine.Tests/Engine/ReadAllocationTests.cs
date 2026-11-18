@@ -17,20 +17,17 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // What each part of the copy takes is measured, not computed, so that the test does not depend on
 // the object layout of the runtime. Each read is measured alone, after the same read warmed it up,
 // in the test collection of the tests that measure managed allocation.
+//
+// The same holds when the string is the text of a field with Dictionary storage, shared with another
+// entity, in an entry of one block or in chunks (brief of Epic 1, sprint S13, the planner's decision
+// after the study, point 1: a Dictionary read pays what a read of a Plain value stored out of line pays,
+// and no read touches the text table).
 [Collection<ManagedAllocationCollection>]
 public sealed class ReadAllocationTests
 {
-    private static readonly LatticeSchema Schema = LatticeSchema.Compile($$"""
-        {
-          "EntityTypes": [
-            {
-              "Id": 1, "Name": "Item", "ClrType": "{{typeof(Item).FullName}}",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" } ],
-              "PrimaryKey": [1]
-            }
-          ]
-        }
-        """);
+    private static readonly LatticeSchema Schema = SchemaOf("Plain");
+
+    private static readonly LatticeSchema DictionarySchema = SchemaOf("Dictionary");
 
     [Theory]
     [InlineData(10)]
@@ -112,6 +109,53 @@ public sealed class ReadAllocationTests
             Assert.True(allocated == 0, $"Get by an absent key given as {form} allocated {allocated} bytes.");
         }
     }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(1_000)]
+    [InlineData(30_000)]
+    [InlineData(200_000)]
+    public async Task Read_by_key_of_a_Dictionary_text_allocates_the_returned_object_or_record_and_nothing_else(int characters)
+    {
+        await using var database = await EngineMaster.OpenAsync(DictionarySchema);
+        var items = database.Set<Item>();
+        var records = database.Set("Item");
+        var text = new string('t', characters);
+
+        // Two entities share the entry.
+        await items.InsertAsync(new Item { Id = 1, Text = text });
+        await items.InsertAsync(new Item { Id = 2, Text = text });
+
+        var id = 1L;
+        var expectedObject = Measure(() => new Item()) + Measure(() => new string(' ', characters));
+        var expectedRecord = Measure(() => new LatticeRecord(records.EntityType)) + Measure(() => id) + Measure(() => new string(' ', characters));
+
+        _ = items.Get(1L);
+        var start = GC.GetAllocatedBytesForCurrentThread();
+        var read = items.Get(1L);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
+
+        Assert.Equal(text, read!.Text);
+        Assert.Equal(expectedObject, allocated);
+
+        var (record, recordAllocated) = Measured(() => records.Get(2L));
+
+        Assert.Equal(text, record!["Text"]);
+        Assert.Equal(expectedRecord, recordAllocated);
+    }
+
+    // The schema of Item, whose Text has the storage given.
+    private static LatticeSchema SchemaOf(string storage) => LatticeSchema.Compile($$"""
+        {
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Item", "ClrType": "{{typeof(Item).FullName}}",
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String", "StringStorage": "{{storage}}" } ],
+              "PrimaryKey": [1]
+            }
+          ]
+        }
+        """);
 
     // What the call allocates, measured after it ran once. A call that returns a value type boxes it,
     // which is what a record holds.

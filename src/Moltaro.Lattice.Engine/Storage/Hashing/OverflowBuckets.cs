@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Moltaro.Lattice.Engine.Indexes;
+namespace Moltaro.Lattice.Storage.Hashing;
 
 // Adapted from Garnet/Tsavorite (https://github.com/microsoft/garnet): the allocator of the overflow
 // buckets of its hash index, MallocFixedPageSize in
@@ -32,7 +32,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   entries reuse it, and is let go of with its table when the table is replaced. Tsavorite has a
 //   free list.
 //
-// Who reads and writes. Only the thread that holds the lock of the writes (Writes.WriteExecutor)
+// Who reads and writes. Only the thread that holds the lock of the writes (Engine.Writes.WriteExecutor)
 // takes buckets and adds pages. A reader inside the protection of reads reaches a bucket in one of two ways, and each goes
 // through a load with acquire semantics of a store with release semantics that comes after the page,
 // and after the directory that holds it, were stored (the .NET memory model, not that of x64):

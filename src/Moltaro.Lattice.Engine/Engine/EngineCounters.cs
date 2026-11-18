@@ -75,6 +75,18 @@ namespace Moltaro.Lattice.Engine;
 // applied it, in bytes of transactions, not of the capacity of the blocks that hold them; 0 once every
 // child has applied everything, and with no child. The blocks themselves are managed memory outside the
 // budget of the instance, without a bound of their own until S33.
+//
+// The members of the text table (brief of Epic 1, sprint S13, the planner's decision after the study,
+// points 3, 7 and 9; Storage.Text.TextTable), written and read under the lock of the writes. The bytes of
+// the entries themselves are bytes of the arena, in its counters above: an entry is live, or prepared
+// while no published block refers to it yet, and never retired on its own.
+//
+// TextEntries: the entries of the text table, the texts of Dictionary fields that a block refers to, live,
+// retired and not freed yet, or prepared; an entry whose last reference goes leaves at once. 0 with no
+// Dictionary text, and after a drain with no read in progress once every such text was deleted.
+//
+// TextTableBytes: the managed bytes of the text table, its slots and its bucket table. Like
+// PrimaryIndexBytes it is reported and not charged to the memory budget; that is decided with S24.
 internal readonly record struct EngineCounters(
     ArenaCounters Arena,
     long PrimaryIndexBytes,
@@ -87,4 +99,6 @@ internal readonly record struct EngineCounters(
     long LargestCommitGroupBytes,
     long MemoryLimit,
     int ActiveCaptures,
-    long PendingDeliveryBytes);
+    long PendingDeliveryBytes,
+    int TextEntries,
+    long TextTableBytes);

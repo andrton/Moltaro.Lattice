@@ -43,9 +43,16 @@ namespace Moltaro.Lattice.Storage;
 // The parent of a value block and of a directory is the root block; the parent of a chunk is its
 // directory. A null String or Binary is null in the bitmap, and its descriptor is all zero.
 //
-// Text is Plain, every value stored on its own, in the database encoding that the schema declares
-// (LatticeSchema.StringEncoding, Q04.1): in a UTF-8 database the UTF-8 of its characters, in a
-// UTF-16 database its code units.
+// Text is stored in the database encoding that the schema declares (LatticeSchema.StringEncoding,
+// Q04.1): in a UTF-8 database the UTF-8 of its characters, in a UTF-16 database its code units. A field
+// with Plain storage stores every value on its own, placed as above. A field with Dictionary storage
+// has the same descriptor, and a text that is not empty lies in an entry of the text table of the
+// database, shared by every block that holds the same exact bytes, which the descriptor names by the
+// kind Text, the length of the text and the relative address of the entry (Text.TextTable; brief of
+// Epic 1, sprint S13, the planner's decision after the study, points 1 and 2): never inline, so it takes
+// nothing of the root block but its descriptor, and the entry is placed as a value out of line is, one
+// block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in a
+// Plain field. So the layout of an entity type is the same whichever storage its String fields select.
 //
 // The layout is compiled once into plain tables and never changes afterwards, so one layout can
 // serve any number of writers and readers on any number of threads.
@@ -89,8 +96,7 @@ internal sealed class RootLayout
     // alone does not, such as its string encoding and its enum types. Refuses:
     // - an entity type that is not of the schema, with ArgumentException;
     // - an entity type with a field S05 cannot store yet, an Owned, List, Map, Set or Reference
-    //   field or a String with Dictionary storage, with NotSupportedException that names the field.
-    //   S13, S18 and S19 extend the layout;
+    //   field, with NotSupportedException that names the field. S18 and S19 extend the layout;
     // - an entity type whose FixedSize would exceed Arena.MaxBlockSize, with LatticeException,
     //   InvalidSchema, that names the entity type: the fixed part has to fit one block, and the
     //   milestone contract asks that an oversized fixed layout be reported before data is admitted.
@@ -271,8 +277,7 @@ internal sealed class RootLayout
     private static bool IsVariable(LatticeField field) =>
         field.Declaration.Type is LatticeFieldTypeEnum.String or LatticeFieldTypeEnum.Binary;
 
-    // Owned values and collections come with S18 and S19, references with S18, Dictionary text with
-    // S13.
+    // Owned values and collections come with S18 and S19, references with S18.
     private static void ThrowIfNotStorable(LatticeEntityType entityType, LatticeField field)
     {
         var declaration = field.Declaration;
@@ -280,11 +285,6 @@ internal sealed class RootLayout
         if (declaration.Type is LatticeFieldTypeEnum.Owned or LatticeFieldTypeEnum.List or LatticeFieldTypeEnum.Map or LatticeFieldTypeEnum.Set or LatticeFieldTypeEnum.Reference)
         {
             throw new NotSupportedException($"The field {entityType.Name}.{field.Name} is {declaration.Type}, which a root cannot store yet.");
-        }
-
-        if (declaration.StringStorage == LatticeStringStorageEnum.Dictionary)
-        {
-            throw new NotSupportedException($"The field {entityType.Name}.{field.Name} is a String with Dictionary storage, which a root cannot store yet.");
         }
     }
 

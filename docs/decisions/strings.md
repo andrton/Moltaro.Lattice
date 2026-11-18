@@ -433,6 +433,22 @@ removes the former partition layer. Plain remains the default. This selects the
 sharing boundary, not a hash-table layout, refcount algorithm or globally stable ID.
 Each node has its own local representation; reading text never requires a network lookup.
 
+**Settled on 18 November 2026 (engineering, after a study of Valkey, DuckDB, ClickHouse,
+Arrow and Go's unique).** There is no string identifier. A stored Text descriptor of a
+Dictionary field holds the relative address of the shared entry in the arena of its
+database; no handle table and no generation stand between them. The table that finds an
+existing entry by its exact bytes serves writes only; a read follows the address. Text
+travels to a child as bytes with the root that uses it: no identifier crosses the wire,
+and each node builds its own entries. The sentences below that leave the identifier, its
+portability and the replica's ids open are answered by this note.
+
+Dictionary storage pays when values repeat. Measured on the reference fixture: a field
+with 16 distinct values over 100,000 entities retains 9.1% less memory; a field whose
+values are all distinct retains about twice as much per value at 9 bytes, and each write
+of a short text costs 60–110 ns more on a repeated value and about 330 ns more on a new
+one. Reads cost the same as Plain. Choose Dictionary for a field with few distinct
+values; leave Plain for identifiers, names and other mostly distinct text.
+
 ### A. One dictionary per database — accepted
 
 For example, opted-in Region and DeliveryZone fields containing North can reference
@@ -517,6 +533,17 @@ storage users can no longer access them. This accepts the lifetime strategy;
 it does not select a lock-free algorithm, reader epochs, exact ID format or
 pressure thresholds. Incremental cleanup in bounded batches remains an
 implementation direction to measure. No collector is implemented yet.
+
+**Settled on 18 November 2026 (engineering).** An entry has one count. A block holds one
+reference for each Text descriptor it contains, from the moment it is written until it is
+freed; the entry is freed when its last referring block is freed: for a block that was
+published, by the deferred reclamation of the arena, after the last reader that could
+reach it has left; for a block that was only prepared, at once. A count changes only
+under the lock of the writes. Because nothing is addressed by an identifier, the
+questions of identifier reuse, generations and wraparound do not arise: an address is
+reused only after the reclamation that already protects every reader of a block. An
+index that keeps a Text descriptor in a block of its own follows the same rule.
+Compaction of shared entries is not built; it is noted where compaction is planned.
 
 There are two different questions: whether current stored values still use a
 string, and whether a reader or retained storage generation can still access its
@@ -629,6 +656,9 @@ Exact limits, wait/fail semantics and master/child flow control remain open.
 Timeouts can request cooperative cancellation; they do not prove that a raw view
 or span can no longer be used and cannot authorize freeing memory underneath it.
 No lock may remain held during network or disk I/O.
+
+*See the note of 18 November 2026 under Q04.4: no identifier exists, so this paragraph
+states a requirement that the chosen layout meets by construction.*
 
 StringId reuse must not let a stale reference resolve to unrelated text. Safe
 reuse needs proven lifetime completion and an explicit identity rule; a generation

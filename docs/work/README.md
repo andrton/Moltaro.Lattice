@@ -9,6 +9,9 @@ delivered over several sprints.
 | [2. Storage for ASP.NET Core Identity](epic-2-identity-storage.md) | A package that keeps the users and roles of a standard ASP.NET Core Identity application in a Lattice database | The contract of the package and its tests exist; the stores wait for Epic 1 |
 | [3. After the first milestone](epic-3-after-the-first-milestone.md) | Change subscription, the lookup of referring entities, and what the first milestone left out | Outline; opened 18 November 2026. Comes after Epic 2 |
 
+The [refactoring backlog](refactoring.md) holds what the architect's review and the
+reviews of understandability have named, until a refactoring sprint carries it out.
+
 Epic 2 comes after Epic 1. It is the first real consumer of the database and adapts to it:
 the scope of the engine is set by its accepted design, not by a consumer.
 

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Text;
 
 namespace Moltaro.Lattice.Storage;
 
@@ -96,8 +97,16 @@ internal sealed unsafe class Arena : IDisposable
 
     // The same, with the allocator through which the arena obtains and returns the native memory of
     // its segments. Only a test of the engine passes another than NativeAllocator itself (exception
-    // X3).
+    // X3). The text table hashes with the seed 0 and knows no lock of the writes: an arena a test of the
+    // engine makes by itself has no database around it.
     internal Arena(ArenaOptions options, NativeAllocator allocator)
+        : this(options, allocator, textSeed: 0, writes: null)
+    {
+    }
+
+    // The arena of a database: its text table hashes with the seed of the instance and, in a Debug
+    // build, asserts at every change of a count that the thread holds the lock of the writes given.
+    internal Arena(ArenaOptions options, NativeAllocator allocator, ulong textSeed, Lock? writes)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.SegmentSize, MaxBlockSize);
@@ -116,7 +125,11 @@ internal sealed unsafe class Arena : IDisposable
         _memoryLimit = options.MemoryLimit;
         _reserveLimit = options.ReservedSegments;
         _allocator = allocator;
+        Texts = new TextTable(this, textSeed, writes);
     }
+
+    // The text entries of the database, in this arena (see the class).
+    public TextTable Texts { get; }
 
     // The size of one segment in bytes, as the options gave it.
     public int SegmentSize => _segmentSize;
