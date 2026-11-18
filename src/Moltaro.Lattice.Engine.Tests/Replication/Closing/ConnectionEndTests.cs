@@ -77,14 +77,17 @@ public sealed class ConnectionEndTests
 
             Assert.True(reply >= 0, "The master sent no reply to the upsert.");
             Assert.True(transaction > reply, "The master sent the transaction of the upsert before its reply, or none.");
-            Assert.Equal(frames.Count - 1, frames.FindIndex(frame => frame.Kind == ForwardPayload.Closed));
             Assert.Equal(0UL, frames[^1].CorrelationId);
             Assert.Empty(frames[^1].Payload);
 
             await child.SendRequestAsync(2, LoadedPeer.DeleteOfCode());
             var (afterClosed, inOrder) = await child.Peer.ReceiveToTheEndAsync();
+            var sent = frames.Concat(afterClosed).ToList();
 
-            Assert.Empty(afterClosed);
+            // Everything the master sent after the load to the end of its side: one Closed, the last.
+            Assert.Single(sent, frame => frame.Kind == ForwardPayload.Closed);
+            Assert.Equal(ForwardPayload.Closed, sent[^1].Kind);
+            Assert.DoesNotContain(sent, frame => frame.Kind == ForwardPayload.WriteReply && frame.CorrelationId == 2);
             Assert.True(inOrder, "The master reset the connection instead of ending its side in order.");
 
             child.Dispose();

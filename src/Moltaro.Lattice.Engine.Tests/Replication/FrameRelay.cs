@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // master are those a node of the engine wrote, so their lengths are trusted; a change runs on the thread
 // of the copy, and an assertion that fails in it ends the link and fails DisposeAsync. A test learns
 // that the connection of the child has ended — the child closed or reset it, or the link was cut —
-// from ChildEndedAsync.
+// from ChildEndedAsync. An end in order of the master's side reaches the child in order as well, after
+// everything the relay passed, and not as the reset with which the link ends a connection otherwise.
 internal sealed class FrameRelay : IAsyncDisposable
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
@@ -84,7 +85,11 @@ internal sealed class FrameRelay : IAsyncDisposable
 
             if (read == 0)
             {
-                return;
+                // The master ended its side in order: so does the relay toward the child, which reads
+                // what was passed and then the end, as from its master, and the copy waits until the
+                // child ends its side and the link ends.
+                child.Shutdown(SocketShutdown.Send);
+                await Task.Delay(Timeout.Infinite, cancellationToken);
             }
 
             pending.AddRange(buffer.AsSpan(0, read));

@@ -77,6 +77,10 @@ public sealed class MasterCloseTests
             storage.ReleaseAll();
             await closing.WaitAsync(ReplicationNodes.Bound);
             await Record.ExceptionAsync(() => dispatched.WaitAsync(ReplicationNodes.Bound));
+
+            // The child, which reads, has applied everything its master executed before the end.
+            Assert.NotNull(pieces.Get(1L));
+            Assert.Null(pieces.Get(2L));
         }
         finally
         {

@@ -14,8 +14,19 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // - A Closed that is not valid, one with a body or with a correlation id that is not 0, is a frame of the
 //   master that is not valid: the child ends its connection, and the request it sent whole without a
 //   reply ends in IndeterminateOutcome, as at an end of the connection without Closed.
+// - A Closed before the child is Ready, in the place of the schema of its load or of LoadEnd, fails its
+//   open with Unavailable: a child has no master to load from, and holds nothing of the instance after
+//   the open. Its open timeout is far beyond the bound, so an open that fails within it did not fail by
+//   its time.
 public sealed class ClosedFrameTests
 {
+    // The kinds of frame are internal, and a test method is public: the frame by name.
+    public static IEnumerable<TheoryDataRow<string>> BeforeReady =>
+    [
+        new(nameof(FrameKindEnum.Schema)),
+        new(nameof(FrameKindEnum.LoadEnd)),
+    ];
+
     public static IEnumerable<TheoryDataRow<string>> AfterAValidClosed =>
     [
         new("nothing"),
@@ -62,6 +73,37 @@ public sealed class ClosedFrameTests
 
         Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
         Assert.Equal(LatticeDatabaseStateEnum.Ready, forwarded.Child.State);
+    }
+
+    [Theory]
+    [MemberData(nameof(BeforeReady))]
+    public async Task Closed_before_the_child_is_Ready_fails_its_open_with_Unavailable(string inPlaceOfFrame)
+    {
+        var inPlaceOf = Enum.Parse<FrameKindEnum>(inPlaceOfFrame);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
+        await Pieces.InsertAsync(master, 1, 2, dataBytes: 16);
+        var replaced = false;
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+        {
+            if (replaced)
+            {
+                return [];
+            }
+
+            if (frame.Kind != inPlaceOf)
+            {
+                return [frame];
+            }
+
+            replaced = true;
+            return [ForwardPayload.ClosedFrame(frame.StreamSequence)];
+        });
+        var child = LatticeDatabase.Create(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound));
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound));
+
+        Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);
     }
 
     // A master, a relay before it, a child behind the relay, and a write the child forwards: in the place
