@@ -4626,7 +4626,42 @@ The wait of a forwarded write for its application on the child is bounded by the
 otherwise by the option; it does not travel (this corrects point 5 of 17 November). An
 address already in use is `InvalidConfiguration` with the system's message inside (this
 replaces "with the error the system reports" of S10); the test of two masters at one
-address takes a loopback port by binding port 0, reading the port and releasing it. Carried to S27: with Durable, say whether a master can be behind a position a
+address takes a loopback port by binding port 0, reading the port and releasing it.
+
+**Settled by the planner on 18 November 2026, with the tests of S12.**
+
+- A malformed `WriteRequest` — truncated, an unknown kind or type id, a key that is not
+  the key in its root, a root that fails the check of a received root, the correlation id
+  0 or one still in flight — is a defect of the peer: the master executes nothing of it
+  and ends the connection. Only an announced length above `MemoryLimit` is answered and
+  keeps the connection. A malformed `WriteReply`: the child ends its connection, and its
+  writes end by the two moments of point 7.
+- Point 4 is widened: at its close the sender of a master does its ordinary work to the
+  end — the recorded replies, then what the tail holds for that child up to the close —
+  and then shuts down its sending side, all inside the same 5 s; a child that reads
+  applies and returns the success. When the link ends in any other way while a call
+  holds its reply and waits for its application, the wait ends at once with
+  `SynchronizationTimeout` carrying the committed position: the write is committed and
+  must not be repeated. Carried to S34: with reconnection the wait continues across a new
+  connection within its timeout.
+- An `OpenAsync` that waits when its instance is closed ends in
+  `OperationCanceledException`: the close cancels the wait. `ObjectDisposedException` is
+  for a call made on a closed instance. The engine of S10 changes to that.
+- Forced removals of tests that state the placeholder or what S12 replaces, each named
+  with its reason in its commit: in `ValidationBeforeRefusalTests` the parts that expect a
+  refusal of a comparison without case, an Enum field and UTF-16;
+  `MemoryLimitTests.Placeholder_validates_the_memory_limit…` and
+  `ReadLimitsTests.Placeholder_validates_the_read_limits…`; of S10
+  `WritesOnAChildTests.Write_on_a_child_is_NotSupportedException…`,
+  `ListenAddressTests.Address_with_another_scheme…when_the_instance_opens` and
+  `ListenAddressTests.Master_whose_port_is_in_use_fails_its_open_with_the_error_the_system_reports…`.
+- Three tests of the engine take about 5 s each, because a master waits for a child that
+  cannot read before it resets it; accepted as slow.
+- Reasoned and not tested (point 7): a connection cut after the child's socket accepted
+  the last frame of a request and before the master received it. No deterministic signal
+  tells a test that the child's sender has seen its last send complete.
+- The shapes the tests assume are in `Replication/Forwarding/ForwardPayload.cs` of the
+  engine's tests and are accepted. Carried to S27: with Durable, say whether a master can be behind a position a
 session holds.
 
 ### Stage 4. Indexes and batches
