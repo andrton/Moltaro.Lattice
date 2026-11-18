@@ -59,15 +59,19 @@ public sealed class ChildArenaFullTests
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         var pieces = master.Set<PieceSchema.Piece>();
         await pieces.InsertAsync(Pieces.Versioned(1, version: 1, TwoAndAHalfMebibytes));
-        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound, memoryLimit: Segment), new EngineTestInputs());
         using var held = await HeldRead.StartAsync(child, () => child.Set<PieceSchema.Piece>().Get(1L)?.Count);
 
         var deleted = await pieces.DeleteAsync(1L);
         await Eventually.AtAsync(child, deleted.Position);
         var inserted = await pieces.InsertAsync(Pieces.Versioned(2, version: 2, TwoAndAHalfMebibytes));
 
-        // No event marks the child waiting for the read that holds the deleted piece; this gives it far
-        // more time than it takes to receive the insert and find that its arena cannot hold it.
+        // The relay passes on the last frame of the insert, the second frame that ends a transaction after
+        // the one of the delete, as soon as it has it. No event marks the child waiting for the read that
+        // holds the deleted piece; the wait gives it far more time than it takes to find that its arena
+        // cannot hold the insert.
+        await Eventually.HoldsAsync(() => relay.FromMaster.Count(frame => frame.Kind == FrameKindEnum.Transaction && frame.EndsARoot) == 2, "The master did not send the insert the child cannot hold yet.");
         await Task.Delay(Wait);
 
         Assert.Equal(deleted.Position, child.Position);

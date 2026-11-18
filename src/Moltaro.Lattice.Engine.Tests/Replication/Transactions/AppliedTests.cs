@@ -20,7 +20,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // - A master ends the connection of a child that acknowledges what it cannot have applied: a sequence
 //   beyond what it was sent, one before its readiness position, or one before what it acknowledged
 //   already; and holds nothing for it afterwards (NothingRegistered). The child is made by hand (Peer):
-//   the Hello of a real child (Handshake), then the Applied the row gives.
+//   the Hello of a real child (Handshake), a load during which the master writes, so that its readiness
+//   position R comes after its start S, then the Applied the row gives.
 public sealed class AppliedTests
 {
     public static IEnumerable<TheoryDataRow<string>> WrongAcknowledgments =>
@@ -35,14 +36,23 @@ public sealed class AppliedTests
     public async Task Master_ends_the_connection_of_a_child_that_acknowledges_what_it_cannot_have_applied(string acknowledgment)
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
-        await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
+        await Pieces.InsertBeyondALinkAsync(master);
         var handshake = await Handshake.RecordAsync(master);
         using var child = await Peer.ConnectAsync(master.ListenUri!);
 
+        // The child reads nothing until its capture has started; 8 MiB are far more than the buffers of
+        // a connection on the loopback interface hold, so the capture waits in a send, and a write of the
+        // master falls between its start and its end: S is before R, and the child is sent the transaction
+        // of the write after LoadEnd.
         await child.SendAsync(handshake.Hello);
+        await Eventually.HoldsAsync(() => master.Counters.ActiveCaptures == 1, "The capture of the child did not start.");
+        await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(200, name: 8));
 
         var load = await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
-        var readiness = LoadEndPayload.Of(load[^1]).End;
+        var loadEnd = LoadEndPayload.Of(load[^1]);
+        var readiness = loadEnd.End;
+
+        Assert.True(loadEnd.Start < readiness, $"The load started at {loadEnd.Start} and ended at {readiness}: no write fell between.");
 
         switch (acknowledgment)
         {
@@ -51,11 +61,12 @@ public sealed class AppliedTests
                 break;
 
             case "a sequence before its readiness position":
-                await child.SendAppliedAsync(readiness - 1);
+                // Neither beyond what the child was sent nor before what it acknowledged: only R refuses it.
+                await child.SendAppliedAsync(loadEnd.Start);
                 break;
 
             default:
-                var written = PositionSequence.Of((await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8))).Position);
+                var written = PositionSequence.Of((await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(300, name: 8))).Position);
 
                 await child.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.Transaction && TransactionPayload.SequenceOf(frame) == written);
                 await child.SendAppliedAsync(written);

@@ -31,7 +31,12 @@ public sealed class WholeChangesTests
         await pieces.InsertAsync(Pieces.Versioned(1, version: 0, DataBytes));
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
         using var stop = new CancellationTokenSource();
-        var readers = Enumerable.Range(0, Readers).Select(reader => Task.Run(() => Read(child, byName: reader % 2 == 1, stop.Token))).ToArray();
+        var firstReads = Enumerable.Range(0, Readers).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var readers = Enumerable.Range(0, Readers).Select(reader => Task.Run(() => Read(child, byName: reader % 2 == 1, firstReads[reader], stop.Token))).ToArray();
+
+        // Every reader has read once before the first replace, however late the pool runs it; a reader that
+        // failed its first read has ended, and the test reports it below.
+        await Task.WhenAll(readers.Select((reader, index) => Task.WhenAny(reader, firstReads[index].Task))).WaitAsync(Bound);
 
         for (var version = 1; version <= Replaces; version++)
         {
@@ -48,9 +53,9 @@ public sealed class WholeChangesTests
         Pieces.ExpectSameAt(master, child);
     }
 
-    // Reads the piece until the token ends the reads and returns how many it read; fails at the first read
-    // that is not a whole state or that goes back.
-    private static int Read(ILatticeDatabase child, bool byName, CancellationToken stop)
+    // Reads the piece until the token ends the reads and returns how many it read, and signals its first
+    // read; fails at the first read that is not a whole state or that goes back.
+    private static int Read(ILatticeDatabase child, bool byName, TaskCompletionSource firstRead, CancellationToken stop)
     {
         var lastVersion = -1;
         var lastPosition = 0UL;
@@ -69,6 +74,7 @@ public sealed class WholeChangesTests
             lastVersion = piece.Count;
             lastPosition = position;
             reads++;
+            firstRead.TrySetResult();
         }
 
         return reads;
