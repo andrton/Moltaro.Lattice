@@ -12,13 +12,15 @@ namespace Moltaro.Lattice.Engine.Children;
 // "Replication transport and initial loading").
 //
 // The close is one operation and covers the network (the planner's block of 17 November 2026, point 7, and
-// his decision after the study of S12, point 4, as he widened it with the tests): StopAsync stops accepting
-// and closes the listening socket, and tells every connection to finish (ChildConnection.Finish): a
-// connection in its stream sends what it owes its child and ends its sending side in order, and the child
-// that reads marks itself without a master and ends its own side. The connections are waited for together,
-// at most ConnectionEndBound; those still open then are reset. Its task completes only when the task that
-// accepts and every task of a connection have ended. Then no task of the listener runs and its port is
-// free.
+// his decision after the study of S12, point 4, as he widened it with the tests, and decided at the review
+// of S12, point 2): StopAsync runs once the barrier of the close has drained, so that every write admitted
+// has ended with its reply recorded. It stops accepting and closes the listening socket, and tells every
+// connection to finish (ChildConnection.Finish): a connection in its stream sends its child the replies it
+// recorded, then what the tail holds for it, then the frame Closed, and ends its sending side in order;
+// the child that reads marks itself without a master, ends every write it has no reply for in
+// Unavailable, and ends its own side. The connections are waited for together, at most
+// ConnectionEndBound; those still open then are reset. Its task completes only when the task that accepts
+// and every task of a connection have ended. Then no task of the listener runs and its port is free.
 //
 // The accepting ends only by the close while the master is open (review round 1 of S10). A failure that
 // concerns one connection — the peer reset it before it was accepted, or setting it up failed — ends

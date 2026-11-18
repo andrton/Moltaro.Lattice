@@ -14,8 +14,11 @@ namespace Moltaro.Lattice.Engine.Delivery;
 // semantics and the append that published it release semantics (DeliveryBlock), so a reply recorded
 // before the append is seen by a sender that has seen the transaction. So a child never receives the
 // transaction of a write it forwarded before that write's reply. A refusal belongs to no transaction and is
-// recorded from any thread, the write path's or the receiver's; its record wakes the senders, since no
-// publication will.
+// recorded outside the lock of the writes, before the write leaves the barrier of the close
+// (Writes.ForwardedOrigin.Refuse), or by the receiver for a request it refuses itself; its record wakes the
+// senders, since no publication will. So once the barrier of a closing master has drained, every reply of
+// a write it admitted is recorded, and the sender sends them before the frame Closed
+// (Children.ChildConnection).
 //
 // Who calls what. Any thread records, the holder of the lock of the writes among them, which takes no
 // other lock: the queue takes none. One thread takes: the sender of the connection.

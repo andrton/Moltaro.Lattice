@@ -78,6 +78,7 @@ internal static class Protocol
         FrameKindEnum.LoadEnd => LoadEndPayloadSize + CheckSize,
         FrameKindEnum.Refuse => RefusePayloadSize + CheckSize,
         FrameKindEnum.Applied => AppliedPayloadSize + CheckSize,
+        FrameKindEnum.Closed => CheckSize,
         _ => 0,
     };
 }

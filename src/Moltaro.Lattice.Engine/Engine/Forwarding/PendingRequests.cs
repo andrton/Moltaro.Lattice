@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // stream, an id no request of the connection has, or one answered already, and a position of another
 // history than the child's, are a frame of the master that is not valid (ValidationFailed), and the child
 // ends its connection. When the connection has ended, nothing more arrives: Close empties the table, every
-// call in it was sent whole and is not answered, and the table refuses every registration afterwards.
+// call in it was sent whole and is not answered, and the table refuses every registration afterwards. The
+// frame Closed of a master that closed in order empties it before that, each call not executed
+// (EndNotExecuted; Following.Follower, "The frame Closed").
 //
 // Who calls what. The sender registers and removes, the receiver of the follower receives replies, and
 // the end of the following closes; the lock guards the table and is taken alone, for a few instructions.
@@ -101,7 +103,18 @@ internal sealed class PendingRequests
     // At the end of the connection, once nothing more is sent or received on it: every call left was sent
     // whole and has no reply, so the master may have executed it (IndeterminateOutcome); no call
     // registers afterwards.
-    public void Close()
+    public void Close() => EndEvery(static () => new LatticeException(
+        LatticeErrorEnum.IndeterminateOutcome,
+        "The connection of this child to its master ended after the child had sent the whole write and before its reply arrived: the master may have executed it."));
+
+    // For the follower, at the frame Closed: the master closed in order, and no call left was executed or
+    // will be (Unavailable); no call registers afterwards.
+    public void EndNotExecuted() => EndEvery(static () => new LatticeException(
+        LatticeErrorEnum.Unavailable,
+        "The master of this child closed in order before it executed the write: the write was not executed."));
+
+    // Ends every call left with a failure of its own, and refuses every registration from now on.
+    private void EndEvery(Func<LatticeException> failure)
     {
         ForwardedCall[] left;
 
@@ -116,9 +129,7 @@ internal sealed class PendingRequests
 
         foreach (var call in left)
         {
-            call.Fail(new LatticeException(
-                LatticeErrorEnum.IndeterminateOutcome,
-                "The connection of this child to its master ended after the child had sent the whole write and before its reply arrived: the master may have executed it."));
+            call.Fail(failure());
         }
     }
 

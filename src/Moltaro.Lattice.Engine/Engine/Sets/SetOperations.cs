@@ -126,6 +126,6 @@ internal sealed class SetOperations
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
         _forwarder is null
-            ? _writes.SubmitAsync(Table, kind, key, values, forwarded: null, expectedRevision, session, cancellationToken)
+            ? _writes.SubmitAsync(Table, kind, key, values, expectedRevision, session, cancellationToken)
             : _forwarder.WriteAsync(Table, kind, key, values, expectedRevision, session, cancellationToken);
 }

@@ -39,13 +39,26 @@ namespace Moltaro.Lattice.Engine.Children;
 // receives the transaction of a write it forwarded before that write's reply. A reply is sent whole: the
 // frames of one reply are not interleaved with those of another.
 //
-// The close of the master (point 4, as the planner widened it with the tests). The listener tells each
-// connection to finish (Finish) once the admitted writes have ended. A connection in its stream has its
-// sender do its ordinary work to the end — the replies recorded, then what the tail holds for the child,
-// which no write changes any more — and then end its sending side in order, which the child reads as the
-// end of the stream; the receiver goes on until the child ends its side. A connection before its stream
-// ends at once. The listener waits for every connection together, at most a fixed time, and then resets
-// those still open (ChildListener).
+// The close of the master (point 4, as the planner widened it with the tests, and decided at the review
+// of S12, point 2). The listener tells each connection to finish (Finish) once its barrier has closed and
+// the admitted writes have ended, each with its reply recorded (Writes.WriteCoordinator, "Forwarded
+// writes"). A connection in its stream has its sender do its ordinary work to the end — the replies
+// recorded, then what the tail holds for the child, which no write changes any more — and then add one
+// frame Closed: the master closed in order, and every request of the connection not answered before it
+// was not executed and will not be. Then it ends its sending side in order, which the child reads as the
+// end of the stream; the receiver goes on until the child ends its side, and from Closed on it reads every
+// frame of a request and drops it, with no reply. A connection before its stream ends at once. The
+// listener waits for every connection together, at most a fixed time, and then resets those still open
+// (ChildListener).
+//
+// Why Closed is true when it is sent. It is sent after the barrier of the close has drained: every write
+// that entered it, forwarded ones included, had its reply recorded before it left, and the sender has sent
+// every reply recorded before it read the close (DeliverAsync). A request that did not enter the barrier
+// was not executed, and none is executed after the drain. A reply the receiver records itself after the
+// sender has sent its last one, the refusal of a request that came too late, is not sent; its request was
+// not executed. The same holds for a master that faulted: its fault ended every write admitted with its
+// reply recorded, IndeterminateOutcome for those the storage step took and Unavailable for the others, and
+// refuses every write after it before it is executed, so it sends Closed as well.
 //
 // The waits, and how each ends. The Hello: within OpenTimeout, or the close of the master. A send: until
 // the child has taken the bytes, which a child that does not read never does; it has no deadline until
@@ -77,6 +90,9 @@ internal sealed class ChildConnection
     // the stream finishes its work.
     private readonly CancellationTokenSource _finishing = new();
 
+    // Set by the sender when it adds the frame Closed; the receiver drops every request from then on.
+    private volatile bool _closed;
+
     public ChildConnection(Socket socket, Capture capture, ForwardedWrites writes, TimeSpan helloTimeout)
     {
         _connection = new FrameConnection(socket);
@@ -90,8 +106,8 @@ internal sealed class ChildConnection
     // end within the time the listener gives it; RunAsync then ends.
     public void Reset() => _connection.Reset();
 
-    // The master closes, and its admitted writes have ended (see the class): the connection finishes what
-    // it owes the child and ends its sending side in order.
+    // The master closes, and its admitted writes have ended (see the class): the connection sends what it
+    // owes the child, then Closed, and ends its sending side in order.
     public void Finish() => _finishing.Cancel();
 
     // Serves the peer until the connection ends (see the class). It never fails: a connection has no
@@ -189,12 +205,12 @@ internal sealed class ChildConnection
     {
         using var ending = new CancellationTokenSource();
         using var waitEnds = CancellationTokenSource.CreateLinkedTokenSource(ending.Token, _finishing.Token);
-        var sending = DeliverAsync(cursor, ending.Token, waitEnds.Token);
+        var sending = DeliverAsync(cursor, waitEnds.Token, ending.Token);
         var receiving = ReceiveAsync(cursor, readiness, ending.Token);
         var first = await Task.WhenAny(sending, receiving).ConfigureAwait(false);
 
-        // The sender of a closing master ends its side in order and leaves the receiver to wait for the
-        // child's end; any other end of either task ends the other.
+        // The sender of a closing master sends Closed, ends its side in order and leaves the receiver to
+        // wait for the child's end; any other end of either task ends the other.
         if (!ReferenceEquals(first, sending) || !sending.IsCompletedSuccessfully)
         {
             await ending.CancelAsync().ConfigureAwait(false);
@@ -217,47 +233,61 @@ internal sealed class ChildConnection
     // Sends the child every transaction of the tail after its start, as they come, and the replies owed to
     // it (see the class). It collects the frames of transactions that are there already and sends them
     // together, up to a frame's worth at a time, so that a small transaction does not cost a send of its
-    // own while others wait. At the close of the master it ends its sending side once nothing is left, and
-    // returns.
-    private async Task DeliverAsync(DeliveryCursor cursor, CancellationToken cancellationToken, CancellationToken waitEnds)
+    // own while others wait. At the close of the master, once nothing is left, it sends Closed, ends its
+    // sending side and returns. The wait for more ends with waitEnds, the sends with the token.
+    private async Task DeliverAsync(DeliveryCursor cursor, CancellationToken waitEnds, CancellationToken cancellationToken)
     {
         var reader = new DeliveryReader(cursor);
 
         while (true)
         {
-            if (!reader.HasBytes())
+            // The close is read before the tail and the replies: once it is seen, every write has ended,
+            // and the reads after it see everything those writes appended and recorded. Read after them, a
+            // write that appended in between would be missed.
+            var finishing = _finishing.IsCancellationRequested;
+
+            if (reader.HasBytes())
             {
-                if (_replies.HasReplies)
-                {
-                    await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
+                // The transaction is there, so every reply recorded before it was appended is seen now, and
+                // goes before it (see the class).
+                await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
 
-                    continue;
-                }
+                var (sequence, length) = reader.Transaction();
 
-                if (_finishing.IsCancellationRequested)
-                {
-                    await FlushAsync(cancellationToken).ConfigureAwait(false);
-                    _connection.EndSending();
-
-                    return;
-                }
-
-                await WaitForMoreAsync(reader, cancellationToken, waitEnds).ConfigureAwait(false);
+                // Before its frames are added: the child may apply and acknowledge the transaction as soon
+                // as its last frame is sent, which can be before this task goes on.
+                cursor.Sent = sequence;
+                await AddTransactionAsync(reader, length, cancellationToken).ConfigureAwait(false);
 
                 continue;
             }
 
-            // The transaction is there, so every reply recorded before it was appended is seen now, and
-            // goes before it (see the class).
-            await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
+            if (_replies.HasReplies)
+            {
+                await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
 
-            var (sequence, length) = reader.Transaction();
+                continue;
+            }
 
-            // Before its frames are added: the child may apply and acknowledge the transaction as soon as
-            // its last frame is sent, which can be before this task goes on.
-            cursor.Sent = sequence;
-            await AddTransactionAsync(reader, length, cancellationToken).ConfigureAwait(false);
+            if (finishing)
+            {
+                AddClosed();
+                await FlushAsync(cancellationToken).ConfigureAwait(false);
+                _connection.EndSending();
+
+                return;
+            }
+
+            await WaitForMoreAsync(reader, waitEnds, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // The frame Closed (see the class): no payload, the correlation id 0. From here on the receiver drops
+    // every request.
+    private void AddClosed()
+    {
+        _closed = true;
+        _connection.Add(FrameKindEnum.Closed, 0, ReadOnlySpan<byte>.Empty);
     }
 
     // Cuts the transaction into Transaction frames, its last one marked, each within one block of the
@@ -272,6 +302,14 @@ internal sealed class ChildConnection
         {
             if (!reader.HasBytes())
             {
+                // A reply that waits is taken here: the wait below returns at once while one does.
+                if (_replies.HasReplies)
+                {
+                    await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
+
+                    continue;
+                }
+
                 // The rest of a transaction appended whole: only the end of the connection ends this wait.
                 await WaitForMoreAsync(reader, cancellationToken, cancellationToken).ConfigureAwait(false);
 
@@ -354,7 +392,7 @@ internal sealed class ChildConnection
 
     // Sends what is waiting, then waits for more of the tail or a reply, until the token of the wait ends
     // it: between two transactions the close of the master ends it as well, and the sender then finishes.
-    private async ValueTask WaitForMoreAsync(DeliveryReader reader, CancellationToken cancellationToken, CancellationToken waitEnds)
+    private async ValueTask WaitForMoreAsync(DeliveryReader reader, CancellationToken waitEnds, CancellationToken cancellationToken)
     {
         await FlushAsync(cancellationToken).ConfigureAwait(false);
 
@@ -369,8 +407,8 @@ internal sealed class ChildConnection
     }
 
     // Receives what the child sends, until the connection ends (see the class): Applied and the frames of
-    // the writes it forwards. Any other frame, an Applied before R or one the child cannot have applied,
-    // and a forwarded write that is not valid end it.
+    // the writes it forwards, which it drops once Closed is added. Any other frame, an Applied before R or
+    // one the child cannot have applied, and a forwarded write that is not valid end it.
     private async Task ReceiveAsync(DeliveryCursor cursor, ulong readiness, CancellationToken cancellationToken)
     {
         var requests = new RequestReceiver(_writes, _replies);
@@ -392,7 +430,11 @@ internal sealed class ChildConnection
                     break;
 
                 case FrameKindEnum.WriteRequest:
-                    requests.Accept(frame);
+                    if (!_closed)
+                    {
+                        requests.Accept(frame);
+                    }
+
                     break;
 
                 default:

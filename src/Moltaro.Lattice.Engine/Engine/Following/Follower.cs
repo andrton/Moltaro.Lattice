@@ -53,14 +53,25 @@ namespace Moltaro.Lattice.Engine.Following;
 // limit of the child, before anything is taken for it.
 //
 // Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
-// valid, a connection that ended, the end of the master's stream, a send of the sender that failed, the
-// close of the child — ends its connection and keeps serving its reads at the position it has, Ready; it
-// does not resume by itself (reconnection is S34). Nothing of a transaction it was putting together is
-// applied. In this order (S12): it marks itself without a master (Forwarding.Forwarder.LoseMaster), so
-// that a write through it is Unavailable and a wait for a position it has not reached ends at once; it
-// ends its side of the connection, and with it the sender; and once the sender has ended, every write it
-// had sent whole and that has no reply ends in IndeterminateOutcome (PendingRequests.Close). So the close of
-// a master, which waits until its children have ended their side, finds each child that reads marked.
+// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender
+// that failed, the close of the child — ends its connection and keeps serving its reads at the position it
+// has, Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
+// together is applied. In this order (S12): it marks itself without a master (Forwarding.Forwarder.
+// LoseMaster), so that a write through it is Unavailable and a wait for a position it has not reached ends
+// at once; it ends its side of the connection, and with it the sender; and once the sender has ended,
+// every write it had sent whole and that has no reply ends in IndeterminateOutcome (PendingRequests.Close):
+// the master may have executed it. So the close of a master, which waits until its children have ended
+// their side, finds each child that reads marked.
+//
+// The frame Closed (decided at the review of S12, point 2). A master that closes in order sends it after
+// every reply it owes and every transaction of its tail: every request not answered before it was not
+// executed and will not be (Children.ChildConnection). The child marks itself without a master, ends every
+// write it sent and has no reply for in Unavailable, not executed (PendingRequests.EndNotExecuted), and
+// stops following as above; it reads nothing after it, so a frame after Closed changes nothing. A Closed
+// with a correlation id is a frame that is not valid, and one with a body the codec refuses
+// (Replication.Protocol.MaxBodyOf): the child stops following without it, and its writes sent whole stay
+// IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
+// no statement about what the master executed. A Closed before Ready fails the open.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
 // transaction that is complete waits, before it is applied, until no suspension is left. The lock that
@@ -141,7 +152,10 @@ internal sealed class Follower
 
         while (_applied < end.End)
         {
-            await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false);
+            if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
+            {
+                throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
+            }
         }
 
         // From here on the writes of the child go to the queue of its sender, before the child is Ready,
@@ -165,10 +179,16 @@ internal sealed class Follower
         {
             Acknowledge();
 
-            while (true)
+            var following = true;
+
+            while (following)
             {
-                await ApplyNextAsync(timeout: null, acknowledges: true, ending.Token).ConfigureAwait(false);
+                following = await ApplyNextAsync(timeout: null, acknowledges: true, ending.Token).ConfigureAwait(false);
             }
+
+            // The master closed in order (see the class, "The frame Closed").
+            _forwarder.LoseMaster();
+            _pending.EndNotExecuted();
         }
         catch (Exception)
         {
@@ -219,14 +239,15 @@ internal sealed class Follower
 
     private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 
-    // Receives the next transaction whole and applies it. After Ready it acknowledges what it has applied
-    // whenever no more of the stream waits and the next frame has to be read from the socket, within a
-    // transaction as well as between two, so that a child under a stream that never pauses sends Applied at
-    // least once for each fill of its receive buffer: between two Applied it applies no more than the
-    // transactions whose last frames one fill of the buffer holds (Replication.FrameConnection). An Applied
-    // sent only at the end of a transaction would wait as long as each transaction ended with a whole frame
-    // of the next one already received, which a stream of transactions of several frames can keep up.
-    private async Task ApplyNextAsync(TimeSpan? timeout, bool acknowledges, CancellationToken cancellationToken)
+    // Receives the next transaction whole and applies it; false, with nothing applied, when the master sent
+    // Closed (see the class). After Ready it acknowledges what it has applied whenever no more of the
+    // stream waits and the next frame has to be read from the socket, within a transaction as well as
+    // between two, so that a child under a stream that never pauses sends Applied at least once for each
+    // fill of its receive buffer: between two Applied it applies no more than the transactions whose last
+    // frames one fill of the buffer holds (Replication.FrameConnection). An Applied sent only at the end of
+    // a transaction would wait as long as each transaction ended with a whole frame of the next one
+    // already received, which a stream of transactions of several frames can keep up.
+    private async Task<bool> ApplyNextAsync(TimeSpan? timeout, bool acknowledges, CancellationToken cancellationToken)
     {
         ulong sequence;
         ReadOnlySequence<byte> effects;
@@ -247,6 +268,16 @@ internal sealed class Follower
                 _pending.Receive(frame);
 
                 continue;
+            }
+
+            if (frame.Kind == FrameKindEnum.Closed)
+            {
+                if (frame.CorrelationId != 0)
+                {
+                    throw Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
+                }
+
+                return false;
             }
 
             if (frame.Kind != FrameKindEnum.Transaction)
@@ -271,6 +302,8 @@ internal sealed class Follower
 
         _applied = sequence;
         _executor.WakePositions();
+
+        return true;
     }
 
     // Completes at once when no suspension is held, otherwise when the last one ends.

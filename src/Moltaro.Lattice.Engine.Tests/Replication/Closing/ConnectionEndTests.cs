@@ -55,7 +55,7 @@ public sealed class ConnectionEndTests
         Assert.InRange(closing.Elapsed, TimeSpan.FromSeconds(4.5), TimeSpan.FromSeconds(9));
     }
 
-    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    [Fact]
     public async Task Closing_master_sends_the_replies_then_the_tail_then_one_Closed_then_the_end_and_answers_no_request_after_Closed()
     {
         var storage = new HeldCommitStorage(holding: false);

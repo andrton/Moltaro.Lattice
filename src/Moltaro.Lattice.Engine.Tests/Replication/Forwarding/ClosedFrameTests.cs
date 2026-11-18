@@ -18,9 +18,9 @@ public sealed class ClosedFrameTests
 {
     public static IEnumerable<TheoryDataRow<string>> AfterAValidClosed =>
     [
-        new("nothing") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
-        new("the reply to the request") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
-        new("a second Closed") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
+        new("nothing"),
+        new("the reply to the request"),
+        new("a second Closed"),
     ];
 
     public static IEnumerable<TheoryDataRow<string>> ClosedThatIsNotValid =>

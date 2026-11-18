@@ -27,4 +27,18 @@ internal sealed class ForwardedOrigin
     // The root after its type id and its last mutation sequence: its layout version, its root payload and
     // its values out of line (Replication.Load.BlockImport); empty for a delete.
     public ReadOnlySequence<byte> Root { get; }
+
+    // Outside the lock of the writes, before the write leaves the barrier of the close: records the
+    // refusal of the write as its reply (WriteCoordinator, "Forwarded writes"). A LatticeException as it
+    // is; the close of the master, which refused the write before it was executed, as Unavailable, not
+    // executed; and any other exception, thrown before the dispatch for a defect of the child's
+    // validation, as Unavailable with its message (the planner's decision after the study, point 5).
+    public void Refuse(Exception exception) => Replies.Refuse(CorrelationId, RefusalOf(exception));
+
+    private static LatticeException RefusalOf(Exception exception) => exception switch
+    {
+        LatticeException refusal => refusal,
+        ObjectDisposedException => new LatticeException(LatticeErrorEnum.Unavailable, "The master was closing and did not execute the write."),
+        _ => new LatticeException(LatticeErrorEnum.Unavailable, exception.Message),
+    };
 }

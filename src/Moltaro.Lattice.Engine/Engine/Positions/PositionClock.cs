@@ -12,7 +12,10 @@ namespace Moltaro.Lattice.Engine.Positions;
 // of its history with a later sequence, which only a caller can make up, is waited for until writes
 // reach it, within the timeout of the wait; a close ends every wait. A child waits until it has applied
 // the position; once it has lost its master (Lose), no later position can arrive, and a wait for one ends
-// at once (brief of Epic 1, sprint S12, settled by the planner with the tests).
+// at once (brief of Epic 1, sprint S12, settled by the planner with the tests). A position reached is
+// reached also after the loss (decided at the review of S12, point 4): a wait reads whether the master is
+// lost before it reads the sequence, and the follower publishes what it applied before it loses its
+// master, so a wait that reads the loss reads every sequence published before it.
 //
 // One thread at a time publishes, the one that holds the lock of the writes and publishes a group of
 // writes (Writes.WriteExecutor); any thread reads the sequence. A wait for a position already published
@@ -176,12 +179,15 @@ internal sealed class PositionClock
         ObjectDisposedException.ThrowIf(_closed, _owner);
         CheckHistory(position);
 
+        // Before the sequence: a reached position wins over the loss (see the class).
+        var lost = _lost;
+
         if (position.Sequence <= Sequence)
         {
             return ValueTask.CompletedTask;
         }
 
-        if (_lost)
+        if (lost)
         {
             throw Lost(position);
         }
@@ -235,12 +241,15 @@ internal sealed class PositionClock
                     throw new LatticeException(LatticeErrorEnum.Unavailable, "The database is Faulted: a publication failed, and no later position will be published.");
                 }
 
+                // Before the sequence: a reached position wins over the loss (see the class).
+                var lost = _lost;
+
                 if (position.Sequence <= Sequence)
                 {
                     return;
                 }
 
-                if (_lost)
+                if (lost)
                 {
                     throw Lost(position);
                 }

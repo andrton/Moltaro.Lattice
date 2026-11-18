@@ -68,13 +68,14 @@ namespace Moltaro.Lattice.Engine;
 // later call waits for that same task, so no call completes before the arena is freed, whichever
 // call it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread
 // until then. The close covers the network (the planner's block of 17 November 2026, point 7, and his
-// decision after the study of S12, point 4): on a master, once its admitted writes have ended, it stops
-// accepting children, has each connection send its child what it owes it and end its side in order,
-// waits for the children to end theirs, all together and at most a fixed time, resets those still open,
-// and completes only when no task of the listener runs and its port is free (Children.ChildListener); on
-// a child it ends the open in progress and the following of its master, waits for their tasks, and
-// closes the connection to the master, without waiting for the master: its writes in flight end as the
-// forwarding says (Forwarding). A suspension of the application held at the close does not keep it from
+// decision after the study of S12, point 4, and at the review of S12, point 2): on a master, once its
+// admitted writes have ended, each with its reply recorded when a child forwarded it, it stops accepting
+// children, has each connection send its child what it owes it, the replies and then the tail, then the
+// frame Closed, and end its side in order, waits for the children to end theirs, all together and at most
+// a fixed time, resets those still open, and completes only when no task of the listener runs and its
+// port is free (Children.ChildListener); on a child it ends the open in progress and the following of its
+// master, waits for their tasks, and closes the connection to the master, without waiting for the master:
+// its writes in flight end as the forwarding says (Forwarding). A suspension of the application held at the close does not keep it from
 // completing; a master whose child holds one waits out the fixed time for that child.
 //
 // Master and children (briefs of S10 and S11). A master with a ListenUri listens at it from its open and

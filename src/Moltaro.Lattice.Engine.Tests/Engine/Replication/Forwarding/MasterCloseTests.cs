@@ -91,7 +91,7 @@ public sealed class MasterCloseTests
     // closes, and its caller gets DuplicateKey, never IndeterminateOutcome or Unavailable. Before the fix the
     // close could send its replies before the refusal was recorded, 5 times in 150, so the scenario is run
     // round after round; after it a single round is deterministic.
-    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    [Fact]
     public async Task Write_refused_behind_a_held_write_while_its_master_closes_returns_its_refusal()
     {
         const int Rounds = 40;
@@ -135,7 +135,7 @@ public sealed class MasterCloseTests
     // (EngineDatabase.SuspendApplying) with a transaction it has received, so it does not read the end of
     // its master's stream; the master begins to close, and then the child forwards a write. Once the child
     // applies again, it reads the rest, and the write ends in Unavailable; the child never has it.
-    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    [Fact]
     public async Task Write_forwarded_after_the_barrier_of_its_master_closed_ends_in_Unavailable_and_is_not_executed()
     {
         var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);

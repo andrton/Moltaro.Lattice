@@ -34,13 +34,13 @@ namespace Moltaro.Lattice.Engine.Children;
 // as they come, and the connection goes on (point 13). For every other request the bytes taken grow with
 // the bytes received, never with the length announced.
 //
-// The answers. The success of a forwarded write is recorded by the hold that publishes it
-// (Writes.WriteExecutor), before its transaction; every other outcome comes from the task of the submit and
-// is recorded here as a refusal: a LatticeException as it is, the end of a master that closes and did not
-// execute the write as Unavailable, and any other exception thrown before the dispatch, a defect of the
-// child's validation, as Unavailable with its message (point 5). The sender of the connection sends them
-// (Delivery.RecordedReplies). A request received whole is a submitted write: it runs although the
-// connection ends, and its reply is dropped then (point 12); an incomplete request is dropped.
+// The answers. The write path records the outcome of every forwarded write as its reply before the write
+// leaves the barrier of the close (Writes.WriteCoordinator, "Forwarded writes"; decided at the review of
+// S12, point 1): a success by the hold that publishes it, before its transaction (Writes.WriteExecutor), a
+// refusal where its outcome is given (Writes.ForwardedOrigin.Refuse). The receiver awaits nothing of it.
+// The sender of the connection sends them (Delivery.RecordedReplies). A request received whole is a
+// submitted write: it runs although the connection ends, and its reply is dropped then (point 12); an
+// incomplete request is dropped.
 //
 // One thread at a time uses a receiver: the task that receives on the connection. The submit holds the
 // lock of the writes for as long as one write takes in memory, and does not wait for anything else.
@@ -98,14 +98,6 @@ internal sealed class RequestReceiver
 
     private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 
-    // Records the refusal of a forwarded write whose task ended without success (see the class).
-    private static LatticeException RefusalOf(Exception exception) => exception switch
-    {
-        LatticeException refusal => refusal,
-        ObjectDisposedException => new LatticeException(LatticeErrorEnum.Unavailable, "The master was closing and did not execute the write."),
-        _ => new LatticeException(LatticeErrorEnum.Unavailable, exception.Message),
-    };
-
     // Checks the request and submits it (see the class).
     private void Submit(ulong correlationId, ReadOnlySequence<byte> body)
     {
@@ -131,42 +123,8 @@ internal sealed class RequestReceiver
         }
 
         var session = request.MinimumPosition is { } position ? new LatticeSession(position) : null;
-        var forwarded = new ForwardedOrigin(_replies, correlationId, root);
-        var submitted = _writes.Coordinator.SubmitAsync(table, request.Kind, key, values: null, forwarded, request.ExpectedRevision, session, CancellationToken.None);
 
-        if (submitted.IsCompletedSuccessfully)
-        {
-            return;
-        }
-
-        if (submitted.IsCompleted)
-        {
-            try
-            {
-                submitted.GetAwaiter().GetResult();
-            }
-            catch (Exception exception)
-            {
-                _replies.Refuse(correlationId, RefusalOf(exception));
-            }
-
-            return;
-        }
-
-        _ = RefuseOnFailureAsync(correlationId, submitted);
-    }
-
-    // Records the refusal of a write that did not complete at once, when it ends without success.
-    private async Task RefuseOnFailureAsync(ulong correlationId, ValueTask<LatticeWriteResult> submitted)
-    {
-        try
-        {
-            await submitted.ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            _replies.Refuse(correlationId, RefusalOf(exception));
-        }
+        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root), request.ExpectedRevision, session);
     }
 
     // The root of an insert, a replace or an upsert, with its envelope: its type id is the one of the

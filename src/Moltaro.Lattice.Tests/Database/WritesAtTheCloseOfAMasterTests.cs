@@ -15,9 +15,9 @@ public sealed class WritesAtTheCloseOfAMasterTests
 
     public static IEnumerable<TheoryDataRow<string>> Moments =>
     [
-        new("at once") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
-        new("after a yield") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
-        new("after the first completion") { Skip = SkipReason.BeforeTheFixesOfSprint12 },
+        new("at once"),
+        new("after a yield"),
+        new("after the first completion"),
     ];
 
     [Theory]

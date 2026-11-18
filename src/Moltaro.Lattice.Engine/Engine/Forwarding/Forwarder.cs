@@ -39,7 +39,9 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // position in each of these.
 //
 // What the end of the connection does to a call is the sender's and the table's (ChildSender,
-// PendingRequests): not sent whole, Unavailable; sent whole and not answered, IndeterminateOutcome.
+// PendingRequests): not sent whole, Unavailable; sent whole and not answered, IndeterminateOutcome, unless
+// the master sent the frame Closed before the end, which ends every call it did not answer in
+// Unavailable, not executed (Following.Follower, "The frame Closed").
 //
 // The waits, and how each ends. The wait for the reply has no timeout and no token, once the sender has
 // taken the call, as a write of a master after its dispatch: it ends with the reply, with the end of the

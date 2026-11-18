@@ -110,7 +110,7 @@ public sealed class PositionClockWaitersTests
     // woken after it, and is never told that the master was lost. A race shows itself rarely, about once
     // in 200,000 waits before the fix, so the test is a guard of the order of the reads of a wait more than
     // a proof.
-    [Fact(Skip = SkipReason.BeforeTheFixesOfSprint12)]
+    [Fact]
     public async Task Wait_that_races_a_publication_and_the_loss_after_it_is_never_told_the_master_was_lost()
     {
         const int Rounds = 50_000;
