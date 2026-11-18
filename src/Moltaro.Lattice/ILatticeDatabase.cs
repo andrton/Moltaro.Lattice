@@ -5,7 +5,7 @@ namespace Moltaro.Lattice;
 
 /// <summary>
 /// One database instance: its schema and entities. Create and open it with
-/// <see cref="LatticeDatabase"/>; close it with <see cref="CloseAsync"/> or <c>await using</c>.
+/// <c>LatticeDatabase</c>; close it with <see cref="CloseAsync"/> or <c>await using</c>.
 /// </summary>
 /// <remarks>
 /// An instance is opened once and closed once. All members are safe to call from several
@@ -47,7 +47,7 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> No instance listens on the network: the database that
-    /// <see cref="LatticeDatabase"/> opens today returns the configured address as it is.
+    /// <c>LatticeDatabase</c> opens today returns the configured address as it is.
     /// </para>
     /// </remarks>
     /// <exception cref="LatticeException">
@@ -278,9 +278,13 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <remarks>
     /// Entities returned by earlier reads stay valid. A MemoryOnly database saves nothing:
     /// its data is gone after closing. A child whose master has closed keeps serving its
-    /// local reads. A master also stops accepting children and ends every connection to them,
-    /// and its close completes only once no work of the instance runs any more and its port is
-    /// free: another instance can listen at the address as soon as the close has completed.
+    /// local reads. A child does not wait for its master when it closes: a write through it
+    /// whose reply has arrived returns its result, also one that still waited for the child to
+    /// apply it, and a write it has sent whose reply has not arrived ends in
+    /// <see cref="LatticeErrorEnum.IndeterminateOutcome"/>. A master also stops accepting
+    /// children and ends every connection to them, and its close completes only once no work of
+    /// the instance runs any more and its port is free: another instance can listen at the
+    /// address as soon as the close has completed.
     /// Disposing the database closes it in the same way. A call made while an
     /// earlier close is in progress, and a dispose, starts no other close: it completes when
     /// that close completes, once the memory is released; the token of a call cancels the wait

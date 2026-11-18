@@ -55,7 +55,7 @@ public sealed class LatticeDatabaseOptions
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> No instance listens on the network. The database that
-    /// <see cref="LatticeDatabase"/> opens today connects a master and its children inside one
+    /// <c>LatticeDatabase</c> opens today connects a master and its children inside one
     /// process only, with the address as a name: <see cref="Validate"/> checks only that it is
     /// absolute, any absolute address is accepted, and an address at which another master of the
     /// process already listens fails the open with <see cref="LatticeErrorEnum.InvalidConfiguration"/>.
@@ -97,7 +97,7 @@ public sealed class LatticeDatabaseOptions
     /// </para>
     /// <para>
     /// <b>Not implemented yet.</b> The value is validated and otherwise not used: a child of the
-    /// database that <see cref="LatticeDatabase"/> opens today waits for its master until the open
+    /// database that <c>LatticeDatabase</c> opens today waits for its master until the open
     /// is cancelled or the instance is closed, and no node connects to a master of it over the
     /// network.
     /// </para>
@@ -131,10 +131,6 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="LatticeLimitEnum.ReadMemory"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
     /// states. Without a limit an enumeration of any length runs to its end.
     /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
-    /// enumeration is limited by it.
-    /// </para>
     /// </remarks>
     public long? ReadMemoryLimit { get; init; }
 
@@ -156,10 +152,6 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
     /// <see cref="LatticeLimitEnum.ReadTime"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
     /// states. Without a limit an enumeration of any length runs to its end.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
-    /// enumeration is limited by it.
     /// </para>
     /// </remarks>
     public TimeSpan? ReadTimeLimit { get; init; }
@@ -208,10 +200,6 @@ public sealed class LatticeDatabaseOptions
     /// <para>
     /// A value set smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes
     /// memory, is refused by <see cref="Validate"/>.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no default is
-    /// computed, and no write is refused for the budget.
     /// </para>
     /// </remarks>
     public long? MemoryLimit { get; init; }

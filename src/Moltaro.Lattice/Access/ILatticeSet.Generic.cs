@@ -30,7 +30,9 @@ namespace Moltaro.Lattice.Access;
 /// completes successfully only after the master has published the change and, in Durable
 /// mode, the storage has acknowledged it. A write submitted through a child additionally
 /// waits until that child has applied it, so the child's next read sees it; it does not
-/// wait for other children. A failed write changes nothing.
+/// wait for other children. When the child is closed during that wait, the call returns the
+/// result of the write at once, since a closed child serves no read. A failed write changes
+/// nothing.
 /// </para>
 /// <para>
 /// Writes to one entity are executed in the order their calls were made: a call that is made
@@ -64,6 +66,8 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// Cancellation takes effect only while an operation is waiting or has not started
 /// executing: an <see cref="OperationCanceledException"/> means that a write was not executed.
+/// Through a child, a write has started once the child begins to send it to its master: a
+/// cancellation after that does not withdraw it, and the call returns the real outcome.
 /// </para>
 /// <para>
 /// Every member throws <see cref="LatticeException"/> with
@@ -96,8 +100,8 @@ namespace Moltaro.Lattice.Access;
 /// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
 /// key exists and whether the entity has the expected revision, and before a write is
 /// refused as not implemented, for every entity type whose writes are refused until a
-/// feature of its schema is implemented, such as a unique index, an enum field or an owned
-/// value: only a write that passes them ends in <see cref="NotSupportedException"/>. A check
+/// feature of its schema is implemented, such as a unique index or an owned value: only a
+/// write that passes them ends in <see cref="NotSupportedException"/>. A check
 /// that belongs to what is not implemented is not made yet: whether a unique index already holds
 /// the key.
 /// </para>
@@ -205,11 +209,6 @@ public interface ILatticeSet<TEntity>
     /// entities returned before stay valid. The enumeration never ends as if it were
     /// complete: every further step fails with the same error.
     /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The read limits of the options are not enforced. An
-    /// enumeration takes all the entities it returns at its first step, so a later step
-    /// returns the rest of them, also when the database was closed in between.
-    /// </para>
     /// </remarks>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a read
@@ -225,15 +224,10 @@ public interface ILatticeSet<TEntity>
     /// is not a snapshot.
     /// </summary>
     /// <remarks>
-    /// <para>
     /// The session moves forward to cover everything the enumeration returns, also when it
     /// returns nothing. The wait for the position of the session is not counted against
     /// <see cref="LatticeDatabaseOptions.ReadTimeLimit"/>; the timeout of the session bounds
     /// it.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> As stated at <see cref="Enumerate"/>.
-    /// </para>
     /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">

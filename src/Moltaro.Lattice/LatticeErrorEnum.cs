@@ -49,11 +49,6 @@ public enum LatticeErrorEnum
     /// <see cref="LatticeException.Limit"/> names the limit: <see cref="LatticeLimitEnum.Memory"/>
     /// for the memory budget, <see cref="LatticeDatabaseOptions.MemoryLimit"/>.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet.</b> The memory budget is not enforced yet, as
-    /// <see cref="LatticeDatabaseOptions.MemoryLimit"/> states, so no write is refused with this
-    /// error yet.
-    /// </remarks>
     WriteRejected = 7,
 
     /// <summary>
@@ -64,7 +59,9 @@ public enum LatticeErrorEnum
     /// A write is reported so as well when the instance became
     /// <see cref="LatticeDatabaseStateEnum.Faulted"/> during its publication, or during the
     /// publication of a write taken for storage together with it and before it: storage took the
-    /// write, and the instance cannot show it.
+    /// write, and the instance cannot show it. A write through a child is reported so as well
+    /// when the child had sent the whole write to its master and the connection ended, or the
+    /// child was closed, before the reply arrived: the master may have executed it.
     /// </remarks>
     IndeterminateOutcome = 8,
 
@@ -72,6 +69,18 @@ public enum LatticeErrorEnum
     /// The instance cannot serve the operation in its current state: it is not ready yet,
     /// is reloading or has faulted.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A write through a child is reported so as well when the child has no connection to its
+    /// master, when the connection ended before the child had sent the whole write, and when a
+    /// master that was closing did not execute it. In each case the write was not executed.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> A child whose connection to its master has ended does not
+    /// connect again: it goes on serving its reads, and every later write through it is reported
+    /// so.
+    /// </para>
+    /// </remarks>
     Unavailable = 9,
 
     /// <summary>
@@ -106,8 +115,5 @@ public enum LatticeErrorEnum
     /// <see cref="LatticeException.Limit"/> names the limit. What the read returned before
     /// stays valid, but the read did not complete and never ends as if it had.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet.</b> Read limits are not enforced yet, as the two options state.
-    /// </remarks>
     ReadLimitExceeded = 14,
 }

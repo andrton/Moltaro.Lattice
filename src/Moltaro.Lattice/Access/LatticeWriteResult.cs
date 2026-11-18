@@ -13,7 +13,8 @@ public readonly struct LatticeWriteResult
 
     /// <summary>
     /// The position that includes this write. The master has published it, and when the
-    /// write was submitted through a child, that child has applied it.
+    /// write was submitted through a child, that child has applied it, or was closed before it
+    /// could. A write that changed nothing has a position of its own as well.
     /// </summary>
     public LatticePosition Position { get; }
 
