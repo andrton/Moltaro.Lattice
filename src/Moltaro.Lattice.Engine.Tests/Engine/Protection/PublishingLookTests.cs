@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
-using Moltaro.Lattice.TestSupport.Skips;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -88,7 +87,7 @@ public sealed class PublishingLookTests
     // published write of any kind looks again, also one that retires nothing. A read is held (HeldRead)
     // while as many replaces as the epoch table has slots make a look; once it has left, the delete of a
     // key that is absent, which retires nothing, frees all of them.
-    [Fact(Skip = SkipReason.BeforeTheFixesAfterSprint13)]
+    [Fact]
     public async Task Roots_a_held_read_kept_from_a_look_are_freed_by_the_next_write_after_it_left_also_one_that_retires_nothing()
     {
         var slots = new ReadEpochs(new object()).SlotCount;

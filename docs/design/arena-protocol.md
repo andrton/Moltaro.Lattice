@@ -91,10 +91,12 @@ left, and a read never follows an old entry to a key that was created again; a c
 waits for the reads in progress and frees everything retired; no code of the
 application runs, and nothing waits — no I/O, no `await`, no wait for a position —
 while a read is inside the protection, so a read holds retired memory back only for the
-length of one step. The publishing thread looks at the readers when the items retired since its
-last look reach the number of slots or their bytes reach one segment, and whenever
-memory is short, a drain is asked for or the database closes; what waits between two
-looks is bounded by those two thresholds. The bytes of a retired root are the slots of its
+length of one step. A read of an absent key repeats its lookup when a write was published
+during it; the step ends with the first lookup no write crossed. The publishing thread
+looks at the readers when the items retired since its last look reach the number of slots
+or their bytes reach one segment, after every published write of any kind while its last
+look left items that reads still held, and whenever memory is short, a drain is asked for
+or the database closes; what waits between two looks is bounded by those two thresholds. The bytes of a retired root are the slots of its
 own blocks and those of the entry of every Dictionary text it names: an entry whose last
 reference lies in retired roots stays live until the drain frees them and is freed with
 them, so it waits for the same look. A text that other roots share is counted for each

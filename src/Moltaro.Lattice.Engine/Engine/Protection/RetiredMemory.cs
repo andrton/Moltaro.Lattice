@@ -29,7 +29,12 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   look is made once for as many retired things as there are slots: about one read of a slot for
 //   each, measured at 50 to 850 ns a look in phase 1 of S08. The bytes bound what one look can
 //   leave unfreed to one segment's worth beside what reads hold, whatever the size of the roots.
-//   They are derived from the table and the arena, not options. The bytes of a retired root are
+//   They are derived from the table and the arena, not options. And while the last look left things
+//   behind that a read in progress could still reach, the writer looks after every group published,
+//   whatever its writes retired, so that what a read kept from a look is freed by the first write
+//   published after the read has left, also by a write that retires nothing (arena protocol,
+//   "Deferred reclamation, 16 November 2026": what waits between two looks is bounded by the two
+//   thresholds beside what reads hold). The bytes of a retired root are
 //   the slots of its own blocks and those of the entry of every Dictionary text it names: an entry
 //   whose last reference lies in retired roots stays live until the drain frees them, and is freed
 //   with them, so it waits for the same look. A text that other roots share is counted for each
@@ -68,6 +73,10 @@ internal sealed class RetiredMemory
     private int _itemsSinceLook;
 
     private long _bytesSinceLook;
+
+    // Whether the last look left retired things behind, which a read in progress could still reach: the
+    // next published write looks again, whatever it retired (AfterWrite).
+    private bool _leftBehind;
 
     // The epoch of the last thing retired.
     private long _newest;
@@ -119,10 +128,11 @@ internal sealed class RetiredMemory
         Add(RetiredKindEnum.IndexTable, layout: null, default, default, table, bytes);
     }
 
-    // After a write: looks when enough was retired since the last look.
+    // After a write: looks when enough was retired since the last look, or when the last look left
+    // things behind (see the class).
     public void AfterWrite()
     {
-        if (_itemsSinceLook >= _itemsPerLook || _bytesSinceLook >= _bytesPerLook)
+        if (_leftBehind || _itemsSinceLook >= _itemsPerLook || _bytesSinceLook >= _bytesPerLook)
         {
             Drain();
         }
@@ -147,6 +157,8 @@ internal sealed class RetiredMemory
             _items.Dequeue();
             Free(item);
         }
+
+        _leftBehind = _items.Count > 0;
 
         // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
         // large: a read held for a second beside a million writes a second leaves a million places.
