@@ -109,7 +109,8 @@ public sealed class PositionClockWaitersTests
     // after round on a clock of its own: the wait either finds the position published or waits and is
     // woken after it, and is never told that the master was lost. A race shows itself rarely, about once
     // in 200,000 waits before the fix, so the test is a guard of the order of the reads of a wait more than
-    // a proof.
+    // a proof. The two threads are threads of their own (OwnThread), and the test awaits them rather than
+    // holding a thread of the pool for the rounds.
     [Fact]
     public async Task Wait_that_races_a_publication_and_the_loss_after_it_is_never_told_the_master_was_lost()
     {
@@ -119,7 +120,7 @@ public sealed class PositionClockWaitersTests
         var waiting = new ConcurrentQueue<Task>();
         var lost = 0;
 
-        var losing = new Thread(() =>
+        var losing = OwnThread.Run(() =>
         {
             foreach (var clock in clocks)
             {
@@ -128,7 +129,7 @@ public sealed class PositionClockWaitersTests
                 clock.Lose();
             }
         });
-        var waiter = new Thread(() =>
+        var waiter = OwnThread.Run(() =>
         {
             foreach (var clock in clocks)
             {
@@ -150,10 +151,7 @@ public sealed class PositionClockWaitersTests
             }
         });
 
-        losing.Start();
-        waiter.Start();
-
-        Assert.True(losing.Join(Bound) && waiter.Join(Bound), "The rounds did not end within the bound.");
+        await Task.WhenAll(losing, waiter).WaitAsync(Bound);
 
         foreach (var wait in waiting)
         {

@@ -61,7 +61,7 @@ public sealed class NativeMemoryAtCloseTests
 
         // Each reader reads its key until a read fails with ObjectDisposedException.
         var readers = Enumerable.Range(0, Readers)
-            .Select(key => Task.Factory.StartNew(
+            .Select(key => OwnThread.Run(
                 () =>
                 {
                     var signalled = false;
@@ -87,10 +87,7 @@ public sealed class NativeMemoryAtCloseTests
                     }
 
                     Assert.Fail("The close did not end the reads within the bound.");
-                },
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default))
+                }))
             .ToArray();
 
         Assert.True(started.Wait(Bound), "The readers did not start.");

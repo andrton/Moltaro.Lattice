@@ -37,7 +37,7 @@ internal sealed class HeldRead : IDisposable
             held._released.Task.Wait(Bound);
         });
 
-        held._read = Task.Factory.StartNew(read, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        held._read = OwnThread.Run(read);
 
         var first = await Task.WhenAny(inside.Task, held._read).WaitAsync(Bound);
 

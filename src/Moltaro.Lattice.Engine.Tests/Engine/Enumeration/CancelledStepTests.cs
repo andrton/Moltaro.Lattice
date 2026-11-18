@@ -153,11 +153,7 @@ public sealed class CancelledStepTests
         database.DrainRetired();
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
 
-        var longStep = Task.Factory.StartNew(
-            () => steps.MoveNextAsync().AsTask().GetAwaiter().GetResult(),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+        var longStep = OwnThread.Run(() => OwnThread.Wait(steps.MoveNextAsync()));
 
         // A root retired while the step is inside stays retired through a drain.
         var seen = false;

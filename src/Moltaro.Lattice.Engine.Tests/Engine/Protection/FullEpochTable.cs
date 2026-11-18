@@ -55,16 +55,13 @@ internal sealed class FullEpochTable : IDisposable
     public async Task ExpectCancelledWhileHeldAsync(Func<object?> call, CancellationTokenSource cancellation, TimeSpan wait)
     {
         using var started = new ManualResetEventSlim();
-        var running = Task.Factory.StartNew(
+        var running = OwnThread.Run(
             () =>
             {
                 started.Set();
 
                 return call();
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            });
 
         try
         {

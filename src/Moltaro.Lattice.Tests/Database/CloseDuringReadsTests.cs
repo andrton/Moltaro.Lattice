@@ -29,11 +29,7 @@ public sealed class CloseDuringReadsTests
             var age = round;
 
             var readers = Enumerable.Range(0, Readers)
-                .Select(reader => Task.Factory.StartNew(
-                    () => ReadUntilClosed(started, reader % 2 == 0 ? () => ReadByClass(users, name, email, age) : () => ReadByName(userRecords, name, email, age)),
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                .Select(reader => OwnThread.Run(() => ReadUntilClosed(started, reader % 2 == 0 ? () => ReadByClass(users, name, email, age) : () => ReadByName(userRecords, name, email, age))))
                 .ToArray();
 
             // Every reader has read once before the close.

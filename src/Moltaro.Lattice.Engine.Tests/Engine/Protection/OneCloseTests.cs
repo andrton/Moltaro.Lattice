@@ -154,7 +154,7 @@ public sealed class OneCloseTests
 
             // Each caller on a thread of its own, all let go at once; every other one disposes.
             var callers = Enumerable.Range(0, Callers)
-                .Select(caller => Task.Factory.StartNew(
+                .Select(caller => OwnThread.Run(
                     () =>
                     {
                         ready.Signal();
@@ -163,10 +163,7 @@ public sealed class OneCloseTests
                         var call = caller % 2 == 0 ? database.CloseAsync() : database.DisposeAsync();
 
                         calls[caller] = OutstandingWhenCompleted(call.AsTask(), allocator);
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                    }))
                 .ToArray();
 
             Assert.True(ready.Wait(Bound), "The callers did not start.");

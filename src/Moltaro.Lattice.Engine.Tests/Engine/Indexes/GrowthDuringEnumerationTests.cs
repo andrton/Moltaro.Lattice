@@ -74,7 +74,7 @@ public sealed class GrowthDuringEnumerationTests
             await Task.WhenAny(inside.Task, growing).WaitAsync(Bound);
             Assert.True(inside.Task.IsCompleted, "The insert did not grow the index.");
 
-            var rest = Task.Factory.StartNew(
+            var rest = OwnThread.Run(
                 () =>
                 {
                     var taken = new List<long>();
@@ -85,10 +85,7 @@ public sealed class GrowthDuringEnumerationTests
                     }
 
                     return taken;
-                },
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default);
+                });
 
             await Task.WhenAny(rest, Task.Delay(Patience));
             release.TrySetResult();

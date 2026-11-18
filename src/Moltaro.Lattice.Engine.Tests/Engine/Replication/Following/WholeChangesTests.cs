@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 // Every state a reader reads is one whole state the master wrote, and the states one reader reads never
 // go back: a read is coherent for one entity, and the child applies the writes in their order. The
 // position of the child that a reader reads never goes back either. At the end the child holds the last
-// state, with the revision of the master.
+// state, with the revision of the master. Each reader runs on a thread of its own (OwnThread), since it
+// never waits and so never gives its thread back while the run lasts.
 public sealed class WholeChangesTests
 {
     private const int Replaces = 200;
@@ -32,9 +33,9 @@ public sealed class WholeChangesTests
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
         using var stop = new CancellationTokenSource();
         var firstReads = Enumerable.Range(0, Readers).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
-        var readers = Enumerable.Range(0, Readers).Select(reader => Task.Run(() => Read(child, byName: reader % 2 == 1, firstReads[reader], stop.Token))).ToArray();
+        var readers = Enumerable.Range(0, Readers).Select(reader => OwnThread.Run(() => Read(child, byName: reader % 2 == 1, firstReads[reader], stop.Token))).ToArray();
 
-        // Every reader has read once before the first replace, however late the pool runs it; a reader that
+        // Every reader has read once before the first replace, however late its thread starts; a reader that
         // failed its first read has ended, and the test reports it below.
         await Task.WhenAll(readers.Select((reader, index) => Task.WhenAny(reader, firstReads[index].Task))).WaitAsync(Bound);
 
