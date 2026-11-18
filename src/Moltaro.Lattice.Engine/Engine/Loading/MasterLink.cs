@@ -207,17 +207,24 @@ internal sealed class MasterLink : IDisposable
     // Whether the next frame of the stream has arrived whole already (FrameConnection.HoldsFrame).
     public bool HoldsFrame => _connection.HoldsFrame;
 
-    // Tells the master that the child has applied everything it received up to the sequence. The send
-    // waits until the master has taken the bytes, which it does as long as it serves the child; the token
-    // ends the wait.
-    public async ValueTask SendAppliedAsync(ulong sequence, CancellationToken cancellationToken)
+    // After the load, for the one task that sends on the connection (Forwarding.ChildSender): adds an
+    // Applied, which tells the master that the child has applied everything it received up to the
+    // sequence, to the frames waiting to be sent.
+    public void AddApplied(ulong sequence)
     {
         Span<byte> payload = stackalloc byte[Protocol.AppliedPayloadSize];
 
         TransactionFormat.WriteApplied(payload, sequence);
         _connection.Add(FrameKindEnum.Applied, 0, payload);
-        await _connection.SendAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    // The same, for one frame of a forwarded write, the last one marked.
+    public void AddRequest(ulong correlationId, bool last, ReadOnlySpan<byte> payload) =>
+        _connection.Add(FrameKindEnum.WriteRequest, last ? Protocol.EndsARoot : 0, correlationId, payload);
+
+    // Sends the frames added. The send waits until the master has taken the bytes, which it does as long
+    // as it serves the child; the token ends the wait, and so does the end of the connection.
+    public ValueTask SendAsync(CancellationToken cancellationToken) => _connection.SendAsync(cancellationToken);
 
     // Ends the connection in order. The master sees the child go, and holds nothing for it afterwards.
     public void Dispose() => _connection.Dispose();

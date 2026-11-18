@@ -31,4 +31,15 @@ internal enum FrameKindEnum : ushort
     // From a child to its master: the sequence up to which the child has applied all it has received
     // (Transactions.TransactionFormat).
     Applied = 9,
+
+    // From a child to its master: a write the child forwards, or a part of one (Forwarding.ForwardEncoding).
+    WriteRequest = 10,
+
+    // From a master to a child: the answer to a forwarded write, or a part of one (Forwarding.ForwardEncoding).
+    WriteReply = 11,
+
+    // From a master that closes in order to a child, once, after the replies and the tail it sends the
+    // child and before the end of its sending side: every request of the connection not answered before it
+    // was not executed and will not be. It has no payload, and its correlation id is 0.
+    Closed = 12,
 }

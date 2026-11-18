@@ -24,7 +24,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // which the thread that decides the outcome writes under the lock and reads after it, and the
 // completion, which is set once for each write, outside every lock; its continuations run on the
 // thread pool, never on the thread that completes it, so that no code of the application runs on a
-// thread of the engine (RunContinuationsAsynchronously).
+// thread of the engine (RunContinuationsAsynchronously). A write a child forwarded has no caller: its
+// outcome is its reply, and its completion is never set (WriteCoordinator, "Forwarded writes").
 //
 // It is a work item of the thread pool, so that its withdrawal after a cancellation, and the end of
 // its resolution after a refusal of the arena, run on a thread of the pool without another allocation
@@ -56,8 +57,13 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     public EntityKey Key { get; private set; }
 
-    // The values of a complete entity for an insert, a replace and an upsert; null for a delete.
+    // The values of a complete entity for an insert, a replace and an upsert; null for a delete, and for
+    // a write a child forwarded, which brings its root instead (Forwarded).
     public object?[]? Values { get; private set; }
+
+    // Where a write a child forwarded came from and the root it brings (ForwardedOrigin); null for a write
+    // made on this instance.
+    public ForwardedOrigin? Forwarded { get; private set; }
 
     public LatticeRevision? ExpectedRevision { get; private set; }
 
@@ -126,6 +132,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         WriteKindEnum kind,
         in EntityKey key,
         object?[]? values,
+        ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken token,
@@ -135,6 +142,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Kind = kind;
         Key = key;
         Values = values;
+        Forwarded = forwarded;
         ExpectedRevision = expectedRevision;
         Session = session;
         Token = token;
@@ -179,6 +187,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Key = default;
         Token = default;
         Values = null;
+        Forwarded = null;
         Session = null;
         ExpectedRevision = null;
         State = default;

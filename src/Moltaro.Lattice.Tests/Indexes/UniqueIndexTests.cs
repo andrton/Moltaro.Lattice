@@ -243,9 +243,8 @@ public sealed class UniqueIndexTests
     [Fact(Skip = UniqueNotImplemented)]
     public async Task Write_through_a_child_is_held_to_the_same_rule()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address, Schema);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, Schema);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         await master.Set<Account>().InsertAsync(Ada());
 
         // The master decides, also about a write the child has not seen a conflict for yet.

@@ -30,8 +30,6 @@ namespace Moltaro.Lattice.Tests.Keys;
 // - a full case mapping finds Straße under STRASSE.
 // The hash has to agree with the comparison: a hash that does not follow the table puts two spellings
 // of one key in different buckets, and the other spelling is not found.
-//
-// Engine only: the placeholder refuses an entity type with a comparison without case until S12.
 public sealed class CaseInsensitiveKeyTests
 {
     // Keys that the case table holds different from each other.
@@ -225,7 +223,7 @@ public sealed class CaseInsensitiveKeyTests
     }
 
     private static ValueTask<ILatticeDatabase> OpenAsync(LatticeStringEncodingEnum encoding) =>
-        TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, StringKeySchema.Of(encoding, LatticeStringComparisonEnum.OrdinalIgnoreCase));
+        TestDatabases.OpenMasterAsync(StringKeySchema.Of(encoding, LatticeStringComparisonEnum.OrdinalIgnoreCase));
 
     // The entity of the key has the spelling it was created with and the body, through the class and
     // by name, under each of its spellings.

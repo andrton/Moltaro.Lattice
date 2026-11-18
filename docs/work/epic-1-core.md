@@ -56,7 +56,7 @@ specification tests, become a check of the finished engine when Epic 2 runs.
 
 The state after the last closed sprint; the coordinator keeps it current.
 
-**In the contract and working in the placeholder.** Opening and closing; master and child;
+**In the contract and working.** Opening and closing; master and child;
 MemoryOnly. The compiled schema: the closed JSON descriptor with identities of entity
 types, fields, indexes, enum types and owned types, scalar fields, enum and Flags types,
 text policies and the string encoding, owned values, Lists, Maps, Sets and references,
@@ -64,12 +64,13 @@ index parts that are paths into owned values; binary save and load with a digest
 fingerprints; the optional .NET class, bound by one table for every position, with a .NET
 enum that has to agree with its enum type. Records and owned values that hold nested
 values and copy what is set into them. Sets by class and by name, for
-entity types of scalar fields with the default text policies: read, enumerate, insert,
+entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
+and UTF-16: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
-**In the engine, not behind the contract yet.** Mechanisms of
-`Moltaro.Lattice.Engine`, reached only by its tests until S12 moves the entry point: the
+**How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
+opens the engine; the placeholder is deleted. Mechanisms of `Moltaro.Lattice.Engine`: the
 arena of native memory — segments, size classes, regions, the block header, relative
 addresses, the reserve, the memory limit and its counters — and the table of root entries
 with generations (S04); the root layout compiled from an entity type of scalar fields,
@@ -81,8 +82,7 @@ inserts, reads, replaces, upserts and deletes entities of scalar fields by prima
 by class and by name, with revisions, positions and sessions; layouts compiled at open;
 the lookup claim and the protection of a root, with no code of the application inside
 a gate; reads that allocate the returned copy and nothing else. The scenario tests of
-reads and writes run on it beside the placeholder, through an internal entry (exception
-X4), until S12 (S06). By the owner's decisions of 15 November 2026 an entity, a write
+reads and writes run on it (S06; through `LatticeDatabase` since S12). By the owner's decisions of 15 November 2026 an entity, a write
 batch and the queue of writes have no limit of their own, and the validation of the core
 refuses text that is not well-formed on both implementations. From S07 the engine
 stores every key type of the catalog — the eight integers, String with either
@@ -110,15 +110,22 @@ calls; a write is withdrawn by its token until it is dispatched; `MemoryLimit` i
 limit of the arena, and a write is refused for memory only when it does not fit beside
 the stored data; a fault of a publication leaves the instance `Faulted`. The close of a
 database is one operation that every later call joins; the token of an asynchronous read
-is honored in every wait of its step; a key is given by name without a box. The public
-entry keeps the refusals of the placeholder until S12. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
+is honored in every wait of its step; a key is given by name without a box. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
 connects over TCP, loads the schema and every entity with its revision, and becomes Ready;
 a frame carries a CRC32C and no address travels; `OpenTimeout` bounds reaching the master
 and the time without a frame. From S11 the master keeps writing while children
 load and follow: a child ends its load at a fixed position of the master and applies the
 master's changes in order, each whole, at the master's positions and revisions; the
 master releases a change when every child has applied it, and until S33 nothing bounds
-what it keeps for a child that falls behind.
+what it keeps for a child that falls behind. From S12 a child forwards its writes to its
+master on its one connection: the child validates and encodes the root, the master checks
+it as a child checks a root of a load and executes it, and the reply reaches the child
+before the transaction of that write; the call returns when the child has applied it. A
+master that closes ends its connections in order and says so with the frame `Closed`, so
+a write it did not execute ends in `Unavailable` and only a connection lost without that
+frame leaves a sent write `IndeterminateOutcome`. A wait for a position wakes only when a
+publication reaches it. A child that lost its master serves reads at its position and
+refuses writes; it does not connect again until S34.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -129,7 +136,7 @@ tests are written and skipped; samples are written.
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
-| Storing what the schema declares beyond the defaults: a comparison that ignores case, Dictionary storage, an enum field, UTF-16 | The declarations of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S05–S07 in the engine, S13 for Dictionary; behind the public entry point from S12 |
+| Storing a String with Dictionary storage | The declaration of S02; the schema compiles, a write of such an entity type is refused | `TextPolicyAndEnumWriteTests` asserts the refusal | S13 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
 **Accepted for the milestone, not in the contract yet.** Each gets its contract, sample
@@ -138,7 +145,6 @@ and tests in the sprint named.
 | Feature | Sprint |
 | --- | --- |
 | The memory budget as an option, the budgets of a read as options that are not set by default; resource errors. An entity, a batch and the queue of writes have no limit of their own (decisions O18, O19 and O20) | S08, S09, S17, S24 |
-| A network transport between master and children | S10–S11 |
 | Explicit partial updates | S20 |
 | Protected read-only views | S21–S22 |
 | Operation identities, retained outcomes and safe retry | S26 |
@@ -185,8 +191,8 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R25 | A Durable write succeeds after its durable admission, its PostgreSQL commit and its coherent publication; an uncertain commit is reported as uncertain | [Q09.1](../decisions/write-acknowledgment.md), [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S28–S29 |
 | R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are bounded when the application sets a limit, and shrink back after load in any case | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
 | R27 | Recovery: an offline reopen rebuilds one arena and its indexes from the base and the committed tail; nothing partial is replayed; damaged or incompatible data is refused | [Q09.2](../decisions/checkpoint-and-journal.md), [Q16](../decisions/physical-storage.md) | Release | Absent | S30–S31, S32 |
-| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works in the engine, over TCP, behind the tests; no limit of captures yet | S10–S11, S33 |
-| R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works inside one process | S12 |
+| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works over TCP; no limit of captures yet | S10–S11, S33 |
+| R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works over TCP, in one process or several; no reconnection yet | S12, S34 |
 | R30 | Delivery history in RAM is bounded and released after acknowledgment; a child resumes from it or reloads into one arena; reads wait within a bound; a foreign history is refused; local reads continue while disconnected | [Q08.1.2, Q08.1.3](../decisions/replication-and-hosting.md) | Release | Absent | S33–S34, S35 |
 | R31 | Backup and restore are run by infrastructure. A restored database is validated offline and activated with a new history; children reload | [Q09.4](../decisions/backup-and-restore.md) | Release | Absent | S36 |
 | R32 | Explicit eager schema migration with the affected data paused; stable identities; resumable before activation | [Q03, Q03.9](../decisions/schema-and-types.md) | Must | Absent | S37–S38 |
@@ -323,6 +329,14 @@ documentation before this document is removed.
 | S11 | The tail of blocks of 1 MiB against one object and one array for each transaction (the trial that was kept) | allocation per write with a child 446 to 462 bytes against 165 to 182; one caller with one child 331 to 383 k/s against 382 to 437 k/s, write p99 14.6 to 15.9 µs against 9.0 to 12.3 µs, pause of the collector per 2 s 25 to 143 ms against 6.9 to 9.2 ms; 16 readers beside 16 callers with a child: writes 60 to 77 k/s against 127 to 150 k/s, reads 2.02 to 2.52 M/s against 2.51 to 2.98 M/s. Tried without gain and not kept: acknowledgments that do not release, a sender that spins before it waits, a larger gen0 budget. Not built: a pool of tail memory and encoding outside the lock (S33) | development-4 | 18 November 2026 |
 | S11 | One write of 32 MiB with a child following | p50 2.5 to 2.6 ms with no child, 27.6 to 34.8 ms with one; small writes beside large ones 3.7 to 17.9 k/s with no child and 293 to 592 a second with one, p99 42 to 101 ms: they wait while the large write is copied into the tail under the lock. The capture's copy of one root of 32 MiB inside the protection: median 10.4 to 14.9 ms. Carried to S33 | development-4 | 18 November 2026 |
 | S11 | One acknowledgment that releases a million transactions of 64 bytes, under the lock of the writes | 4.0 to 19.6 ms when every header was read, 0.03 to 0.46 ms with the release by whole blocks | development-4 | 18 November 2026 |
+| S12 | The mechanism that wakes waits for a position, before and after its replacement (waiters ordered by target, the lowest target published): the clock alone with 100 and 10,000 waiters; and a child with 10,000 waiters while 16 callers write to its master | alone: 0.95 to 2.1 million publications a second and 0.8 to 1.1 KB allocated per publication before, 175 to 177 million and nothing allocated after, at every count of waiters; on a child: the master wrote 373 to 394 k/s before and 668 to 706 k/s after, the collector paused 515 to 551 ms in 2 s before and 8 to 11 ms after; a read with a satisfied session on a child p50 0.5 to 0.6 µs both ways | development-4 | 18 November 2026 |
+| S12 | One small replace forwarded through a child, one caller, loopback; and its parts | p50 50 to 116 µs, p99 87 to 364 µs (the first round of a process is the slow one). Parts: the write on the master p50 0.7 to 1.3 µs; a round trip of 64 bytes on loopback p50 23 to 28 µs; from the end of the master's write to the end of the child's wait p50 25 to 59 µs. The gate of a write through a child is 50 ms | development-4 | 18 November 2026 |
+| S12 | 16 callers forwarding through one child; and the same beside 4 callers and 4 readers of the master | 50 to 78 k writes a second, p50 196 to 295 µs, p99 0.45 to 1.3 ms; beside the master's own load 15 to 28 k/s forwarded (p99 1.8 to 5.1 ms) while the master wrote 315 to 473 k/s and its reads kept p99 1.6 to 2.8 µs (1.4 to 1.7 µs with no forwarding) | development-4 | 18 November 2026 |
+| S12 | Reads by key on a child, 4 threads, beside 16 callers forwarding through it, the process at its cap of 10 processors | 3.6 to 5.6 million a second, p99 1.4 to 2.1 µs, against 4.9 to 8.4 million and 1.0 to 2.0 µs alone; no code of a read changed, the fall is the processors the callers take | development-4 | 18 November 2026 |
+| S12 | Small forwarded writes beside forwarded writes of 32 MiB through the same child (one connection) | p50 56 to 63 µs, p99 3.5 to 5.2 ms, longest 214 to 349 ms against 4.8 to 16 ms alone; an Applied of a master's write arrives up to 77 to 98 ms late. Carried to S33 with Q52 | development-4 | 18 November 2026 |
+| S12 | The close of a master and of a child with 16 callers forwarding | master: median 2.4 to 3.3 ms after the frame Closed (1.9 to 3.3 ms before it), longest 7.5 ms; child: median 1.7 to 3.1 ms, longest 18 ms | development-4 | 18 November 2026 |
+| S12 | Allocation per forwarded write | about 3.2 KB on the child and 1.1 KB on the master; not reduced in S12, a figure to return to when G3 is measured | development-4 | 18 November 2026 |
+| S12 | A master with no child against the commit before the implementation of S12, alternating rounds | no fall with 4 and 16 callers, readers, and readers beside writers; allocation per write unchanged (160 and 124 bytes); one caller: replace 1.39 to 1.52 M/s against 1.46 to 1.57 M/s, inside the spread between runs (the order of the runs changed the sign) | development-4 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1019,7 +1033,7 @@ Why this order:
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
 | S11 | A child loads under writes and follows the master | Full | Done |
-| S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
+| S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
@@ -4509,6 +4523,241 @@ says otherwise, these replace it.
    callers through one child, and the master's own writes beside them — the first figure
    of forwarding under load.
 
+**Decided by the planner on 18 November 2026 after the study of S12.** Where a sentence
+above says otherwise, these replace it. The study read the source of PostgreSQL
+(PostgreSQL Licence, commit 11591f2), etcd (Apache-2.0, commits 65fe41f and, for raft,
+99f9ffb), Valkey (BSD-3-Clause, commit 97ff16e), Garnet (MIT, commit fcc018a) and TiKV
+(Apache-2.0, commit 4d8fde7); no file is adapted from them.
+
+1. **The entity of a `WriteRequest`** is the root in the load format of S10; "the logical
+   encoding of S11" leaves the comment of `ForwardEncoding`. The child writes the last
+   mutation sequence as 0 and the master stamps it at preparation. "The master validates
+   again" means exactly: (a) the check a child makes of a root received in a load — type
+   id, layout version, structure, lengths inside the announced length, every out-of-line
+   value inside its bytes, the sizes a value may have; (b) the key of the request equals
+   the key in the root, strict text; (c) the conditions of the write path (duplicate, not
+   found, expected revision, memory). The value rules of the schema (well-formed text,
+   declared enum members) are checked once, on the child, which is the same engine with
+   the schema agreed in the Hello; the master trusts a child's values to the degree a
+   child trusts a master's in a load. No second validator over root bytes is built. If
+   check (a) does not bound every read the master later makes inside the root, that is a
+   P1 of memory safety and goes to the planner.
+2. **The reply comes before the transaction.** A forwarded write carries its origin (the
+   connection and the correlation id) into the write path; the hold that publishes it
+   records the reply for that connection before the commit of the tail; the sender of the
+   connection sends the recorded replies before it frames its next transaction.
+   Invariant, with a test: a child never receives the transaction of a write it forwarded
+   before that write's reply. Not the id on the Transaction frame (the tail is shared and
+   encoded once), and not a child that receives independently of applying.
+3. **One sender on the child.** One task owns the send side of the child's connection: a
+   queue of requests in the order of the calls and the newest applied sequence. It sends a
+   request a frame at a time. The acknowledgment rule of S11 is reworded and keeps its
+   guarantee and its test: the follower publishes its applied sequence and wakes the
+   sender; the sender sends the newest applied sequence before each request frame it
+   sends and whenever it is woken with nothing else to send; never before R. The follower
+   accepts a `WriteReply` anywhere, also between the frames of a transaction.
+   `FrameHeader.CorrelationId` pairs a reply with its request: ids start at 1 on each
+   connection and 0 stays the load and the stream. The table of pending requests is
+   emptied on every way out and closes when the link ends; a registration after that is
+   refused.
+4. **The close of a master** (no new public option). After its admitted writes have
+   ended, for each connection: it sends the recorded replies, shuts down its sending side
+   (not a reset) and waits until the child has ended its side; a child that reads the end
+   marks itself without a master before it ends its side. So when `CloseAsync` of the
+   master returns, every child that reads has observed the end, and
+   `Child_keeps_serving_reads_after_the_master_closes` holds as written: the child refuses
+   with `Unavailable` because it has no connection, and nothing is sent. The wait for a
+   connection is bounded by an internal constant of 5 s, after which the connection is
+   reset; all connections are waited together, not in turn. The constant is entered in X6
+   until S33, where the deadline of a send to a child that does not read becomes an option
+   and bounds this wait too. If a test of the contract with `SuspendApplying` held and a
+   master's close would wait out the 5 s, the planner is told which before anything is
+   changed.
+5. **A write the master did not execute is never `IndeterminateOutcome`.** A request a
+   closing master did not execute is answered `Unavailable`, "not executed". An exception
+   that is not a `LatticeException`, thrown by the submit of a forwarded request before
+   its dispatch, is answered `Unavailable` with its message: it is a defect of the child's
+   validation.
+6. A `WriteReply` larger than a frame is cut into frames like a request.
+7. **Two moments of "sent".** Taken by the sender (its first frame begins): a cancellation
+   no longer withdraws the write. Last frame accepted by the socket: a connection that
+   ends before it gives `Unavailable` ("not executed"), after it `IndeterminateOutcome`.
+   The master never executes a request whose last frame it did not receive; stated and
+   tested.
+8. **A child's close with a write that has its reply and waits for its application:** the
+   call returns its real result, the success with revision and position, and so does a
+   refusal already received. The wait for the local application exists so that a read on
+   this instance sees the write; a closed instance serves no read. A write sent and not
+   answered stays `IndeterminateOutcome`; one not taken by the sender ends as a write not
+   dispatched.
+9. **No timeout travels in the request.** The master uses its own
+   `SynchronizationTimeout` for the wait for `MinPosition`; on a master of the same
+   history that wait ends at once, and another history is refused — on the child before
+   the request is queued, and again on the master.
+10. **X6** gains the wait of a forwarded write for its reply when the master vanishes
+    without a reset, until S34.
+11. **A switch that cuts the child's link**, for the test of point 7, is allowed in
+    `Moltaro.Lattice.Engine.Tests` only, through `EngineTestInputs` or the internal
+    overload of `OpenAsync`; the friend access of `Moltaro.Lattice.Tests` keeps only
+    `SuspendApplying`.
+12. **A request received whole is a submitted write:** it runs although its child's
+    connection ended; its reply is dropped, and the child has reported
+    `IndeterminateOutcome`. No token of a connection goes into the write path. An
+    incomplete request is dropped.
+13. **An announced length above the master's `MemoryLimit`** is refused at the first frame
+    with `WriteRejected`, `Limit = Memory`; the master reads and drops the remaining
+    frames of that request and keeps the connection. For every other request the buffer
+    grows with the bytes received, never by the announced length, and a request whose
+    frames exceed what it announced is malformed and ends the connection.
+14. **`PositionClock`.** It wakes every waiter at every publication. Measured first with
+    0, 100 and 10,000 waiters on a child; replaced only with the figure, by waiters
+    ordered by target with a published lowest target (the form of PostgreSQL's
+    `xlogwait.c`: one read when nobody is reached, a full fence between publishing the
+    sequence and reading the lowest target, waiters of one target sharing a signal, a
+    waiter that timed out leaving), and then with a session read on a child measured
+    beside it: that read must not pay.
+15. **History.** A position carries its history and the clock refuses another one; a
+    MemoryOnly master draws a new history at every open. Enough for this sprint.
+16. **Measured, added:** the parts of a small forwarded write (child, network, master,
+    application, wake-up); the clock with 0, 100 and 10,000 waiters, at spread and at
+    equal targets; small forwarded writes beside writes of 32 MiB through the same child,
+    and how late an Applied arrives during one; the time of a master's close with
+    forwarded writes in flight and of a child's close with pending requests; allocation
+    per forwarded write on both sides; reads by key on the child on 4 threads beside 16
+    callers forwarding through it, against the same child with none; 1,000 runs each of
+    `Timeout_after_the_master_committed_does_not_undo_the_write` and
+    `Child_keeps_serving_reads_after_the_master_closes`.
+
+The planner reported points 1, 4 and 8 to the owner as its decisions, which he may
+overturn; the owner agreed with all of them on 18 November 2026, as the planner relays.
+
+**Settled by the planner on 18 November 2026, with the contract commit.** A write of a
+child that its sender has not taken, or has sent only in part, ends at that child's close
+in `Unavailable`, not executed; `ObjectDisposedException` stays for a call made after the
+close (this replaces "ends as a write not yet dispatched ends at the close of a master").
+The wait of a forwarded write for its application on the child is bounded by the
+`SynchronizationTimeout` of the session when the call has a session that sets one,
+otherwise by the option; it does not travel (this corrects point 5 of 17 November). An
+address already in use is `InvalidConfiguration` with the system's message inside (this
+replaces "with the error the system reports" of S10); the test of two masters at one
+address takes a loopback port by binding port 0, reading the port and releasing it.
+
+**Settled by the planner on 18 November 2026, with the tests of S12.**
+
+- A malformed `WriteRequest` — truncated, an unknown kind or type id, a key that is not
+  the key in its root, a root that fails the check of a received root, the correlation id
+  0 or one still in flight — is a defect of the peer: the master executes nothing of it
+  and ends the connection. Only an announced length above `MemoryLimit` is answered and
+  keeps the connection. A malformed `WriteReply`: the child ends its connection, and its
+  writes end by the two moments of point 7.
+- Point 4 is widened: at its close the sender of a master does its ordinary work to the
+  end — the recorded replies, then what the tail holds for that child up to the close —
+  and then shuts down its sending side, all inside the same 5 s; a child that reads
+  applies and returns the success. When the link ends in any other way while a call
+  holds its reply and waits for its application, the wait ends at once with
+  `SynchronizationTimeout` carrying the committed position: the write is committed and
+  must not be repeated. Carried to S34: with reconnection the wait continues across a new
+  connection within its timeout.
+- An `OpenAsync` that waits when its instance is closed ends in
+  `OperationCanceledException`: the close cancels the wait. `ObjectDisposedException` is
+  for a call made on a closed instance. The engine of S10 changes to that.
+- Forced removals of tests that state the placeholder or what S12 replaces, each named
+  with its reason in its commit: in `ValidationBeforeRefusalTests` the parts that expect a
+  refusal of a comparison without case, an Enum field and UTF-16;
+  `MemoryLimitTests.Placeholder_validates_the_memory_limit…` and
+  `ReadLimitsTests.Placeholder_validates_the_read_limits…`; of S10
+  `WritesOnAChildTests.Write_on_a_child_is_NotSupportedException…`,
+  `ListenAddressTests.Address_with_another_scheme…when_the_instance_opens` and
+  `ListenAddressTests.Master_whose_port_is_in_use_fails_its_open_with_the_error_the_system_reports…`.
+- Three tests of the engine take about 5 s each, because a master waits for a child that
+  cannot read before it resets it; accepted as slow.
+- Reasoned and not tested (point 7): a connection cut after the child's socket accepted
+  the last frame of a request and before the master received it. No deterministic signal
+  tells a test that the child's sender has seen its last send complete.
+- The shapes the tests assume are in `Replication/Forwarding/ForwardPayload.cs` of the
+  engine's tests and are accepted.
+- An operation in flight on an instance that is being closed, which the close does not
+  let finish, ends in `Unavailable`: a wait for a position, the first step of an
+  `EnumerateAsync` that waits for one, and on a child a write its master has not taken. A
+  started write of a master reaches its outcome. An `OpenAsync` that still waits is
+  cancelled: the caller has no instance yet to be unavailable. The behavior was there;
+  the contract now says it.
+
+The owner agreed with the decisions of the tests step and with this rule of the close on
+18 November 2026, as the planner relays. Carried to S27: with Durable, say whether a master can be behind a position a
+session holds.
+
+**Settled by the planner on 18 November 2026, with the implementation of S12.** Accepted
+as the implementer decided them: the wire format is 3, so a peer of the format of S11 is
+refused in the handshake; the master requires the correlation id of each request to be
+the previous one plus 1 and anything else is malformed; a reply whose position belongs to
+another history is a malformed reply and the child ends its connection; a child writes
+the root of a forwarded write without its arena; no switch that cuts a link was needed;
+`PositionClock` is replaced on its figure. Two items go to the fixes after the review:
+
+1. **One result for "committed, will not arrive on this node".** A forwarded write that
+   holds its reply and waits for its application ends at once in `SynchronizationTimeout`
+   with `CommittedPosition` when the child has faulted, as it does when the master is lost
+   or the timeout elapses; the session moves to the committed position in each. Not
+   `Unavailable`: an application retries on `Unavailable`, and this write is committed.
+   The sentence of the contract becomes "On a child that has lost its master or has
+   faulted the wait ends at once, because the position cannot arrive."
+2. **A forwarded replace has no rule of its own for the spelling of a key.** A test states
+   that a replace through a child gives the stored entity the same key spelling as the
+   same replace made on the master directly. Where the two paths differ, the forwarded
+   one is the defect.
+
+**Decided at the review of S12, 18 November 2026** (two reviewers on commit 3740090; no
+P1). Both confirmed that a closing master left writes it had not executed as
+`IndeterminateOutcome` on the child, against point 5 after the study. The planner settled:
+
+1. **A refusal is recorded like a success:** the reply of a forwarded write, whatever its
+   outcome, is recorded before the write leaves the barrier of the master.
+2. **The frame `Closed`.** A closing master, for each connection and in this order: closes
+   its barrier; lets its admitted writes end, each with its reply recorded; sends the
+   recorded replies, then what the tail holds for that child; then one frame `Closed` —
+   the master closed in order, and every request of this connection not answered before
+   this frame was not executed and will not be; then shuts down its sending side and
+   waits for the child's end as in point 4, within the same 5 s. After `Closed` is queued
+   the master executes no request of that connection: what arrives later, whole or in
+   part, is read and dropped, with no reply of its own. A child that receives `Closed`
+   ends every sent and unanswered request in `Unavailable`, "not executed", marks itself
+   without a master and ends its side. A connection that ends without `Closed` — a reset,
+   a crash, a vanished master, the 5 s elapsed — leaves a sent and unanswered request
+   `IndeterminateOutcome`. An end in order of a connection alone is not a statement about
+   execution: a killed process can produce one. `Closed` has no body, and a child reads nothing
+   after it: a reply after it, or a second `Closed`, changes nothing. The wire format
+   stays 3.
+3. Invariants with tests: after a master's close in order no write through a reading
+   child ends in `IndeterminateOutcome`; a write whose reply was lost without `Closed` is
+   never reported "not executed".
+4. Fixed with tests in the same round: a write refused because the child has no master
+   kept its encoded request reachable from the caller's token; `PositionClock` could
+   report a lost master for a position it had reached, and its new mechanism had no
+   tests; an Insert that carries an expected revision is malformed; a `ListenUri` whose
+   host resolves to no address is `InvalidConfiguration`; what the placeholder left in
+   the core (`EntityBinding.Materialize` and its setters, a constructor of
+   `LatticeRecord`, `FieldValues.Copy`) is removed.
+5. Left as is: a child refuses a closed instance before a session of another history and
+   a master the other way round; no order is decided.
+6. The second round (two reviewers on commit 929fe60) found no P1 and no P2 and every
+   item above closed; a faulted master sends `Closed` too, because its fault ends every
+   admitted write with its reply recorded. Tests were added for what was right and
+   untested: the wait of a forwarded write on the master for the position of its
+   session, a master that faults and closes, and `Closed` before Ready. The sentence of
+   the contract of point 1 above the review was made exact: a wait for a position on a
+   faulted child is `Unavailable`; only a write through a child that faulted after its
+   master committed the write ends in `SynchronizationTimeout` with its position.
+7. **The Linux job of the pull request failed on a test of S10**, a paced load that got no
+   frame for its timeout of 1 s. The cause, reproduced in a Linux container on 4
+   processors, was not the engine: two soak tests of S11 ran loops on pool threads
+   whose awaits complete synchronously, held every worker of the pool and stalled the
+   timers and socket continuations of other tests for seconds. The pair fails at the
+   commit of S11 too: the green Linux runs of the pull requests of S10 and S11 passed by
+   the luck of scheduling and are not evidence. The loops were moved off the pool,
+   assertions unchanged. What the engine reports when a deadline fires over bytes that
+   wait is carried to S34.
+
 ### Stage 4. Indexes and batches
 
 #### S13 · Text entries and Dictionary strings
@@ -5122,6 +5371,9 @@ announces, bounded only by its memory limit, and each accepted connection holds 
 
 #### S27 · PostgreSQL provider and Durable open
 
+**Carried from S12:** with Durable, say whether a master can be behind a position a
+session holds, and what a forwarded write that names such a position then does.
+
 **Carried from S09, part 2:** the durable storage step is a log writer behind
 `CommitAsync`: the call hands the group over and returns; the commit to PostgreSQL runs
 behind its task. `CommitAsync` for the next group may be called on the thread that
@@ -5338,6 +5590,16 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Carried from S12:** a forwarded write of 32 MiB delays small forwarded writes of the
+same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
+connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
+master's close (X6) becomes the option that bounds a send to a child that does not read.
+A call withdrawn by its token stays in the queue of the child's sender, with its encoded
+request, until the sender takes it out; judged here with the allocation of a forwarded
+write. Not tested, because nothing can fault the publication of a child: a faulted child ends a
+forwarded write that holds its reply in `SynchronizationTimeout` with its committed
+position; the test comes with the fault point of a child's publication.
+
 **Carried from S11:** the bound of the tail is decided here, with the figures of S11 in
 "Measured results". Not built in S11 and judged here: a pool of tail memory and encoding
 outside the lock of the writes (it needs the published root kept from being freed until
@@ -5387,6 +5649,21 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Carried from S12:** a forwarded write that waits for its reply waits without an end
+when its master vanishes without closing the connection (X6); the detection of a lost
+master ends it. Decide whether a wait for a position, and a forwarded write that holds
+its reply, continue across a reconnection instead of ending at once; the sentence of the
+contract "On a child that has lost its master or has faulted the wait ends at once" and
+the remark "Not implemented yet" on `Unavailable` (no reconnection) are rewritten here.
+
+**Carried from S12:** a receive deadline that fires while bytes wait in the socket reports
+that nothing arrived, which is false: they arrived and the process had not handled them
+(found at S12 on a starved thread pool: deadline armed at 3916 ms, 128 KiB in the socket
+at 4237 ms, callback at 8231 ms). Decide with the lost-peer rule whether a deadline that
+finds bytes waiting keeps reading, and how far a starved process may then run past its
+timeout. Until then the message of that refusal is not evidence about the master or the
+network.
 
 **Carried from S11:** a child that stopped following — a malformed transaction, a change
 its arena cannot hold, the end of its connection — stays Ready at its position and does

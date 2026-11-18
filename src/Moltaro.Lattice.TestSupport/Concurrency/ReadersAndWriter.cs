@@ -16,11 +16,7 @@ internal static class ReadersAndWriter
         using var written = new ManualResetEventSlim();
 
         var running = Enumerable.Range(0, readers)
-            .Select(reader => Task.Factory.StartNew(
-                () => ReadUntilWritten(readFor(reader), started, written),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default))
+            .Select(reader => OwnThread.Run(() => ReadUntilWritten(readFor(reader), started, written)))
             .ToArray();
 
         try

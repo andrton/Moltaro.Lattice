@@ -667,9 +667,10 @@ public sealed class RefusalResolutionTests
         // The other caller replaces entity 1 one write after another and counts its writes. Once the
         // test watches, it stops as soon as, between two of its writes, no write is admitted any more:
         // the refused write has left the coordinator. It does not look at the task of that write, whose
-        // completion may come later than the end of its resolution.
-        var replacer = Task.Factory.StartNew(
-            async () =>
+        // completion may come later than the end of its resolution. It runs on a thread of its own
+        // (OwnThread), since a replace that the storage does not hold completes at once.
+        var replacer = OwnThread.Run(
+            () =>
             {
                 for (var write = 0; Volatile.Read(ref stopped) == 0; write++)
                 {
@@ -678,13 +679,10 @@ public sealed class RefusalResolutionTests
                         return;
                     }
 
-                    await pieces.ReplaceAsync(PieceSchema.Of(1, name: 10 + (write % 40))).AsTask().WaitAsync(Bound);
+                    OwnThread.Wait(pieces.ReplaceAsync(PieceSchema.Of(1, name: 10 + (write % 40))));
                     Interlocked.Increment(ref replaced);
                 }
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).Unwrap();
+            });
 
         try
         {
@@ -783,7 +781,7 @@ public sealed class RefusalResolutionTests
         var ready = 0;
         var go = 0;
 
-        Task<LatticeWriteResult> Start(Func<ValueTask<LatticeWriteResult>> write) => Task.Factory.StartNew(
+        Task<LatticeWriteResult> Start(Func<ValueTask<LatticeWriteResult>> write) => OwnThread.Run(
             () =>
             {
                 var waited = Stopwatch.StartNew();
@@ -796,10 +794,7 @@ public sealed class RefusalResolutionTests
                 }
 
                 return write().AsTask();
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).Unwrap();
+            }).Unwrap();
 
         var started = (Start(one), Start(other));
         var waiting = Stopwatch.StartNew();

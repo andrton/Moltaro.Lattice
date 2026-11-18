@@ -25,8 +25,9 @@ internal struct FrameHeader
     // The bytes after the header: the payload and the check, at most Protocol.MaxBodyOf the kind.
     public uint BodyLength;
 
-    // Not used by the load: 0. It is there for the answers that the forwarding of writes (S12) pairs
-    // with their requests on the same connection.
+    // The id of a forwarded write in every frame of its request and of its reply, which pairs the two on
+    // one connection: 1 for the first request of a connection and one more for each next
+    // (Forwarding.ForwardEncoding); 0 in every frame of the load and of the stream.
     public ulong CorrelationId;
 
     // The number of the frame among the frames its sender sent on the connection: 1 for the first, and

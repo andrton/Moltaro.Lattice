@@ -18,8 +18,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // 4 KiB cannot hold, and 200 String keys of 2,000 characters at least 400,000 bytes, which a limit of
 // 128 KiB cannot hold, while 200 keys of 7 characters fit in it. A pass under the smallest limit returns
 // at least its first entity: three entities larger than the limit are read under it whole.
-// Every form of an enumeration, on the engine alone: the placeholder validates the limit and otherwise
-// does not use it until S12.
+// Every form of an enumeration.
 public sealed class ReadMemoryLimitTests
 {
     private const int Users = 2_000;
@@ -31,7 +30,7 @@ public sealed class ReadMemoryLimitTests
     private const long Large = 8 * 1024 * 1024;
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Enumeration_whose_remembered_keys_exceed_the_memory_limit_fails_with_ReadMemory_after_what_it_returned(string form)
     {
         await using var database = await OpenWithUsersAsync(Small);
@@ -59,7 +58,7 @@ public sealed class ReadMemoryLimitTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Entity_larger_than_the_memory_limit_is_read(string form)
     {
         await using var database = await OpenAsync(Small);
@@ -81,7 +80,7 @@ public sealed class ReadMemoryLimitTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Text_of_the_String_keys_a_pass_remembers_counts_against_the_memory_limit(string form)
     {
         const long Limit = 128 * 1024;
@@ -98,7 +97,7 @@ public sealed class ReadMemoryLimitTests
     }
 
     // A master of the engine whose options limit the memory of a read.
-    private static ValueTask<ILatticeDatabase> OpenAsync(long readMemoryLimit) => TestDatabases.OpenAsync(DatabaseImplementationEnum.Engine, new LatticeDatabaseOptions
+    private static ValueTask<ILatticeDatabase> OpenAsync(long readMemoryLimit) => TestDatabases.OpenAsync(new LatticeDatabaseOptions
     {
         PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
         Schema = TestData.Schema,

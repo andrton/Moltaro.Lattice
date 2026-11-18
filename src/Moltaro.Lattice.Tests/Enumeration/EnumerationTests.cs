@@ -10,11 +10,10 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // ApplicationCodeBetweenStepsTests, and a step after a close by EnumerationAfterCloseTests.
 public sealed class EnumerationTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Entities_that_nobody_changes_are_each_returned_once(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Entities_that_nobody_changes_are_each_returned_once()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var expected = new Dictionary<long, string>();
 
@@ -43,11 +42,10 @@ public sealed class EnumerationTests
         ExpectEach(expected, (await database.Set("User").EnumerateAsync(new LatticeSession()).ToListAsync()).Select(record => (record.Get<long>("Id"), record.Get<string>("Name")!)));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Replace_or_a_change_of_another_entity_type_during_an_enumeration_does_not_end_it(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Replace_or_a_change_of_another_entity_type_during_an_enumeration_does_not_end_it()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var tags = database.Set<Tag>();
         await InsertUsersAsync(users, 5);

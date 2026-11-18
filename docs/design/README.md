@@ -9,7 +9,7 @@ Where to start depends on the question:
 - **What is this database?** The [architecture](architecture.md), one page. The
   [design overview](overview.md) repeats it in prose with links into the decisions.
 - **What exists today?** The repository's [main README](../../README.md): the public
-  contract and the placeholder behind it.
+  contract and how much of the engine stands behind it.
 - **What has to be built?** The [planning handoff](planning-handoff.md), then the
   [milestone 1 implementation contract](milestone-1-engine-contract.md).
 

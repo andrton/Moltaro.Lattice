@@ -92,7 +92,7 @@ internal static class ReadersBesideChildScenario
 
     private static EngineDatabase OpenChild(Uri masterUri)
     {
-        var child = EngineDatabase.Create(new LatticeDatabaseOptions
+        var child = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,

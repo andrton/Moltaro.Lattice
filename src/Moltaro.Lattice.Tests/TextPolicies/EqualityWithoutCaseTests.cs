@@ -10,8 +10,8 @@ namespace Moltaro.Lattice.Tests.TextPolicies;
 // wherever it shows through the public API today:
 // - a String key compared without case, on the engine, in a UTF-8 and in a UTF-16 database: a read
 //   under the other text finds the entity exactly when the two are one key, and an insert under it is
-//   DuplicateKey exactly then (the placeholder refuses such an entity type until S12);
-// - the one operation per entity of a write batch, on both implementations;
+//   DuplicateKey exactly then;
+// - the one operation per entity of a write batch;
 // - the keys of a Map and the members of a Set compared without case, which a record holds under the
 //   comparison of the schema, in the core.
 // A field compared without case that is not a key shows its comparison only through an index, which
@@ -61,7 +61,7 @@ public sealed class EqualityWithoutCaseTests
     public async Task Two_texts_are_one_key_exactly_when_the_case_table_holds_them_equal(LatticeStringEncodingEnum encoding, string pairName)
     {
         var (left, right, equal) = Pairs[pairName];
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, SchemaIn(encoding));
+        await using var database = await TestDatabases.OpenMasterAsync(SchemaIn(encoding));
         var accounts = database.Set<Account>();
         var records = database.Set("Account");
 
@@ -88,11 +88,10 @@ public sealed class EqualityWithoutCaseTests
         }
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Write_batch_takes_one_operation_for_two_texts_exactly_when_the_case_table_holds_them_equal(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Write_batch_takes_one_operation_for_two_texts_exactly_when_the_case_table_holds_them_equal()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
 
         foreach (var (left, right, equal) in Pairs.Values)
         {

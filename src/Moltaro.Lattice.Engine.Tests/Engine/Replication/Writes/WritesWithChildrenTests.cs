@@ -55,7 +55,7 @@ public sealed class WritesWithChildrenTests
         await Pieces.InsertBeyondALinkAsync(master);
         var before = master.Position;
         await using var link = HeldLink.Start(master.ListenUri!);
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
 
         var opening = child.OpenAsync().AsTask();
         await link.HeldAsync();
@@ -77,12 +77,14 @@ public sealed class WritesWithChildrenTests
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         var published = new ConcurrentBag<long>();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var started = new CountdownEvent(Writers);
+        var started = Enumerable.Range(0, Writers).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
 
         // Each writer inserts pieces of its own until an insert it began after the child was ready has
-        // ended; it signals once its first insert has ended. An insert that fails fails the writer.
+        // ended; it signals once its first insert has ended. An insert that fails fails the writer. Each
+        // writer runs on a thread of its own (OwnThread): an insert of a MemoryOnly master completes at
+        // once, so a writer never gives its thread back while the child opens.
         var writers = Enumerable.Range(0, Writers)
-            .Select(writer => Task.Run(async () =>
+            .Select(writer => OwnThread.Run(() =>
             {
                 var pieces = master.Set<PieceSchema.Piece>();
 
@@ -91,12 +93,12 @@ public sealed class WritesWithChildrenTests
                     var id = (writer * 1_000_000_000L) + attempt;
                     var afterReady = ready.Task.IsCompleted;
 
-                    await pieces.InsertAsync(PieceSchema.Of(id, name: 8));
+                    OwnThread.Wait(pieces.InsertAsync(PieceSchema.Of(id, name: 8)));
                     published.Add(id);
 
                     if (attempt == 0)
                     {
-                        started.Signal();
+                        started[writer].TrySetResult();
                     }
 
                     if (afterReady)
@@ -107,7 +109,9 @@ public sealed class WritesWithChildrenTests
             }))
             .ToArray();
 
-        Assert.True(started.Wait(Bound), "The writers did not start.");
+        // Every writer has ended its first insert before the child opens; a writer that failed its first
+        // insert has ended, and the test reports it below.
+        await Task.WhenAll(writers.Select((running, index) => Task.WhenAny(running, started[index].Task))).WaitAsync(Bound);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
         ready.SetResult();
         await Task.WhenAll(writers).WaitAsync(Bound);

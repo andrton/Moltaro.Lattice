@@ -34,11 +34,10 @@ public sealed class ReadsUnderWritesTests
     // 3,000 inserts, replaces and deletes of two keys.
     private const int Writes = 3_000;
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_returns_exactly_one_written_state_while_the_entity_is_being_replaced(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_returns_exactly_one_written_state_while_the_entity_is_being_replaced()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, GaugeSchema());
+        await using var database = await TestDatabases.OpenMasterAsync(GaugeSchema());
         var gauges = database.Set<Gauge>();
         var gaugeRecords = database.Set("Gauge");
         await gauges.InsertAsync(Gauge.Of(0));
@@ -59,11 +58,10 @@ public sealed class ReadsUnderWritesTests
         Assert.Equal(Replaces, Gauge.ExpectOneState(gaugeRecords.Get(1L)));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_during_deletes_and_recreations_returns_the_entity_with_its_own_values_or_absence(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_during_deletes_and_recreations_returns_the_entity_with_its_own_values_or_absence()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         long[] first = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -105,11 +103,10 @@ public sealed class ReadsUnderWritesTests
             });
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_finds_every_inserted_entity_while_the_primary_index_grows(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_finds_every_inserted_entity_while_the_primary_index_grows()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         await users.InsertAsync(new User { Id = 0, Name = "user 0" });
@@ -138,11 +135,10 @@ public sealed class ReadsUnderWritesTests
         Assert.Equal(Inserts, users.Enumerate().Count());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_with_a_session_returns_the_state_its_key_had_at_the_position_of_its_answer(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_with_a_session_returns_the_state_its_key_had_at_the_position_of_its_answer()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         long[] keys = [1, 2];

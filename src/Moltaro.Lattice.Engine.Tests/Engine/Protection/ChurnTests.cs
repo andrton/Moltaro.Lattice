@@ -23,8 +23,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // root, and with 1, 2, 4 and 16 writing callers, which the write coordinator serves at once (brief of
 // Epic 1, sprint S09, "Measured": reads beside 1, 4 and 16 callers). Readers read through the class and
 // by name, on threads of their own, until the writes are done; each writer writes keys of its own, at
-// least four keys in all, a fixed number of times. Nothing sleeps, and every read is checked on its
-// own, so what the test asserts does not depend on how the threads interleave.
+// least four keys in all, a fixed number of times, on a thread of its own as well (OwnThread), since a
+// write that completes at once never gives its thread back. Nothing sleeps, and every read is checked
+// on its own, so what the test asserts does not depend on how the threads interleave.
 public sealed class ChurnTests
 {
     // The writes of all keys after their first inserts, in cycles of four for each key: replace,
@@ -83,7 +84,7 @@ public sealed class ChurnTests
 
                     return () => ExpectStateDuringRead(next++ % keys, read, started, returned);
                 },
-                () => Task.WhenAll(Enumerable.Range(0, writers).Select(writer => Task.Run(() => WriteAsync(records, writer, writers, writesPerKey, started, returned)))))
+                () => Task.WhenAll(Enumerable.Range(0, writers).Select(writer => OwnThread.Run(() => Write(records, writer, writers, writesPerKey, started, returned)))))
                 .WaitAsync(Bound);
 
             // Afterwards each key has the state of its last write, through the class and by name; then
@@ -123,7 +124,7 @@ public sealed class ChurnTests
 
     // Write i of a key replaces it, deletes it or inserts it again by i alone, with the state number i.
     // The writer writes the keys whose number leaves its own when divided by the number of writers.
-    private static async Task WriteAsync(ILatticeSet records, int writer, int writers, int writesPerKey, int[] started, int[] returned)
+    private static void Write(ILatticeSet records, int writer, int writers, int writesPerKey, int[] started, int[] returned)
     {
         var entityType = records.EntityType;
 
@@ -136,9 +137,9 @@ public sealed class ChurnTests
 
                 var result = (write % 4) switch
                 {
-                    0 => await records.InsertAsync(StampSchema.RecordOf(entityType, key, write)),
-                    3 => await records.DeleteAsync(StampSchema.KeyOf(entityType, key)),
-                    _ => await records.ReplaceAsync(StampSchema.RecordOf(entityType, key, write)),
+                    0 => OwnThread.Wait(records.InsertAsync(StampSchema.RecordOf(entityType, key, write))),
+                    3 => OwnThread.Wait(records.DeleteAsync(StampSchema.KeyOf(entityType, key))),
+                    _ => OwnThread.Wait(records.ReplaceAsync(StampSchema.RecordOf(entityType, key, write))),
                 };
 
                 Assert.True(result.Changed);

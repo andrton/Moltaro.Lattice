@@ -14,11 +14,10 @@ namespace Moltaro.Lattice.Tests.Binding;
 // overrode one accessor was BindingFailed and a hidden property bound.
 public sealed class InheritedMemberTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_that_overrides_only_the_get_accessor_binds_and_is_set_through_the_accessor_of_its_base_class(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_that_overrides_only_the_get_accessor_binds_and_is_set_through_the_accessor_of_its_base_class()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, AccessorSchema.Note<GetterOverridingNote>());
+        await using var database = await TestDatabases.OpenMasterAsync(AccessorSchema.Note<GetterOverridingNote>());
         var notes = database.Set<GetterOverridingNote>();
         var records = database.Set("Note");
 
@@ -36,11 +35,10 @@ public sealed class InheritedMemberTests
         Assert.Equal("WRITTEN", records.Get(2L)!["Text"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_that_overrides_only_the_set_accessor_binds_and_is_read_through_the_accessor_of_its_base_class(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_that_overrides_only_the_set_accessor_binds_and_is_read_through_the_accessor_of_its_base_class()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, AccessorSchema.Note<SetterOverridingNote>());
+        await using var database = await TestDatabases.OpenMasterAsync(AccessorSchema.Note<SetterOverridingNote>());
         var notes = database.Set<SetterOverridingNote>();
         var records = database.Set("Note");
 
@@ -57,34 +55,28 @@ public sealed class InheritedMemberTests
         Assert.Equal("written", records.Get(2L)!["Text"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_of_an_owned_type_that_overrides_one_accessor_binds(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_of_an_owned_type_that_overrides_one_accessor_binds()
     {
         await AccessorSchema.ExpectBoundAsync(
-            implementation,
             AccessorSchema.Stamped<GetterOverridingStamp>(),
             new BindingSchema.Holder<GetterOverridingStamp> { Id = 1, Value = new GetterOverridingStamp { Text = "sealed" } });
 
         await AccessorSchema.ExpectBoundAsync(
-            implementation,
             AccessorSchema.Stamped<SetterOverridingStamp>(),
             new BindingSchema.Holder<SetterOverridingStamp> { Id = 1, Value = new SetterOverridingStamp { Text = "sealed" } });
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Public_field_that_hides_a_property_of_the_base_class_is_refused_with_the_member_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Public_field_that_hides_a_property_of_the_base_class_is_refused_with_the_member_named()
     {
-        await AccessorSchema.ExpectNotBoundAsync(implementation, AccessorSchema.Note<FieldHidingNote>(), new FieldHidingNote { Id = 1 });
+        await AccessorSchema.ExpectNotBoundAsync(AccessorSchema.Note<FieldHidingNote>(), new FieldHidingNote { Id = 1 });
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Public_field_that_hides_a_property_in_the_class_of_an_owned_type_is_refused_with_the_member_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Public_field_that_hides_a_property_in_the_class_of_an_owned_type_is_refused_with_the_member_named()
     {
         await AccessorSchema.ExpectNotBoundAsync(
-            implementation,
             AccessorSchema.Stamped<FieldHidingStamp>(),
             new BindingSchema.Holder<FieldHidingStamp> { Id = 1, Value = new FieldHidingStamp() });
     }

@@ -1,7 +1,7 @@
 namespace Moltaro.Lattice.Tests.Binding;
 
 // The schemas of the tests of the accessors of a property (SetAccessorTests, InheritedMemberTests)
-// and what those tests expect of a class, on the implementation a test runs on.
+// and what those tests expect of a class, on the engine.
 //
 // Note is an entity type with the key Id, an Int64, and the String field Text, bound to TNote.
 // Holder is an entity type with the key Id and the field Value of the owned type Stamp, bound to
@@ -40,10 +40,10 @@ internal static class AccessorSchema
         """);
 
     // The class binds: a set serves it, and a write batch takes an object of it.
-    public static async Task ExpectBoundAsync<TEntity>(DatabaseImplementationEnum implementation, LatticeSchema schema, TEntity entity)
+    public static async Task ExpectBoundAsync<TEntity>(LatticeSchema schema, TEntity entity)
         where TEntity : class
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, schema);
+        await using var database = await TestDatabases.OpenMasterAsync(schema);
         var batch = database.CreateWriteBatch();
 
         Assert.True(schema.TryGetEntityType(typeof(TEntity), out var entityType));
@@ -55,10 +55,10 @@ internal static class AccessorSchema
 
     // The class does not bind, from a set and from every typed member of a write batch, each time
     // with BindingFailed and the given name in the message.
-    public static async Task ExpectNotBoundAsync<TEntity>(DatabaseImplementationEnum implementation, LatticeSchema schema, TEntity entity, string named = "Text")
+    public static async Task ExpectNotBoundAsync<TEntity>(LatticeSchema schema, TEntity entity, string named = "Text")
         where TEntity : class
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, schema);
+        await using var database = await TestDatabases.OpenMasterAsync(schema);
         var batch = database.CreateWriteBatch();
 
         ExpectBindingFailed(() => database.Set<TEntity>());

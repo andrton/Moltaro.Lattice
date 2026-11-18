@@ -10,5 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
+    <!-- LatticeDatabase, which the registration opens, is in the engine. -->
+    <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
   </ItemGroup>
 </Project>

@@ -11,9 +11,6 @@ namespace Moltaro.Lattice.Replication;
 // of a root travel in the byte order of the sender, which LayoutFormat announces (Replication.Load).
 internal static class Protocol
 {
-    // The scheme of the addresses of the transport: lattice://host:port (brief of Epic 1, sprint S10).
-    public const string Scheme = "lattice";
-
     // The first four bytes of every frame, "LATT" in little-endian order.
     public const uint Magic = 0x5454414C;
 
@@ -36,7 +33,8 @@ internal static class Protocol
     public const int MaxFrame = HeaderSize + MaxDataBody;
 
     // Bit 0 of FrameHeader.Flags: the frame is the last one of a root, or of the schema, or of the
-    // whole roots it holds, or of a transaction. No other flag is defined.
+    // whole roots it holds, or of a transaction, or of a forwarded write or its reply. No other flag is
+    // defined.
     public const uint EndsARoot = 1;
 
     // The payload of Hello and of HelloReply (FrameCodec.WriteHelloBody): a Guid (16), the history (8),
@@ -55,9 +53,11 @@ internal static class Protocol
 
     // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
-    // their effects (Replication.Transactions). Another value is another format. 2 since Epic 1, sprint
-    // S11, whose LoadEnd carries S and R and whose stream follows the load.
-    public const int WireFormat = 2;
+    // their effects (Replication.Transactions), and the writes a child forwards with their replies
+    // (Replication.Forwarding). Another value is another format. 3 since Epic 1, sprint S12, whose child
+    // forwards its writes on the connection; 2 was S11, whose LoadEnd carries S and R and whose stream
+    // follows the load.
+    public const int WireFormat = 3;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;
@@ -74,10 +74,11 @@ internal static class Protocol
     public static int MaxBodyOf(FrameKindEnum kind) => kind switch
     {
         FrameKindEnum.Hello or FrameKindEnum.HelloReply => HelloPayloadSize + CheckSize,
-        FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.Transaction => MaxDataBody,
+        FrameKindEnum.Schema or FrameKindEnum.Blocks or FrameKindEnum.Transaction or FrameKindEnum.WriteRequest or FrameKindEnum.WriteReply => MaxDataBody,
         FrameKindEnum.LoadEnd => LoadEndPayloadSize + CheckSize,
         FrameKindEnum.Refuse => RefusePayloadSize + CheckSize,
         FrameKindEnum.Applied => AppliedPayloadSize + CheckSize,
+        FrameKindEnum.Closed => CheckSize,
         _ => 0,
     };
 }

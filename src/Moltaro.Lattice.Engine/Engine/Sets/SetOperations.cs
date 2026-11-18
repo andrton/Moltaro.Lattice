@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
@@ -7,11 +8,15 @@ using Moltaro.Lattice.Storage;
 namespace Moltaro.Lattice.Engine.Sets;
 
 // What the set of a class and the set by name of one entity type do alike, for either copy: read
-// with a session, enumerate with and without one, and submit a write. One of these for each
-// entity type of an open database, shared by its sets.
+// with a session, enumerate with and without one, and submit a write: on a master to its write
+// coordinator, on a child to its master (Forwarding.Forwarder). One of these for each entity type of
+// an open database, shared by its sets.
 internal sealed class SetOperations
 {
     private readonly WriteCoordinator _writes;
+
+    // The writes of a child, which go to its master; null on a master.
+    private readonly Forwarder? _forwarder;
 
     private readonly PositionClock _clock;
 
@@ -23,10 +28,11 @@ internal sealed class SetOperations
 
     private readonly TimeSpan? _readTimeLimit;
 
-    public SetOperations(EntityTable table, WriteCoordinator writes, PositionClock clock, LatticeDatabaseOptions options)
+    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options)
     {
         Table = table;
         _writes = writes;
+        _forwarder = forwarder;
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
         _readMemoryLimit = options.ReadMemoryLimit;
@@ -58,7 +64,7 @@ internal sealed class SetOperations
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+        await _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken).ConfigureAwait(false);
 
         var result = TryRead<TCopy, TResult>(key, copy, out var revision, out var sequence, cancellationToken);
         var position = _clock.At(sequence);
@@ -119,5 +125,7 @@ internal sealed class SetOperations
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>
-        _writes.SubmitAsync(Table, kind, key, values, expectedRevision, session, cancellationToken);
+        _forwarder is null
+            ? _writes.SubmitAsync(Table, kind, key, values, expectedRevision, session, cancellationToken)
+            : _forwarder.WriteAsync(Table, kind, key, values, expectedRevision, session, cancellationToken);
 }

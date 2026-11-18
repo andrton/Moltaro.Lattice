@@ -1,4 +1,4 @@
-using Moltaro.Lattice.Placeholder;
+using Moltaro.Lattice.Engine;
 
 namespace Moltaro.Lattice.Tests.Indexes;
 
@@ -214,9 +214,8 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Search_with_a_session_waits_until_the_child_has_caught_up()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         var childByEmail = child.Set<User>().Index("ByEmail");
         var session = new LatticeSession();
         var options = new LatticeFindOptions { Session = session };
@@ -257,9 +256,8 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Search_that_cannot_catch_up_in_time_fails_instead_of_using_an_old_index()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         var session = new LatticeSession { SynchronizationTimeout = TimeSpan.FromMilliseconds(100) };
 
         using var lag = Lagging(child);
@@ -274,9 +272,8 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_for_a_position_once_makes_the_following_reads_current()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
 
         Task waiting;
         using (Lagging(child))
@@ -300,9 +297,8 @@ public sealed class IndexTests
     [Fact(Skip = SearchNotImplemented)]
     public async Task Waiting_for_a_position_once_makes_the_following_index_searches_current()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         var childByEmail = child.Set<User>().Index("ByEmail");
 
         Task waiting;
@@ -325,9 +321,8 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_for_a_position_ends_by_timeout_or_cancellation_and_rejects_another_history()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
         await using var other = await TestData.OpenMasterAsync();
 
         using (Lagging(child))
@@ -353,9 +348,8 @@ public sealed class IndexTests
     [Fact]
     public async Task Waiting_with_a_session_uses_its_position_and_timeout()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
-        await using var child = await TestData.OpenChildAsync(address);
+        await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
+        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
 
         // Nothing to wait for yet.
         Assert.True(child.WaitForPositionAsync(new LatticeSession()).IsCompletedSuccessfully);
@@ -409,5 +403,5 @@ public sealed class IndexTests
     }
 
     // Holds back what the child receives from its master, the way a slow link would.
-    private static IDisposable Lagging(ILatticeDatabase child) => ((InMemoryDatabase)child).SuspendApplying();
+    private static IDisposable Lagging(ILatticeDatabase child) => ((EngineDatabase)child).SuspendApplying();
 }

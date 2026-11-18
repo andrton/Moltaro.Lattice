@@ -43,7 +43,7 @@ internal sealed class RemoteChild : IDisposable
     // In the process of the child: serves until the input ends; 0 when it did.
     public static int Serve(Uri masterUri)
     {
-        using var child = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var child = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,

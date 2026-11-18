@@ -41,7 +41,7 @@ internal static class LargeWriteChildScenario
             $"Large entities as in large-writes: 1 entity of {Number(LargeWritesScenario.LargeBytes)} bytes and {Number(LargeWritesScenario.SmallEntities)} of {LargeWritesScenario.SmallBytes} bytes, MemoryOnly, accepting children on the loopback interface",
         };
 
-        using var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        using var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = LargeWritesScenario.Schema,
@@ -63,7 +63,7 @@ internal static class LargeWriteChildScenario
 
         lines.AddRange(Series(database, blobs, large, small, "no child"));
 
-        using (var child = EngineDatabase.Create(new LatticeDatabaseOptions
+        using (var child = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,

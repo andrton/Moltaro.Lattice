@@ -72,7 +72,7 @@ internal static class ChildLoadScenario
 
         var heapBefore = GC.GetTotalMemory(forceFullCollection: false);
         var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
-        var child = EngineDatabase.Create(ChildOptions(address));
+        var child = (EngineDatabase)LatticeDatabase.Create(ChildOptions(address));
         var started = Stopwatch.GetTimestamp();
 
         child.OpenAsync().AsTask().GetAwaiter().GetResult();
@@ -102,7 +102,7 @@ internal static class ChildLoadScenario
     private static string CountBytes(Uri address, int count, EngineCounters master)
     {
         var relay = new ByteCountingRelay(address);
-        var child = EngineDatabase.Create(ChildOptions(relay.Address));
+        var child = (EngineDatabase)LatticeDatabase.Create(ChildOptions(relay.Address));
 
         child.OpenAsync().AsTask().GetAwaiter().GetResult();
 

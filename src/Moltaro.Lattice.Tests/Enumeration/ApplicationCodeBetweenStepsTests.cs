@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // - A write from another thread completes while an enumeration stands between two steps: an insert of
 //   enough entities to grow the primary index, a replace, a delete and an upsert of the entity just
 //   returned. Every wait is bounded, so a write that waited for the enumeration fails the test.
-// Every form of an enumeration, on both implementations.
+// Every form of an enumeration.
 public sealed class ApplicationCodeBetweenStepsTests
 {
     private const int Count = 5;
@@ -18,10 +18,10 @@ public sealed class ApplicationCodeBetweenStepsTests
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
-    public async Task Code_of_the_application_between_two_steps_may_read_and_write_the_database_and_the_pass_goes_on(DatabaseImplementationEnum implementation, string form)
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
+    public async Task Code_of_the_application_between_two_steps_may_read_and_write_the_database_and_the_pass_goes_on(string form)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await InsertUsersAsync(users);
 
@@ -80,10 +80,10 @@ public sealed class ApplicationCodeBetweenStepsTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnBoth), MemberType = typeof(EnumerationCases))]
-    public async Task Write_is_not_blocked_by_an_enumeration_that_stands_between_two_steps(DatabaseImplementationEnum implementation, string form)
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
+    public async Task Write_is_not_blocked_by_an_enumeration_that_stands_between_two_steps(string form)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await InsertUsersAsync(users);
 

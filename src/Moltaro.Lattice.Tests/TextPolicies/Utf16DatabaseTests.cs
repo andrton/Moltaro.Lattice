@@ -7,8 +7,7 @@ namespace Moltaro.Lattice.Tests.TextPolicies;
 // boundary between the two halves of a surrogate pair; the key is a String outside the basic plane.
 // Text that is not well-formed is refused there as in a UTF-8 database, by the validation of the core.
 //
-// Engine only: the placeholder refuses every write of a schema of the UTF-16 encoding until S12. The
-// bound of one value in such a schema is stated by ValueBoundWriteTests.
+// The bound of one value in such a schema is stated by ValueBoundWriteTests.
 public sealed class Utf16DatabaseTests
 {
     // In UTF-16 a chunk holds 65,504 bytes, 32,752 code units: the code unit at that index is the
@@ -37,7 +36,7 @@ public sealed class Utf16DatabaseTests
     [Fact]
     public async Task Entity_written_to_a_UTF16_database_reads_back_equal_through_its_class_and_by_name()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var samples = database.Set<Sample>();
         var records = database.Set("Sample");
 
@@ -70,7 +69,7 @@ public sealed class Utf16DatabaseTests
     [Fact]
     public async Task Text_that_is_not_well_formed_in_a_UTF16_database_is_ValidationFailed_and_well_formed_text_is_stored()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var samples = database.Set<Sample>();
         var records = database.Set("Sample");
         var record = RecordOf(records, new Sample { Name = "a", Text = "a\uDE00b" });

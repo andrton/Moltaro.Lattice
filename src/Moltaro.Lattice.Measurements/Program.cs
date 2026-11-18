@@ -20,6 +20,13 @@ if (args is [RemoteChild.Mode, var masterUri])
     return RemoteChild.Serve(new Uri(masterUri));
 }
 
+// A child in a process of its own that forwards writes, which the scenario forwarding-costs starts
+// (RemoteForwarder).
+if (args is [RemoteForwarder.Mode, var forwardTo, var writes])
+{
+    return RemoteForwarder.Serve(new Uri(forwardTo), int.Parse(writes, CultureInfo.InvariantCulture));
+}
+
 if (args.Length != 2)
 {
     return Refuse(Usage);
@@ -48,12 +55,15 @@ IReadOnlyList<string>? results = scenario switch
     FollowingChildrenScenario.Name => FollowingChildrenScenario.Run(),
     LargeWriteChildScenario.Name => LargeWriteChildScenario.Run(),
     ReadersBesideChildScenario.Name => ReadersBesideChildScenario.Run(),
+    ClockWaitersScenario.Name => ClockWaitersScenario.Run(),
+    ForwardingScenario.Name => ForwardingScenario.Run(),
+    ForwardingCostsScenario.Name => ForwardingCostsScenario.Run(),
     _ => null,
 };
 
 if (results is null)
 {
-    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}.");
+    return Refuse($"There is no scenario {scenario}. Scenarios: {RootBytesScenario.Name}, {ReadByKeyScenario.Name}, {ReadByTextKeyScenario.Name}, {ReadByKeyThreadsScenario.Name}, {PrimaryIndexScenario.Name}, {EnumerateScenario.Name}, {WriteCallersScenario.Name}, {LargeWritesScenario.Name}, {ChildLoadScenario.Name}, {ChildUnderWritesScenario.Name}, {FollowingChildrenScenario.Name}, {LargeWriteChildScenario.Name}, {ReadersBesideChildScenario.Name}, {ClockWaitersScenario.Name}, {ForwardingScenario.Name}, {ForwardingCostsScenario.Name}.");
 }
 
 var finished = DateTimeOffset.UtcNow;

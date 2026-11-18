@@ -40,25 +40,20 @@ public sealed class LatticeDatabaseOptions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// An address has the scheme <c>lattice</c>, a host and a TCP port:
-    /// <c>lattice://host:7400</c>. The master listens on the network interface that the host
-    /// names. Port 0 lets the system choose a free port; the open master reports the port it
-    /// chose in <see cref="ILatticeDatabase.ListenUri"/>, and that is the address its children
-    /// connect to. The engine refuses an address with another scheme, with a path or without a
-    /// port with <see cref="LatticeErrorEnum.InvalidConfiguration"/> when the instance opens. A
-    /// master that cannot listen at its address, because its port is in use for example, fails
-    /// its open with the error the system reports, and the instance is closed.
+    /// An address has the scheme <c>lattice</c>, a host and a TCP port, and nothing else:
+    /// <c>lattice://host:7400</c>. <see cref="Validate"/> refuses an address with another scheme,
+    /// without a host or a port, or with a path with <see cref="LatticeErrorEnum.InvalidConfiguration"/>.
+    /// The master listens over TCP on the network interface that the host names: an IP address,
+    /// or a name that the system resolves, whose first address is taken. Port 0 lets the system
+    /// choose a free port; the open master reports the address it listens at, with that port, in
+    /// <see cref="ILatticeDatabase.ListenUri"/>, and that is the address its children connect to.
+    /// A master that cannot listen at its address, because the address is already in use for
+    /// example, fails its open with <see cref="LatticeErrorEnum.InvalidConfiguration"/>, whose
+    /// message gives the reason the system reports, and the instance is closed.
     /// </para>
     /// <para>
     /// The engine authenticates no peer at this address: whoever reaches it can load the whole
     /// database. Keep it reachable only from the nodes of the database.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> No instance listens on the network. The database that
-    /// <see cref="LatticeDatabase"/> opens today connects a master and its children inside one
-    /// process only, with the address as a name: <see cref="Validate"/> checks only that it is
-    /// absolute, any absolute address is accepted, and an address at which another master of the
-    /// process already listens fails the open with <see cref="LatticeErrorEnum.InvalidConfiguration"/>.
     /// </para>
     /// </remarks>
     public Uri? ListenUri { get; init; }
@@ -69,8 +64,10 @@ public sealed class LatticeDatabaseOptions
     /// </summary>
     /// <remarks>
     /// It has the form of <see cref="ListenUri"/>, with the port at which the master listens: the
-    /// master's own <see cref="ListenUri"/>, unless that names port 0. What the engine refuses, and
-    /// what is checked today, is said there.
+    /// master's own <see cref="ListenUri"/>, unless that names port 0. <see cref="Validate"/>
+    /// refuses another form, and port 0, with <see cref="LatticeErrorEnum.InvalidConfiguration"/>.
+    /// The child connects to its master at this address over TCP, loads the whole database, as
+    /// <see cref="ILatticeDatabase.OpenAsync"/> says, and then follows the writes of the master.
     /// </remarks>
     public Uri? MasterUri { get; init; }
 
@@ -79,7 +76,8 @@ public sealed class LatticeDatabaseOptions
     /// by it, and afterwards for the next part of the database to arrive. A load that keeps
     /// arriving is not ended by this timeout, however long it takes; the cancellation token of the
     /// open call bounds the whole open. 30 seconds by default; finite and positive. A master gives
-    /// a connecting node the same time to introduce itself.
+    /// a node that connects to it the same time to introduce itself, and disconnects one that
+    /// does not.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -95,12 +93,6 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="Validate"/> refuses zero, a negative value, <see cref="Timeout.InfiniteTimeSpan"/>
     /// and a value of more than one day, for a master as for a child.
     /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: a child of the
-    /// database that <see cref="LatticeDatabase"/> opens today waits for its master until the open
-    /// is cancelled or the instance is closed, and no node connects to a master of it over the
-    /// network.
-    /// </para>
     /// </remarks>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
@@ -110,6 +102,15 @@ public sealed class LatticeDatabaseOptions
     /// it has just submitted. A session can set its own value. The wait is always finite.
     /// The default of 10 seconds is provisional.
     /// </summary>
+    /// <remarks>
+    /// When an operation takes a session that sets its own value, that value bounds the waits of
+    /// the operation on this instance instead of this one: the wait for the position of the
+    /// session and, on a child, the wait of a write until the child has applied it. No timeout
+    /// travels with a write through a child: the master orders the write after the position of
+    /// the session and bounds that wait with its own value. On a child that has lost its master
+    /// the wait ends at once, because the position cannot arrive; so does the wait of a write
+    /// through a child that has faulted after its master committed the write.
+    /// </remarks>
     public TimeSpan SynchronizationTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
@@ -130,10 +131,6 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
     /// <see cref="LatticeLimitEnum.ReadMemory"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
     /// states. Without a limit an enumeration of any length runs to its end.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
-    /// enumeration is limited by it.
     /// </para>
     /// </remarks>
     public long? ReadMemoryLimit { get; init; }
@@ -156,10 +153,6 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
     /// <see cref="LatticeLimitEnum.ReadTime"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
     /// states. Without a limit an enumeration of any length runs to its end.
-    /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no
-    /// enumeration is limited by it.
     /// </para>
     /// </remarks>
     public TimeSpan? ReadTimeLimit { get; init; }
@@ -209,10 +202,6 @@ public sealed class LatticeDatabaseOptions
     /// A value set smaller than 4 MiB (4,194,304 bytes), the unit in which the engine takes
     /// memory, is refused by <see cref="Validate"/>.
     /// </para>
-    /// <para>
-    /// <b>Not implemented yet.</b> The value is validated and otherwise not used: no default is
-    /// computed, and no write is refused for the budget.
-    /// </para>
     /// </remarks>
     public long? MemoryLimit { get; init; }
 
@@ -223,13 +212,18 @@ public sealed class LatticeDatabaseOptions
     // agree on it.
     internal const int ArenaSegmentSize = 4 * 1024 * 1024;
 
+    // The scheme of the addresses of the replication transport: lattice://host:port (brief of Epic 1,
+    // sprint S10; Validate from S12).
+    internal const string AddressScheme = "lattice";
+
     /// <summary>
     /// Checks that the options describe a supported instance.
     /// </summary>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a required value is missing, a
     /// timeout or a limit is out of its range, such as a limit that is set and not positive or a
-    /// <see cref="MemoryLimit"/> that is set and smaller than 4 MiB, or the values are incompatible.
+    /// <see cref="MemoryLimit"/> that is set and smaller than 4 MiB, an address does not have the
+    /// form that <see cref="ListenUri"/> states, or the values are incompatible.
     /// </exception>
     public void Validate()
     {
@@ -273,6 +267,29 @@ public sealed class LatticeDatabaseOptions
         }
     }
 
+    // The form of an address of the transport (see ListenUri): the scheme lattice, a host and a TCP port,
+    // and nothing else; port 0 only where the system may choose the port, in a ListenUri. A relative
+    // address has none of them.
+    private static void CheckAddress(Uri address, string option, bool portMayBeChosen)
+    {
+        if (!address.IsAbsoluteUri || !string.Equals(address.Scheme, AddressScheme, StringComparison.Ordinal))
+        {
+            throw Invalid($"{option} {address} is not an address of the form {AddressScheme}://host:port.");
+        }
+
+        if (address.AbsolutePath is not ("" or "/") || address.Query.Length > 0 || address.Fragment.Length > 0 || address.UserInfo.Length > 0)
+        {
+            throw Invalid($"{option} {address} names more than a host and a port; an address has the form {AddressScheme}://host:port.");
+        }
+
+        if (address.Host.Length == 0 || address.Port < 0 || (address.Port == 0 && !portMayBeChosen))
+        {
+            throw Invalid(portMayBeChosen
+                ? $"{option} {address} names no host or no port; an address has the form {AddressScheme}://host:port, with port 0 for a port the system chooses."
+                : $"{option} {address} names no host or no port; a child is given the address its master reports, with the port it listens at.");
+        }
+    }
+
     // A wait must end: zero, negative, infinite and absurdly long values are refused.
     internal static bool IsFiniteTimeout(TimeSpan timeout) =>
         timeout > TimeSpan.Zero && timeout <= TimeSpan.FromDays(1);
@@ -284,9 +301,9 @@ public sealed class LatticeDatabaseOptions
             throw Invalid($"{nameof(MasterUri)} is not allowed for a master.");
         }
 
-        if (ListenUri is { IsAbsoluteUri: false })
+        if (ListenUri is { } listenUri)
         {
-            throw Invalid($"{nameof(ListenUri)} must be an absolute address.");
+            CheckAddress(listenUri, nameof(ListenUri), portMayBeChosen: true);
         }
 
         switch (PersistenceMode)
@@ -322,10 +339,12 @@ public sealed class LatticeDatabaseOptions
             throw Invalid("A child must explicitly select MemoryOnly persistence.");
         }
 
-        if (MasterUri is null || !MasterUri.IsAbsoluteUri)
+        if (MasterUri is null)
         {
-            throw Invalid($"A child requires an absolute {nameof(MasterUri)}.");
+            throw Invalid($"A child requires {nameof(MasterUri)}.");
         }
+
+        CheckAddress(MasterUri, nameof(MasterUri), portMayBeChosen: false);
 
         if (ListenUri is not null)
         {

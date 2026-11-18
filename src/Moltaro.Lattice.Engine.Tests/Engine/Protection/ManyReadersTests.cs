@@ -41,7 +41,7 @@ public sealed class ManyReadersTests
             using var go = new ManualResetEventSlim();
 
             var readers = Enumerable.Range(0, Readers)
-                .Select(reader => Task.Factory.StartNew(
+                .Select(reader => OwnThread.Run(
                     () =>
                     {
                         ready.Signal();
@@ -56,10 +56,7 @@ public sealed class ManyReadersTests
 
                             Assert.Equal<long?>(key, number);
                         }
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                    }))
                 .ToArray();
 
             // All readers begin together.

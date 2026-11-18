@@ -30,6 +30,12 @@ public readonly struct LatticeRevision : IEquatable<LatticeRevision>
         _low = low;
     }
 
+    // The two values in the order the token holds them, for the engine, which carries an expected
+    // revision to a master inside a write forwarded through a child.
+    internal ulong High => _high;
+
+    internal ulong Low => _low;
+
     /// <inheritdoc />
     public bool Equals(LatticeRevision other) => _high == other._high && _low == other._low;
 

@@ -49,11 +49,6 @@ public enum LatticeErrorEnum
     /// <see cref="LatticeException.Limit"/> names the limit: <see cref="LatticeLimitEnum.Memory"/>
     /// for the memory budget, <see cref="LatticeDatabaseOptions.MemoryLimit"/>.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet.</b> The memory budget is not enforced yet, as
-    /// <see cref="LatticeDatabaseOptions.MemoryLimit"/> states, so no write is refused with this
-    /// error yet.
-    /// </remarks>
     WriteRejected = 7,
 
     /// <summary>
@@ -64,7 +59,9 @@ public enum LatticeErrorEnum
     /// A write is reported so as well when the instance became
     /// <see cref="LatticeDatabaseStateEnum.Faulted"/> during its publication, or during the
     /// publication of a write taken for storage together with it and before it: storage took the
-    /// write, and the instance cannot show it.
+    /// write, and the instance cannot show it. A write through a child is reported so as well
+    /// when the child had sent the whole write to its master and the connection ended, or the
+    /// child was closed, before the reply arrived: the master may have executed it.
     /// </remarks>
     IndeterminateOutcome = 8,
 
@@ -72,13 +69,41 @@ public enum LatticeErrorEnum
     /// The instance cannot serve the operation in its current state: it is not ready yet,
     /// is reloading or has faulted.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An operation in flight on an instance that is being closed, which the close does not let
+    /// finish, is reported so as well: a wait for a position, and on a child a write its master
+    /// has not taken. A started write of a master reaches its outcome. An
+    /// <see cref="ILatticeDatabase.OpenAsync"/> that still waits is cancelled instead, as it
+    /// states.
+    /// </para>
+    /// <para>
+    /// A write through a child is reported so as well when the child has no connection to its
+    /// master, when the connection ended or the child was closed before the child had sent the
+    /// whole write, and when a master that was closing did not execute it. In each case the
+    /// write was not executed.
+    /// </para>
+    /// <para>
+    /// <b>Not implemented yet.</b> A child whose connection to its master has ended does not
+    /// connect again: it goes on serving its reads, and every later write through it is reported
+    /// so.
+    /// </para>
+    /// </remarks>
     Unavailable = 9,
 
     /// <summary>
     /// The node did not reach the required position within the synchronization timeout.
     /// Nothing stale was returned. When <see cref="LatticeException.CommittedPosition"/> is
-    /// set, the write itself is committed and only its arrival on this node is late.
+    /// set, the master has committed the write, and only its arrival on this node is late.
     /// </summary>
+    /// <remarks>
+    /// On a child that has lost its master the wait ends at once, because the position cannot
+    /// arrive; so does the wait of a write through a child that has faulted after its master
+    /// committed the write. A write through the child that has its reply and waits for the
+    /// child to apply it ends so when the connection ends or the child faults, with
+    /// <see cref="LatticeException.CommittedPosition"/> set: the write is committed and must not
+    /// be repeated.
+    /// </remarks>
     SynchronizationTimeout = 11,
 
     /// <summary>
@@ -106,8 +131,5 @@ public enum LatticeErrorEnum
     /// <see cref="LatticeException.Limit"/> names the limit. What the read returned before
     /// stays valid, but the read did not complete and never ends as if it had.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet.</b> Read limits are not enforced yet, as the two options state.
-    /// </remarks>
     ReadLimitExceeded = 14,
 }

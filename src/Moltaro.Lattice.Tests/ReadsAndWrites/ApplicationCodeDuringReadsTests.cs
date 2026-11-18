@@ -22,11 +22,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // is written from another thread and read again. A constructor or a set accessor that throws: the
 // exception reaches the caller of the read, and the next read and write work. When it throws while a
 // pass builds an entity, the step that built it throws and leaves it to the pass, and a later step
-// returns it: the pass loses no entity (review round 1 of Epic 1, sprint S08, part 2; on the engine,
-// whose pass is no iterator of C#, which would end at the exception, until S12).
+// returns it: the pass loses no entity (review round 1 of Epic 1, sprint S08, part 2).
 //
 // Every wait is bounded, so that code that cannot complete fails the test instead of hanging the
-// run. The placeholder holds no lock while it builds an object, so the tests run on it too.
+// run.
 public sealed class ApplicationCodeDuringReadsTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
@@ -69,42 +68,37 @@ public sealed class ApplicationCodeDuringReadsTests
         }
         """);
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string, string>> HooksAndActions =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
+    public static IEnumerable<TheoryDataRow<string, string>> HooksAndActions =>
         from hook in Hooks
         from action in Actions
-        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, hook, action);
+        select new TheoryDataRow<string, string>(hook, action);
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string, string>> ReadsAndActions =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
+    public static IEnumerable<TheoryDataRow<string, string>> ReadsAndActions =>
         from read in Reads
         from action in new[] { "reads the entity being read", "replaces the entity being read" }
-        select new TheoryDataRow<DatabaseImplementationEnum, string, string>(implementation, read, action);
+        select new TheoryDataRow<string, string>(read, action);
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string, string, string>> EnumerationsHooksAndActions =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
+    public static IEnumerable<TheoryDataRow<string, string, string>> EnumerationsHooksAndActions =>
         from enumeration in Enumerations
         from hook in Hooks
         from action in EnumerationActions
-        select new TheoryDataRow<DatabaseImplementationEnum, string, string, string>(implementation, enumeration, hook, action);
+        select new TheoryDataRow<string, string, string>(enumeration, hook, action);
 
-    // The enumerations through the class, with each hook, on the engine: the placeholder enumerates by
-    // an iterator, which ends at the first exception, until S12.
-    public static IEnumerable<TheoryDataRow<string, string>> EnumerationsAndHooksOnTheEngine =>
+    // The enumerations through the class, with each hook.
+    public static IEnumerable<TheoryDataRow<string, string>> EnumerationsAndHooks =>
         from enumeration in new[] { EnumerationForms.ByClass, EnumerationForms.ByClassWithASession }
         from hook in Hooks
         select new TheoryDataRow<string, string>(enumeration, hook);
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, string>> ImplementationsAndHooks =>
-        from implementation in new[] { DatabaseImplementationEnum.Placeholder, DatabaseImplementationEnum.Engine }
+    public static IEnumerable<TheoryDataRow<string>> HookCases =>
         from hook in Hooks
-        select new TheoryDataRow<DatabaseImplementationEnum, string>(implementation, hook);
+        select new TheoryDataRow<string>(hook);
 
     [Theory]
     [MemberData(nameof(HooksAndActions))]
-    public async Task Code_of_the_application_that_uses_the_database_while_a_read_builds_its_object_completes(DatabaseImplementationEnum implementation, string hook, string action)
+    public async Task Code_of_the_application_that_uses_the_database_while_a_read_builds_its_object_completes(string hook, string action)
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        var database = await TestDatabases.OpenMasterAsync(Schema);
 
         try
         {
@@ -168,9 +162,9 @@ public sealed class ApplicationCodeDuringReadsTests
 
     [Theory]
     [MemberData(nameof(ReadsAndActions))]
-    public async Task Code_of_the_application_that_uses_the_database_completes_during_every_read_through_a_class(DatabaseImplementationEnum implementation, string read, string action)
+    public async Task Code_of_the_application_that_uses_the_database_completes_during_every_read_through_a_class(string read, string action)
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        var database = await TestDatabases.OpenMasterAsync(Schema);
 
         try
         {
@@ -217,9 +211,9 @@ public sealed class ApplicationCodeDuringReadsTests
 
     [Theory]
     [MemberData(nameof(EnumerationsHooksAndActions))]
-    public async Task Code_of_the_application_that_uses_the_database_while_an_enumeration_builds_its_object_completes(DatabaseImplementationEnum implementation, string enumeration, string hook, string action)
+    public async Task Code_of_the_application_that_uses_the_database_while_an_enumeration_builds_its_object_completes(string enumeration, string hook, string action)
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        var database = await TestDatabases.OpenMasterAsync(Schema);
 
         try
         {
@@ -279,10 +273,10 @@ public sealed class ApplicationCodeDuringReadsTests
     }
 
     [Theory]
-    [MemberData(nameof(ImplementationsAndHooks))]
-    public async Task Exception_of_the_code_of_the_application_reaches_the_caller_of_the_read_and_the_next_read_and_write_work(DatabaseImplementationEnum implementation, string hook)
+    [MemberData(nameof(HookCases))]
+    public async Task Exception_of_the_code_of_the_application_reaches_the_caller_of_the_read_and_the_next_read_and_write_work(string hook)
     {
-        var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        var database = await TestDatabases.OpenMasterAsync(Schema);
 
         try
         {
@@ -307,10 +301,10 @@ public sealed class ApplicationCodeDuringReadsTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationsAndHooksOnTheEngine))]
+    [MemberData(nameof(EnumerationsAndHooks))]
     public async Task Entity_whose_class_throws_while_a_pass_builds_it_is_returned_by_a_later_step(string enumeration, string hook)
     {
-        var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        var database = await TestDatabases.OpenMasterAsync(Schema);
 
         try
         {

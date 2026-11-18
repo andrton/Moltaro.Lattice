@@ -35,7 +35,7 @@ public sealed class MemoryLimitTests
     {
         var given = (12 * Segment) + 1;
 
-        await using var database = EngineDatabase.Create(OptionsOf(given));
+        await using var database = (EngineDatabase)LatticeDatabase.Create(OptionsOf(given));
         await database.OpenAsync();
 
         Assert.Equal(given, database.Counters.MemoryLimit);

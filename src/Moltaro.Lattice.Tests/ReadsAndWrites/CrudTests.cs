@@ -3,11 +3,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // Entities as objects of a .NET class: database.Set<User>().
 public sealed class CrudTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Inserted_entity_can_be_read(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Inserted_entity_can_be_read()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await users.InsertAsync(new User { Id = 1, Name = "Ada", Email = "ada@example.org", Age = 36, Enabled = true });
@@ -20,11 +19,10 @@ public sealed class CrudTests
         Assert.True(user.Enabled);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Set_takes_entity_type_and_key_from_the_schema(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Set_takes_entity_type_and_key_from_the_schema()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
 
         var users = database.Set<User>();
 
@@ -33,11 +31,10 @@ public sealed class CrudTests
         Assert.Same(users, database.Set<User>());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Get_returns_the_entity_or_null(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Get_returns_the_entity_or_null()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
 
@@ -45,21 +42,19 @@ public sealed class CrudTests
         Assert.Null(users.Get(404));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Missing_key_is_not_found(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Missing_key_is_not_found()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
 
         Assert.False(database.Set<User>().TryGet(404, out var user));
         Assert.Null(user);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Nullable_fields_keep_null(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Nullable_fields_keep_null()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
@@ -69,11 +64,10 @@ public sealed class CrudTests
         Assert.Null(user.Age);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Required_field_without_a_value_is_rejected(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Required_field_without_a_value_is_rejected()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await TestData.ExpectErrorAsync(
@@ -83,11 +77,10 @@ public sealed class CrudTests
         Assert.False(users.TryGet(1, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Only_fields_declared_in_the_schema_are_stored(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Only_fields_declared_in_the_schema_are_stored()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await users.InsertAsync(new User { Id = 1, Name = "Ada", Note = "not in the schema" });
@@ -96,11 +89,10 @@ public sealed class CrudTests
         Assert.Null(user.Note);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task The_database_keeps_its_own_copy_of_every_entity(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task The_database_keeps_its_own_copy_of_every_entity()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var original = new User { Id = 1, Name = "Ada" };
         await users.InsertAsync(original);
@@ -115,11 +107,10 @@ public sealed class CrudTests
         Assert.NotSame(firstRead, secondRead);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Insert_of_an_existing_key_fails_and_changes_nothing(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Insert_of_an_existing_key_fails_and_changes_nothing()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
 
@@ -131,11 +122,10 @@ public sealed class CrudTests
         Assert.Equal("Ada", user.Name);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Replace_overwrites_the_whole_entity(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Replace_overwrites_the_whole_entity()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada", Email = "ada@example.org" });
 
@@ -146,11 +136,10 @@ public sealed class CrudTests
         Assert.Null(user.Email);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Replace_of_a_missing_key_fails(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Replace_of_a_missing_key_fails()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await TestData.ExpectErrorAsync(
@@ -160,11 +149,10 @@ public sealed class CrudTests
         Assert.False(users.TryGet(1, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Replace_with_a_stale_revision_conflicts(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Replace_with_a_stale_revision_conflicts()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
 
@@ -188,11 +176,10 @@ public sealed class CrudTests
         Assert.NotEqual(firstRevision, currentRevision);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Upsert_creates_a_missing_entity_and_replaces_an_existing_one(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Upsert_creates_a_missing_entity_and_replaces_an_existing_one()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         await users.UpsertAsync(new User { Id = 1, Name = "created" });
@@ -203,11 +190,10 @@ public sealed class CrudTests
         Assert.Single(users.Enumerate());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Delete_reports_whether_anything_was_deleted(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Delete_reports_whether_anything_was_deleted()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
 
@@ -216,11 +202,10 @@ public sealed class CrudTests
         Assert.False(users.TryGet(1, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Delete_with_a_stale_revision_conflicts(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Delete_with_a_stale_revision_conflicts()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         Assert.True(users.TryGet(1, out var user, out var staleRevision));
@@ -235,11 +220,10 @@ public sealed class CrudTests
         Assert.False(users.TryGet(1, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Revision_of_a_deleted_entity_does_not_match_its_recreation(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Revision_of_a_deleted_entity_does_not_match_its_recreation()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         Assert.True(users.TryGet(1, out var user, out var oldRevision));
@@ -252,11 +236,10 @@ public sealed class CrudTests
             () => users.ReplaceAsync(user, oldRevision));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Enumerate_returns_every_entity_once(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Enumerate_returns_every_entity_once()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         for (var id = 1; id <= 100; id++)
         {
@@ -268,11 +251,10 @@ public sealed class CrudTests
         Assert.Equal(Enumerable.Range(1, 100).Select(id => (long)id), ids.Order());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Entity_types_are_separate_and_can_have_string_keys(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Entity_types_are_separate_and_can_have_string_keys()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var tags = database.Set<Tag>();
 
         await tags.InsertAsync(new Tag { Name = "urgent", Color = "red" });
@@ -282,11 +264,10 @@ public sealed class CrudTests
         Assert.Empty(database.Set<User>().Enumerate());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Key_must_have_the_declared_type(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Key_must_have_the_declared_type()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
 
@@ -298,18 +279,17 @@ public sealed class CrudTests
         Assert.Throws<ArgumentException>(() => users.TryGet(1.0, out _));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Class_must_be_declared_in_the_schema_and_match_it(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Class_must_be_declared_in_the_schema_and_match_it()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
 
         // No entity type names this class.
         TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => database.Set<Undeclared>());
 
         // The schema names the class, but the class lacks a declared field.
         var schema = LatticeSchema.Compile(TestData.SchemaJson.Replace("Moltaro.Lattice.Tests.Tag", typeof(Mismatched).FullName));
-        await using var other = await TestDatabases.OpenMasterAsync(implementation, schema);
+        await using var other = await TestDatabases.OpenMasterAsync(schema);
         TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => other.Set<Mismatched>());
     }
 

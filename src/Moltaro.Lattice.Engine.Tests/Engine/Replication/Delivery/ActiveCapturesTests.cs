@@ -20,8 +20,8 @@ public sealed class ActiveCapturesTests
 
         await using var firstLink = HeldLink.Start(master.ListenUri!);
         await using var secondLink = HeldLink.Start(master.ListenUri!);
-        await using var first = EngineDatabase.Create(ReplicationNodes.ChildOptions(firstLink.Address, ReplicationNodes.BeyondTheBound));
-        await using var second = EngineDatabase.Create(ReplicationNodes.ChildOptions(secondLink.Address, ReplicationNodes.BeyondTheBound));
+        await using var first = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(firstLink.Address, ReplicationNodes.BeyondTheBound));
+        await using var second = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(secondLink.Address, ReplicationNodes.BeyondTheBound));
         var openings = new[] { first.OpenAsync().AsTask(), second.OpenAsync().AsTask() };
 
         await firstLink.HeldAsync();

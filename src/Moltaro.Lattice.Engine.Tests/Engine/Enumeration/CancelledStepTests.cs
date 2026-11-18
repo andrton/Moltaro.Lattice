@@ -153,11 +153,7 @@ public sealed class CancelledStepTests
         database.DrainRetired();
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
 
-        var longStep = Task.Factory.StartNew(
-            () => steps.MoveNextAsync().AsTask().GetAwaiter().GetResult(),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+        var longStep = OwnThread.Run(() => OwnThread.Wait(steps.MoveNextAsync()));
 
         // A root retired while the step is inside stays retired through a drain.
         var seen = false;
@@ -206,7 +202,7 @@ public sealed class CancelledStepTests
     // limit given in its options.
     private static async Task<EngineDatabase> OpenWithStampsAsync(TimeSpan? readTimeLimit)
     {
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = StampSchema.Schema,

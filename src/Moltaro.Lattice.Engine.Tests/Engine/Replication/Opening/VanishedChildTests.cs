@@ -19,7 +19,7 @@ public sealed class VanishedChildTests
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await Pieces.InsertBeyondALinkAsync(master);
         await using var link = HeldLink.Start(master.ListenUri!);
-        var vanished = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
+        var vanished = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
 
         var opening = vanished.OpenAsync().AsTask();
         await link.HeldAsync();

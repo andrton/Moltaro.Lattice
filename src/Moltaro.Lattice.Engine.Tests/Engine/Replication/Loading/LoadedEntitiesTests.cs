@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Loading;
 //   keys it receives. Every key is found on the child, a String key compared without case through its
 //   other spelling as well, an absent key is absent, and an enumeration returns every key once.
 // The schema, the sets and the positions of a loaded child are stated by the scenario tests
-// (Moltaro.Lattice.Tests, Database/ChildLoadTests), on the engine as on the placeholder.
+// (Moltaro.Lattice.Tests, Database/ChildLoadTests).
 public sealed class LoadedEntitiesTests
 {
     private const int Keys = 300;

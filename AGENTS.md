@@ -9,12 +9,12 @@ Moltaro.Lattice is a schema-driven in-memory object database for .NET: compact s
 low-allocation access, one master that executes writes, local read replicas, PostgreSQL
 persistence.
 
-What exists today is the **public contract** and a **placeholder** behind it: a simple
-managed in-memory implementation that lets the contract, the samples and the tests run.
-The placeholder is not the engine. The engine, its storage, indexes and persistence are
-designed separately; their decision records in `docs/decisions` are the authority for
-what the database guarantees. The physical baseline, evidence and planning handoff
-are in `docs/design`. These describe intended behavior, not delivered engine features.
+What exists today is the **public contract** and the **engine** behind it, which is built
+in steps: the contract, the samples and the tests run on the engine, and what the engine
+does not do yet is refused, never imitated. `README.md` says what works today. The
+decision records in `docs/decisions` are the authority for what the database guarantees.
+The physical baseline, evidence and planning handoff are in `docs/design`. These describe
+intended behavior; a feature is delivered when the README says so.
 
 This repository is going to be public. Nothing specific to a private product goes into it.
 
@@ -23,8 +23,8 @@ This repository is going to be public. Nothing specific to a private product goe
 | Path | Contents |
 | --- | --- |
 | `src` | The solution, every project and the build settings. Run `dotnet` from here |
-| `src/Moltaro.Lattice` | The core library. No package dependencies |
-| `src/Moltaro.Lattice.Engine` | The engine. Depends on the core library and owns `Arc.Collections`; it reads and writes entities of scalar fields on one node, and `LatticeDatabase` opens the placeholder until the engine replaces it |
+| `src/Moltaro.Lattice` | The core library: the public contract except its entry point. No package dependencies |
+| `src/Moltaro.Lattice.Engine` | The engine, and `LatticeDatabase`, the entry point that opens a database. Depends on the core library. It holds the reference to `Arc.Collections`, which no code uses yet |
 | `src/Moltaro.Lattice.DependencyInjection` | Registration in a container; a thin separate package |
 | `src/Moltaro.Lattice.AspNet.Identity` | Storage for ASP.NET Core Identity; a separate package, contract only so far |
 | `src/Moltaro.Lattice.Samples` | Runnable samples of intended use |
@@ -57,7 +57,7 @@ wins. When simple and fast disagree, measure before choosing.
 
 ## Architectural Principles
 
-These hold across the contract, the placeholder and the future engine.
+These hold across the contract and the engine.
 
 1. **The schema is the authority.** Entity types, fields, keys, indexes and the optional
    .NET class of an entity type are declared in the schema. It is compiled once and can be
@@ -110,8 +110,7 @@ These hold across the contract, the placeholder and the future engine.
     in the namespace the contract gives them. An integration is its own thin assembly,
     named for what it is for.
 12. **Performance is a design goal, proven by measurement.** Avoid needless copies and
-    allocations on read paths, but justify added complexity with a number. The
-    placeholder's speed is not a target.
+    allocations on read paths, but justify added complexity with a number.
 
 ## Quality Priorities
 
@@ -155,7 +154,7 @@ tests that state its behavior. Implementation follows, possibly much later and e
 - Respect the stage that was agreed. "In the facade, not implemented yet" means exactly
   that: the entry points throw `NotSupportedException`, the tests that need the feature
   are skipped with a shared reason, the sample is written and reports where it stops. Do
-  not add stand-in logic to the placeholder unless asked.
+  not add stand-in logic to the engine unless asked.
 - Checks that need no engine belong to the contract and work from the start: resolving a
   declared name, validating an argument against the schema.
 - When the implementation arrives it has to pass the tests that were written for the
@@ -289,7 +288,7 @@ dotnet run --project Moltaro.Lattice.Samples
 - Before designing a change to the contract, read the decision record that covers it.
 - Make routine, reversible choices within the task. Ask only when a missing decision
   changes behavior, the contract or the scope. Say what was left out.
-- Review the whole affected flow before finishing: contract, placeholder, tests, samples,
+- Review the whole affected flow before finishing: contract, engine, tests, samples,
   `README.md`, `docs`.
 - Keep plans, progress and findings in the conversation. Do not create report, audit or
   plan files unless the user asks for that document.

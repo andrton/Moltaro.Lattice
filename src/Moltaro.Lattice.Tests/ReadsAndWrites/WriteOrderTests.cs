@@ -20,8 +20,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 //   an insert of the same entity without a session made after it completes, its write reaches that
 //   position, and the first then meets the entity the second inserted and is DuplicateKey.
 // What a write that changed an entity returns is a position; of one entity, later calls have later
-// positions (PositionSequence), and every write takes a position of its own. A delete of an absent
-// key is left out of that: the placeholder keeps the position it had for it until S12 (PositionTests).
+// positions (PositionSequence), and every write takes a position of its own; that a delete of an
+// absent key does so as well is stated by ConsistencyTests.Every_result_carries_a_position.
 public sealed class WriteOrderTests
 {
     private const string Changed = "changed";
@@ -30,11 +30,10 @@ public sealed class WriteOrderTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Writes_to_one_entity_made_without_awaiting_are_executed_in_the_order_of_their_calls(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Writes_to_one_entity_made_without_awaiting_are_executed_in_the_order_of_their_calls()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var records = database.Set("User");
 
@@ -90,15 +89,14 @@ public sealed class WriteOrderTests
         Assert.Equal("upserted", records.Get(2L)?["Name"]);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Ten_thousand_writes_submitted_at_once_all_complete_and_those_to_one_entity_in_the_order_of_their_calls(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Ten_thousand_writes_submitted_at_once_all_complete_and_those_to_one_entity_in_the_order_of_their_calls()
     {
         // 100 entities, each inserted and then replaced 99 times; the round of a write is its Age.
         const int Entities = 100;
         const int Rounds = 100;
 
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var start = PositionSequence.Of(database.Position);
         var writes = new Task<LatticeWriteResult>[Rounds, Entities];
@@ -133,11 +131,10 @@ public sealed class WriteOrderTests
         Assert.Equal(start + (ulong)(Rounds * Entities), PositionSequence.Of(database.Position));
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Write_that_waits_for_the_position_of_its_session_takes_its_place_when_the_wait_ends_and_a_later_call_runs_before_it(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Write_that_waits_for_the_position_of_its_session_takes_its_place_when_the_wait_ends_and_a_later_call_runs_before_it()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(UserOf(1, "first"));
 

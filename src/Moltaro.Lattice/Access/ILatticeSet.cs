@@ -14,9 +14,10 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="ILatticeSet{TEntity}"/>, member for member: records are owned copies; the
 /// synchronous reads return what this node has now, the asynchronous ones first wait for
 /// the position of a <see cref="LatticeSession"/>; writes are executed by the master and,
-/// through a child, complete when that child has applied them; do not change a record passed
-/// to a write, its collections or its byte arrays until the write completes, because the
-/// database reads them while the call runs; the same failures are reported.
+/// through a child, complete when that child has applied them or has been closed; do not
+/// change a record passed to a write, its collections or its byte arrays until the write
+/// completes, because the database reads them while the call runs; the same failures are
+/// reported.
 /// A record of another entity type is an <see cref="ArgumentException"/>.
 /// </para>
 /// <para>
@@ -85,6 +86,9 @@ public interface ILatticeSet
     /// Reads the entity with the given primary key after this node has applied the position
     /// the session depends on. Moves the session forward to the position of the answer.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>.
+    /// </remarks>
     /// <typeparam name="TKey">The type of the key value.</typeparam>
     /// <param name="key">The primary key.</param>
     /// <param name="session">The consistency context of the caller.</param>
@@ -102,8 +106,7 @@ public interface ILatticeSet
     /// <summary>
     /// Enumerates owned copies of all entities of the entity type from what this node has
     /// now, in no particular order, within the read limits of the database options. The
-    /// traversal and the limits follow the rules of <see cref="ILatticeSet{TEntity}.Enumerate"/>,
-    /// what is not implemented yet included.
+    /// traversal and the limits follow the rules of <see cref="ILatticeSet{TEntity}.Enumerate"/>.
     /// </summary>
     /// <remarks>
     /// The engine remembers the keys it has returned for the length of the pass, so that none
@@ -122,8 +125,14 @@ public interface ILatticeSet
     /// applied the position the session depends on, within the read limits of the database
     /// options. The session moves forward to cover everything the enumeration returns, also
     /// when it returns nothing. The traversal and the limits follow the rules of
-    /// <see cref="ILatticeSet{TEntity}.EnumerateAsync"/>, what is not implemented yet included.
+    /// <see cref="ILatticeSet{TEntity}.EnumerateAsync"/>.
     /// </summary>
+    /// <remarks>
+    /// A wait in flight when the instance is closed ends in <see cref="LatticeErrorEnum.Unavailable"/>:
+    /// a first step that waits for the position of the session when the instance is closed
+    /// ends so. A step after the close of an enumeration that had started is
+    /// <see cref="ObjectDisposedException"/>.
+    /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">
     /// Cancels the wait and the enumeration, with <see cref="OperationCanceledException"/>,

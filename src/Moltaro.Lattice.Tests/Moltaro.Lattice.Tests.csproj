@@ -10,7 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Moltaro.Lattice\Moltaro.Lattice.csproj" />
-    <!-- The engine, which the scenario tests open through its internal entry until S12 (exception X4). -->
+    <!-- The engine, whose LatticeDatabase opens the databases of the scenario tests. -->
     <ProjectReference Include="..\Moltaro.Lattice.Engine\Moltaro.Lattice.Engine.csproj" />
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>

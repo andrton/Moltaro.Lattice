@@ -6,17 +6,15 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // by the validation, ValidationFailed with the field named. As a key given as an argument, to a read,
 // to a delete of a set or of a batch, or as a value of a key to search an index with, it is an
 // ArgumentException, as a key of another type is. Tag has a String key, Name; User has the index
-// ByEmail on the String Email and ByAgeAndName on Age and Name. On the placeholder and on the
-// engine.
+// ByEmail on the String Email and ByAgeAndName on Age and Name.
 public sealed class MalformedTextKeyTests
 {
     private const string Bad = "urg\uD83Dent";
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Key_field_of_a_written_entity_that_is_not_well_formed_is_ValidationFailed_with_the_field_named(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Key_field_of_a_written_entity_that_is_not_well_formed_is_ValidationFailed_with_the_field_named()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var tags = database.Set<Tag>();
         var tagRecords = database.Set("Tag");
         LatticeRecord RecordOf() => new(tagRecords.EntityType) { ["Name"] = Bad, ["Color"] = "red" };
@@ -35,11 +33,10 @@ public sealed class MalformedTextKeyTests
         Assert.Empty(tags.Enumerate());
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Key_argument_that_is_not_well_formed_is_ArgumentException(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Key_argument_that_is_not_well_formed_is_ArgumentException()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var tags = database.Set<Tag>();
         var tagRecords = database.Set("Tag");
         await tags.InsertAsync(new Tag { Name = "urgent", Color = "red" });

@@ -40,11 +40,7 @@ public sealed class ReturnedKeysPagesTests
     [InlineData("Guid")]
     public async Task Every_key_remembered_beyond_one_page_is_found_again_and_no_other(string keyType)
     {
-        var outcome = await Task.Factory.StartNew(
-            () => RememberAndFind(keyType),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).WaitAsync(Bound);
+        var outcome = await OwnThread.Run(() => RememberAndFind(keyType)).WaitAsync(Bound);
 
         Assert.Equal((0, 0, 0), outcome);
     }

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Values;
@@ -78,6 +79,15 @@ namespace Moltaro.Lattice.Storage;
 // the lock of the writes (Engine.Writes.WriteCoordinator), and a writer of the tests is the only
 // thread that changes its arena.
 //
+// A root for a forwarded write. A child forwards the root of a write to its master in the load format
+// (Replication.Forwarding.ForwardEncoding; brief of Epic 1, sprint S12, the planner's decision after the
+// study, point 1), and writes it without its arena: a writer made with ExportedValues places the fixed
+// part and the values inline in its image as always, keeps each value that does not lie inline in
+// managed memory instead of blocks, with the descriptor of the blocks it would take and the location 0,
+// as Replication.Load.BlockExport writes a stored root, and writes the whole root in that form with
+// Export instead of Complete. It allocates nothing in an arena and needs no lock: what it holds is its
+// own. Every check of a value is the same, so the root is the one a master would store for the values.
+//
 // What it allocated. SlotBytes counts the bytes of the slots of every block the writer allocated and
 // still holds, as it allocates them: the slot of the root block, and for every value stored in blocks
 // the slots of its value block, or of its directory and its chunks, by the length the value has. A
@@ -86,6 +96,9 @@ namespace Moltaro.Lattice.Storage;
 internal ref struct RootWriter
 {
     private readonly Arena _arena;
+
+    // The values out of line of a root for a forwarded write; null for a root of an arena.
+    private readonly ExportedValues? _exported;
 
     private readonly RootLayout _layout;
 
@@ -132,6 +145,28 @@ internal ref struct RootWriter
         _prepared = prepared;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
+        Start();
+    }
+
+    // Starts a root of the entity type of the layout for a forwarded write (see the class), whose values
+    // out of line the given store keeps. Refuses a null layout or store with ArgumentNullException.
+    public RootWriter(RootLayout layout, ExportedValues exported)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(exported);
+
+        _arena = null!;
+        _exported = exported;
+        _layout = layout;
+        _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
+        _rootBytes = layout.FixedSize;
+        Start();
+    }
+
+    // The image of a root that has no field set yet.
+    private readonly void Start()
+    {
+        var layout = _layout;
 
         // A rented array holds what its last user left. The fixed part starts zero: the bytes of a
         // fixed field that stays null, and the descriptor of a String or Binary that stays null.
@@ -390,20 +425,12 @@ internal ref struct RootWriter
     {
         ThrowIfEnded();
 
-        var setFields = SetFields;
-        var requiredFields = _layout.RequiredFields;
-
-        for (var index = 0; index < requiredFields.Length; index++)
+        if (_exported is not null)
         {
-            var missing = requiredFields[index] & ~setFields[index];
-
-            if (missing != 0)
-            {
-                var field = _layout.EntityType.Fields[8 * index + BitOperations.TrailingZeroCount(missing)];
-
-                throw Refuse(LatticeErrorEnum.ValidationFailed, $"The field {Name(field)} is not nullable and was not set.");
-            }
+            throw new InvalidOperationException("A root for a forwarded write ends with Export.");
         }
+
+        CheckRequiredFields();
 
         if (_refusedByArena)
         {
@@ -458,6 +485,46 @@ internal ref struct RootWriter
         return root;
     }
 
+    // Ends a root for a forwarded write (see the class) and writes it into the output: the length of what
+    // follows (UInt64), the type id of its entity type (UInt32) and a last mutation sequence of 0 (UInt64),
+    // little-endian, then the root as BlockExport writes a stored one — the layout version, the root
+    // payload, and each value out of line in the order of its descriptor. Refuses with ValidationFailed,
+    // as Complete does, a field that is not nullable and was not set; the writer has ended either way.
+    public void Export(IBufferWriter<byte> output)
+    {
+        ThrowIfEnded();
+
+        if (_exported is null)
+        {
+            throw new InvalidOperationException("Only a root for a forwarded write is exported.");
+        }
+
+        CheckRequiredFields();
+
+        const int Envelope = sizeof(ulong) + sizeof(uint) + sizeof(ulong) + sizeof(uint);
+
+        var payload = Image[BlockHeader.Size.._rootBytes];
+        var length = Envelope - sizeof(ulong) + payload.Length + _exported.Length;
+        var start = output.GetSpan(Envelope);
+
+        BinaryPrimitives.WriteUInt64LittleEndian(start, (ulong)length);
+        BinaryPrimitives.WriteUInt32LittleEndian(start[sizeof(ulong)..], (uint)_layout.EntityType.Id);
+        BinaryPrimitives.WriteUInt64LittleEndian(start[(sizeof(ulong) + sizeof(uint))..], 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(start[(2 * sizeof(ulong) + sizeof(uint))..], _layout.LayoutVersion);
+        output.Advance(Envelope);
+
+        // The payload fits one span: it is at most the payload of one block.
+        payload.CopyTo(output.GetSpan(payload.Length));
+        output.Advance(payload.Length);
+
+        for (var index = 0; index < _layout.DescriptorCount; index++)
+        {
+            _exported.WriteTo(index, output);
+        }
+
+        End(WriterStateEnum.Completed);
+    }
+
     // Ends the writing without a root: frees everything the writer allocated so far.
     public void Abandon()
     {
@@ -471,6 +538,26 @@ internal ref struct RootWriter
 
         FreeValues();
         End(WriterStateEnum.Abandoned);
+    }
+
+    // Every field that is not nullable was set; ValidationFailed for the first one that was not, with
+    // everything the writer allocated freed and the writer ended.
+    private void CheckRequiredFields()
+    {
+        var setFields = SetFields;
+        var requiredFields = _layout.RequiredFields;
+
+        for (var index = 0; index < requiredFields.Length; index++)
+        {
+            var missing = requiredFields[index] & ~setFields[index];
+
+            if (missing != 0)
+            {
+                var field = _layout.EntityType.Fields[8 * index + BitOperations.TrailingZeroCount(missing)];
+
+                throw Refuse(LatticeErrorEnum.ValidationFailed, $"The field {Name(field)} is not nullable and was not set.");
+            }
+        }
     }
 
     // The field, of the entity type of the layout and not set yet, for SetNull. The checks come in
@@ -541,6 +628,17 @@ internal ref struct RootWriter
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
             _rootBytes += length;
         }
+        else if (_exported is not null)
+        {
+            // Kept apart in the order of its descriptor, and described as the blocks that would hold it.
+            _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
+            ValueBlocks.Write(descriptor, new ValueDescriptor
+            {
+                Kind = length <= RootLayout.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
+                Length = (uint)length,
+                Location = 0,
+            });
+        }
         else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor))
         {
             SlotBytes += ValueBlocks.SlotBytes(ValueBlocks.Read(descriptor));
@@ -570,6 +668,12 @@ internal ref struct RootWriter
     // the root block is allocated last, by a Complete that then cannot fail any more.
     private void FreeValues()
     {
+        // A root for a forwarded write holds no block: its values out of line are managed memory.
+        if (_exported is not null)
+        {
+            return;
+        }
+
         for (var index = 0; index < _layout.DescriptorCount; index++)
         {
             var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
@@ -596,11 +700,16 @@ internal ref struct RootWriter
         FreeValues();
         End(WriterStateEnum.Failed);
 
-        return new LatticeException(LatticeErrorEnum.WriteRejected, $"The memory budget of the database cannot hold the entity of {_layout.EntityType.Name}.")
+        return RefusalForMemory(_layout);
+    }
+
+    // The refusal of an entity of the layout that the arena has no room for, the same for a root this
+    // writer writes and for one a master places from what a child forwarded (Engine.Writes.WriteExecutor).
+    public static LatticeException RefusalForMemory(RootLayout layout) =>
+        new(LatticeErrorEnum.WriteRejected, $"The memory budget of the database cannot hold the entity of {layout.EntityType.Name}.")
         {
             Limit = LatticeLimitEnum.Memory,
         };
-    }
 
     // Returns the image to the pool; nothing reads or writes it afterwards.
     private void End(WriterStateEnum state)

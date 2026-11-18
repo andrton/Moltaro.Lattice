@@ -5,8 +5,6 @@ namespace Moltaro.Lattice.Tests.TextPolicies;
 // is not changed, and two values that the comparison holds equal stay two values, in a UTF-8 and in a
 // UTF-16 database, through the class and by name. What the comparison decides, an index and a unique
 // index, comes with S14 and S16.
-//
-// Engine only: the placeholder refuses an entity type with a comparison without case until S12.
 public sealed class CaseInsensitiveFieldTests
 {
     [Theory]
@@ -14,7 +12,7 @@ public sealed class CaseInsensitiveFieldTests
     [InlineData(LatticeStringEncodingEnum.Utf16)]
     public async Task String_field_compared_without_case_is_written_and_read_back_as_it_was_given(LatticeStringEncodingEnum encoding)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, SchemaOf(encoding));
+        await using var database = await TestDatabases.OpenMasterAsync(SchemaOf(encoding));
         var handles = database.Set<Handle>();
         var records = database.Set("Handle");
 

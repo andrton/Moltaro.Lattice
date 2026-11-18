@@ -105,16 +105,13 @@ public sealed class ReadTimeInsideTheEngineTests
             // The rest of each pass, on a thread of its own: its next step waits for a slot.
             using var started = new CountdownEvent(steps.Length);
             var rests = steps
-                .Select(enumerator => Task.Factory.StartNew(
+                .Select(enumerator => OwnThread.Run(
                     () =>
                     {
                         started.Signal();
 
                         return RestOf(enumerator);
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                    }))
                 .ToArray();
 
             Assert.True(started.Wait(Bound), "The steps did not start.");
@@ -205,16 +202,13 @@ public sealed class ReadTimeInsideTheEngineTests
             for (var step = 0; step < MostWaitedSteps && failure is null; step++)
             {
                 using var waiting = new ManualResetEventSlim();
-                var next = Task.Factory.StartNew(
+                var next = OwnThread.Run(
                     () =>
                     {
                         waiting.Set();
 
                         return TimedStep(steps);
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default);
+                    });
 
                 Assert.True(waiting.Wait(Bound), "The step did not start.");
                 await Task.Delay(StepWait);
@@ -267,7 +261,7 @@ public sealed class ReadTimeInsideTheEngineTests
     // the time limit given in its options.
     private static async Task<EngineDatabase> OpenWithStampsAsync(TimeSpan? readTimeLimit, int count = Keys)
     {
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = StampSchema.Schema,

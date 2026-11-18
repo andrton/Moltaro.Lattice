@@ -75,7 +75,7 @@ public sealed class OpenTimeoutTests
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await Pieces.InsertAsync(master, 1, 2, dataBytes: 1024 * 1024);
         await using var link = HeldLink.Paced(master.ListenUri!, Portion, Pause);
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, OpenTimeout));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, OpenTimeout));
         var waited = Stopwatch.StartNew();
 
         await child.OpenAsync().AsTask().WaitAsync(Bound);
@@ -89,7 +89,7 @@ public sealed class OpenTimeoutTests
     public async Task Child_started_before_its_master_becomes_ready_when_the_master_opens_within_its_OpenTimeout()
     {
         using var port = new ClosedPort();
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(port.Address));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(port.Address));
 
         var opening = child.OpenAsync().AsTask();
         await MasterAndChild.EventuallyAsync(() => child.State == LatticeDatabaseStateEnum.Connecting);

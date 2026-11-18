@@ -29,8 +29,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 //
 // In a schema of the UTF-16 encoding, where a code unit takes two bytes, the bound is 134,086,688
 // characters: that many pass the validation and one more is ValidationFailed (brief of Epic 1, sprint
-// S07, where such a schema is first written). The pair runs on the engine only, which the placeholder
-// refuses for a UTF-16 schema until S12. Each text is made inside its write, which ends at the
+// S07, where such a schema is first written). Each text is made inside its write, which ends at the
 // validation or at its condition, so the engine never copies it; the one above the bound is refused
 // for its length and its memory is never touched, so the test holds one text of 268 MB.
 [Collection<LargeValueCollection>]
@@ -65,11 +64,10 @@ public sealed class ValueBoundWriteTests
         }
         """);
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Write_of_a_value_above_the_bound_of_one_value_is_ValidationFailed_with_the_field_named_before_the_conditions_of_the_write(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Write_of_a_value_above_the_bound_of_one_value_is_ValidationFailed_with_the_field_named_before_the_conditions_of_the_write()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var notes = database.Set<Note>();
         var noteRecords = database.Set("Note");
         await notes.InsertAsync(new Note { Id = 1, Caption = "kept" });
@@ -105,7 +103,7 @@ public sealed class ValueBoundWriteTests
     [Fact]
     public async Task Value_of_exactly_the_bound_of_one_value_passes_the_validation()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Schema);
         var notes = database.Set<Note>();
 
         // The write reaches its condition: the key is absent, so it is NotFound.
@@ -115,7 +113,7 @@ public sealed class ValueBoundWriteTests
     [Fact]
     public async Task In_a_UTF16_schema_134086688_characters_pass_the_validation_and_one_more_is_ValidationFailed()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine, Utf16Schema);
+        await using var database = await TestDatabases.OpenMasterAsync(Utf16Schema);
         var notes = database.Set<Note>();
         const int Characters = ValueBound.Bytes / 2;
 

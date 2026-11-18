@@ -53,7 +53,7 @@ internal sealed class UserDatabase : IDisposable
         var records = ReferenceFixture.Generate(schema).ToList();
         var users = records.Where(record => record.EntityType.Name == "User").ToList();
 
-        var database = EngineDatabase.Create(new LatticeDatabaseOptions
+        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,
@@ -105,6 +105,9 @@ internal sealed class UserDatabase : IDisposable
 
     // The counters of the engine, for a scenario that reports what the write coordinator formed.
     public EngineCounters Counters => _database.Counters;
+
+    // The position the database has published.
+    public LatticePosition Position => _database.Position;
 
     // The address the database accepts children at, with its port; null when it was opened without one.
     public Uri? ListenUri => _database.ListenUri;

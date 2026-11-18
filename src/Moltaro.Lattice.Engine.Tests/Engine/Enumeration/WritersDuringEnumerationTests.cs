@@ -12,7 +12,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // - no key is returned twice, also one deleted and created again after the pass returned it;
 // - every returned entity is one written state of its key (StampSchema.NumberOf checks each value),
 //   and the state of a key of the second set is one its writer wrote.
-// The first set is in the database before the pass starts. Two writers on threads of their own start
+// The first set is in the database before the pass starts. Two writers on threads of their own
+// (OwnThread; a write of MemoryOnly completes at once, so a writer never gives its thread back) start
 // after the first step and run a fixed program over the keys of the second set: each key is inserted,
 // replaced, deleted, inserted again and replaced, and every third is deleted at the end, so the count
 // of entities grows from 200 to 800 and the main table of the index grows by the count twice or more.
@@ -87,7 +88,7 @@ public sealed class WritersDuringEnumerationTests
 
             database.HoldNextGrowth(entityType, Grew);
 
-            var writing = Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => Task.Run(() => WriteAsync(records, writer))));
+            var writing = Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => OwnThread.Run(() => Write(records, writer))));
 
             while (await steps.MoveNextAsync())
             {
@@ -161,7 +162,7 @@ public sealed class WritersDuringEnumerationTests
 
     // The program of a writer over its keys of the second set, in their order: insert, replace,
     // delete, insert again, replace, and for every third key a delete at the end.
-    private static async Task WriteAsync(ILatticeSet records, int writer)
+    private static void Write(ILatticeSet records, int writer)
     {
         var entityType = records.EntityType;
 
@@ -169,15 +170,15 @@ public sealed class WritersDuringEnumerationTests
         {
             var key = SecondStart + index;
 
-            await records.InsertAsync(StampSchema.RecordOf(entityType, key, Written[0]));
-            Assert.True((await records.ReplaceAsync(StampSchema.RecordOf(entityType, key, Written[1]))).Changed);
-            Assert.True((await records.DeleteAsync(StampSchema.KeyOf(entityType, key))).Changed);
-            await records.InsertAsync(StampSchema.RecordOf(entityType, key, Written[2]));
-            Assert.True((await records.ReplaceAsync(StampSchema.RecordOf(entityType, key, Written[3]))).Changed);
+            OwnThread.Wait(records.InsertAsync(StampSchema.RecordOf(entityType, key, Written[0])));
+            Assert.True(OwnThread.Wait(records.ReplaceAsync(StampSchema.RecordOf(entityType, key, Written[1]))).Changed);
+            Assert.True(OwnThread.Wait(records.DeleteAsync(StampSchema.KeyOf(entityType, key))).Changed);
+            OwnThread.Wait(records.InsertAsync(StampSchema.RecordOf(entityType, key, Written[2])));
+            Assert.True(OwnThread.Wait(records.ReplaceAsync(StampSchema.RecordOf(entityType, key, Written[3]))).Changed);
 
             if (IsDeletedAtTheEnd(index))
             {
-                Assert.True((await records.DeleteAsync(StampSchema.KeyOf(entityType, key))).Changed);
+                Assert.True(OwnThread.Wait(records.DeleteAsync(StampSchema.KeyOf(entityType, key))).Changed);
             }
         }
     }

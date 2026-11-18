@@ -29,7 +29,7 @@ public sealed class SilentPeerTests
             ListenUri = MasterAndChild.Loopback,
             OpenTimeout = OpenTimeout,
         };
-        await using var master = EngineDatabase.Create(options);
+        await using var master = (EngineDatabase)LatticeDatabase.Create(options);
         await master.OpenAsync();
         using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         var waited = Stopwatch.StartNew();

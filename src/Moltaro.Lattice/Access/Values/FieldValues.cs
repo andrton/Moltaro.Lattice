@@ -4,8 +4,8 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Access.Values;
 
 // How a value that a caller gives by itself, a field value, a primary key or a part of a search
-// key, is checked against the schema, and how stored values are kept separate from what a read
-// returns. Values inside owned values and collections are RecordValues' business.
+// key, is checked against the schema. Values inside owned values and collections are RecordValues'
+// business.
 internal static class FieldValues
 {
     // Returns the value in the field's exact .NET type. An integer of another width is
@@ -70,22 +70,5 @@ internal static class FieldValues
                 $"Field '{field.Name}' is {field.Declaration.Type}; the value '{text}' is not well-formed text, it has a surrogate without its pair, and cannot be used for it.",
                 parameterName);
         }
-    }
-
-    // Stored values are never modified in place. Until owned values and collections are stored
-    // a byte array is the only mutable value a stored entity holds, so it is copied whenever
-    // values cross the database boundary.
-    public static object?[] Copy(object?[] values)
-    {
-        var copy = (object?[])values.Clone();
-        for (var index = 0; index < copy.Length; index++)
-        {
-            if (copy[index] is byte[] bytes)
-            {
-                copy[index] = bytes.Clone();
-            }
-        }
-
-        return copy;
     }
 }

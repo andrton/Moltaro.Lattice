@@ -20,12 +20,5 @@ public enum LatticeStringEncodingEnum : byte
     /// UTF-16, the encoding of a .NET <see cref="string"/>: two bytes for an ASCII character,
     /// fewer than UTF-8 for common CJK text, and no transcoding when a value is read.
     /// </summary>
-    /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares it, and is compiled, saved and loaded
-    /// with it, but storing by it is not implemented. Until then no write of any entity type
-    /// of a schema that declares UTF-16 is carried out: after the checks every write makes of
-    /// its arguments and of the entity against the schema, it throws
-    /// <see cref="NotSupportedException"/>.
-    /// </remarks>
     Utf16 = 2,
 }

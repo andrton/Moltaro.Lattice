@@ -18,7 +18,7 @@ public sealed class NotReadyTests
     public async Task Child_that_cannot_reach_its_master_is_Connecting_and_every_operation_is_Unavailable()
     {
         using var port = new ClosedPort();
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(port.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(port.Address, ReplicationNodes.BeyondTheBound));
         using var cancellation = new CancellationTokenSource();
 
         var opening = child.OpenAsync(cancellation.Token).AsTask();
@@ -37,7 +37,7 @@ public sealed class NotReadyTests
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await Pieces.InsertBeyondALinkAsync(master);
         await using var link = HeldLink.Start(master.ListenUri!);
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, ReplicationNodes.BeyondTheBound));
 
         var opening = child.OpenAsync().AsTask();
         await link.HeldAsync();

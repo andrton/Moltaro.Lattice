@@ -1,3 +1,5 @@
+using Moltaro.Lattice.TestSupport.Enumeration;
+
 namespace Moltaro.Lattice.Tests.Enumeration;
 
 // A step of an enumeration after its database was closed is ObjectDisposedException, as every
@@ -6,16 +8,19 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // close"). The close comes between two steps, from another thread or from the code that walks the
 // pass, and the next step fails; what the pass returned before stays as it was. Every step after the
 // close is a step after the close, so each fails the same way, and none ends the pass as if it had
-// returned everything. Every form of an enumeration, on the engine alone: the placeholder takes
-// what a pass returns at its first step and returns the rest after a close, which is not changed,
-// until S12. Every wait is bounded, so a close that waited for an enumeration standing between two
-// steps fails the test instead of hanging it.
+// returned everything. Every form of an enumeration. Every wait is bounded, so a close that waited
+// for an enumeration standing between two steps fails the test instead of hanging it.
+//
+// A first step that waits for the position of its session is an operation in flight when the close
+// comes, which the close does not let finish: it ends in Unavailable (settled by the planner with the
+// tests of S12), through the class and by name. The session depends on a position of the history of the
+// database that it has not reached (TestData.Ahead).
 public sealed class EnumerationAfterCloseTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Step_after_a_close_from_another_thread_is_ObjectDisposedException(string form)
     {
         var database = await OpenAsync();
@@ -38,7 +43,7 @@ public sealed class EnumerationAfterCloseTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Every_step_after_a_close_is_ObjectDisposedException_and_never_the_end_of_the_pass(string form)
     {
         var database = await OpenAsync();
@@ -62,7 +67,7 @@ public sealed class EnumerationAfterCloseTests
     }
 
     [Theory]
-    [MemberData(nameof(EnumerationCases.FormsOnTheEngine), MemberType = typeof(EnumerationCases))]
+    [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Step_after_a_close_from_inside_the_walk_is_ObjectDisposedException(string form)
     {
         var database = await OpenAsync();
@@ -89,10 +94,53 @@ public sealed class EnumerationAfterCloseTests
         }
     }
 
-    // A master of the engine with three users.
+    [Theory]
+    [InlineData(EnumerationForms.ByClassWithASession)]
+    [InlineData(EnumerationForms.ByNameWithASession)]
+    public async Task First_step_that_waits_for_the_position_of_its_session_when_the_database_closes_is_Unavailable(string form)
+    {
+        var database = await OpenAsync();
+
+        try
+        {
+            var session = new LatticeSession(TestData.Ahead(database.Position));
+            var (steps, first) = FirstStep(database, form, session);
+
+            await using (steps)
+            {
+                Assert.False(first.IsCompleted, "The first step did not wait for the position of its session.");
+
+                await database.CloseAsync().AsTask().WaitAsync(Bound);
+
+                var exception = await Assert.ThrowsAsync<LatticeException>(() => first.WaitAsync(Bound));
+                Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
+            }
+        }
+        finally
+        {
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+
+    // The enumerator of the form with the session and its first step, begun.
+    private static (IAsyncDisposable Steps, Task<bool> First) FirstStep(ILatticeDatabase database, string form, LatticeSession session)
+    {
+        if (form == EnumerationForms.ByClassWithASession)
+        {
+            var byClass = database.Set<User>().EnumerateAsync(session).GetAsyncEnumerator();
+
+            return (byClass, byClass.MoveNextAsync().AsTask());
+        }
+
+        var byName = database.Set("User").EnumerateAsync(session).GetAsyncEnumerator();
+
+        return (byName, byName.MoveNextAsync().AsTask());
+    }
+
+    // A master with three users.
     private static async Task<ILatticeDatabase> OpenAsync()
     {
-        var database = await TestDatabases.OpenMasterAsync(DatabaseImplementationEnum.Engine);
+        var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
 
         for (var id = 1L; id <= 3; id++)

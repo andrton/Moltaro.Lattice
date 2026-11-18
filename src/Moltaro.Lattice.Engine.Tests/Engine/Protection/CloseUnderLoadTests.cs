@@ -48,11 +48,7 @@ public sealed class CloseUnderLoadTests
             using var stop = new CancellationTokenSource(Bound);
 
             var workers = Enumerable.Range(0, Readers + 1)
-                .Select(worker => Task.Factory.StartNew(
-                    () => UntilClosed(started, closed, stop.Token, worker == Readers ? WriterOf(records) : ReaderOf(worker, stamps, records)),
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                .Select(worker => OwnThread.Run(() => UntilClosed(started, closed, stop.Token, worker == Readers ? WriterOf(records) : ReaderOf(worker, stamps, records))))
                 .ToArray();
 
             Assert.True(started.Wait(Bound), "The readers and the writer did not start.");

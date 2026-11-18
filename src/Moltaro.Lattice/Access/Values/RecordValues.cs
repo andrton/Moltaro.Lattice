@@ -49,9 +49,8 @@ internal static class RecordValues
     // an owned value is not: whether the bound holds for it is the planner's, with the contracts of
     // S18 and S19 (Q35, point 7, of Epic 1), and no entity type with such a field is stored yet.
     //
-    // A Binary value of a field of the entity is copied when copyBinary is true, for a database that
-    // keeps what it takes, the placeholder, and for a write batch, which copies an operation when it is
-    // added. When it is false the array the record holds is taken as it is, after the same check that
+    // A Binary value of a field of the entity is copied when copyBinary is true, for a write batch,
+    // which copies an operation when it is added. When it is false the array the record holds is taken as it is, after the same check that
     // it is a byte[] and nothing else: the engine copies it once, into its own memory, while the write
     // runs, and the caller keeps it unchanged until the write completes (the planner's answer to Q43,
     // from the accepted decision "Stable write inputs until completion"). A Binary value inside a

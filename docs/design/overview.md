@@ -9,7 +9,7 @@ for each statement; it adds no guarantee of its own.
 
 **Status:** this collection describes the intended engine and isolated experiments,
 not an implemented production engine. The [repository README](../../README.md) owns
-the current facade/placeholder status. The [first-milestone implementation contract](milestone-1-engine-contract.md)
+the current status of the facade and the engine. The [first-milestone implementation contract](milestone-1-engine-contract.md)
 fixes the physical baseline and the accepted unique-index contract.
 PostgreSQL persistence is mandatory; milestone planning is tracked in
 [Epic 1](../work/epic-1-core.md).

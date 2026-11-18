@@ -50,7 +50,7 @@ public sealed class FullEpochTableTests
             using var started = new CountdownEvent(Beyond);
 
             var waiting = Enumerable.Range(0, Beyond)
-                .Select(read => Task.Factory.StartNew(
+                .Select(read => OwnThread.Run(
                     () =>
                     {
                         var key = read % Keys;
@@ -58,10 +58,7 @@ public sealed class FullEpochTableTests
                         started.Signal();
 
                         return StampSchema.NumberOf(key, stamps.Get((long)key));
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default))
+                    }))
                 .ToArray();
 
             Assert.True(started.Wait(Bound), "The reads beyond the slots did not start.");

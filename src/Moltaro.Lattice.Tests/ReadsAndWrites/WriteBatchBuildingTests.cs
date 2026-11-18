@@ -5,11 +5,10 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // NotSupportedException until Epic 1, sprint S17 (brief of S06, "Sessions and the write batch").
 public sealed class WriteBatchBuildingTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Write_batch_is_built_on_a_master_and_its_commit_is_not_implemented_yet(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Write_batch_is_built_on_a_master_and_its_commit_is_not_implemented_yet()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var settings = database.Set("Setting");
         var before = database.Position;
 

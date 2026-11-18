@@ -11,30 +11,25 @@ namespace Moltaro.Lattice.Tests.Keys;
 // the key is found as its spelling by the case table as well, its simple uppercase mapping of Unicode
 // 16.0.0 (CaseRule of Moltaro.Lattice.TestSupport), which differs from it in a, é and 𐐨. A key that
 // differs only in its last character, after every chunk, is another key under both comparisons.
-//
-// The placeholder stores a String key compared with Ordinal in a UTF-8 database and runs that case
-// too; the other cases run on the engine only, which the placeholder refuses until S12.
 public sealed class LongStringKeyTests
 {
     private const int Length = 100_000;
 
-    public static IEnumerable<TheoryDataRow<DatabaseImplementationEnum, LatticeStringEncodingEnum, LatticeStringComparisonEnum>> Cases =>
+    public static IEnumerable<TheoryDataRow<LatticeStringEncodingEnum, LatticeStringComparisonEnum>> Cases =>
     [
-        new(DatabaseImplementationEnum.Placeholder, LatticeStringEncodingEnum.Utf8, LatticeStringComparisonEnum.Ordinal),
-        new(DatabaseImplementationEnum.Engine, LatticeStringEncodingEnum.Utf8, LatticeStringComparisonEnum.Ordinal),
-        new(DatabaseImplementationEnum.Engine, LatticeStringEncodingEnum.Utf16, LatticeStringComparisonEnum.Ordinal),
-        new(DatabaseImplementationEnum.Engine, LatticeStringEncodingEnum.Utf8, LatticeStringComparisonEnum.OrdinalIgnoreCase),
-        new(DatabaseImplementationEnum.Engine, LatticeStringEncodingEnum.Utf16, LatticeStringComparisonEnum.OrdinalIgnoreCase),
+        new(LatticeStringEncodingEnum.Utf8, LatticeStringComparisonEnum.Ordinal),
+        new(LatticeStringEncodingEnum.Utf16, LatticeStringComparisonEnum.Ordinal),
+        new(LatticeStringEncodingEnum.Utf8, LatticeStringComparisonEnum.OrdinalIgnoreCase),
+        new(LatticeStringEncodingEnum.Utf16, LatticeStringComparisonEnum.OrdinalIgnoreCase),
     ];
 
     [Theory]
     [MemberData(nameof(Cases))]
     public async Task String_key_of_100000_characters_is_found_with_either_comparison(
-        DatabaseImplementationEnum implementation,
         LatticeStringEncodingEnum encoding,
         LatticeStringComparisonEnum comparison)
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation, StringKeySchema.Of(encoding, comparison));
+        await using var database = await TestDatabases.OpenMasterAsync(StringKeySchema.Of(encoding, comparison));
         var notes = database.Set<Note>();
         var records = database.Set("Note");
         var key = KeyEndingWith('z');

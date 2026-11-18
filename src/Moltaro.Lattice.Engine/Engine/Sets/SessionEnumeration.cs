@@ -130,7 +130,7 @@ internal sealed class SessionEnumeration<TCopy, TResult> : IAsyncEnumerable<TRes
 
         private async ValueTask<bool> StepAfterAsync(ValueTask wait)
         {
-            await wait;
+            await wait.ConfigureAwait(false);
             _waited = true;
 
             return Step();

@@ -31,11 +31,7 @@ internal sealed class ReadsUntilUnavailable
         var reads = new ReadsUntilUnavailable();
         using var started = new CountdownEvent(readers);
 
-        reads._readers = [.. Enumerable.Range(0, readers).Select(_ => Task.Factory.StartNew(
-            () => reads.ReadUntilUnavailable(read, started),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default))];
+        reads._readers = [.. Enumerable.Range(0, readers).Select(_ => OwnThread.Run(() => reads.ReadUntilUnavailable(read, started)))];
 
         var waited = Task.Run(() => started.Wait(Bound));
 

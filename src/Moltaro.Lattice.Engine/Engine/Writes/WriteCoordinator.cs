@@ -51,6 +51,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // S27), refused, cancelled, failed, or ended by a fault — and every way a write completes starts the
 // next write of its chain under the same lock (AdvanceChain). A write with a session takes its place
 // when the wait for its position ends (brief of S09, "The order of writes and the wait of a session").
+// It enters the barrier of the close before that wait, so that a close waits for it as for every write
+// admitted; the close ends the wait first (EngineDatabase.CloseAsync, PositionClock.Close).
 //
 // The lock of the writes, given by the database, which takes it as well for its counters and its
 // drain, and for the start, the end and the acknowledgments of the children of a master
@@ -148,11 +150,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // resolution of a write, whichever it is (HoldNextRefusedWriteWait).
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
-// session has the timeout of the session and the token. The wait for the lock of the writes is that of
-// a lock: it ends when the holder releases it, after work in memory alone. The waits in a chain, in the
-// held list, in the queue of the prepared writes and in steps 1 and 2 of a resolution have no timeout
-// and have the token; each ends when the writes it waits for end, as above. The wait for the reads that
-// hold retired memory has no timeout and has the token; a read leaves within one step (exception X6).
+// session has the timeout of the session and the token, and the close ends it. The wait for the lock of
+// the writes is that of a lock: it ends when the holder releases it, after work in memory alone. The
+// waits in a chain, in the held list, in the queue of the prepared writes and in steps 1 and 2 of a
+// resolution have no timeout and have the token; each ends when the writes it waits for end, as above.
+// The wait for the reads that hold retired memory has no timeout and has the token; a read leaves within
+// one step (exception X6).
 //
 // What a write allocates. A write prepared and published in the hold of its call uses the record the
 // coordinator keeps for the next write (_spare), which only the holder of the lock takes and gives
@@ -168,8 +171,22 @@ namespace Moltaro.Lattice.Engine.Writes;
 // the writes (Children.Capture), and a write published in a later hold is appended to the tail of the
 // children in the hold that publishes it (WriteExecutor), so a write is either published before the
 // capture starts or delivered after it, whichever hold its preparation was in; the senders of the
-// children are woken after the hold (Finish). A child itself refuses every write until S12
-// (refusesEveryWrite), before it is admitted.
+// children are woken after the hold (Finish). A child admits no write here: it forwards its writes to its
+// master (Forwarding.Forwarder).
+//
+// Forwarded writes (brief of Epic 1, sprint S12; the planner's decisions after the study, points 1, 2 and
+// 12, and decided at the review, point 1). The receiver of a child's connection submits each write the
+// child forwarded, in the order it received them, without awaiting one before it submits the next
+// (Children.ChildConnection, Forward), so a forwarded write takes its place among the writes of its entity
+// as any write does. It has no token: a request received whole is a submitted write and runs although its
+// child's connection ends. It brings the root the child sent instead of values (ForwardedOrigin), which the
+// executor places when it prepares the write. It has no caller: its outcome is its reply, recorded for the
+// child before the write leaves the barrier of the close, whatever the outcome. A success is recorded in
+// the hold that publishes it, before its transaction is appended to the tail (WriteExecutor), so that the
+// child takes the reply before the transaction; a refusal where its outcome is given, after the hold that
+// decided it (Deliver, Outcome), or at once when it is refused before its admission. So once the barrier
+// has drained, every forwarded write admitted has its reply recorded, and nothing of one runs any more: no
+// task of it is awaited.
 //
 // A fault (brief of S09, "Faulted" and the answers of the planner, "After a fault"). A failure of the
 // storage step or of a publication faults the database: reads are refused from then on, a read that
@@ -231,9 +248,6 @@ internal sealed class WriteCoordinator
     // Set once the storage step or a publication failed; never cleared.
     private bool _faulted;
 
-    // Why every write is refused on this instance, a child, before it is admitted; null on a master.
-    private readonly string? _refusesEveryWrite;
-
     // The counters (EngineCounters), written under the lock and read by the counters of the database.
     private int _queued;
 
@@ -249,9 +263,9 @@ internal sealed class WriteCoordinator
     // write loads it.
     private Action? _waitHold;
 
-    // A coordinator of a master, or of a child when refusesEveryWrite gives why the child refuses every
-    // write.
-    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase, string? refusesEveryWrite)
+    // The coordinator of a master. A child has one as well, which admits no write: its writes are
+    // forwarded to its master (Forwarding.Forwarder).
+    public WriteCoordinator(Lock writes, WriteExecutor executor, ICommitStorage storage, CloseBarrier barrier, PositionClock clock, TimeSpan synchronizationTimeout, Action faultDatabase)
     {
         _writes = writes;
         _executor = executor;
@@ -260,7 +274,6 @@ internal sealed class WriteCoordinator
         _clock = clock;
         _synchronizationTimeout = synchronizationTimeout;
         _faultDatabase = faultDatabase;
-        _refusesEveryWrite = refusesEveryWrite;
     }
 
     // The writes admitted and not completed (EngineCounters.QueuedWrites).
@@ -275,13 +288,12 @@ internal sealed class WriteCoordinator
     // values are those of a complete entity for an insert, a replace and an upsert, and null for a
     // delete. The token cancels the write while it waits for its session's position and until its
     // dispatch (see the class). Refusals, in the task: NotSupportedException for an entity type the
-    // engine does not store; for the session, HistoryMismatch, SynchronizationTimeout and Unavailable;
-    // then ObjectDisposedException after the close and Unavailable after a fault; RevisionConflict,
-    // DuplicateKey and NotFound for its condition; WriteRejected, with Limit Memory, for an entity the
-    // memory budget cannot hold; IndeterminateOutcome when a publication failed after the storage step
-    // took it. ValidationFailed for text that is not well-formed or a value above the bound of one value
-    // comes from the guard of the root writer, only for values that the validation of the core did not
-    // check.
+    // engine does not store; ObjectDisposedException after the close; for the session, HistoryMismatch,
+    // SynchronizationTimeout and Unavailable; Unavailable after a fault; RevisionConflict, DuplicateKey
+    // and NotFound for its condition; WriteRejected, with Limit Memory, for an entity the memory budget
+    // cannot hold; IndeterminateOutcome when a publication failed after the storage step took it.
+    // ValidationFailed for text that is not well-formed or a value above the bound of one value comes
+    // from the guard of the root writer, only for values that the validation of the core did not check.
     public ValueTask<LatticeWriteResult> SubmitAsync(
         EntityTable table,
         WriteKindEnum kind,
@@ -296,37 +308,46 @@ internal sealed class WriteCoordinator
             return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(table.Refusal));
         }
 
-        if (_refusesEveryWrite is not null)
-        {
-            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(_refusesEveryWrite));
-        }
-
         if (cancellationToken.IsCancellationRequested)
         {
             return ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken);
         }
 
-        if (session is not null)
+        if (!TryEnter(session, cancellationToken, out var waited, out var refusal))
         {
-            ValueTask waited;
-
-            try
-            {
-                waited = _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
-            }
-            catch (Exception exception)
-            {
-                return ValueTask.FromException<LatticeWriteResult>(exception);
-            }
-
-            // On a master the position of a session is published already, unless a caller made it up.
-            if (!waited.IsCompletedSuccessfully)
-            {
-                return AdmitAfterAsync(waited, table, kind, key, values, expectedRevision, session, cancellationToken);
-            }
+            return ValueTask.FromException<LatticeWriteResult>(refusal);
         }
 
-        return Admit(table, kind, key, values, expectedRevision, session, cancellationToken);
+        // On a master the position of a session is published already, unless a caller made it up.
+        if (!waited.IsCompletedSuccessfully)
+        {
+            return AdmitAfterAsync(waited, table, kind, key, values, expectedRevision, session, cancellationToken);
+        }
+
+        return Admit(table, kind, key, values, forwarded: null, expectedRevision, session, cancellationToken);
+    }
+
+    // Submits a write a child forwarded, of an entity type the engine stores, which brings its root and
+    // where it came from instead of values (see the class, "Forwarded writes"). Its outcome is its reply,
+    // with the refusals of SubmitAsync, and is recorded before the write leaves the barrier of the close;
+    // nothing is returned, and the task of its admission is not looked at.
+    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded, LatticeRevision? expectedRevision, LatticeSession? session)
+    {
+        if (!TryEnter(session, CancellationToken.None, out var waited, out var refusal))
+        {
+            forwarded.Refuse(refusal);
+
+            return;
+        }
+
+        if (!waited.IsCompletedSuccessfully)
+        {
+            _ = ForwardAfterAsync(waited, table, kind, key, forwarded, expectedRevision, session);
+
+            return;
+        }
+
+        _ = Admit(table, kind, key, values: null, forwarded, expectedRevision, session, CancellationToken.None);
     }
 
     // Arms the switch of the tests: the next write the arena refused runs hold once, at the first wait of
@@ -476,8 +497,49 @@ internal sealed class WriteCoordinator
         write.LaterOfEntity = null;
     }
 
-    // A write with a session whose position is not published yet: admitted once it is, so it takes its
-    // place among the writes of its entity when the wait ends.
+    // Enters the barrier of the close and begins the wait for the position of the session, if there is
+    // one, so that the write is inside the barrier from its wait on (see the class, "The order of writes
+    // to one entity"); waited completes when the position is published. False, with the refusal and
+    // outside the barrier: ObjectDisposedException after the close; for the session, HistoryMismatch.
+    private bool TryEnter(LatticeSession? session, CancellationToken cancellationToken, out ValueTask waited, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out Exception? refusal)
+    {
+        waited = default;
+        refusal = null;
+
+        try
+        {
+            _barrier.Enter();
+        }
+        catch (ObjectDisposedException exception)
+        {
+            refusal = exception;
+
+            return false;
+        }
+
+        if (session is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            waited = _clock.WaitAsync(session, _synchronizationTimeout, cancellationToken);
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _barrier.Exit();
+            refusal = exception;
+
+            return false;
+        }
+    }
+
+    // A write with a session whose position is not published yet, inside the barrier: admitted once it
+    // is, so it takes its place among the writes of its entity when the wait ends; a wait that fails
+    // leaves the barrier with its failure.
     private async ValueTask<LatticeWriteResult> AdmitAfterAsync(
         ValueTask waited,
         EntityTable table,
@@ -485,35 +547,62 @@ internal sealed class WriteCoordinator
         EntityKey key,
         object?[]? values,
         LatticeRevision? expectedRevision,
-        LatticeSession session,
-        CancellationToken cancellationToken)
-    {
-        await waited.ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return await Admit(table, kind, key, values, expectedRevision, session, cancellationToken).ConfigureAwait(false);
-    }
-
-    // The call of a write (see the class): one hold of the lock that admits it and, when nothing makes
-    // it wait, prepares, dispatches and publishes it; then the outcome, or the task when it waits.
-    private ValueTask<LatticeWriteResult> Admit(
-        EntityTable table,
-        WriteKindEnum kind,
-        in EntityKey key,
-        object?[]? values,
-        LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
         try
         {
-            _barrier.Enter();
+            await waited.ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
-        catch (ObjectDisposedException exception)
+        catch
         {
-            return ValueTask.FromException<LatticeWriteResult>(exception);
+            _barrier.Exit();
+            throw;
         }
 
+        return await Admit(table, kind, key, values, forwarded: null, expectedRevision, session, cancellationToken).ConfigureAwait(false);
+    }
+
+    // The same for a forwarded write: a wait that fails is its refusal, recorded before it leaves the
+    // barrier, and nothing of it runs after that. The task never fails, and no one awaits it.
+    private async Task ForwardAfterAsync(
+        ValueTask waited,
+        EntityTable table,
+        WriteKindEnum kind,
+        EntityKey key,
+        ForwardedOrigin forwarded,
+        LatticeRevision? expectedRevision,
+        LatticeSession? session)
+    {
+        try
+        {
+            await waited.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            forwarded.Refuse(exception);
+            _barrier.Exit();
+
+            return;
+        }
+
+        _ = Admit(table, kind, key, values: null, forwarded, expectedRevision, session, CancellationToken.None);
+    }
+
+    // The call of a write inside the barrier of the close (see the class): one hold of the lock that
+    // admits it and, when nothing makes it wait, prepares, dispatches and publishes it; then the outcome,
+    // or the task when it waits. The write leaves the barrier when its outcome is given.
+    private ValueTask<LatticeWriteResult> Admit(
+        EntityTable table,
+        WriteKindEnum kind,
+        in EntityKey key,
+        object?[]? values,
+        ForwardedOrigin? forwarded,
+        LatticeRevision? expectedRevision,
+        LatticeSession? session,
+        CancellationToken cancellationToken)
+    {
         var pass = default(Pass);
         PendingWrite? write = null;
         LatticeWriteResult result = default;
@@ -532,7 +621,7 @@ internal sealed class WriteCoordinator
             {
                 write = _spare ?? new PendingWrite(this);
                 _spare = null;
-                write.Begin(table, kind, key, values, expectedRevision, session, cancellationToken, ++_admitted);
+                write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
                 _queued++;
                 pass.Own = write;
                 Start(write, ref pass);
@@ -560,9 +649,7 @@ internal sealed class WriteCoordinator
 
         if (write is null)
         {
-            _barrier.Exit();
-
-            return ValueTask.FromException<LatticeWriteResult>(failure!);
+            return Outcome(session, forwarded, result, failure);
         }
 
         // A write refused twice with nothing to wait for is resolved on the thread of its call.
@@ -590,7 +677,7 @@ internal sealed class WriteCoordinator
                 Thread.Yield();
             }
 
-            return Outcome(session, result, failure);
+            return Outcome(session, forwarded, result, failure);
         }
 
         if (cancellationToken.CanBeCanceled)
@@ -602,9 +689,23 @@ internal sealed class WriteCoordinator
     }
 
     // The outcome of a write its call gives itself: its session moves to its position, the write leaves
-    // the barrier of the close, and the call returns.
-    private ValueTask<LatticeWriteResult> Outcome(LatticeSession? session, LatticeWriteResult result, Exception? failure)
+    // the barrier of the close, and the call returns. A forwarded write has its refusal recorded as its
+    // reply before it leaves, and its success was recorded by the hold that published it; its task
+    // carries nothing, since no one looks at it (Forward).
+    private ValueTask<LatticeWriteResult> Outcome(LatticeSession? session, ForwardedOrigin? forwarded, LatticeWriteResult result, Exception? failure)
     {
+        if (forwarded is not null)
+        {
+            if (failure is not null)
+            {
+                forwarded.Refuse(failure);
+            }
+
+            _barrier.Exit();
+
+            return default;
+        }
+
         try
         {
             if (failure is null)
@@ -1371,12 +1472,21 @@ internal sealed class WriteCoordinator
     }
 
     // After the lock: the outcome of a write another thread decided. Its session moves to its position,
-    // its call returns, and the write leaves the barrier of the close last.
+    // its call returns, and the write leaves the barrier of the close last. A forwarded write has no call:
+    // its refusal is recorded as its reply here, and its success was recorded by the hold that published
+    // it (see the class, "Forwarded writes").
     private void Deliver(PendingWrite write)
     {
         write.Registration.Unregister();
 
-        if (write.Failure is { } failure)
+        if (write.Forwarded is { } forwarded)
+        {
+            if (write.Failure is { } refusal)
+            {
+                forwarded.Refuse(refusal);
+            }
+        }
+        else if (write.Failure is { } failure)
         {
             write.Fail(failure);
         }

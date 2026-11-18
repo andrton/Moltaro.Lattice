@@ -13,7 +13,5 @@
   <ItemGroup>
     <!-- The engine implements the contract and uses its internal members. -->
     <InternalsVisibleTo Include="Moltaro.Lattice.Engine" />
-    <!-- The tests hold back replication on a child to check the consistency guarantees. -->
-    <InternalsVisibleTo Include="Moltaro.Lattice.Tests" />
   </ItemGroup>
 </Project>

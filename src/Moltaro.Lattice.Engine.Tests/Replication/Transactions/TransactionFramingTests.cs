@@ -51,7 +51,7 @@ public sealed class TransactionFramingTests
         var copied = master.Set<PieceSchema.Piece>().Enumerate().Count();
         await using var link = HeldLink.Start(master.ListenUri!);
         await using var relay = FrameRelay.Start(link.Address);
-        await using var child = EngineDatabase.Create(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound));
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound));
         var pieces = master.Set<PieceSchema.Piece>();
 
         var opening = child.OpenAsync().AsTask();

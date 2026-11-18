@@ -15,11 +15,10 @@ namespace Moltaro.Lattice.Tests.Database;
 // the text of a position (TestData.Ahead).
 public sealed class SessionsOnAMasterTests
 {
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Every_write_with_a_session_moves_the_session_to_the_position_of_the_write(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Every_write_with_a_session_moves_the_session_to_the_position_of_the_write()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var settings = database.Set("Setting");
         var session = new LatticeSession();
@@ -56,11 +55,10 @@ public sealed class SessionsOnAMasterTests
         }
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Every_read_with_a_session_moves_the_session_to_the_position_of_its_answer(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Every_read_with_a_session_moves_the_session_to_the_position_of_its_answer()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var userRecords = database.Set("User");
         var first = await users.InsertAsync(new User { Id = 1, Name = "Ada" });
@@ -96,11 +94,10 @@ public sealed class SessionsOnAMasterTests
         Assert.Equal(database.Position, empty.MinPosition);
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Waiting_for_a_position_the_master_gave_out_completes_at_once(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Waiting_for_a_position_the_master_gave_out_completes_at_once()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         var start = database.Position;
         var first = await users.InsertAsync(new User { Id = 1, Name = "Ada" });
@@ -122,11 +119,10 @@ public sealed class SessionsOnAMasterTests
         }
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Wait_for_a_position_ahead_of_the_master_lasts_until_a_write_reaches_it_or_ends_with_SynchronizationTimeout(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Wait_for_a_position_ahead_of_the_master_lasts_until_a_write_reaches_it_or_ends_with_SynchronizationTimeout()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
         var users = database.Set<User>();
         await users.InsertAsync(new User { Id = 1, Name = "Ada" });
         var ahead = TestData.Ahead(database.Position);
@@ -144,12 +140,11 @@ public sealed class SessionsOnAMasterTests
         await waiting;
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Read_with_a_session_ahead_of_the_master_lasts_until_a_write_reaches_its_position_or_ends_with_SynchronizationTimeout(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Read_with_a_session_ahead_of_the_master_lasts_until_a_write_reaches_its_position_or_ends_with_SynchronizationTimeout()
     {
         // The timeout of the options is short, so that a read whose session sets none ends soon.
-        await using var database = await TestDatabases.OpenAsync(implementation, new LatticeDatabaseOptions
+        await using var database = await TestDatabases.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
@@ -212,12 +207,11 @@ public sealed class SessionsOnAMasterTests
         }
     }
 
-    [Theory]
-    [MemberData(nameof(TestDatabases.Implementations), MemberType = typeof(TestDatabases))]
-    public async Task Position_of_another_database_history_is_HistoryMismatch(DatabaseImplementationEnum implementation)
+    [Fact]
+    public async Task Position_of_another_database_history_is_HistoryMismatch()
     {
-        await using var database = await TestDatabases.OpenMasterAsync(implementation);
-        await using var other = await TestDatabases.OpenMasterAsync(implementation);
+        await using var database = await TestDatabases.OpenMasterAsync();
+        await using var other = await TestDatabases.OpenMasterAsync();
         var foreign = (await other.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada" })).Position;
 
         var wait = await Assert.ThrowsAsync<LatticeException>(async () => await database.WaitForPositionAsync(foreign));

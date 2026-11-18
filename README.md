@@ -6,21 +6,19 @@ read replicas.
 
 ## Status
 
-Early stage. The public contract is being shaped, and it already runs: a simple
-managed in-memory store stands behind it, so the samples and tests in this repository
-work today.
+Early stage. The public contract is being shaped, and the native storage engine stands
+behind it: `LatticeDatabase` opens the engine, so the samples and tests in this
+repository run on it.
 
-That store is a **placeholder, not the database engine**. It supports MemoryOnly mode,
-scalar fields, and connects a master with its children inside one process. A schema can
-already declare more than the placeholder stores: an entity type with a comparison that
-ignores case, with Dictionary storage, with an enum field, or with an owned value, a
-List, a Map, a Set or a reference compiles, and so does a schema that declares UTF-16,
-but none of them can be written yet. The native storage engine is being built behind
-the contract: it stores and reads entities of scalar and Enum fields on one node, under
-every key type and both text comparisons, in UTF-8 and UTF-16, and a child of the engine
-loads the whole database from its master over TCP while the master keeps writing, and
-then follows its changes; until the engine replaces the placeholder only its tests reach
-it. PostgreSQL persistence is not implemented yet, and the contract may still change.
+The engine is being built in steps. Today it works in MemoryOnly mode: it stores and
+reads entities of scalar and Enum fields by primary key, under every key type and both
+text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. A child
+loads the whole database from its master over TCP while the master keeps writing, then
+follows its changes, and forwards its own writes to the master. A schema can already
+declare more than the engine stores: an entity type with Dictionary storage, an owned
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Index
+search, unique indexes, write batches and PostgreSQL persistence are not implemented
+yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -238,10 +236,8 @@ await using var child = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptio
 });
 ```
 
-*Connecting over TCP and the open timeout are in the contract and built in the engine,
-which `LatticeDatabase` does not open yet: today
-a master and its children connect inside one process only, and a child waits for its master
-until its open is cancelled or it is closed.* An address is `lattice://host:port`. With port 0
+A master and its children connect over TCP, in one process or in several. An address is
+`lattice://host:port`. With port 0
 the system chooses a free port, and the open master reports it in its `ListenUri` property,
 which is the address to give its children. A child that cannot reach its master, or
 receives nothing from it, for `OpenTimeout`, 30 seconds by default, fails its open with
@@ -364,7 +360,7 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 
 | Namespace | Type | Purpose |
 | --- | --- | --- |
-| `Moltaro.Lattice` | `LatticeDatabase` | Entry point: `OpenAsync`, or `Create` and open later |
+| `Moltaro.Lattice` | `LatticeDatabase` | Entry point: `OpenAsync`, or `Create` and open later. It ships in the engine package `Moltaro.Lattice.Engine`; every other type of this namespace is in the core library |
 | | `LatticeDatabaseOptions` | Role, persistence mode, schema and addresses of one instance, its timeouts, its memory budget and the limits of a read |
 | | `ILatticeDatabase` | An open database: `Set<TEntity>()`, `Set(name)`, `CreateWriteBatch()`, state, the address a master listens at, close |
 | | `LatticeRevision` | Opaque token of one entity state, used for conditional writes |
@@ -384,12 +380,10 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: searching an index, unique indexes, executing a
-write batch, the memory budget of an instance, the limits of a read on its memory and its
-time, Durable persistence, a master and its children in different processes, connected over
-TCP with the open timeout of a child, and storing by what a schema can declare beyond the
-defaults: a comparison that ignores case, Dictionary storage, enum fields, UTF-16, and
-owned values, Lists, Maps, Sets and references, which a schema declares, a record and a
-class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
+write batch, Durable persistence, a child that connects again after it lost its master,
+and storing what a schema can declare beyond scalar and enum fields: Dictionary storage,
+and owned values, Lists, Maps, Sets and references, which a schema declares, a record and
+a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
 of a write, schema migration and replication status. A query language is not planned for
 the first version.
 
@@ -399,8 +393,8 @@ the first version.
 | --- | --- |
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
-| `src/Moltaro.Lattice.Tests` | Tests of the core library; its scenario tests of reads and writes run on the placeholder and on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master and then follows its changes. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
+| `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database. `Arc.Collections` is referenced for the indexes and not used yet |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
@@ -418,11 +412,10 @@ Inside the core library:
 
 | Folder | Responsibility |
 | --- | --- |
-| (root) | Opening a database, its options, state and errors |
+| (root) | The database interface, its options, state and errors, positions, revisions and sessions |
 | `Schema` | Schema model, JSON compilation, binary save and load |
 | `Access` | Sets, records and the binding of .NET classes to entity types |
-| `Storage` | What the sets hand to the database behind them: a stored entity and the kind of a write |
-| `Placeholder` | The placeholder that stands behind the contract until the engine does: the database instance with its lifecycle, role and routing of reads and writes, in `Placeholder/Storage` its local data and in `Placeholder/Replication` the link between a master and its children. Deleted when the engine takes its place |
+| `Storage` | What the contract hands to the database behind it: the kind of a write |
 
 ## Building
 
