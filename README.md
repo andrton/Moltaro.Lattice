@@ -18,9 +18,9 @@ List, a Map, a Set or a reference compiles, and so does a schema that declares U
 but none of them can be written yet. The native storage engine is being built behind
 the contract: it stores and reads entities of scalar and Enum fields on one node, under
 every key type and both text comparisons, in UTF-8 and UTF-16, and a child of the engine
-loads the whole database from its master over TCP; until the engine replaces the
-placeholder only its tests reach it. PostgreSQL persistence and the replication of changes
-to a child are not implemented yet, and the contract may still change.
+loads the whole database from its master over TCP while the master keeps writing, and
+then follows its changes; until the engine replaces the placeholder only its tests reach
+it. PostgreSQL persistence is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -400,7 +400,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the core library; its scenario tests of reads and writes run on the placeholder and on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and owns the index package `Arc.Collections`. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master and then follows its changes. `LatticeDatabase` does not open it yet: the placeholder in the core library stands behind the contract until the engine can do everything the placeholder does |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

@@ -114,8 +114,11 @@ is honored in every wait of its step; a key is given by name without a box. The 
 entry keeps the refusals of the placeholder until S12. From S10 a master of the engine listens on its `ListenUri` and a child of the engine
 connects over TCP, loads the schema and every entity with its revision, and becomes Ready;
 a frame carries a CRC32C and no address travels; `OpenTimeout` bounds reaching the master
-and the time without a frame. A master refuses writes while a child is connected, until
-S11 lets a child follow.
+and the time without a frame. From S11 the master keeps writing while children
+load and follow: a child ends its load at a fixed position of the master and applies the
+master's changes in order, each whole, at the master's positions and revisions; the
+master releases a change when every child has applied it, and until S33 nothing bounds
+what it keeps for a child that falls behind.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
@@ -182,7 +185,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R25 | A Durable write succeeds after its durable admission, its PostgreSQL commit and its coherent publication; an uncertain commit is reported as uncertain | [Q09.1](../decisions/write-acknowledgment.md), [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S28–S29 |
 | R26 | An independent saved base in 256-byte units advanced in the background with coalescing; base and cursor commit together; journal and receipts are bounded when the application sets a limit, and shrink back after load in any case | [Q09.2](../decisions/checkpoint-and-journal.md) | Release | Absent | S30–S31 |
 | R27 | Recovery: an offline reopen rebuilds one arena and its indexes from the base and the committed tail; nothing partial is replayed; damaged or incompatible data is refused | [Q09.2](../decisions/checkpoint-and-journal.md), [Q16](../decisions/physical-storage.md) | Release | Absent | S30–S31, S32 |
-| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works inside one process | S10–S11, S33 |
+| R28 | A child loads the whole database from the master's memory, rebuilds its indexes and becomes ready at a fixed position; changes then arrive in order as complete transactions. Children that start together load in parallel, up to a configurable limit | [Q08, Q08.1.1](../decisions/replication-and-hosting.md) | Must | Works in the engine, over TCP, behind the tests; no limit of captures yet | S10–S11, S33 |
 | R29 | A write through a child succeeds after the master completed it and that child applied it. Related requests carry a minimum position and wait for it with a timeout on any node | [Session consistency](../decisions/session-consistency.md) | Must | Works inside one process | S12 |
 | R30 | Delivery history in RAM is bounded and released after acknowledgment; a child resumes from it or reloads into one arena; reads wait within a bound; a foreign history is refused; local reads continue while disconnected | [Q08.1.2, Q08.1.3](../decisions/replication-and-hosting.md) | Release | Absent | S33–S34, S35 |
 | R31 | Backup and restore are run by infrastructure. A restored database is validated offline and activated with a new history; children reload | [Q09.4](../decisions/backup-and-restore.md) | Release | Absent | S36 |
@@ -312,6 +315,14 @@ documentation before this document is removed.
 | S10 | Bytes of one such load on the wire, next to the stored bytes | 15,410,260 bytes from the master and 108 from the child: 154.1 bytes per entity, against 162 live and 176 retained per entity in the arena of the master; the child stores what the master stores | development-4 | 17 November 2026 |
 | S10 | Memory of one such load | an arena of 20 MiB on each side; 7.8 MiB of managed memory allocated during a load, 7.5 MiB held after it (the index and the root entries); the working set of the process 128 MiB before the first child and 166 MiB after the fifth | development-4 | 17 November 2026 |
 | S10 | Reads by key and writes of a master without a child, the branch against its base in alternating rounds | reads on 20 threads 17.2 to 17.6 M/s against 14.9 to 16.3; one caller replacing 1.38 to 1.48 M/s against 1.49 to 1.53; 16 callers inserting and deleting 1.58 to 1.70 M/s against 1.62 to 1.65: within the spread of the rounds | development-3 | 17 November 2026 |
+| S11 | Time from the open of a child to Ready, 100,000 users, while the master takes 200 writes a second and 16 threads read it; children in the master's process; four runs (measured before the tail of blocks) | one child 440 to 580 ms, two at once 530 to 703 ms; 78 to 128 transactions in (S, R], `LoadEnd` to Ready 0.1 to 4.5 ms (26.1 ms once), 0 to 5.1 % of the states skipped, peak of `PendingDeliveryBytes` 14.4 to 22.6 KB; following for 2 s the children apply 198 to 200 transactions a second, as the master writes | development-4 | 18 November 2026 |
+| S11 | The same load at the full rate of one caller | Ready in 0.96 to 1.12 s, one child or two; 40.5 to 51.3 thousand transactions in (S, R], `LoadEnd` to Ready 300 to 533 ms, up to 94 % of the states skipped (the copy already held a later state), peak of `PendingDeliveryBytes` 11.7 to 15.4 MB; following, the master writes 276 to 340 k/s and the children apply 290 to 358 k/s | development-4 | 18 November 2026 |
+| S11 | Read p99 of the master during a load at the full rate, 16 readers | 4.1 to 5.4 µs with no load, 5.1 to 6.6 µs during one load, 4.6 to 6.2 µs during two | development-4 | 18 November 2026 |
+| S11 | Reads by key beside a following child, one caller writing, per reader thread, below what the machine gives (it keeps at most 9 to 10 of its 20 logical processors busy at sustained speed) | 2 readers: 708 to 766 k/s on the base, 742 to 813 k/s with no child, 704 to 864 k/s with a child, p99 2.7 to 4.3 µs throughout; 4 readers with the child in its own process: 566 to 763 k/s against 616 to 769 k/s. A following child does not slow a read. The rows of 16 readers are a capped machine and decide nothing; the first round after a load with the child inside the master's process shows the child's own heap promoted in that process, a property of the measurement, not of a master's read | development-4 | 18 November 2026 |
+| S11 | Writes a second of a master with following children, with the tail of blocks and after the review; alternating rounds of one day | one caller: 364 to 510 k/s with no child, 377 to 415 k/s with one child in the process, 451 to 474 k/s with one in its own process, 375 to 398 k/s with two; 16 callers: 245 to 270 k/s with one or two children, as with none; a write allocates 160 bytes with no child and 164 to 182 with children; with no child nothing is encoded or retained and the branch equals its base | development-4 | 18 November 2026 |
+| S11 | The tail of blocks of 1 MiB against one object and one array for each transaction (the trial that was kept) | allocation per write with a child 446 to 462 bytes against 165 to 182; one caller with one child 331 to 383 k/s against 382 to 437 k/s, write p99 14.6 to 15.9 µs against 9.0 to 12.3 µs, pause of the collector per 2 s 25 to 143 ms against 6.9 to 9.2 ms; 16 readers beside 16 callers with a child: writes 60 to 77 k/s against 127 to 150 k/s, reads 2.02 to 2.52 M/s against 2.51 to 2.98 M/s. Tried without gain and not kept: acknowledgments that do not release, a sender that spins before it waits, a larger gen0 budget. Not built: a pool of tail memory and encoding outside the lock (S33) | development-4 | 18 November 2026 |
+| S11 | One write of 32 MiB with a child following | p50 2.5 to 2.6 ms with no child, 27.6 to 34.8 ms with one; small writes beside large ones 3.7 to 17.9 k/s with no child and 293 to 592 a second with one, p99 42 to 101 ms: they wait while the large write is copied into the tail under the lock. The capture's copy of one root of 32 MiB inside the protection: median 10.4 to 14.9 ms. Carried to S33 | development-4 | 18 November 2026 |
+| S11 | One acknowledgment that releases a million transactions of 64 bytes, under the lock of the writes | 4.0 to 19.6 ms when every header was read, 0.03 to 0.46 ms with the release by whole blocks | development-4 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1007,7 +1018,7 @@ Why this order:
 | S09 | Write coordinator and write limits | Full | Done |
 | S09, part 2 | The write path after a proven source | Full | Done |
 | S10 | A child loads the database | Full | Done |
-| S11 | A child loads under writes and follows the master | Full | In progress |
+| S11 | A child loads under writes and follows the master | Full | Done |
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Not started |
 | S13 | Text entries and Dictionary strings | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
@@ -4247,6 +4258,11 @@ and end position".
    children and registered captures. The tail is managed memory outside the instance
    budget, unbounded until S33; `PendingDeliveryBytes` is what was appended less what was
    released. A write of the master is never refused or delayed because a child is slow.
+   Added on 18 November 2026 with the implementation: the tail retains whole blocks of 1
+   MiB — at most the bytes not yet applied, rounded up to blocks, plus the block being
+   filled, a block a sender still reads, and one spare; with no child and no capture it
+   retains nothing. The size of a block is an internal constant. `PendingDeliveryBytes`
+   stays the bytes of transactions not yet applied by every child.
 6. **Effects.** A Write carries the root in the load format of S10; a Delete the type id
    and the key; a write that changed nothing only its position. A transaction is checked
    by the check of its frames, its announced length and its sequence, which follows the
@@ -4285,6 +4301,14 @@ and end position".
     the sentence "Durable and wire logical values use explicit little-endian…"; added: "The
     replication stream carries stored bytes in the layout and byte order the Hello has
     checked (decided after the studies of S10 and S11)".
+
+**Decided at the review of S11, 18 November 2026.** A child publishes the position of a
+transaction once, after every insert of it is installed and every replaced or deleted
+entity is marked, and stamps them afterwards, so a read on a child never returns a state
+at a position at which the master did not have it. After Ready a child acknowledges
+before every read of its socket whenever it has applied something new, not only when a
+burst ends (this replaces "per received burst" in point 8). The text of a received key
+is checked as strictly in a root as in a Delete.
 
 **Read by the coordinator on 17 November 2026, with the tests of S11.** The root of a
 Write of the stream carries the sequence of its transaction as its last mutation (point 3
@@ -4769,6 +4793,12 @@ unpublished write of another entity waits behind it, as a write to the same enti
 
 #### S17 · Atomic write batch
 
+**Carried from the review of S11:** a child applies a transaction of several effects in
+three steps (every insert installed and every replace or delete marked; the position
+published once; the stamps), built in S11 and reasoned, not tested, because no master
+sent such a transaction. The test of this sprint: a read on a child that sees the
+position of a batch sees all of it, for a batch that inserts, replaces and deletes.
+
 **Track:** full · **Needs:** S16 · **Decisions:** D4 · **Owners:** E03, E08
 
 - **Goal.** Several writes of different entity types take effect together at one
@@ -4984,6 +5014,10 @@ under the lock of the writes or by the rule this sprint states.
   commands, which are outside the milestone.
 
 #### S24 · The memory budget
+
+**Carried from the review of S11:** decide whether the budget report shows the memory
+the delivery tail retains (whole blocks, the spare included) as its own figure, next to
+`PendingDeliveryBytes`.
 
 **Carried from the review of S10:** a child sizes its index from the counts its master
 announces, bounded only by its memory limit, and each accepted connection holds about
@@ -5304,6 +5338,16 @@ second per storage commit.
 
 #### S33 · Bounded delivery and slow children
 
+**Carried from S11:** the bound of the tail is decided here, with the figures of S11 in
+"Measured results". Not built in S11 and judged here: a pool of tail memory and encoding
+outside the lock of the writes (it needs the published root kept from being freed until
+it is copied). A write of 32 MiB holds the lock about 30 ms with a child following,
+against 2.5 ms with none, and small writes wait behind it; the planner brings that to the
+owner with Q52. X6 now names the waits of a stream: the sends end here, the waits for a
+frame in S34. The acknowledgment of a child under a stream that never pauses has no
+deterministic test; a `RootTable.Add` that throws while a child applies has none either
+(the root table has no fault point).
+
 **Carried from the review of S10:** the two waits of X6 end here: the master's send to a
 child that does not read, and its wait for the end of a loaded child's connection (a
 child lost without a reset is not noticed). The milestone row "concurrent captures, up
@@ -5343,6 +5387,11 @@ stated otherwise here.
   as a source for a child's catch-up, excluded by decision.
 
 #### S34 · Reconnect, reload and a restarted master
+
+**Carried from S11:** a child that stopped following — a malformed transaction, a change
+its arena cannot hold, the end of its connection — stays Ready at its position and does
+not follow again; a master that vanishes without closing the connection leaves the child
+waiting for a frame without a deadline (X6). Both end here.
 
 **Carried from the review of S10:** the pauses between a child's attempts and a master's accepts (100 ms,
 doubling, at most 5 s) are constants (X6) and become options here. The listener resolves

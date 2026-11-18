@@ -413,7 +413,10 @@ framed per connection, on that child's sender task, outside every lock. Every
 child has its own cursor, and the master releases the tail up to the lowest position
 among its children and registered captures. The tail is managed memory outside the
 instance budget, unbounded until S33; a write of the master is never refused or delayed
-because a child is slow (decided after the study of S11). If a disconnected/slow child holds
+because a child is slow (decided after the study of S11). The tail retains whole blocks
+of 1 MiB: at most the bytes not yet applied, rounded up to blocks, plus the block being
+filled, a block a sender still reads, and one spare; with no child and no capture it
+retains nothing. If a disconnected/slow child holds
 the tail beyond its byte/time budget, remove its retention claim and require reload
 when it returns. It may still serve ordinary local stale reads, but a MinPosition wait
 cannot succeed until it catches up. PostgreSQL is never a child catch-up source.
@@ -465,7 +468,7 @@ own S, its own catalog fence, its own watermarks (watermarks withdrawn on 17 Nov
 2026; a capture has its S, its fence of slots and its R) and its own R; all of them read the one
 shared live stream, which is retained from the earliest S still in use. The number of
 captures that run at once is an option, 10 by default. A child beyond the limit, or one
-whose capture cannot reserve its buffers and watermarks within the memory budget, waits
+whose capture cannot reserve its buffers within the memory budget, waits
 before its capture is registered; that wait is part of its open timeout. The earlier
 starting value of one capture at a time is withdrawn. The bootstrap experiment covered
 one capture; several at once, and their cost to the master's readers and writers, are a
