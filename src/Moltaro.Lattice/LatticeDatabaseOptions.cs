@@ -108,7 +108,8 @@ public sealed class LatticeDatabaseOptions
     /// session and, on a child, the wait of a write until the child has applied it. No timeout
     /// travels with a write through a child: the master orders the write after the position of
     /// the session and bounds that wait with its own value. On a child that has lost its master
-    /// or has faulted the wait ends at once, because the position cannot arrive.
+    /// the wait ends at once, because the position cannot arrive; so does the wait of a write
+    /// through a child that has faulted after its master committed the write.
     /// </remarks>
     public TimeSpan SynchronizationTimeout { get; init; } = TimeSpan.FromSeconds(10);
 

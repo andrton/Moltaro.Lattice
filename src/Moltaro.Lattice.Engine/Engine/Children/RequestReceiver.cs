@@ -44,7 +44,11 @@ namespace Moltaro.Lattice.Engine.Children;
 // incomplete request is dropped.
 //
 // One thread at a time uses a receiver: the task that receives on the connection. The submit holds the
-// lock of the writes for as long as one write takes in memory, and does not wait for anything else.
+// lock of the writes for as long as one write takes in memory, and waits for nothing else, except on one
+// path: a forwarded write the arena refused twice with nothing admitted before it to wait for is resolved
+// on the thread of its call, this task (Writes.WriteCoordinator, "The refusal", step 3), which waits there
+// without a token for the reads that hold retired memory; a read leaves within one step (exception X6).
+// Until then the Applied and the later requests of that child wait as well.
 internal sealed class RequestReceiver
 {
     private readonly ForwardedWrites _writes;
