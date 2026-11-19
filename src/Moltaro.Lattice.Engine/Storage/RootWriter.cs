@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -208,7 +207,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Boolean, nameof(SetBoolean));
 
-        Image[stored.Offset] = value ? (byte)1 : (byte)0;
+        StoredScalars.WriteBoolean(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -233,22 +232,7 @@ internal ref struct RootWriter
             }
         }
 
-        switch (stored.Width)
-        {
-            case sizeof(sbyte):
-                place[0] = (byte)(sbyte)value;
-                break;
-            case sizeof(short):
-                MemoryMarshal.Write(place, (short)value);
-                break;
-            case sizeof(int):
-                MemoryMarshal.Write(place, (int)value);
-                break;
-            default:
-                MemoryMarshal.Write(place, value);
-                break;
-        }
-
+        StoredScalars.WriteInteger(place, value);
         MarkSet(stored, isNull: false);
     }
 
@@ -265,22 +249,7 @@ internal ref struct RootWriter
             throw OutOfRange(field, value);
         }
 
-        switch (stored.Width)
-        {
-            case sizeof(byte):
-                place[0] = (byte)value;
-                break;
-            case sizeof(ushort):
-                MemoryMarshal.Write(place, (ushort)value);
-                break;
-            case sizeof(uint):
-                MemoryMarshal.Write(place, (uint)value);
-                break;
-            default:
-                MemoryMarshal.Write(place, value);
-                break;
-        }
-
+        StoredScalars.WriteUnsigned(place, value);
         MarkSet(stored, isNull: false);
     }
 
@@ -289,7 +258,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Float32, nameof(SetFloat32));
 
-        MemoryMarshal.Write(Place(stored), BitConverter.SingleToInt32Bits(value));
+        StoredScalars.WriteFloat32(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -298,7 +267,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Float64, nameof(SetFloat64));
 
-        MemoryMarshal.Write(Place(stored), BitConverter.DoubleToInt64Bits(value));
+        StoredScalars.WriteFloat64(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -307,10 +276,7 @@ internal ref struct RootWriter
     public void SetDecimal(LatticeField field, decimal value)
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Decimal, nameof(SetDecimal));
-        Span<int> bits = stackalloc int[4];
-
-        decimal.GetBits(value, bits);
-        MemoryMarshal.AsBytes(bits).CopyTo(Place(stored));
+        StoredScalars.WriteDecimal(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -320,7 +286,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.Guid, nameof(SetGuid));
 
-        value.TryWriteBytes(Place(stored));
+        StoredScalars.WriteGuid(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -331,7 +297,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.DateTimeOffset, nameof(SetDateTimeOffset));
 
-        MemoryMarshal.Write(Place(stored), value.UtcTicks);
+        StoredScalars.WriteDateTimeOffset(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -341,7 +307,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.DateOnly, nameof(SetDateOnly));
 
-        MemoryMarshal.Write(Place(stored), value.DayNumber);
+        StoredScalars.WriteDateOnly(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -351,7 +317,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.TimeOnly, nameof(SetTimeOnly));
 
-        MemoryMarshal.Write(Place(stored), value.Ticks);
+        StoredScalars.WriteTimeOnly(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
@@ -361,7 +327,7 @@ internal ref struct RootWriter
     {
         ref readonly var stored = ref Take(field, StoredTypeEnum.TimeSpan, nameof(SetTimeSpan));
 
-        MemoryMarshal.Write(Place(stored), value.Ticks);
+        StoredScalars.WriteTimeSpan(Place(stored), value);
         MarkSet(stored, isNull: false);
     }
 
