@@ -13,7 +13,7 @@ Product guidance, durable design references and active work are kept apart.
 - **A document lives next to the code it changes.** Documentation of this database and of
   the packages in this repository belongs here. The plan and rationale for using the
   database inside another product belong to that product's repository.
-- **This repository is going to be public.** Nothing specific to a private product goes
+- **This repository is public.** Nothing specific to a private product goes
   into it. A requirement that comes from a particular consumer is written here in general
   terms: what a consumer needs, not how that consumer is built.
 - **A decision is not an implementation.** A document states plainly what exists and what
