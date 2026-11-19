@@ -146,10 +146,6 @@ internal sealed class EntityTable
     // The index of the entity type, when the engine stores it.
     private readonly PrimaryIndex? _index;
 
-    // The secondary indexes of the entity type, in the order the schema declares them; none when the
-    // engine does not store it.
-    private readonly SecondaryIndex[] _indexes;
-
     // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
     // root stores and their form in the replication stream. Held by value, so that its fields lie in the
     // table and a read by key loads them as the table's own; every caller uses it where it lies, without a
@@ -187,6 +183,14 @@ internal sealed class EntityTable
     // Why the engine does not store the entity type yet, for the NotSupportedException of a write;
     // null when it stores it.
     public string? Refusal { get; }
+
+    // The secondary indexes of the entity type, in the order the schema declares them; none when the
+    // engine does not store it. Declared after the properties above, because the runtime lays out the
+    // references of a class in the order of their declaration: so this one, which a read by key never
+    // loads, lies after the references it loads, Layout among them, which keep their offsets in the table
+    // (JIT listing at full optimization). Keys, held by value, lies after every reference wherever it is
+    // declared.
+    private readonly SecondaryIndex[] _indexes;
 
     // What the primary index holds, in bytes, and what it is building while it grows. For the writer
     // and the counters.
