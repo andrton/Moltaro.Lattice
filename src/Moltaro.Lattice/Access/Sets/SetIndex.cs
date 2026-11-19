@@ -5,8 +5,8 @@ namespace Moltaro.Lattice.Access.Sets;
 // One declared index of a set. The same class serves entity classes and records.
 //
 // Only the contract is in place: the index is resolved from the schema and a key is checked
-// against it. The search itself is not implemented; it arrives with the engine's ordered
-// secondary indexes.
+// against it, which allocates nothing for a key it accepts (IndexCriteria). The search itself is not
+// implemented; it arrives with the engine's ordered secondary indexes.
 internal sealed class SetIndex<TEntity> : ILatticeIndex<TEntity>
     where TEntity : class
 {
