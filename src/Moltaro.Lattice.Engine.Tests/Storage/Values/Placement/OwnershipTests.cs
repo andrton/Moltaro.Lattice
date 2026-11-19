@@ -128,6 +128,6 @@ public sealed class OwnershipTests
         Assert.Equal(Handle, header.Root);
         Assert.Equal(parent, header.Parent);
         Assert.Equal((uint)descriptorOffset, header.DescriptorOffset);
-        Assert.Equal(1u, header.LayoutVersion);
+        Assert.Equal(2u, header.LayoutVersion);
     }
 }

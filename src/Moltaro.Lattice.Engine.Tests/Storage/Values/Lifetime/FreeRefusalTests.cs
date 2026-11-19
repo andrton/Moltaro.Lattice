@@ -31,13 +31,14 @@ public sealed class FreeRefusalTests
     }
 
     [Theory]
-    [InlineData(0u)]
-    [InlineData(2u)]
-    public void A_root_of_another_layout_version_is_refused_and_nothing_is_freed(uint layoutVersion)
+    [InlineData("none")]
+    [InlineData("an older one")]
+    [InlineData("a newer one")]
+    public void A_root_of_another_layout_version_is_refused_and_nothing_is_freed(string version)
     {
         using var item = RootArena.Of(Fields);
         var root = Write(item);
-        item.Arena.Header(root).LayoutVersion = layoutVersion;
+        item.Arena.Header(root).LayoutVersion = OtherLayoutVersion.Of(item.Layout, version);
         var before = item.Arena.Counters;
 
         Assert.Throws<ArgumentException>(() => RootStorage.Free(item.Arena, item.Layout, root));
