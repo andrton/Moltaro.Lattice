@@ -5672,11 +5672,37 @@ these replace it.
    nodes in `OrderedTree`.
 7. **The merge of part 2 of S13R.** The branch took part 2 of S13R (merge 8ea11dc, which
    reshaped the record of a prepared change), and the resolution of that merge was
-   reviewed separately with one question. REVIEW OF THE MERGE: <to be filled by the coordinator>
+   reviewed separately with one question. Does the upkeep see, for every kind of change, the replaced root
+   and the new root it saw before, on a master's write, a forwarded write, a load and
+   a child's transaction? It does: no P1, P2 or P3. The merge changed only the three
+   preparations of `WriteExecutor` and the record of a change; `ChangePublisher`,
+   `WriteCoordinator` and `ReceivedChanges` are byte for byte what was reviewed, and the
+   upkeep takes the replaced root from the root entry, not from the record. A probe of
+   the reviewer refused a replace, an insert and a delete on a reused record and found
+   the indexes agreeing with the stored entities. Two P4 go to S14R: nothing asserts
+   that a record written for a preparation changes no entity yet, and one comment of
+   `PreparedWrite` is inexact. The reviewer named what the tests of the sprint do not
+   cover: a refused replace or delete of an indexed type, a refusal at a later index, a
+   throw after the indexes are reserved, a refused forwarded write and a refused change
+   of a child; those tests are written first in S14, part 2. By the listings of the JIT
+   the write of a type without an index makes the calls it made at the head of part 2
+   of S13R (a replace and a delete one fewer); what is added is the test for indexes,
+   two loads and two branches, at four places.
 8. **Confirmed by the owner on 19 November 2026** after the figures on ARM64: the
    copy-on-write tree ([index structures](../decisions/index-structures.md)).
 
-**Checked by the coordinator:** CHECKS: <to be filled by the coordinator>
+**Checked by the coordinator:** on 376b44c the build with 0 warnings, the format clean,
+2,656 tests with 2,506 passed, 150 skipped and 0 failed, the samples in Debug and in
+Release. Ten repeats of the suite in Release while three agents built and ran the suite
+on the same workstation had three failures, none in a test of the indexes:
+`ClosedFrameTests.Closed_that_is_not_valid_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome`
+once (the master could not listen: the system lacked buffer space for a socket) and
+`OpenTimeoutTests.Load_that_takes_longer_than_the_OpenTimeout_while_its_parts_keep_arriving_becomes_ready`
+twice (no frame within its open timeout of one second); the reviewer of the merge saw
+one failure of `AnnouncedLengthTests` in the handshake under the same load. Twelve
+repeats with nothing else running were clean. These tests depend on the load of the
+machine, which is a defect of the tests: a task of its own makes them independent of
+it, and the single failure without a name in part 2 of S13R is most likely one of them.
 
 **Accepted and known.**
 
