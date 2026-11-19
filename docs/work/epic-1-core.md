@@ -6073,6 +6073,11 @@ second per storage commit.
 - **Measured.** Reported: time to open an empty and an initialized storage.
 - **Out of scope.** Writing data durably (S28–S29). The saved base (S30–S31).
 
+**Carried from S14.** A field that is part of an index stores a value longer than 64
+bytes as a text entry, so adding or dropping an index changes the layout of the fields it
+names. From the sprint that stores roots beyond the life of a process on, that is a
+change of the stored form and belongs to what a migration converts.
+
 #### S28 · Durable commit
 
 **Track:** full · **Needs:** S27 · **Decisions:** O9 · **Owners:** E06, E03
