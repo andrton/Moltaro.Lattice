@@ -47,33 +47,24 @@ internal sealed class BlockImport
 {
     private readonly Arena _arena;
 
-    private readonly LatticeSchema _schema;
-
     // The root payload as received, checked here before any of it reaches the arena: at most the
     // payload of one block. Reused for every root, so a checked root is valid until the next check.
     private readonly byte[] _payload = new byte[Arena.MaxBlockSize - BlockHeader.Size];
 
-    public BlockImport(Arena arena, LatticeSchema schema)
+    public BlockImport(Arena arena)
     {
         ArgumentNullException.ThrowIfNull(arena);
-        ArgumentNullException.ThrowIfNull(schema);
 
         _arena = arena;
-        _schema = schema;
     }
 
     // Checks the root of the layout that the rest of the input holds, and nothing more (see the class),
     // with the input advanced to its end. ValidationFailed when a length, a count or a kind is not valid;
-    // nothing is dereferenced before it is checked, and nothing is allocated. A layout of an entity type
-    // of another schema is a caller's mistake, ArgumentException.
+    // nothing is dereferenced before it is checked, and nothing is allocated. The layout is that of a table
+    // of the node's own schema, which a received type id selects among them (Engine.Entities.EntityTables).
     public ReceivedRoot Check(ref SequenceReader<byte> input, RootLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-
-        if (!_schema.TryGetEntityType(layout.EntityType.Name, out var entityType) || !ReferenceEquals(entityType, layout.EntityType))
-        {
-            throw new ArgumentException($"The layout of {layout.EntityType.Name} is not one of the schema of the child.", nameof(layout));
-        }
 
         var payloadLength = ReadPayload(ref input, layout);
         var outOfLine = input.UnreadSequence;

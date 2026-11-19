@@ -1,7 +1,6 @@
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Load;
-using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Children;
@@ -14,14 +13,11 @@ internal sealed class ForwardedWrites
 {
     private readonly Arena _arena;
 
-    private readonly LatticeSchema _schema;
-
-    public ForwardedWrites(WriteCoordinator coordinator, EntityTables tables, Arena arena, LatticeSchema schema)
+    public ForwardedWrites(WriteCoordinator coordinator, EntityTables tables, Arena arena)
     {
         Coordinator = coordinator;
         Tables = tables;
         _arena = arena;
-        _schema = schema;
     }
 
     public WriteCoordinator Coordinator { get; }
@@ -33,5 +29,5 @@ internal sealed class ForwardedWrites
 
     // A checker of received roots for one receiver: its own buffer, used by its task alone, and never to
     // place a root, which only the write path does under the lock of the writes (Writes.WriteExecutor).
-    public BlockImport NewImport() => new(_arena, _schema);
+    public BlockImport NewImport() => new(_arena);
 }

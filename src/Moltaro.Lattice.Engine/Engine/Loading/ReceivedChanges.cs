@@ -6,7 +6,6 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
-using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Loading;
@@ -126,7 +125,6 @@ internal sealed class ReceivedChanges
         RetiredMemory retired,
         PositionClock clock,
         ReadEpochs epochs,
-        LatticeSchema schema,
         EntityTables tables,
         Lock writes,
         CloseBarrier barrier,
@@ -142,7 +140,7 @@ internal sealed class ReceivedChanges
         _writes = writes;
         _barrier = barrier;
         _fault = fault;
-        _import = new BlockImport(arena, schema);
+        _import = new BlockImport(arena);
     }
 
     // Places and publishes a root of the load of the entity type of the table, whose last mutation is given

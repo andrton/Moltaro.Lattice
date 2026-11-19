@@ -7,7 +7,6 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication.Load;
-using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 
@@ -90,8 +89,6 @@ internal sealed class WriteExecutor
 
     private readonly DeliveryTail _delivery;
 
-    private readonly LatticeSchema _schema;
-
     // Places the roots that children forward; made by the first of them, since only a master with
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
@@ -106,7 +103,7 @@ internal sealed class WriteExecutor
     // looked (TakeDelivered).
     private bool _delivered;
 
-    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ChangePublisher changes, DeliveryTail delivery, LatticeSchema schema)
+    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ChangePublisher changes, DeliveryTail delivery)
     {
         _arena = arena;
         _roots = roots;
@@ -114,7 +111,6 @@ internal sealed class WriteExecutor
         _clock = clock;
         _changes = changes;
         _delivery = delivery;
-        _schema = schema;
     }
 
     // Prepares the write (see the class): true with what its publication installs, or false, with the
@@ -361,7 +357,7 @@ internal sealed class WriteExecutor
     private ArenaAddress PlaceForwarded(EntityTable table, RootHandle handle, ForwardedOrigin forwarded, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout!;
-        var import = _import ??= new BlockImport(_arena, _schema);
+        var import = _import ??= new BlockImport(_arena);
         var reader = new SequenceReader<byte>(forwarded.Root);
         var received = import.Check(ref reader, layout);
 

@@ -840,7 +840,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 // told it in the handshake.
                 var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
                 var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, _tables!, hello, SchemaTransfer.Saved(schema));
-                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!, schema);
+                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!);
                 var listener = Listen(listenUri, capture, forwarded);
 
                 lock (_stateLock)
@@ -944,7 +944,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, schema, tables, _writes!, _barrier, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, tables, _writes!, _barrier, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
@@ -1078,7 +1078,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var clock = new PositionClock(history, this);
             var delivery = new DeliveryTail();
             var changes = new ChangePublisher(arena, roots, retired, clock);
-            var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery, schema);
+            var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
                 executor,
