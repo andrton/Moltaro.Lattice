@@ -81,8 +81,13 @@ and 16-byte variable descriptors in stable field-ID order. A descriptor contains
 kind/flags (4), length/count (4), and relative address (8); for a Dictionary field the
 address of the shared entry.
 Fixed-layout size must fit one 64-KiB block; large values live outside it. Schema
-compilation reports an oversized fixed layout before data admission. Numeric widths
-come from the schema; do not widen all small integer fields to Int64.
+compilation reports an oversized fixed layout before data admission. A secondary index
+has a limit of the same kind, a rule of the schema language and the same on every node:
+a node of 64 KiB holds four of its widest entries, each String part counted as a copy of
+64 bytes, and an index whose four widest entries cannot fit one fails the open with
+`InvalidSchema` and the index named (`LatticeIndex` states the widths;
+[ordered index](ordered-index.md#nodes-in-the-arena)). Numeric widths come from the
+schema; do not widen all small integer fields to Int64.
 
 Store small owned values <=64 bytes in the packed root tail when the root still
 fits its block: the descriptor's Inline kind stores root-relative offset/capacity
@@ -252,10 +257,12 @@ root, each by its own stores, in this order: insert the new entries, publish the
 remove the old entries; the check against the root covers the moments between. A key
 that compares equal under other bytes (another case, another scale of a Decimal)
 rewrites its entry in place. Fixed values are copied into keys as their root stores
-them. A text key of 64 bytes or less is copied into the entry, whatever the storage mode
-of its field; a longer one references the text entry its root references, and a node
-holds one reference for each such key among its entries and separators until it is
-freed (see "Collections and strings"). Compound keys use schema order and explicit field
+them; the stored form of a fixed value is written, and read, in one place, which the root
+writer, the search key and the order of an index use. A text key of 64 bytes or less is
+copied into the entry, whatever the storage mode of its field; a longer one references
+the text entry its root references, and a node holds one reference for each such key
+among its entries and separators from the moment it is written until it is freed (see
+"Collections and strings"). Compound keys use schema order and explicit field
 comparers; keys are not raw byte-memcmp tuples; a null orders after every value of its
 part.
 

@@ -103,10 +103,13 @@ one run does not decide. A write copies and retires one node of each index it ch
 so a node of 4 KiB would copy, and hold back under a held read, four times the bytes for
 every write. The engine measures it again. An index whose four widest entries, every text
 part a copy of 64 bytes, do not fit a leaf of 1 KiB, or four widest separators an inner
-node, takes the smallest size class above that holds them; this begins at four text
-parts in one index, or three with more than 30 bytes of fixed parts. An index whose four
-widest entries do not fit the largest block of 64 KiB, about 250 text parts, fails the
-open as a fixed part of a root beyond one block does.
+node, takes the smallest size class above that holds them. An inner node of 1 KiB holds
+four separators of at most 234 bytes, so this begins at four text parts in one index, or at
+three when the fixed parts and the null bitmap take 32 bytes or more together: 31 still
+fit. An index whose four widest entries do not fit the largest block of 64 KiB fails the
+open with `InvalidSchema`, as a fixed part of a root beyond one block does: a rule of the
+schema language, the same on every node, which `LatticeIndex` states with the widths. 251
+text parts that are never null fit, 252 do not.
 
 ### Fences
 
@@ -152,10 +155,9 @@ is in the tree.
 The cost is one reference taken for each shared key of each node a write copies, and one
 released when that copy is freed. In an index whose keys are all longer than 64 bytes a
 leaf holds up to 42 of them, about 28 at the fill random inserts leave, so a write takes
-and later releases about that many; in an index whose keys are copied, none. Counting by
-entry instead, one reference for each entry and separator in the tree, released by the
-retired node that last held it, would cost one each; it is not the rule of the decision,
-and goes to the planner with the measured figure.
+and later releases about that many; in an index whose keys are copied, none. The rule is
+the one of every block, confirmed for index nodes; the write of an index of long keys is
+measured before it is questioned.
 
 ## How a reader descends, and why it is safe
 
@@ -254,10 +256,12 @@ hold is: before its commit.
 The writes prepared and not published share one pool for each index. While *p* inserts,
 rewrites among them, and *q* removes wait, the pool holds
 
-> *p* · (2*H* + 1) + *q* · (*H* + 1) nodes, with *H* = *h* + 1 + ⌊(*p* − 1) / *I*⌋,
+> *p* · (2*H* + 1) + *q* · (*H* + 1) nodes, with *H* = *h* when *p* = 0, and
+> *H* = *h* + 1 + ⌊(*p* − 1) / *I*⌋ when *p* ≥ 1,
 
 where *h* is the height of the tree now and *I* the separators of its widest form an
-inner node holds before it is full, at least four. Why it is enough:
+inner node holds before it is full, at least four. With no insert waiting the tree cannot
+grow, and removes alone are counted at the height it has. Why it is enough:
 
 - An insert at height *H* splits at most every level and adds a root: at most two nodes on
   each level and one more, 2*H* + 1, and it retires at most one node on each level. A
@@ -304,8 +308,10 @@ between two steps only the key and the identity of the last entity it returned:
    built outside it.
 
 The key is bound to the fields of the index once, outside the protection, and its fixed
-parts are written on the stack in their stored form; a search allocates what it returns
-and nothing for a comparison. A root entry met in a node is never released and given to
+parts are written on the stack in their stored form, by the one writer of that form the
+root writer uses as well (`Storage/Values/StoredScalars.cs`; an entry copies its fixed
+parts from its root as they lie); a search allocates what it returns and nothing for a
+comparison. A root entry met in a node is never released and given to
 another root while the search is inside, because the entries of a delete leave the tree
 before its entry is retired, so the identity needs no check of its generation.
 
