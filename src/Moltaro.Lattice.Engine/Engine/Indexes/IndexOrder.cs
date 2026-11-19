@@ -1,4 +1,5 @@
-using Moltaro.Lattice.Schema;
+using System.Runtime.InteropServices;
+using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 
@@ -24,7 +25,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   mapping of the case table of the core (decision on strings, Q46), the same on every node; no .NET
 //   culture or runtime table takes part. A copy is read from the entry, a shared key from its text entry,
 //   a given text from the search key, a piece at a time on the stack (Storage.Values.StoredTextReader,
-//   which reads from a copy it is given as well as from a descriptor);
+//   which reads from a copy it is given as well as from a descriptor), in the encoding of the database
+//   the layout of the index holds;
 // - a null part after every value of its part, and equal to another null, so that a composite key goes
 //   on to its next part. That nulls come last in both directions of a walk is a rule of the walk.
 //
@@ -40,28 +42,125 @@ internal sealed class IndexOrder
 
     private readonly Arena _arena;
 
-    private readonly LatticeStringEncodingEnum _encoding;
-
-    // The order of the entries of the layout, whose shared keys lie in the arena, in the encoding of the
-    // database.
-    public IndexOrder(IndexLayout layout, Arena arena, LatticeStringEncodingEnum encoding)
+    // The order of the entries of the layout, whose shared keys lie in the arena.
+    public IndexOrder(IndexLayout layout, Arena arena)
     {
         _layout = layout;
         _arena = arena;
-        _encoding = encoding;
     }
 
     // The order of two entries of the index: below zero when the first comes first. For the writer, and
     // for a reader that descends again at a fence, which is a copy of an entry.
-    public int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        var order = CompareKeys(left, right);
+
+        return order != 0 ? order : IdentityOf(left).CompareTo(IdentityOf(right));
+    }
+
+    // Whether two entries have equal keys by the order, whatever their identities and their bytes.
+    public bool SameKey(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => CompareKeys(left, right) == 0;
 
     // The order of a search key, with the identity it starts at, against an entry: below zero when the
     // key comes first. For a reader inside the protection of reads.
-    public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
+    {
+        var order = CompareKey(probe, entry);
+
+        return order != 0 ? order : IdentityOf(probe.From).CompareTo(IdentityOf(entry));
+    }
 
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
-    public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) => CompareKey(probe, entry) == 0;
+
+    // The identity of an entry as the number the order compares: the RootHandle it begins with.
+    private static ulong IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<ulong>(entry);
+
+    private static ulong IdentityOf(RootHandle handle) => ((ulong)handle.Generation << 32) | handle.Slot;
+
+    // The parts of two entries, one after the other (see the class).
+    private int CompareKeys(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        var leftOffset = IndexLayout.IdentityBytes + _layout.NullBitmapBytes;
+        var rightOffset = leftOffset;
+
+        foreach (ref readonly var part in _layout.Parts)
+        {
+            var leftNull = _layout.IsNull(left, part);
+            var rightNull = _layout.IsNull(right, part);
+            int order;
+
+            if (leftNull || rightNull)
+            {
+                // A null after every value, and equal to a null.
+                order = leftNull == rightNull ? 0 : leftNull ? 1 : -1;
+            }
+            else if (part.IsText)
+            {
+                order = ValueComparer.CompareText(_layout.ReadText(_arena, left[leftOffset..]), _layout.ReadText(_arena, right[rightOffset..]), part.Comparison!);
+            }
+            else
+            {
+                order = ValueComparer.CompareStored(part.Type, left.Slice(leftOffset, part.Width), right.Slice(rightOffset, part.Width));
+            }
+
+            if (order != 0)
+            {
+                return order;
+            }
+
+            leftOffset += part.IsText ? IndexLayout.TextPartBytes(left[leftOffset]) : part.Width;
+            rightOffset += part.IsText ? IndexLayout.TextPartBytes(right[rightOffset]) : part.Width;
+        }
+
+        return 0;
+    }
+
+    // The parts of a search key against those of an entry (see the class): the fixed parts of the key
+    // are stored values in its scratch, its texts as they were given.
+    private int CompareKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
+    {
+        var parts = _layout.Parts;
+        var offset = IndexLayout.IdentityBytes + _layout.NullBitmapBytes;
+        var probeOffset = SearchKey.FixedStart;
+
+        for (var place = 0; place < parts.Length; place++)
+        {
+            ref readonly var part = ref parts[place];
+            var probeNull = probe.IsNull(place);
+            var entryNull = _layout.IsNull(entry, part);
+            int order;
+
+            if (probeNull || entryNull)
+            {
+                order = probeNull == entryNull ? 0 : probeNull ? 1 : -1;
+            }
+            else if (part.IsText)
+            {
+                // The order of the stored text against the given one, turned around for the key.
+                order = -ValueComparer.CompareText(_layout.ReadText(_arena, entry[offset..]), probe.TextAt(place), part.Comparison!);
+            }
+            else
+            {
+                order = ValueComparer.CompareStored(part.Type, probe.FixedAt(probeOffset, part.Width), entry.Slice(offset, part.Width));
+            }
+
+            if (order != 0)
+            {
+                return order;
+            }
+
+            if (part.IsText)
+            {
+                offset += IndexLayout.TextPartBytes(entry[offset]);
+            }
+            else
+            {
+                offset += part.Width;
+                probeOffset += part.Width;
+            }
+        }
+
+        return 0;
+    }
 }

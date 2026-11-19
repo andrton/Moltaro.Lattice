@@ -305,6 +305,34 @@ internal sealed class IndexLayout
         return count;
     }
 
+    // The bytes of the slots of the text entries the shared String parts of an entry name, each as a text
+    // of its length out of line takes them (Values.ValueBlocks.SlotBytesOf): what a retired node counts
+    // for them toward the next look of the drain, as a retired root counts the text entries it names.
+    public long SharedTextSlotBytes(ReadOnlySpan<byte> entry)
+    {
+        var bytes = 0L;
+        var offset = IdentityBytes + NullBitmapBytes;
+
+        foreach (ref readonly var part in Parts)
+        {
+            if (!part.IsText)
+            {
+                offset += part.Width;
+
+                continue;
+            }
+
+            if (entry[offset] == SharedTextHead)
+            {
+                bytes += ValueBlocks.SlotBytesOf((int)SharedDescriptorOf(entry[offset..]).Length);
+            }
+
+            offset += TextPartBytes(entry[offset]);
+        }
+
+        return bytes;
+    }
+
     // For the tests of the engine (EngineDatabase.IndexNodes): the value of each part of an entry as a
     // record of the entity type holds it (LatticeValueDeclaration.ValueType), into the array, which has a
     // place for each part: null, a scalar boxed in its exact type, an Enum as the integer of its underlying

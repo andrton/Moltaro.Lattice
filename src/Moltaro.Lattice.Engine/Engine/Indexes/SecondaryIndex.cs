@@ -71,7 +71,7 @@ internal sealed class SecondaryIndex
     public static SecondaryIndex Open(LatticeIndex definition, RootLayout roots, Arena arena, RetiredMemory retired)
     {
         var layout = IndexLayout.Compile(definition, roots);
-        var order = new IndexOrder(layout, arena, roots.StringEncoding);
+        var order = new IndexOrder(layout, arena);
 
         return new SecondaryIndex(definition, roots, arena, layout, new OrderedTree(layout, order, arena, retired));
     }

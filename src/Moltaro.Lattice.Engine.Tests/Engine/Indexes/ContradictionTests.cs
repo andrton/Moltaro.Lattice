@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // was: its entries, its live bytes and the bytes of the arena; and what was reserved for it is given back.
 public sealed class ContradictionTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public void Insert_of_an_entry_the_tree_holds_and_remove_of_one_it_does_not_hold_are_refused_before_any_store()
     {
         using var item = new RootArena(IndexSchema.Utf8, "Counted");

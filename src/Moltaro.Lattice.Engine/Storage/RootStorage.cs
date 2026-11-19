@@ -45,7 +45,7 @@ internal static class RootStorage
     {
         if (descriptor.Kind == DescriptorKindEnum.Text)
         {
-            arena.Texts.Release(descriptor);
+            arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
         }
         else
         {
@@ -71,7 +71,7 @@ internal static class RootStorage
 
             if (descriptor.Kind == DescriptorKindEnum.Text)
             {
-                arena.Texts.Publish(descriptor);
+                arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
             }
             else
             {

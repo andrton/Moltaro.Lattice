@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Moltaro.Lattice.Storage.Ordered;
 
 // Writes one node of an ordered index into the payload of a prepared block that no reader can reach
@@ -17,27 +19,68 @@ internal ref struct NodeWriter
 
     private readonly Span<byte> _payload;
 
+    private readonly int _level;
+
+    private readonly int _count;
+
+    // Where the offsets begin, after the header and the children, and where the entries begin, after
+    // the offsets.
+    private readonly int _offsets;
+
+    private readonly int _entries;
+
+    // The entries and the children written so far, and where the next entry goes.
+    private int _added;
+
+    private int _children;
+
+    private int _next;
+
     // A writer of a node of the level given, 0 for a leaf, that will hold the count of entries or of
     // separators given, into the payload of a prepared block of kind IndexNode of the layout.
     public NodeWriter(IndexLayout layout, Span<byte> payload, int level, int count)
     {
         _layout = layout;
         _payload = payload;
-
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+        _level = level;
+        _count = count;
+        _offsets = NodeHeader.Size + (level == 0 ? 0 : (count + 1) * IndexLayout.ChildBytes);
+        _entries = _offsets + (layout.HasText ? count * IndexLayout.OffsetBytes : 0);
+        _next = _entries;
     }
 
     // Writes the next entry of a leaf, or the next separator of an inner node, in their order: a copy
     // of the bytes given, which IndexLayout laid out.
-    public void Add(ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public void Add(ReadOnlySpan<byte> entry)
+    {
+        if (_layout.HasText)
+        {
+            MemoryMarshal.Write(_payload[(_offsets + (_added * IndexLayout.OffsetBytes))..], (ushort)_next);
+        }
+
+        entry.CopyTo(_payload[_next..]);
+        _next += entry.Length;
+        _added++;
+    }
 
     // Writes the next child of an inner node, in their order: count + 1 of them.
-    public void AddChild(ArenaAddress child) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public void AddChild(ArenaAddress child)
+    {
+        MemoryMarshal.Write(_payload[(NodeHeader.Size + (_children * IndexLayout.ChildBytes))..], child.Value);
+        _children++;
+    }
 
     // Writes the header, once every entry and child is written; the node is then ready to be published.
     // InvalidOperationException when fewer entries or children were written than the count promised.
-    public void Complete() =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public readonly void Complete()
+    {
+        if (_added != _count || _children != (_level == 0 ? 0 : _count + 1))
+        {
+            throw new InvalidOperationException($"A node of {_count} entries at level {_level} was written with {_added} entries and {_children} children.");
+        }
+
+        var header = new NodeHeader { Count = (ushort)_count, Level = (byte)_level, Bytes = (ushort)(_next - _entries) };
+
+        MemoryMarshal.Write(_payload, in header);
+    }
 }
