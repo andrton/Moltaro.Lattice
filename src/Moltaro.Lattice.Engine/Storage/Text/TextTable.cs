@@ -45,8 +45,8 @@ namespace Moltaro.Lattice.Storage.Text;
 // that the thread holds the lock the database gave the arena, which is how a test shows it.
 //
 // The parts. Slots in a managed array that grows by doubling up to the longest array of .NET, and refuses
-// an entry beyond it (TryGrowSlots; TextSlot: the address, the references, the hash, the length, the
-// state or the link of the free list), and the bucket table of the primary index from the hash to the
+// an entry beyond it (TryGrowSlots; TextSlot: the address, the references, the hash, and the length or
+// the link of the free list), and the bucket table of the primary index from the hash to the
 // slot (Hashing.IndexTable), the same type and not a second one. The hash is the engine's
 // (Hashing.Marvin) over the stored bytes, with the seed of the instance. An entry is keyed by its
 // exact bytes always: North and north are two entries, and the comparison a field declares applies only
@@ -127,7 +127,7 @@ internal sealed class TextTable
         AssertTheLockIsHeld();
 
         var address = ValueBlocks.AddressOf(descriptor);
-        var number = SlotOf(address);
+        var number = ValueBlocks.TextSlotOf(_arena, address);
         ref var slot = ref _slots[number];
 
         Debug.Assert(slot.Address == address && slot.Length == descriptor.Length && slot.References > 0, "A Text descriptor names the entry of its slot.");
@@ -140,23 +140,22 @@ internal sealed class TextTable
         _buckets.Remove(slot.Hash, number);
         ValueBlocks.FreeText(_arena, address, slot.Length);
 
-        slot = new TextSlot { State = _freeSlots };
+        slot = new TextSlot { Length = _freeSlots };
         _freeSlots = number + 1;
         Count--;
     }
 
-    // Publishes the entry the Text descriptor names when it is still prepared, for the publication of a
-    // block that holds the descriptor (Storage.RootStorage.Publish), under the lock of the writes. It
-    // allocates nothing and changes no count.
+    // Publishes the entry the Text descriptor names when it is still prepared, which the arena knows of its
+    // first block (Arena.IsPrepared), for the publication of a block that holds the descriptor
+    // (Storage.RootStorage.Publish), under the lock of the writes. The descriptor holds the length of the
+    // entry, by which its blocks are placed. It allocates nothing and changes no count.
     public void Publish(in ValueDescriptor descriptor)
     {
         var address = ValueBlocks.AddressOf(descriptor);
-        ref var slot = ref _slots[SlotOf(address)];
 
-        if (slot.State == TextSlot.Prepared)
+        if (_arena.IsPrepared(address))
         {
-            ValueBlocks.PublishText(_arena, address, slot.Length);
-            slot.State = TextSlot.Published;
+            ValueBlocks.PublishText(_arena, address, descriptor.Length);
         }
     }
 
@@ -204,10 +203,9 @@ internal sealed class TextTable
             {
                 slot.References++;
 
-                if (!prepared && slot.State == TextSlot.Prepared)
+                if (!prepared && _arena.IsPrepared(slot.Address))
                 {
                     ValueBlocks.PublishText(_arena, slot.Address, slot.Length);
-                    slot.State = TextSlot.Published;
                 }
 
                 ValueBlocks.Write(place, DescriptorOf(slot));
@@ -246,7 +244,7 @@ internal sealed class TextTable
 
         try
         {
-            stored = ValueBlocks.TryStoreText(_arena, new RootHandle(0, number), prepared, length, ref source, place);
+            stored = ValueBlocks.TryStoreText(_arena, number, prepared, length, ref source, place);
         }
         catch
         {
@@ -268,7 +266,6 @@ internal sealed class TextTable
             References = 1,
             Hash = hash,
             Length = (uint)length,
-            State = prepared ? TextSlot.Prepared : TextSlot.Published,
         };
 
         _buckets.Add(hash, number);
@@ -329,9 +326,6 @@ internal sealed class TextTable
         return true;
     }
 
-    // The slot of the entry whose first block is at the address, as its header names it.
-    private uint SlotOf(ArenaAddress address) => _arena.Header(address).Root.Slot;
-
     // The length an array of slots of the length given grows to once every slot of it was given out:
     // twice the length, 4 for an empty array, and at most the longest array of .NET (Array.MaxLength).
     // False when no longer array can be had. A doubling past 2^30 slots does not fit an int, and the
@@ -353,8 +347,8 @@ internal sealed class TextTable
         if (_freeSlots != 0)
         {
             number = _freeSlots - 1;
-            _freeSlots = _slots[number].State;
-            _slots[number].State = 0;
+            _freeSlots = _slots[number].Length;
+            _slots[number].Length = 0;
 
             return true;
         }
@@ -379,7 +373,7 @@ internal sealed class TextTable
     // Gives back a slot TakeSlot gave and no entry took.
     private void ReturnSlot(uint number)
     {
-        _slots[number] = new TextSlot { State = _freeSlots };
+        _slots[number] = new TextSlot { Length = _freeSlots };
         _freeSlots = number + 1;
     }
 
