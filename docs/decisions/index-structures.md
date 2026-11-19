@@ -200,6 +200,21 @@ is measured again in the engine against the same scenarios. `Arc.Collections` is
 part of the product. The text below is kept as the record of the earlier selection and
 of its measurements; it no longer selects anything.
 
+**Confirmed on 19 November 2026 (owner) after the first figures on ARM64.** On a rented
+ARM64 machine of sixteen cores, eight readers searching an index while a writer changes
+that index at full speed keep about two thirds of their rate on this tree, where readers
+of a tree changed in place keep nearly all of it; an index write costs about 1.5 times as
+much. On the x86 workstation the same case favoured this tree. Without a writer the two
+are equal, and ranges are 5 to 14% faster on this tree. The choice stands for the reason
+that does not depend on the machine: nothing a reader can reach is changed in place, so
+a published node is immutable and its correctness is shown by one store and a comparison
+of bytes; a tree changed in place gives that up. The short text keys are copied into an
+entry, so the earlier argument about following a text reference applies only to keys
+longer than 64 bytes. The cost is accepted as stated; a larger node (2 KiB) is measured
+as a mitigation. Upkeep is written in one place and does not depend on the form of the
+tree, so the choice can be reversed by replacing the tree alone if a measured load asks
+for it.
+
 **Accepted on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `OrderedMultiMap<SearchKey, RootLocator>` for the first ordered
 secondary-index implementation in v1. The choice accepts its measured retained-memory
