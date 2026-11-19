@@ -158,7 +158,7 @@ structure only and changes no behavior.
 | # | Place | What is wrong | The simpler form | Status |
 | --- | --- | --- | --- | --- |
 | I1 | `Engine/Indexes/OrderedTree.cs` | The binary search over the entries of a node is written four times, and the descent from the root to a leaf twice | One of each, used by every caller | taken (S14R) |
-| I2 | `Engine/Indexes/SearchKey.cs` | `SearchKey` holds the key of a search, an `IndexKey`, by value | The key not copied into it | taken (S14R) |
+| I2 | `Engine/Indexes/SearchKey.cs` | `SearchKey` holds the key of a search, an `IndexKey`, by value | The key not copied into it | joined (S14, part 2), with E4, which gives the form |
 | I3 | The index types, `Storage/Ordered` and `Engine/Indexes`; `IndexLayout.ReadValues`, `TextOf` and `ScalarOf`, added by the architect's review after S14 | Members that nothing calls, and members that only tests call | The dead ones removed; the test-only ones as A13 treats its members | taken (S14R) |
 | I4 | `Engine/Entities/ChangePublisher.cs`, `Publish` | The parameter `armedFault` hands a fault of a test into every publication: a child always passes null, and the other fault points are reached through `WriteExecutor.Pass` | The fault point reached without a parameter of the publication | taken (S14R) |
 

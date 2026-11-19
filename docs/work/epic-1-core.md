@@ -1123,7 +1123,7 @@ Why this order:
 | S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Done |
-| S14, part 2 | The cost of index upkeep and of a search | Full | Not started |
+| S14, part 2 | The cost of index upkeep and of a search | Full | In progress: the study is done and the brief is passed; no test is written yet |
 | S14R | Refactoring after S14: structure only | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -5860,11 +5860,16 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
 
   | # | Series | Expected length | Decides |
   | --- | --- | --- | --- |
-  | 1 | The harness of B2, the old and the new on the same engine, only if the workstation could not give it (see B2) | to be estimated from the start of 19 November | that the new harness measures what the old one did |
-  | 2 | The gauge: two builds of `main` against each other | to be estimated from the start of 19 November | the spread against which the series below are judged |
-  | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head | to be estimated from the start of 19 November | (a), (b), (d) |
-  | 4 | The size of a node, 1 KiB against 2 KiB, 8 readers beside a writer, on the prototype or in the engine, as the implementer provides | to be estimated from the start of 19 November | (e) |
-  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | to be estimated from the start of 19 November | that a type without indexes loses nothing |
+  | 1 | The harness of B2, the old and the new on the same engine, only if the workstation could not give it (see B2) | about 20 minutes | that the new harness measures what the old one did |
+  | 2 | The gauge: two builds of `main` against each other | about 30 minutes | the spread against which the series below are judged |
+  | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head | about 70 minutes, three builds rotating (`main`, a second build of `main`, the head), three rounds | (a), (b), (d) |
+  | 4 | The size of a node, 1 KiB against 2 KiB, 8 readers beside a writer, on the prototype or in the engine, as the implementer provides | about 30 minutes | (e) |
+  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | about 45 minutes, eight rounds | that a type without indexes loses nothing |
+  | 6 | Text keys longer than 64 bytes, `index-search` and `index-writes` with a text key of 100 and of 200 bytes: a prefix beside the shared key against none, and text references for a node against for an entry, each as a variant of the head that the implementer provides | about 30 minutes | (e), the two questions left |
+
+  The whole start is about four hours. The lengths are estimated from the start of 19
+  November 2026, where a run of one scenario of one build took a little under a minute; a
+  series is added during the start only for a reason the planner agrees to.
 
 - **After it.** S14R holds structure only ([refactoring backlog](refactoring.md)); what the
   reviews of S14 found as cost is this sprint's. Then S15.
