@@ -19,13 +19,15 @@ namespace Moltaro.Lattice.Replication.Load;
 //   Binary field against its descriptor: a field that is null has the descriptor of zeros, one that is
 //   not has a descriptor of a value;
 // - the kind of each descriptor against its length and the storage of its field, as RootWriter places
-//   values: for a Plain field or a Binary, inline at most RootLayout.InlineLimit bytes, after the fixed
-//   part; in a block of its own 1 to RootLayout.SingleBlockLimit bytes; in chunks more than that and at
-//   most ValueBlocks.MostValueBytes; for a String field with Dictionary storage, the empty text inline
-//   with length 0, and any other text of kind Text, 1 to ValueBlocks.MostValueBytes bytes out of line;
-//   no other kind, so a Text descriptor in a Plain field, a Text descriptor of length 0 and a Dictionary
-//   text of kind Inline, Block or Chunked are not valid. The location of a value out of line is 0 on the
-//   wire: nothing received is used as an address;
+//   values: a text that lies in an entry of the text table (Storage.Values.StoredField.LiesInTextEntry:
+//   one that is not empty of a field with Dictionary storage, one longer than RootLayout.InlineLimit of
+//   a field that is part of an index) of kind Text, up to ValueBlocks.MostValueBytes bytes out of line;
+//   any other value inline at most RootLayout.InlineLimit bytes, after the fixed part, in a block of its
+//   own 1 to RootLayout.SingleBlockLimit bytes, in chunks more than that and at most
+//   ValueBlocks.MostValueBytes; no other kind, so a Text descriptor of a value that does not lie in an
+//   entry, a Text descriptor of length 0 and a text that lies in an entry of kind Inline, Block or
+//   Chunked are not valid. The location of a value out of line is 0 on the wire: nothing received is
+//   used as an address;
 // - the total: the bytes of the input are the fixed part, the values inline and the values out of line,
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
 // Each failure is a LatticeException with ValidationFailed, and nothing is allocated (Check). The child
@@ -268,18 +270,20 @@ internal sealed class BlockImport
                 continue;
             }
 
-            // The kinds a field of its storage takes (see the class): a Dictionary text is empty and
-            // inline, or out of line as a Text descriptor; a Plain value or a Binary takes the other
-            // three.
+            // The kinds a value of its length takes in its field (see the class): a text that lies in an
+            // entry of the text table is out of line as a Text descriptor; any other value takes the
+            // other three.
+            var inEntry = field.LiesInTextEntry(descriptor.Length);
+
             switch (descriptor.Kind)
             {
-                case DescriptorKindEnum.Inline when descriptor.Length <= (field.IsShared ? 0 : RootLayout.InlineLimit) && descriptor.Location >= (ulong)layout.FixedSize:
+                case DescriptorKindEnum.Inline when !inEntry && descriptor.Length <= RootLayout.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
                     inline += descriptor.Length;
                     break;
 
-                case DescriptorKindEnum.Block when !field.IsShared && descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
-                case DescriptorKindEnum.Chunked when !field.IsShared && descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
-                case DescriptorKindEnum.Text when field.IsShared && descriptor.Length is > 0 and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Block when !inEntry && descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
+                case DescriptorKindEnum.Chunked when !inEntry && descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Text when inEntry && descriptor.Length <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                     outOfLine += descriptor.Length;
                     break;
 

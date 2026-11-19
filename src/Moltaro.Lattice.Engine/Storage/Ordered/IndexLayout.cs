@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Ordered;
 
@@ -73,7 +77,7 @@ internal sealed class IndexLayout
 
     private readonly EntryPart[] _parts;
 
-    private IndexLayout(LatticeIndex index, EntryPart[] parts, int nullBitmapBytes, int fixedEntryBytes, int widestEntryBytes, int nodeBytes, int leastSeparators)
+    private IndexLayout(LatticeIndex index, EntryPart[] parts, int nullBitmapBytes, int fixedEntryBytes, int widestEntryBytes, int nodeBytes, int leastSeparators, LatticeStringEncodingEnum encoding)
     {
         Index = index;
         _parts = parts;
@@ -82,6 +86,8 @@ internal sealed class IndexLayout
         WidestEntryBytes = widestEntryBytes;
         NodeBytes = nodeBytes;
         LeastSeparators = leastSeparators;
+        Encoding = encoding;
+        TextParts = parts.Count(part => part.IsText);
     }
 
     // The index the layout was compiled for.
@@ -116,23 +122,111 @@ internal sealed class IndexLayout
     // can grow while writes are prepared (Engine.Indexes.OrderedTree, "The reservation").
     public int LeastSeparators { get; }
 
+    // How many parts are Strings: the most text entries one entry can reference.
+    public int TextParts { get; }
+
+    // The encoding of the database, in which a String part holds its copy.
+    public LatticeStringEncodingEnum Encoding { get; }
+
     // Compiles the layout of a declared index of the entity type whose root layout is given. The parts
     // come from the root layout: the stored type, width and place of each field. An index whose
     // LeastEntriesPerNode widest entries do not fit the largest block, Arena.MaxBlockSize, is refused with
     // LatticeException, InvalidSchema, naming the index, before any data is admitted, as RootLayout refuses
     // a fixed part beyond one block: a rule of the schema language, which LatticeIndex states with the
     // widths, the same on every node. 251 String parts that are never null fit; 252 do not.
-    public static IndexLayout Compile(LatticeIndex index, RootLayout root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public static IndexLayout Compile(LatticeIndex index, RootLayout root)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(root);
+
+        var parts = new EntryPart[index.Parts.Count];
+        var nullable = 0;
+        var fixedBytes = 0;
+        var texts = 0;
+
+        for (var place = 0; place < parts.Length; place++)
+        {
+            var part = index.Parts[place];
+            ref readonly var stored = ref root.StoredFieldOf(part.Field);
+            var isText = stored.Type == StoredTypeEnum.String;
+            var nullBit = part.CanBeNull ? nullable++ : EntryPart.NoNullBit;
+
+            parts[place] = new EntryPart(part.Field, stored.Type, isText ? 0 : stored.Width, nullBit, isText ? part.Field.Declaration.TextComparison : null);
+
+            if (isText)
+            {
+                texts++;
+            }
+            else
+            {
+                fixedBytes += stored.Width;
+            }
+        }
+
+        var nullBitmapBytes = (nullable + 7) / 8;
+        var fixedEntryBytes = IdentityBytes + nullBitmapBytes + fixedBytes;
+        var widestEntryBytes = fixedEntryBytes + (texts * (1 + TextCopyLimit));
+        var offset = texts > 0 ? OffsetBytes : 0;
+
+        // Four of the widest entries in a leaf, and four of the widest separators with their five children
+        // in an inner node.
+        var leaf = NodeHeader.Size + (LeastEntriesPerNode * (long)(offset + widestEntryBytes));
+        var inner = leaf + ((LeastEntriesPerNode + 1L) * ChildBytes);
+
+        if (inner > Arena.MaxBlockSize - BlockHeader.Size)
+        {
+            throw new LatticeException(
+                LatticeErrorEnum.InvalidSchema,
+                $"The index {index.Name} of the entity type {root.EntityType.Name} has entries of up to {widestEntryBytes} bytes: four of them take {inner} bytes of a node, more than the {Arena.MaxBlockSize - BlockHeader.Size} bytes of the payload of one block.");
+        }
+
+        var nodeBytes = inner + BlockHeader.Size <= SmallestNodeBytes ? SmallestNodeBytes : Arena.BlockSizeFor((int)inner);
+        var leastSeparators = (nodeBytes - BlockHeader.Size - NodeHeader.Size - ChildBytes) / (ChildBytes + offset + widestEntryBytes);
+
+        return new IndexLayout(index, parts, nullBitmapBytes, texts > 0 ? 0 : fixedEntryBytes, widestEntryBytes, nodeBytes, leastSeparators, root.StringEncoding);
+    }
 
     // The bytes of the entry that starts the span, read from its parts: the identity, the null bitmap,
     // each part at its width, and for a String part its head and what follows it.
-    public int EntryLength(ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public int EntryLength(ReadOnlySpan<byte> entry)
+    {
+        if (!HasText)
+        {
+            return FixedEntryBytes;
+        }
+
+        var length = IdentityBytes + NullBitmapBytes;
+
+        foreach (ref readonly var part in Parts)
+        {
+            length += part.IsText ? TextPartBytes(entry[length]) : part.Width;
+        }
+
+        return length;
+    }
 
     // The identity an entry begins with.
-    public static RootHandle IdentityOf(ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public static RootHandle IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<RootHandle>(entry);
+
+    // Whether the part is null in the entry.
+    public bool IsNull(ReadOnlySpan<byte> entry, in EntryPart part) =>
+        part.NullBit != EntryPart.NoNullBit && (entry[IdentityBytes + (part.NullBit / 8)] & (1 << (part.NullBit % 8))) != 0;
+
+    // The bytes of a String part that begins with the head given: the head and a copy, or the head and a
+    // reference to a text entry.
+    public static int TextPartBytes(byte head) => head == SharedTextHead ? SharedTextBytes : 1 + head;
+
+    // The text of a String part that is not null, which begins the span, to be read a piece at a time
+    // (Values.StoredTextReader): its copy, or the text entry it references, which the node that holds the
+    // part keeps from being freed. Inside the protection of reads or under the lock of the writes.
+    public StoredTextReader ReadText(Arena arena, ReadOnlySpan<byte> part)
+    {
+        var head = part[0];
+
+        return head == SharedTextHead
+            ? new StoredTextReader(arena, SharedDescriptorOf(part), default, Encoding)
+            : new StoredTextReader(part.Slice(1, head), Encoding);
+    }
 
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from
@@ -142,13 +236,159 @@ internal sealed class IndexLayout
     // and a longer one references the text entry the root's descriptor names. Allocates nothing. For the
     // writer under the lock of the writes, and for a reader inside the protection of reads that checks a
     // root against a key.
-    public int WriteEntry(in RootReader root, RootHandle identity, Span<byte> destination) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public int WriteEntry(in RootReader root, RootHandle identity, Span<byte> destination)
+    {
+        MemoryMarshal.Write(destination, in identity);
+
+        var bitmap = destination.Slice(IdentityBytes, NullBitmapBytes);
+        var length = IdentityBytes + NullBitmapBytes;
+
+        bitmap.Clear();
+
+        foreach (ref readonly var part in Parts)
+        {
+            if (root.IsNull(part.Field))
+            {
+                bitmap[part.NullBit / 8] |= (byte)(1 << (part.NullBit % 8));
+
+                // A null fixed part keeps its width and is zero; a null text is the head 0.
+                var width = part.IsText ? 1 : part.Width;
+
+                destination.Slice(length, width).Clear();
+                length += width;
+            }
+            else if (part.IsText)
+            {
+                length += WriteText(root, part.Field, destination[length..]);
+            }
+            else
+            {
+                root.StoredBytes(part.Field).CopyTo(destination[length..]);
+                length += part.Width;
+            }
+        }
+
+        return length;
+    }
 
     // The text entries the String parts of an entry reference, into the span, which has a place for each
     // String part, and how many there are: for the count of a node, which holds one reference for each
     // shared key among its entries or separators from the moment it is written until it is freed
     // (Text.TextTable; ordered-index.md, "Text references").
-    public int SharedTexts(ReadOnlySpan<byte> entry, Span<ArenaAddress> texts) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public int SharedTexts(ReadOnlySpan<byte> entry, Span<ArenaAddress> texts)
+    {
+        if (!HasText)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var offset = IdentityBytes + NullBitmapBytes;
+
+        foreach (ref readonly var part in Parts)
+        {
+            if (!part.IsText)
+            {
+                offset += part.Width;
+
+                continue;
+            }
+
+            if (entry[offset] == SharedTextHead)
+            {
+                texts[count++] = ValueBlocks.AddressOf(SharedDescriptorOf(entry[offset..]));
+            }
+
+            offset += TextPartBytes(entry[offset]);
+        }
+
+        return count;
+    }
+
+    // For the tests of the engine (EngineDatabase.IndexNodes): the value of each part of an entry as a
+    // record of the entity type holds it (LatticeValueDeclaration.ValueType), into the array, which has a
+    // place for each part: null, a scalar boxed in its exact type, an Enum as the integer of its underlying
+    // type, or a new string read from the copy or from the text entry. Under the lock of the writes.
+    public void ReadValues(Arena arena, ReadOnlySpan<byte> entry, object?[] values)
+    {
+        var offset = IdentityBytes + NullBitmapBytes;
+
+        for (var place = 0; place < _parts.Length; place++)
+        {
+            ref readonly var part = ref _parts[place];
+            var bytes = part.IsText ? TextPartBytes(entry[offset]) : part.Width;
+            var value = entry.Slice(offset, bytes);
+
+            values[place] = IsNull(entry, part) ? null : part.IsText ? TextOf(arena, value) : ScalarOf(part.Field, value);
+            offset += bytes;
+        }
+    }
+
+    // The descriptor of the text entry a shared String part references: the kind Text, its length and
+    // its address, as a root names it.
+    private static ValueDescriptor SharedDescriptorOf(ReadOnlySpan<byte> part) => new()
+    {
+        Kind = DescriptorKindEnum.Text,
+        Length = MemoryMarshal.Read<uint>(part[1..]),
+        Location = MemoryMarshal.Read<ulong>(part[(1 + sizeof(uint))..]),
+    };
+
+    // Writes the String part of a value that is not null, and returns its bytes: a copy of a text of
+    // TextCopyLimit bytes or less from where it lies, or a reference to the text entry of a longer one,
+    // which the layout of the root places in an entry (StoredField.LiesInTextEntry).
+    private static int WriteText(in RootReader root, LatticeField field, Span<byte> destination)
+    {
+        var descriptor = ValueBlocks.Read(root.StoredBytes(field));
+
+        if (descriptor.Length <= TextCopyLimit)
+        {
+            destination[0] = (byte)descriptor.Length;
+            root.ValueBytes(descriptor).CopyTo(destination[1..]);
+
+            return 1 + (int)descriptor.Length;
+        }
+
+        Debug.Assert(descriptor.Kind == DescriptorKindEnum.Text, "An indexed text longer than a copy lies in a text entry.");
+
+        destination[0] = SharedTextHead;
+        MemoryMarshal.Write(destination[1..], descriptor.Length);
+        MemoryMarshal.Write(destination[(1 + sizeof(uint))..], descriptor.Location);
+
+        return SharedTextBytes;
+    }
+
+    private string TextOf(Arena arena, ReadOnlySpan<byte> part)
+    {
+        var reader = ReadText(arena, part);
+        var text = new StringBuilder();
+        Span<char> piece = stackalloc char[256];
+
+        for (var length = reader.Read(piece); length > 0; length = reader.Read(piece))
+        {
+            text.Append(piece[..length]);
+        }
+
+        return text.ToString();
+    }
+
+    private static object ScalarOf(LatticeField field, ReadOnlySpan<byte> value) => field.Declaration.ScalarType switch
+    {
+        LatticeFieldTypeEnum.Boolean => StoredScalars.ReadBoolean(value),
+        LatticeFieldTypeEnum.Int8 => (sbyte)StoredScalars.ReadInteger(value),
+        LatticeFieldTypeEnum.Int16 => (short)StoredScalars.ReadInteger(value),
+        LatticeFieldTypeEnum.Int32 => (int)StoredScalars.ReadInteger(value),
+        LatticeFieldTypeEnum.Int64 => StoredScalars.ReadInteger(value),
+        LatticeFieldTypeEnum.UInt8 => (byte)StoredScalars.ReadUnsigned(value),
+        LatticeFieldTypeEnum.UInt16 => (ushort)StoredScalars.ReadUnsigned(value),
+        LatticeFieldTypeEnum.UInt32 => (uint)StoredScalars.ReadUnsigned(value),
+        LatticeFieldTypeEnum.UInt64 => StoredScalars.ReadUnsigned(value),
+        LatticeFieldTypeEnum.Float32 => StoredScalars.ReadFloat32(value),
+        LatticeFieldTypeEnum.Float64 => StoredScalars.ReadFloat64(value),
+        LatticeFieldTypeEnum.Decimal => StoredScalars.ReadDecimal(value),
+        LatticeFieldTypeEnum.Guid => StoredScalars.ReadGuid(value),
+        LatticeFieldTypeEnum.DateTimeOffset => StoredScalars.ReadDateTimeOffset(value),
+        LatticeFieldTypeEnum.DateOnly => StoredScalars.ReadDateOnly(value),
+        LatticeFieldTypeEnum.TimeOnly => StoredScalars.ReadTimeOnly(value),
+        _ => StoredScalars.ReadTimeSpan(value),
+    };
 }

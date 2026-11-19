@@ -94,7 +94,7 @@ public sealed class IndexLayoutTests
         new(251, 0),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Widths))]
     public void Node_takes_1_KiB_while_four_of_the_widest_entries_fit_and_the_smallest_size_class_that_holds_them_above(int texts, int fixedBytes)
     {

@@ -333,8 +333,9 @@ internal ref struct RootWriter
 
     // Sets the value of a String field: in a UTF-8 database the UTF-8 of its characters, in a UTF-16
     // database its code units, placed by its encoded length as RootLayout says for a field with Plain
-    // storage; for a field with Dictionary storage, a text that is not empty in the entry of the text
-    // table that holds the same bytes, found or added (PlaceText), and the empty text inline. Only
+    // storage; a text that lies in an entry of the text table (StoredField.LiesInTextEntry: one that is not
+    // empty of a field with Dictionary storage, and one longer than RootLayout.InlineLimit of a field that
+    // is part of an index), in the entry that holds the same bytes, found or added (PlaceText). Only
     // well-formed text is stored, in both encodings (docs/decisions/strings.md, "Input validity and
     // preservation"): text that is not well-formed UTF-16, a surrogate without its pair, is refused
     // with LatticeException, ValidationFailed, at the call. Then nothing is allocated for the value,
@@ -371,7 +372,7 @@ internal ref struct RootWriter
 
         var length = StoredText.EncodedLength(value, _layout.StringEncoding);
 
-        if (stored.IsShared && length > 0)
+        if (stored.LiesInTextEntry(length))
         {
             PlaceText(stored, value, length);
 
@@ -629,7 +630,7 @@ internal ref struct RootWriter
         MarkSet(stored, isNull: false);
     }
 
-    // Places the text of a field with Dictionary storage, length bytes in the encoding of the database,
+    // Places a text that lies in an entry of the text table, length bytes in the encoding of the database,
     // at least one, which SetString has checked: the descriptor of kind Text names the entry of the text
     // table that holds these bytes, which the root takes one reference to (Text.TextTable.TryAcquire), or
     // nothing when the arena refused a block before or refuses a new entry now, since Complete refuses

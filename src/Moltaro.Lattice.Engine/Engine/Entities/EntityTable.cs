@@ -138,6 +138,10 @@ internal sealed class EntityTable
     // The index of the entity type, when the engine stores it.
     private readonly PrimaryIndex? _index;
 
+    // The secondary indexes of the entity type, in the order the schema declares them; none when the
+    // engine does not store it.
+    private readonly SecondaryIndex[] _indexes;
+
     // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
     // root stores and their form in the replication stream. Held by value, so that its fields lie in the
     // table and a read by key loads them as the table's own; every caller uses it where it lies, without a
@@ -164,6 +168,7 @@ internal sealed class EntityTable
         _epochs = epochs;
         _clock = clock;
         _index = layout is null ? null : new PrimaryIndex(retired);
+        _indexes = layout is null ? [] : [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
     }
 
     public LatticeEntityType EntityType { get; }
@@ -181,6 +186,25 @@ internal sealed class EntityTable
 
     public long ReplacementIndexBytes => _index?.ReplacementBytes ?? 0;
 
+    // The secondary indexes of the entity type, in the order the schema declares them, each kept with the
+    // data (Indexes.SecondaryIndex); none when the engine does not store the entity type.
+    public ReadOnlySpan<SecondaryIndex> Indexes => _indexes;
+
+    // The secondary index of the declaration, an index of this entity type; null when the engine does
+    // not store the entity type, which holds no entity.
+    public SecondaryIndex? IndexOf(LatticeIndex definition)
+    {
+        foreach (var index in _indexes)
+        {
+            if (ReferenceEquals(index.Definition, definition))
+            {
+                return index;
+            }
+        }
+
+        return null;
+    }
+
     // The live entities of the type: the entries of its primary index. For the writer, under the lock
     // of the writes, which a master takes to register a child (Children.Capture).
     public int Count => _index?.Count ?? 0;
@@ -191,10 +215,11 @@ internal sealed class EntityTable
     public void Presize(long count) => _index!.Presize(count);
 
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
-    // with the seed of the instance. The root layout is compiled here, before any data is admitted;
-    // an entity type whose fixed part does not fit one block fails the open with the
-    // LatticeException, InvalidSchema, of RootLayout.Compile. An entity type the engine cannot store
-    // yet is not compiled, so its fixed part is not checked.
+    // with the seed of the instance. The root layout and the layout of each secondary index are compiled
+    // here, before any data is admitted; an entity type whose fixed part does not fit one block, or one
+    // that declares an index whose widest entries do not fit a node, fails the open with the
+    // LatticeException, InvalidSchema, of RootLayout.Compile or Ordered.IndexLayout.Compile. An entity
+    // type the engine cannot store yet is not compiled, so neither is checked.
     public static EntityTable Open(
         LatticeEntityType entityType,
         LatticeSchema schema,

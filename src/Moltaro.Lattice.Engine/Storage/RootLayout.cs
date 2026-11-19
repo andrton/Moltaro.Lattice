@@ -53,6 +53,12 @@ namespace Moltaro.Lattice.Storage;
 // nothing of the root block but its descriptor, and the entry is placed as a value out of line is, one
 // block up to SingleBlockLimit bytes and chunks above. The empty text is inline with length 0, as in a
 // Plain field. So the layout of an entity type is the same whichever storage its String fields select.
+// A String field that is part of a secondary index stores a text longer than InlineLimit in an entry of
+// the text table as well, whatever its storage, so that the entry of the index can share it with its
+// root; such an entry is found by its bytes like any other, so equal long texts of an indexed Plain field
+// are stored once, and a text of InlineLimit bytes or less is placed as a Plain value is
+// (StoredField.LiesInTextEntry; decision on index structures, the note of 19 November 2026). Adding or
+// dropping an index therefore changes where the long texts of its fields lie.
 //
 // The layout is compiled once into plain tables and never changes afterwards, so one layout can
 // serve any number of writers and readers on any number of threads.
@@ -119,6 +125,10 @@ internal sealed class RootLayout
         }
 
         var inIdentityOrder = declared.OrderBy(field => field.Id).ToArray();
+
+        // The fields that are part of an index: a part of an entity type that is stored is one of its
+        // fields, since a path through an owned value is refused above.
+        var indexed = entityType.Indexes.SelectMany(index => index.Parts).Select(part => part.Field).ToHashSet();
         var fields = new StoredField[declared.Count];
         var requiredFields = new byte[BitBytes(declared.Count)];
         var nullBits = new int[declared.Count];
@@ -145,7 +155,7 @@ internal sealed class RootLayout
         {
             var (type, width) = FixedTypeOf(field.Declaration);
 
-            fields[field.Ordinal] = new StoredField(field, type, width, offset, nullBits[field.Ordinal]);
+            fields[field.Ordinal] = new StoredField(field, type, width, offset, nullBits[field.Ordinal], indexed.Contains(field));
             offset += width;
         }
 
@@ -156,7 +166,7 @@ internal sealed class RootLayout
         {
             var type = field.Declaration.Type == LatticeFieldTypeEnum.String ? StoredTypeEnum.String : StoredTypeEnum.Binary;
 
-            fields[field.Ordinal] = new StoredField(field, type, ValueBlocks.DescriptorSize, offset, nullBits[field.Ordinal]);
+            fields[field.Ordinal] = new StoredField(field, type, ValueBlocks.DescriptorSize, offset, nullBits[field.Ordinal], indexed.Contains(field));
             descriptorFields.Add(fields[field.Ordinal]);
             offset += ValueBlocks.DescriptorSize;
         }

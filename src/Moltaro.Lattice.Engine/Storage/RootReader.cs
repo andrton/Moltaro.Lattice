@@ -146,6 +146,17 @@ internal readonly ref struct RootReader
         return bytes;
     }
 
+    // The bytes the fixed part stores for a field that is not null, as they lie: the value of a
+    // fixed-width field as Values.StoredScalars wrote it, or the descriptor of a String or Binary value.
+    // What an entry of an index copies of its root, and what the order of an index compares a key with
+    // (Ordered.IndexLayout, Engine.Indexes.SecondaryIndex). InvalidOperationException for a field whose
+    // value is null.
+    public ReadOnlySpan<byte> StoredBytes(LatticeField field) => NotNull(_layout.StoredFieldOf(field));
+
+    // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of
+    // its own, names: inline in the root block, in a block of its own, or in the block of its text entry.
+    public ReadOnlySpan<byte> ValueBytes(in ValueDescriptor descriptor) => ValueBlocks.Contiguous(ArenaOfValues(), descriptor, _payload);
+
     // The number of encoded bytes of the value of a String or Binary field, as stored: for a String,
     // its bytes in the database encoding, UTF-8 or UTF-16.
     public int GetLength(LatticeField field)
