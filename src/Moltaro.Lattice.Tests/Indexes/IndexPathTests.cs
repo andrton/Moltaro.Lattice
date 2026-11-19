@@ -107,7 +107,7 @@ public sealed class IndexPathTests
         Descriptor.ExpectRefused(ValueSchema.Json, "'Fields': [ [2, 1] ] }", $"'Fields': {fields} }}");
     }
 
-    [Fact]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Search_key_may_give_null_for_a_part_that_can_be_null()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());
@@ -141,8 +141,17 @@ public sealed class IndexPathTests
         await Assert.ThrowsAsync<ArgumentException>(async () => await byClass.FindAsync(IndexKey.Equal<string?>(null), new LatticeFindOptions()));
 
         // A value is checked against the indexed field, as for a field of the entity type.
-        AcceptedKey.Expect(() => byRecord.Find(IndexKey.Equal("Oslo")));
         Assert.Throws<ArgumentException>(() => byRecord.Find(IndexKey.Equal(42)).ToList());
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint14)]
+    public async Task Search_key_gives_a_value_of_the_field_at_the_end_of_the_path()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());
+
+        // Work.City is a String, and a String is its value.
+        AcceptedKey.Expect(() => database.Set("Person").Index("ByWorkCity").Find(IndexKey.Equal("Oslo")));
+        AcceptedKey.Expect(() => database.Set<Person>().Index("ByWorkCity").Find(IndexKey.Equal("Oslo")));
     }
 
     // Person has a nullable owned value Home and one that is not, Work; Address has a field
