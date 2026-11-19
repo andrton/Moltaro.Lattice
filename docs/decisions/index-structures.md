@@ -287,6 +287,18 @@ pause bound. The original package comparison above remains historical evidence.
 
 ### Search-key ownership: copied fixed values and shared text
 
+**Changed on 19 November 2026 (owner) for text of 64 bytes or less.** An index entry
+holds a copy of a text key of 64 bytes or less, whatever the storage mode of the field.
+A longer key is shared: the index entry references the text entry the root already
+references. An indexed value is never moved out of the root because it is indexed.
+Measured on the prototype, one run of five seconds a case: a search by a copied key is
+three to five times faster than through a shared entry at 8 and 32 bytes; sharing short
+values costs a read by the primary key 14 to 25% at 8 bytes; a copy takes 92 bytes per
+entity against 185 at 8 bytes. Whether a shared key also carries its first bytes beside
+the reference is decided by measurement in the engine on keys with random and with
+common heads; it is not part of this decision. The text below is kept as the record of
+the earlier decision; for text of 64 bytes or less this note replaces it.
+
 **Accepted on 13 November 2026: option A.** Fixed-size search components are copied into index keys;
 string components retain the stored text through a stable, lifetime-protected
 descriptor instead of making a text copy for every index. This applies to primary

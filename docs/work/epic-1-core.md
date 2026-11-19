@@ -5444,6 +5444,20 @@ that every figure is one run of 5 s. The decision is recorded in
 [index structures](../decisions/index-structures.md); the contract step of this sprint
 writes the internal types for this tree. The form of a text key is his next question.
 
+**The form of a text key, chosen by the owner on 19 November 2026, as the planner
+relays:** short values are copied, long ones shared. An index entry holds a copy of a
+text key of 64 bytes or less, whatever the storage mode of the field — a Dictionary
+field of that length is copied into the entry like a Plain one, and no reference is
+built for it; a longer key references the text entry the root already references. He
+was shown the search of a copy against a shared entry at 8, 32 and 100 bytes, the bytes
+for an entity, what sharing short values costs the read by key, the price — two ways
+to hold a key, a departure from the accepted record for short values — and that every
+figure is one run. Whether a shared key carries its first 8 bytes beside the reference
+is settled in this sprint by a measurement in the engine on keys with random and with
+common heads. For the plan: long keys need "one more reference at this address", a
+release by address and the retired item of a leaf, so T1 with B3 of the
+[refactoring backlog](refactoring.md) comes before the implementation of this sprint.
+
 **The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
 case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy
 with other work before a case (two cases at 44 and 51 %): differences below about a

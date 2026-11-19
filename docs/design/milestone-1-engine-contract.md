@@ -129,8 +129,11 @@ List/Map/Set input and comparison semantics stay as already accepted.
 Plain strings preserve their original encoded bytes. Dictionary fields use one
 database-wide content table with exact-text equality, preserving case/spelling even
 when a field's search policy ignores case. No automatic Plain/Dictionary switching.
-All text used by an index has a stable text entry; an indexed Plain value can share
-its existing text with the index without content interning. A text entry has one
+An index entry holds a copy of a text key of 64 bytes or less, whatever the storage
+mode of the field; a longer key is shared, the index entry referencing the text entry
+the root already references, and an indexed value is never moved out of the root
+because it is indexed ([index structures](../decisions/index-structures.md), the note of
+19 November 2026). A text entry has one
 count: a block holds one reference for each Text descriptor it contains, from the moment
 it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
 to it is freed, which is after the last protected reader that could reach it has left;

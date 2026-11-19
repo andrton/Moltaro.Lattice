@@ -349,6 +349,9 @@ Q04.4 accepts stored-reference counts and deferred reclamation, with exact ID
 lifetime rules still open. No global immortal intern pool is selected.
 This text-sharing mechanism is distinct from Q03.3's Map collection abstraction.
 
+*Since 19 November 2026 this holds for text longer than 64 bytes only: an index entry
+holds a copy of a shorter key (the note of that date under the heading linked below).*
+
 The later [accepted index-key ownership](index-structures.md#search-key-ownership-copied-fixed-values-and-shared-text)
 lets a record and its indexes share the same stored immutable text through protected
 stable references. Plain still does not deduplicate independent stored occurrences;
