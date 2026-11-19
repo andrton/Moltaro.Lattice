@@ -245,10 +245,11 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        var record = write.Record;
+        PreparedWrite record;
 
         try
         {
+            record = write.Record;
             _changes.Reserve(record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
         }
         catch

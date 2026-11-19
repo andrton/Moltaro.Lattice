@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // ResetAfterItsCall clears what that write set, and Begin sets the inputs of the next. Every other
 // record is left to the collector once its write has its outcome, since its task, its registration or
 // another thread may still read it. It owns its PreparedWrite, which serves each write it holds in the
-// same way (Prepare).
+// same way (Record; PreparedWrite.WriteChange and Set).
 //
 // Who touches what. The inputs are set by Begin and not changed until the write has its outcome.
 // Every other field is written and read under the lock of the writes, except Outcome and Failure,
