@@ -5,11 +5,12 @@ changes it, and what a write costs. The structure was chosen by the owner on 19 
 2026 ([index structures](../decisions/index-structures.md), the notes of that day); the
 milestone contract states its rules under
 [index preparation and traversal](milestone-1-engine-contract.md#index-preparation-and-traversal).
-The internal types are written and refuse until they are implemented:
 `src/Moltaro.Lattice.Engine/Storage/Ordered` holds the nodes and entries in arena memory,
-`Engine/Indexes` the tree, its order and the index of an entity type, and
-`Engine/Entities/IndexSearch.cs` the search. Nothing described here is built yet; the
-[README](../../README.md) says what works.
+`Engine/Indexes` the tree, its order and the index of an entity type,
+`Engine/Entities/ChangePublisher.cs` the upkeep of every index with the data, and
+`Engine/Entities/IndexSearch.cs` with `EntityTable.TrySearch` the search by the full key.
+The walk of ranges, order and paging is not built yet; the [README](../../README.md) says
+what works.
 
 [Index access](../decisions/index-access.md) · [Index lifecycle](../decisions/index-lifecycle.md) · [How reads are protected](epoch-protection.md) · [How a write is executed](write-path.md)
 
@@ -256,12 +257,13 @@ hold is: before its commit.
 The writes prepared and not published share one pool for each index. While *p* inserts,
 rewrites among them, and *q* removes wait, the pool holds
 
-> *p* · (2*H* + 1) + *q* · (*H* + 1) nodes, with *H* = *h* when *p* = 0, and
-> *H* = *h* + 1 + ⌊(*p* − 1) / *I*⌋ when *p* ≥ 1,
+> *p* · (2*H*ᵢ + 1) + *q* · (*H*ᵣ + 1) nodes, with *H*ᵢ = *h* + ⌈(*p* − 1) / *I*⌉ and
+> *H*ᵣ = *h* + ⌈*p* / *I*⌉,
 
 where *h* is the height of the tree now and *I* the separators of its widest form an
-inner node holds before it is full, at least four. With no insert waiting the tree cannot
-grow, and removes alone are counted at the height it has. Why it is enough:
+inner node holds before it is full, at least four. *H*ᵢ bounds the height an insert finds
+when it is published, *H*ᵣ the height a remove finds; with no insert waiting the tree
+cannot grow, and removes alone are counted at the height it has. Why it is enough:
 
 - An insert at height *H* splits at most every level and adds a root: at most two nodes on
   each level and one more, 2*H* + 1, and it retires at most one node on each level. A
@@ -269,16 +271,23 @@ grow, and removes alone are counted at the height it has. Why it is enough:
   both, and retires at most one more, the neighbour of that merge: *H* + 1 serves both
   counts.
 - The height grows only when the root splits. A root made by a split holds one separator,
-  and one insert adds at most one separator to any node. So the first insert may grow the
-  tree, and every further growth takes *I* inserts more: *H* bounds the height at each of
-  the waiting publications.
+  and one insert adds at most one separator to any node; a leaf holds at least as many
+  of the widest entries as an inner node holds separators, so a root leaf grows no sooner.
+  So the first insert may grow the tree, and every further growth takes *I* inserts more:
+  the *k*-th insert finds the tree at most ⌈(*k* − 1) / *I*⌉ levels above *h*, and every
+  remove at most ⌈*p* / *I*⌉. A remove never grows the tree, and a tree that a remove
+  made lower grows again no sooner.
 - A preparation tops the pool up to the bound for all writes that wait, with its own
   counted; a publication consumes at most its share and gives back to the arena what is
-  above the bound of the writes still waiting; a withdrawal does the same.
+  above the bound of the writes still waiting; a withdrawal does the same. Neither ever
+  takes a node: after an insert that grew the tree the bound of the writes still waiting,
+  counted at the new height, can lie above what is left, and what is left is enough,
+  since it was reserved for every order of those writes from the old height.
 
-For one insert into an index of height 3, with nothing else waiting, the bound is 9 nodes,
-9 KiB, while a publication takes about one. The peak of prepared bytes of an index
-during a group of writes is reported with the implementation.
+For one insert into an index of height 3, with nothing else waiting, the bound is 7 nodes,
+7 KiB, while a publication takes about one, and the pool is empty again after it. The
+bound first written here counted *h* + 1 + ⌊(*p* − 1) / *I*⌋, the height after the last
+insert, for every insert: two nodes more for each insert than it can take.
 
 ### The retired node
 
@@ -305,7 +314,15 @@ between two steps only the key and the identity of the last entity it returned:
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is
-   built outside it.
+   built outside it, and only then does the search move past its identity, so that an
+   entity whose build fails is read again by the next step.
+
+A step that ends without an entity takes the sequence of the database read when it began
+as the position of its end when it is unchanged after the walk, as a read of an absent
+key does, and walks again otherwise. An entity deleted and created again while a search
+runs has a new root entry, so a new identity, which can lie after the one the search
+returned before: the search then returns that entity twice. That no entity is returned
+twice also then is chosen with the walk of ranges (below).
 
 The key is bound to the fields of the index once, outside the protection, and its fixed
 parts are written on the stack in their stored form, by the one writer of that form the

@@ -268,8 +268,9 @@ part.
 
 Index nodes and their text are prepared before the commit: in the hold that prepares a
 write, the index reserves prepared nodes and places in the retired list for the bound of
-its publication — with p inserts and q removes prepared and unpublished, p·(2H + 1) +
-q·(H + 1) nodes, H the height the tree can reach while they wait — and releases them if
+its publication — with p inserts and q removes prepared and unpublished, p·(2Hᵢ + 1) +
+q·(Hᵣ + 1) nodes, Hᵢ and Hᵣ the heights an insert and a remove can find while they wait
+([ordered index](ordered-index.md#the-reservation)) — and releases them if
 the write is withdrawn. With the storage step busy a prepared, unpublished write holds
 them and no reader can reach them. A reservation the arena cannot hold refuses the write
 for memory before its commit. A retired node is a retired item of its own, with its bytes

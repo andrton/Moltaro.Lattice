@@ -12,13 +12,15 @@ repository run on it.
 
 The engine is being built in steps. Today it works in MemoryOnly mode: it stores and
 reads entities of scalar and Enum fields by primary key, under every key type and both
-text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. A child
-loads the whole database from its master over TCP while the master keeps writing, then
-follows its changes, and forwards its own writes to the master. A schema can already
-declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Index
-search, unique indexes, write batches and PostgreSQL persistence are not implemented
-yet, and the contract may still change.
+text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. Every
+declared secondary index is kept with the data, and an application finds entities by
+the full key of an index. A child loads the whole database from its master over TCP
+while the master keeps writing, builds its own indexes, then follows its changes, and
+forwards its own writes to the master. A schema can already declare more than the
+engine stores: an entity type with an owned value, a List, a Map, a Set or a reference
+compiles, but cannot be written yet. A search by the leading fields of an index, with a
+range, in reverse or in pages, unique indexes, write batches and PostgreSQL persistence
+are not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -155,9 +157,11 @@ foreach (var record in settings.Enumerate())
 
 Both ways work on the same data and follow the same rules.
 
-**Finding by index.** *The contract below is in place; the search itself is not implemented
-yet, and `Find` and `FindAsync` throw `NotSupportedException`.* An entity type declares its
-secondary indexes in the schema, each with a name and the fields it covers, in order:
+**Finding by index.** *The search by the full key of an index works; a search by its
+leading fields, with a range, in reverse or with `Offset` or `Limit` is in the contract
+and not implemented yet, and is refused with `NotSupportedException`.* An entity type
+declares its secondary indexes in the schema, each with a name and the fields it covers,
+in order:
 
 ```json
 "Indexes": [
@@ -384,7 +388,8 @@ the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
-In the contract but not implemented yet: searching an index, unique indexes, executing a
+In the contract but not implemented yet: searching an index by its leading fields, with a
+range, in reverse or in pages, unique indexes, executing a
 write batch, Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and

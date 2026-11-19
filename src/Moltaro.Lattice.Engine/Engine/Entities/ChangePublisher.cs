@@ -30,9 +30,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // and does no I/O: every store goes to what the preparation took and reserved. It fails only at the fault
 // point a test armed, or for a defect; the stores made stay, and the caller faults the database.
 //
-// It holds no state of its own. What it changes — the arena, the table of root entries, the primary indexes,
-// the position clock and the retired list — has one changing thread at a time, the holder of the lock of the
-// writes, and every member runs under that lock.
+// It holds no state of its own. What it changes — the arena, the table of root entries, the primary and the
+// secondary indexes, the position clock and the retired list — has one changing thread at a time, the holder
+// of the lock of the writes, and every member runs under that lock.
 //
 // The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted from
 // crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of

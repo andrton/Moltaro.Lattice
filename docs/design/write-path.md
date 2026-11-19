@@ -94,15 +94,20 @@ a write and on a child for what it receives from its master
 child publishes every change of a transaction at once, or one root of its load. A
 publication at the sequence s has three steps:
 
-1. **The stores before the position.** An insert installs its root, then its root
-   entry, whose state Live is stored last, then its entry of the index, which publishes
-   both to a read by key. A replace stores the mark of a write in progress in the root
-   entry, then the new root. A delete stores the mark, then the state Deleted.
+1. **The stores before the position.** First the new entries of the secondary indexes of
+   the entity type, of an insert and of a replace that moves a key, each by the one store
+   of its tree ([ordered index](ordered-index.md#the-entries-of-one-write)); a search that
+   finds one checks it against its root. Then an insert installs its root, then its root
+   entry, whose state Live is stored last, then its entry of the primary index, which
+   publishes both to a read by key. A replace stores the mark of a write in progress in
+   the root entry, then the new root. A delete stores the mark, then the state Deleted.
 2. **The position.** The position of the database becomes s. A root of a load has no
    position of its own: the end of the load sets it.
 3. **The stores after the position.** A replace and a delete store the stamp s in the
-   root entry; then a delete removes its entry of the index. What they replaced or
-   deleted is retired, and freed once no read can reach it.
+   root entry; then a delete removes its entry of the primary index, and both take their
+   old entries out of the secondary indexes, or rewrite an entry whose key is equal in
+   other bytes. What they replaced or deleted is retired, and freed once no read can
+   reach it.
 
 Each store is a release, so a read that sees one sees every store before it, the values
 the preparation wrote included. The position is s − 1 until step 2, so a read never
