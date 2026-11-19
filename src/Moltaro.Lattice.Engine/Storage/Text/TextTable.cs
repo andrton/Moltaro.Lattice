@@ -23,8 +23,10 @@ namespace Moltaro.Lattice.Storage.Text;
 //
 // One count for each entry, by one rule: a block holds one reference for each Text descriptor it
 // contains, from the moment it is written (RootWriter, Replication.Load.BlockImport, through
-// TryAcquire) until it is freed (Storage.RootStorage.FreeValue, through Release). The rule is worded for
-// any block: a root today, and an owned value, a collection or an index entry once they are stored. A
+// TryAcquire) until it is freed (Storage.RootStorage.FreeValue, through Release). A node of a secondary
+// index holds one for each key among its entries and separators that shares the entry of its root, from
+// the moment the node is written (AddReference) until it is freed (Storage.Ordered.NodeStorage, through
+// Release); an owned value and a collection will follow the same rule once they are stored. A
 // prepared block holds its references as a live one does, so the descriptors of a prepared root are the
 // tally of what its write took, and a write that is withdrawn, cancelled, refused or ended by a fault
 // drops them where its blocks are freed. A retired block holds them until the drain frees it, which is
@@ -119,18 +121,33 @@ internal sealed class TextTable
         return TryAcquire(ref pieces, (int)bytes.Length, prepared, place, out newBytes);
     }
 
-    // Releases the one reference the Text descriptor holds, for the free of the block that holds it
-    // (Storage.RootStorage.FreeValue), under the lock of the writes. An entry whose count reaches zero
-    // leaves the bucket table and its blocks are freed, prepared or live, in this call (see the class).
-    public void Release(in ValueDescriptor descriptor)
+    // One more reference to the entry at the address, which a block that is written refers to and which
+    // some block that is not freed refers to already: for a node of a secondary index written with a key
+    // that shares the entry of its root (see the class), under the lock of the writes. It allocates
+    // nothing and cannot fail.
+    public void AddReference(ArenaAddress address)
     {
         AssertTheLockIsHeld();
 
-        var address = ValueBlocks.AddressOf(descriptor);
+        ref var slot = ref _slots[ValueBlocks.TextSlotOf(_arena, address)];
+
+        Debug.Assert(slot.Address == address && slot.References > 0, "A reference is added to an entry that is referenced.");
+
+        slot.References++;
+    }
+
+    // Releases one reference to the entry at the address, for the free of a block that holds it: a root
+    // through its Text descriptor (Storage.RootStorage.FreeValue) or a node of an index through a shared
+    // key, under the lock of the writes. An entry whose count reaches zero leaves the bucket table and its
+    // blocks are freed, prepared or live, in this call (see the class).
+    public void Release(ArenaAddress address)
+    {
+        AssertTheLockIsHeld();
+
         var number = ValueBlocks.TextSlotOf(_arena, address);
         ref var slot = ref _slots[number];
 
-        Debug.Assert(slot.Address == address && slot.Length == descriptor.Length && slot.References > 0, "A Text descriptor names the entry of its slot.");
+        Debug.Assert(slot.Address == address && slot.References > 0, "A reference names the entry of its slot.");
 
         if (--slot.References > 0)
         {
@@ -145,17 +162,16 @@ internal sealed class TextTable
         Count--;
     }
 
-    // Publishes the entry the Text descriptor names when it is still prepared, which the arena knows of its
-    // first block (Arena.IsPrepared), for the publication of a block that holds the descriptor
-    // (Storage.RootStorage.Publish), under the lock of the writes. The descriptor holds the length of the
-    // entry, by which its blocks are placed. It allocates nothing and changes no count.
-    public void Publish(in ValueDescriptor descriptor)
+    // Publishes the entry at the address when it is still prepared, which the arena knows of its first
+    // block (Arena.IsPrepared), for the publication of a block that refers to it: a root
+    // (Storage.RootStorage.Publish), or a node of an index whose new key shares it, which is published
+    // before the root (Engine.Indexes.OrderedTree), under the lock of the writes. Its slot holds the length
+    // of the entry, by which its blocks are placed. It allocates nothing and changes no count.
+    public void Publish(ArenaAddress address)
     {
-        var address = ValueBlocks.AddressOf(descriptor);
-
         if (_arena.IsPrepared(address))
         {
-            ValueBlocks.PublishText(_arena, address, descriptor.Length);
+            ValueBlocks.PublishText(_arena, address, _slots[ValueBlocks.TextSlotOf(_arena, address)].Length);
         }
     }
 

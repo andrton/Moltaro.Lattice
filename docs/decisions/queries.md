@@ -41,7 +41,10 @@ declared in the schema. The later [primary-index decision](index-structures.md#p
 selects a hash table and excludes the standard .NET Dictionary from its production
 implementation. Arc.Collections UnorderedMapSlim is selected for the first primary
 index; Arc OrderedMultiMap is accepted for v1 ordered secondary indexes, including
-its measured memory tradeoff. Native key/lifetime integration and detailed query
+its measured memory tradeoff. *Superseded on 19 November 2026 (owner): see the notes of that date in
+[index structures](index-structures.md). The secondary index is a copy-on-write B+tree
+of the engine's own, the primary index a hash table of the engine's own, and
+`Arc.Collections` is not part of the product.* Native key/lifetime integration and detailed query
 semantics remain open. Filtering by several fields does not require a composite index,
 and sorting is possible without a matching index; Q07.1 accepts scan fallback and
 Q07.1.1 accepts configurable resource limits. Primary-key lookup remains part of
@@ -87,7 +90,9 @@ A secondary index locates records using values other than their primary key.
 The representation stores search keys and compact record locators, not full document
 copies. [Accepted key ownership](index-structures.md#search-key-ownership-copied-fixed-values-and-shared-text)
 copies fixed-size values into keys and shares immutable stored text through protected
-stable references. Exact descriptors and locator safety remain physical engineering
+stable references. *Changed on 19 November 2026 (owner): an index entry holds a copy of a text key of 64
+bytes or less and shares only a longer one; see the note of that date under the linked
+heading.* Exact descriptors and locator safety remain physical engineering
 work. Several documents may have the same secondary key by default. The later
 [Unique decision](unique-indexes.md) adds explicit secondary uniqueness without
 changing primary-key identity or the selected index container.
@@ -147,7 +152,10 @@ ArcSlim is selected for the first implementation with engine-owned capacity
 reservation; production integration still needs validation. The later
 [secondary decision](index-structures.md#secondary-index-arc-orderedmultimap)
 accepts Arc OrderedMultiMap for pre-commit node preparation, including its measured
-larger retained footprint than Kaos RankedMap.
+larger retained footprint than Kaos RankedMap. *Superseded on 19 November 2026 (owner): see the notes of that date in
+[index structures](index-structures.md). The secondary index is a copy-on-write B+tree
+of the engine's own, the primary index a hash table of the engine's own, and
+`Arc.Collections` is not part of the product.*
 Secondary structures have different update, locality and allocation costs. A specialized
 equality-only secondary implementation is an optimization candidate to measure,
 not a mandatory second family for every declared ordered index.

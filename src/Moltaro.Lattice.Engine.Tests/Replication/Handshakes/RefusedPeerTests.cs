@@ -10,9 +10,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Handshakes;
 // The handshake checks that a peer is compatible (brief of Epic 1, sprint S10, Acceptance; the planner's
 // blocks of 15 November 2026, "Identity", "Byte order" and "The version of the case table", and of
 // 17 November, point 1): a peer whose Hello names another database, another history, another schema
-// fingerprint, another wire format, another layout format, the byte order of a big-endian machine
-// (bit 16 of the layout format, as the implementer of S10 encodes it) or another version of the case
-// table, or the role of a master, is refused with the matching reason — Database, History, Schema,
+// fingerprint, another wire format, another layout format, among them the layout version 1 of the form
+// of a root before an indexed value longer than 64 bytes was stored as a text entry, the byte order of
+// a big-endian machine (bit 16 of the layout format, as the implementer of S10 encodes it) or another
+// version of the case table, or the role of a master, is refused with the matching reason — Database, History, Schema,
 // Format or Role — before any data frame is sent, and nothing of it is registered on the master
 // (NothingRegistered). A real child cannot send most of these, so the test sends a Hello it
 // makes itself, through a connection of its own (Peer): the Hello of a real child that holds nothing yet,
@@ -29,6 +30,7 @@ public sealed class RefusedPeerTests
         new("another schema", "Schema"),
         new("another wire format", "Format"),
         new("another layout format", "Format"),
+        new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),
         new("another version of the case table", "Format"),
         new("the role of a master", "Role"),
@@ -67,9 +69,14 @@ public sealed class RefusedPeerTests
             "another wire format" => child with { WireFormat = child.WireFormat + 1 },
             "another layout format" => child with { LayoutFormat = child.LayoutFormat + 1 },
 
-            // The layout version 1 in bits 0 to 15 and bit 16, which a big-endian node sets; the nodes of
-            // the tests are little-endian and send 0x00000001.
-            "the byte order of a big-endian machine" => child with { LayoutFormat = 0x0001_0001 },
+            // The layout version is bits 0 to 15 of the layout format. Version 1 is the form of a root
+            // before a field that is part of an index stored a value longer than 64 bytes as a text entry:
+            // a node of that form stores roots otherwise and is refused. The byte order is kept.
+            "the layout version 1" => child with { LayoutFormat = (child.LayoutFormat & ~0xFFFF) | 1 },
+
+            // Bit 16, which a big-endian node sets, beside the layout version of this node; the nodes of the
+            // tests are little-endian.
+            "the byte order of a big-endian machine" => child with { LayoutFormat = child.LayoutFormat | Protocol.BigEndianLayout },
             "another version of the case table" => child with { CaseTableVersion = child.CaseTableVersion + 1 },
             "the role of a master" => child with { Role = LatticeRoleEnum.Master },
             _ => throw new ArgumentOutOfRangeException(nameof(difference), difference, "No such difference."),

@@ -184,11 +184,36 @@ bytes-per-entry target or ordered-secondary-tree choice follows from the primary
 
 ## Secondary index: Arc OrderedMultiMap
 
-**Superseded on 18 November 2026 (owner).** The engine depends on no package; its
-structures are its own. `Arc.Collections` is removed from the product, and the structure
-of the ordered secondary index is chosen after a study of established implementations,
-with figures. The text below is kept as the record of the earlier selection and of its
-measurements; it no longer selects anything.
+**Superseded on 19 November 2026 (owner).** The ordered secondary index is a B+tree of
+the engine's own whose published nodes never change: a write copies the node it changes
+and publishes the copy by one store of its address into the live parent; a reader takes
+no lock, checks no version and never retries. It follows LMDB's copy-on-write B+tree,
+the one-store publication of ROWEX and LeanStore's walk from leaf to leaf by a new
+descent at the fence key. It was chosen over a B+tree changed in place (cheaper writes —
+15 to 30% alone, about half beside sixteen readers — but readers validate and restart,
+and an entry that names text cannot be followed safely before validation), a skip list
+and `Arc.Collections` behind a lock (three to five times slower on a search, ten times
+on a range). The accepted price: a write copies one node per index and retires the old
+one, so retired memory grows by about one node per index write while a read is held.
+The figures are those of the prototype, one run of five seconds a case; the structure
+is measured again in the engine against the same scenarios. `Arc.Collections` is not
+part of the product. The text below is kept as the record of the earlier selection and
+of its measurements; it no longer selects anything.
+
+**Confirmed on 19 November 2026 (owner) after the first figures on ARM64.** On a rented
+ARM64 machine of sixteen cores, eight readers searching an index while a writer changes
+that index at full speed keep about two thirds of their rate on this tree, where readers
+of a tree changed in place keep nearly all of it; an index write costs about 1.5 times as
+much. On the x86 workstation the same case favoured this tree. Without a writer the two
+are equal, and ranges are 5 to 14% faster on this tree. The choice stands for the reason
+that does not depend on the machine: nothing a reader can reach is changed in place, so
+a published node is immutable and its correctness is shown by one store and a comparison
+of bytes; a tree changed in place gives that up. The short text keys are copied into an
+entry, so the earlier argument about following a text reference applies only to keys
+longer than 64 bytes. The cost is accepted as stated; a larger node (2 KiB) is measured
+as a mitigation. Upkeep is written in one place and does not depend on the form of the
+tree, so the choice can be reversed by replacing the tree alone if a measured load asks
+for it.
 
 **Accepted on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `OrderedMultiMap<SearchKey, RootLocator>` for the first ordered
@@ -276,6 +301,23 @@ The report preserves unresolved latency outliers rather than asserting a product
 pause bound. The original package comparison above remains historical evidence.
 
 ### Search-key ownership: copied fixed values and shared text
+
+**Changed on 19 November 2026 (owner) for text of 64 bytes or less.** An index entry
+holds a copy of a text key of 64 bytes or less, whatever the storage mode of the field.
+A longer key is shared: the index entry references the text entry the root already
+references. For that, a field that is part of an index stores a value longer than 64
+bytes as a text entry, whatever its storage mode: for a Plain field this is a rule of
+the layout compiled from the schema, the same on every node. Such an entry is found by
+its bytes like any other, so equal long values of an indexed Plain field are stored
+once; Plain promises no sharing and forbids none. A Plain field that is in no index is
+stored as before. An indexed value is never moved out of the root because it is indexed.
+Measured on the prototype, one run of five seconds a case: a search by a copied key is
+three to five times faster than through a shared entry at 8 and 32 bytes; sharing short
+values costs a read by the primary key 14 to 25% at 8 bytes; a copy takes 92 bytes per
+entity against 185 at 8 bytes. Whether a shared key also carries its first bytes beside
+the reference is decided by measurement in the engine on keys with random and with
+common heads; it is not part of this decision. The text below is kept as the record of
+the earlier decision; for text of 64 bytes or less this note replaces it.
 
 **Accepted on 13 November 2026: option A.** Fixed-size search components are copied into index keys;
 string components retain the stored text through a stable, lifetime-protected

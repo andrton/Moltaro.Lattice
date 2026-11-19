@@ -46,7 +46,7 @@ internal sealed class PreparedWrite
     public Span<PreparedChange> Changes => MemoryMarshal.CreateSpan(ref _change, ChangesEntity ? 1 : 0);
 
     // For a write being prepared: writes its change into the record where it lies, so that the reservation
-    // of what its publication uses reads it there (Entities.ChangePublisher.Reserve). It is the write's
+    // of what its publication uses reads it there (Entities.ChangePublisher.TryReserve). It is the write's
     // change only once the preparation has made that reservation (Set).
     public ref readonly PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
     {

@@ -11,4 +11,8 @@ internal enum RetiredKindEnum
 
     // A table of a primary index that a larger one replaced: the engine lets go of it.
     IndexTable = 3,
+
+    // A node of the ordered tree of a secondary index that a write replaced: the references of its shared
+    // keys are released and its block is freed (Storage.Ordered.NodeStorage.Free).
+    IndexNode = 4,
 }

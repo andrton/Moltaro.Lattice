@@ -1,5 +1,11 @@
 # Bounded secondary-index comparison
 
+This project holds two experiments. The first, below, is the package comparison of
+13 November 2026, kept as the record of the earlier selection. The second,
+[ordered structures for one writer and readers without a lock](#ordered-structures-for-one-writer-and-readers-without-a-lock),
+is the prototype of the study that reopened the structure after the owner removed the
+package (18 November 2026); its code is under `Ordered/`.
+
 Compare `Arc.Collections` 2.2.0 `OrderedMultiMap` with `Kaos.Collections` 4.1.0
 `RankedMap` for an ordered secondary index. This is a standalone experiment, not
 the engine, a PostgreSQL benchmark or proof of concurrent publication safety.
@@ -118,3 +124,105 @@ mutation still belong to engine integration. Managed node reclamation follows GC
 unlinked nodes are not an immediate return of physical RAM. A stored handle per
 root/index would add memory and has not been selected or included in the footprint.
 Neither this small experiment nor a package enumerator establishes those contracts.
+
+## Ordered structures for one writer and readers without a lock
+
+Candidates for the ordered secondary index of the engine, under the engine's rules: one
+thread changes a structure (the holder of the lock of the writes); a reader takes no lock
+and only enters the protection of reads, an epoch; what a write removes is retired and
+freed after the readers that could see it have left; nodes live in native memory and are
+reached by relative addresses of eight bytes; an entry is unique by (key, identity), so
+equal keys form a run ordered by identity; a write takes its nodes before its publication,
+and the publication allocates nothing. The code is synthetic and is not the engine: it
+models the parts of the engine a comparison of structures needs, and says in each file
+what it models and what it leaves out.
+
+### Candidates
+
+| Name | Type | Modelled on (no code is ported) |
+| --- | --- | --- |
+| `cow` | `Ordered/Structures/CopyOnWriteTree.cs`: a B+tree whose published nodes never change; a changed node is copied and published by one store of its address into the live parent | LMDB `libraries/liblmdb/mdb.c` (OpenLDAP Public License 2.8, commit `74dd6c3ec648c31857fe0a100f11c2a34619e2d7`); the ROWEX principle of Leis et al., "The ART of Practical Synchronization", DaMoN 2016; the leaf-to-leaf walk of LeanStore `BTreeGenericIterator.hpp` (MIT, commit `fcb64bf39cf69c435173f76e062cbb305a9a998f`) |
+| `optimistic` | `Ordered/Structures/OptimisticTree.cs`: a B+tree changed in place, a version per node that readers validate | LeanStore `sync-primitives/Latch.hpp`, `storage/btree/core/BTreeNode.cpp` (MIT, same commit); optimistic lock coupling of ARTSynchronized `OptimisticLockCoupling/Tree.cpp` (Apache-2.0, commit `f00003ec7991da09c3dfc1c84da97c1965106eb3`). Fixed keys only |
+| `skiplist` | `Ordered/Structures/SkipList.cs`: a skip list with one writer, and a delete the sources do not have | LevelDB `db/skiplist.h` (BSD-3-Clause, commit `29465588d3dfdc80fba5e198037582b8fdb5dd60`); RocksDB `memtable/inlineskiplist.h` (read under Apache-2.0, commit `09fe540613c0777e666411e7dd54aa84a535be6b`) |
+| `arc` | `Ordered/Structures/LockedMultiMap.cs`: the contrast, `OrderedMultiMap` of `Arc.Collections` 2.2.0 (MIT) behind a `ReaderWriterLockSlim` | The package itself; it keeps equal keys in the order they were added, so it cannot seek after an identity |
+
+Shared parts: `Ordered/Memory/NodeArena.cs` (the engine's arena reduced: segments, relative
+addresses, a 32-byte header per block, the engine's size classes, free lists, live, prepared
+and retired bytes), `ReadEpochs.cs` and `RetiredBlocks.cs` (the engine's protection of reads
+and retired memory reduced; the engine's are adapted from LightEpoch of Garnet/Tsavorite,
+MIT). `Ordered/Text` models entities with one indexed text field as the engine stores a root
+(a 48-byte control entry, a root block with a 16-byte descriptor, Plain text inline up to 64
+bytes) and five forms of a text key on the `cow` tree: `root` (the entry names the entity and
+a comparison reads the root), `copy` (the entry holds the key), `prefixroot` (the first eight
+bytes, the root breaking a tie), `shared` (the entry and the root name one text entry) and
+`sharedprefix` (the first eight bytes and the shared entry). `root` and `prefixroot` are not
+candidates and are measured as reference lines only (their lines say `candidate=False`): a
+separator that names an entity goes on steering searches after the entity is gone and its control
+entry is reused, and a replace that changes the key leaves the entry at the old key's place while
+the root already holds the new one. The check passes for them only because its entities never
+change key and are never deleted.
+
+### Restore and build
+
+The only package is `Arc.Collections` 2.2.0, pinned with the old experiment's. It restores
+from the local packages folder without a download:
+
+```powershell
+dotnet restore Prototypes/SecondaryIndexComparison/SecondaryIndexComparison.csproj --locked-mode --source "$env:USERPROFILE/.nuget/packages"
+dotnet build Prototypes/SecondaryIndexComparison/SecondaryIndexComparison.csproj -c Release --no-restore
+```
+
+### Scenarios
+
+Run from `src`:
+
+```powershell
+dotnet Prototypes/SecondaryIndexComparison/bin/Release/net10.0/SecondaryIndexComparison.dll ordered <scenario> [--option value ...]
+```
+
+Each case prints one line: the scenario, then `name=value` pairs, its parameters first.
+A list option is comma-separated; `none` is the empty list.
+
+| Scenario | What | Options and defaults | Kind |
+| --- | --- | --- | --- |
+| `bytes` | Bytes per entry of fixed keys after building by inserts one at a time: node slots in the arena, header included, and the managed heap after a full collection | `--structures cow,optimistic,skiplist,arc --keys int32,int64,key16 --distributions random,ascending,hotkey,halfdeleted --count 1000000 --node 1024` | Deterministic; about a minute |
+| `textbytes` | Bytes per entity of each text form: the index, the root side (roots, value blocks, text entries) and the text table's managed slot and bucket, added as 48 bytes | `--forms root,copy,prefixroot,shared,sharedprefix --lengths 8,32,100 --count 200000 --node 1024 --text random` | Deterministic; about a minute at 1,000,000 |
+| `check` | Correctness under change: a writer toggles entries, takes a key's run out and back, appends ascending keys and churns a hot key; walkers go over ranges forwards and backwards in steps that each seek after the last (key, identity); searchers look for stable entities. Counts order violations, missed stable entries, search misses, and checks the contents at the end. Before it, the preparation: a withdrawn write changes nothing, and 32 publications allocate nothing | `--structures cow,optimistic,skiplist,arc --forms root,copy,prefixroot,shared,sharedprefix --seconds 10 --node 256 --walkers 2 --searchers 2` | Correctness; five threads; eight cases of `--seconds` each |
+| `find` | Exact search by a full key, every identity of the key up to eight, on reader threads of their own, alone and beside a writer that takes an entry out and puts it back | `--structure cow --key int64 --count 1000000 --node 1024 --distribution random --threads 1,16 --writer off,on --seconds 5` | Timing; the build and four cases of `--seconds` |
+| `range` | A step of `--length` entries from a key, forwards or backwards, the same way | as `find`, with `--direction forward --length 100` | Timing; as `find` |
+| `writes` | Inserts a second from empty to the count, then deletes a second, one thread, each a prepared write and a publication | `--structures cow,optimistic,skiplist,arc --keys int64 --orders random,ascending --count 1000000 --node 1024` | Timing; 10 to 20 seconds per structure |
+| `text` | The text forms on the `cow` tree: `find`, `range`, `write` and `readroot` (what a read by key pays for the text inline in the root or in a text entry) | `--forms root,copy,prefixroot,shared,sharedprefix --lengths 8,32,100 --text random --operations find,range,write,readroot --count 1000000 --threads 1,16 --writer off,on --seconds 5` | Timing; per form and length the build and about ten cases of `--seconds` |
+| `writecost` | One write per index, `cow` against `optimistic`: phases of insert, delete, and replace that changes the key (the new entry in, the old one out), each write a prepared write and a publication on a thread of its own, beside 0, 1 or 16 reader threads that search a full key each. One line per case: writes a second and the readers' searches a second | `--structures cow,optimistic --key int64 --count 1000000 --writes 500000 --readers 0,1,16 --node 1024` | Timing; about 30 seconds per structure |
+| `looks` | How often index writes move the epoch: entities with 1, 3 or 6 indexes in one arena and one list of retired blocks, an entity write changing every index and published once; insert, delete, replace that changes every key; with and without a read held inside the protection, and with and without the retirement of the entity's old root (64 bytes) | `--structures cow,optimistic --indexes 1,3,6 --writes 10000 --count 1000000 --node 1024 --held off,on --roots off,on` | A count, deterministic with one writer; about 30 seconds |
+| `primaryread` | The read by key beside index writes: readers that enter the protection, copy a 64-byte record from a separate array nothing writes, and leave, so that the only memory they share with the writer is the epoch; the writer takes an entry out of an index and puts it back on the `cow` or the `optimistic` tree, or no writer runs | `--writers none,cow,optimistic --readers 1,16 --count 1000000 --node 1024 --seconds 5` | Timing; the builds and six cases of `--seconds` |
+
+`Run-Ordered.ps1` runs every timing case one after another, each in a fresh process, and
+writes the lines to the console and to `src/.local/ordered-<time>/lines.txt`:
+
+```powershell
+pwsh -NoProfile -File Prototypes/SecondaryIndexComparison/Run-Ordered.ps1 -Seconds 5
+```
+
+At five seconds a case the groups take about: `find` 3 minutes, `range` 3, `writes` 1,
+`nodes` (the `cow` tree at nodes of 256 to 4,096 bytes) 2, `text` 25, `writecost` 1, `looks`
+half a minute, `primaryread` 1; about 37 minutes in all. `-Groups find,range` runs a part;
+`-Seconds 3` shortens every case (`writecost` and `looks` run a number of writes, not a time).
+
+The look, in `Ordered/Memory/RetiredBlocks.cs`, is a model of the engine's rule
+(`Engine/Protection/RetiredMemory.cs`): a look when the blocks retired since the last one reach the
+slots of the protection (`ReadEpochs.SlotCount`: 128 up to 64 logical processors) or their bytes
+reach one arena segment (4 MiB, `LatticeDatabaseOptions.ArenaSegmentSize`); after a look that left
+something behind, a write that retired nothing counts as one block until a look leaves nothing
+behind. Each look is one move of the epoch that every read's entry loads.
+
+### What the prototype does not show
+
+- Timings mean something only on a quiet machine; nothing in this project judges them.
+- The check proves the protocol of each candidate in this model: one writer, readers in an
+  epoch, nodes of this arena. It is not a proof of the engine's index.
+- Not modelled: the reference counts of text that index nodes would hold, the engine's text
+  table (its slot and bucket are added as arithmetic), the comparison of the engine's
+  `ValueComparer` (UTF-8 decoded to UTF-16 pieces; here ASCII bytes compared), nulls,
+  composite keys, Decimal and floating-point order, the checks of the engine's
+  `Arena.Payload`, several entries published in one hold, and the engine's read by key itself,
+  for which `primaryread` reads a stand-in that shares only the epoch with the writer.

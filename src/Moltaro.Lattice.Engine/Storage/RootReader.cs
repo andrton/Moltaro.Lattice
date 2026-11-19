@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -80,75 +80,49 @@ internal readonly ref struct RootReader
     public bool IsNull(LatticeField field) => HoldsNull(_layout.StoredFieldOf(field));
 
     // The value of a Boolean field.
-    public bool GetBoolean(LatticeField field) => Value(field, StoredTypeEnum.Boolean, nameof(GetBoolean))[0] != 0;
+    public bool GetBoolean(LatticeField field) => StoredScalars.ReadBoolean(Value(field, StoredTypeEnum.Boolean, nameof(GetBoolean)));
 
     // The value of a field of a signed integer type, Int8 to Int64, or of an Enum field whose enum
     // type has a signed underlying type.
-    public long GetInteger(LatticeField field)
-    {
-        var place = Value(field, StoredTypeEnum.SignedInteger, nameof(GetInteger));
-
-        return place.Length switch
-        {
-            sizeof(sbyte) => (sbyte)place[0],
-            sizeof(short) => MemoryMarshal.Read<short>(place),
-            sizeof(int) => MemoryMarshal.Read<int>(place),
-            _ => MemoryMarshal.Read<long>(place),
-        };
-    }
+    // Kept out of line, as the JIT compiled it before the stored form moved into StoredScalars, whose
+    // switch on the width is inlined here: inlined in turn, it would copy that switch into each of its
+    // callers, the read by key among them (EntityTable.KeyEquals, 498 bytes of code instead of 762), and
+    // leave the build of a class entity no budget to inline DateOnly.FromDayNumber (JIT listing at full
+    // optimization).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public long GetInteger(LatticeField field) => StoredScalars.ReadInteger(Value(field, StoredTypeEnum.SignedInteger, nameof(GetInteger)));
 
     // The value of a field of an unsigned integer type, UInt8 to UInt64, or of an Enum field whose
     // enum type has an unsigned underlying type.
-    public ulong GetUnsigned(LatticeField field)
-    {
-        var place = Value(field, StoredTypeEnum.UnsignedInteger, nameof(GetUnsigned));
-
-        return place.Length switch
-        {
-            sizeof(byte) => place[0],
-            sizeof(ushort) => MemoryMarshal.Read<ushort>(place),
-            sizeof(uint) => MemoryMarshal.Read<uint>(place),
-            _ => MemoryMarshal.Read<ulong>(place),
-        };
-    }
+    // Kept out of line, as GetInteger is (see there).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public ulong GetUnsigned(LatticeField field) => StoredScalars.ReadUnsigned(Value(field, StoredTypeEnum.UnsignedInteger, nameof(GetUnsigned)));
 
     // The value of a Float32 field.
-    public float GetFloat32(LatticeField field) =>
-        BitConverter.Int32BitsToSingle(MemoryMarshal.Read<int>(Value(field, StoredTypeEnum.Float32, nameof(GetFloat32))));
+    public float GetFloat32(LatticeField field) => StoredScalars.ReadFloat32(Value(field, StoredTypeEnum.Float32, nameof(GetFloat32)));
 
     // The value of a Float64 field.
-    public double GetFloat64(LatticeField field) =>
-        BitConverter.Int64BitsToDouble(MemoryMarshal.Read<long>(Value(field, StoredTypeEnum.Float64, nameof(GetFloat64))));
+    public double GetFloat64(LatticeField field) => StoredScalars.ReadFloat64(Value(field, StoredTypeEnum.Float64, nameof(GetFloat64)));
 
     // The value of a Decimal field.
-    public decimal GetDecimal(LatticeField field)
-    {
-        Span<int> bits = stackalloc int[4];
-
-        Value(field, StoredTypeEnum.Decimal, nameof(GetDecimal)).CopyTo(MemoryMarshal.AsBytes(bits));
-
-        return new decimal(bits);
-    }
+    public decimal GetDecimal(LatticeField field) => StoredScalars.ReadDecimal(Value(field, StoredTypeEnum.Decimal, nameof(GetDecimal)));
 
     // The value of a Guid field.
-    public Guid GetGuid(LatticeField field) => new(Value(field, StoredTypeEnum.Guid, nameof(GetGuid)));
+    public Guid GetGuid(LatticeField field) => StoredScalars.ReadGuid(Value(field, StoredTypeEnum.Guid, nameof(GetGuid)));
 
     // The value of a DateTimeOffset field: the stored instant, with offset zero (Q03.4.1, "UTC
     // timestamps").
     public DateTimeOffset GetDateTimeOffset(LatticeField field) =>
-        new(MemoryMarshal.Read<long>(Value(field, StoredTypeEnum.DateTimeOffset, nameof(GetDateTimeOffset))), TimeSpan.Zero);
+        StoredScalars.ReadDateTimeOffset(Value(field, StoredTypeEnum.DateTimeOffset, nameof(GetDateTimeOffset)));
 
     // The value of a DateOnly field.
-    public DateOnly GetDateOnly(LatticeField field) =>
-        DateOnly.FromDayNumber(MemoryMarshal.Read<int>(Value(field, StoredTypeEnum.DateOnly, nameof(GetDateOnly))));
+    public DateOnly GetDateOnly(LatticeField field) => StoredScalars.ReadDateOnly(Value(field, StoredTypeEnum.DateOnly, nameof(GetDateOnly)));
 
     // The value of a TimeOnly field.
-    public TimeOnly GetTimeOnly(LatticeField field) =>
-        new(MemoryMarshal.Read<long>(Value(field, StoredTypeEnum.TimeOnly, nameof(GetTimeOnly))));
+    public TimeOnly GetTimeOnly(LatticeField field) => StoredScalars.ReadTimeOnly(Value(field, StoredTypeEnum.TimeOnly, nameof(GetTimeOnly)));
 
     // The value of a TimeSpan field.
-    public TimeSpan GetTimeSpan(LatticeField field) =>
-        new(MemoryMarshal.Read<long>(Value(field, StoredTypeEnum.TimeSpan, nameof(GetTimeSpan))));
+    public TimeSpan GetTimeSpan(LatticeField field) => StoredScalars.ReadTimeSpan(Value(field, StoredTypeEnum.TimeSpan, nameof(GetTimeSpan)));
 
     // The value of a String field, as a new string decoded from the database encoding. A chunk
     // boundary inside a character does not damage it: the decoder carries the state of a character
@@ -180,6 +154,17 @@ internal readonly ref struct RootReader
 
         return bytes;
     }
+
+    // The bytes the fixed part stores for a field that is not null, as they lie: the value of a
+    // fixed-width field as Values.StoredScalars wrote it, or the descriptor of a String or Binary value.
+    // What an entry of an index copies of its root, and what the order of an index compares a key with
+    // (Ordered.IndexLayout, Engine.Indexes.SecondaryIndex). InvalidOperationException for a field whose
+    // value is null.
+    public ReadOnlySpan<byte> StoredBytes(LatticeField field) => NotNull(_layout.StoredFieldOf(field));
+
+    // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of
+    // its own, names: inline in the root block, in a block of its own, or in the block of its text entry.
+    public ReadOnlySpan<byte> ValueBytes(in ValueDescriptor descriptor) => ValueBlocks.Contiguous(ArenaOfValues(), descriptor, _payload);
 
     // The number of encoded bytes of the value of a String or Binary field, as stored: for a String,
     // its bytes in the database encoding, UTF-8 or UTF-16.

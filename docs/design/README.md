@@ -45,6 +45,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Arena protocol](arena-protocol.md) | Concrete bounded-experiment protocol for root/text protection, preparation, deletion, relocation and reclamation; production integration limits |
 | [How reads are protected](epoch-protection.md) | An explanation for a reader, not a specification: epochs, memory that is freed later, and what an application can rely on; with an [animated version](epoch-protection.html) |
 | [How a write is executed](write-path.md) | An explanation for a reader, not a specification: the lock of the writes, groups at the storage step, the order of writes to one entity and what it costs; with an [animated version](write-path.html) |
+| [The ordered secondary index](ordered-index.md) | The copy-on-write B+tree of a declared index: entries and their order, nodes in the arena, how a reader descends without a lock, writes and their reservation, text keys, the search by a full key; built, but for the walk of ranges, order and paging |
 | [Architecture](index.html) | Illustrated design; generated from [Markdown](architecture.md) |
 | [Decision register](questions.md) | Settled contracts and the specified engineering areas; nothing in it awaits a decision |
 | [Decision records](../decisions/README.md) | Detailed rationale and alternatives, grouped by responsibility |
@@ -53,7 +54,7 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Shared arena application](../decisions/replication-and-hosting.md#shared-arena-application-on-masters-and-replicas) | Master/child reuse of mutation logic, master-only durability and replica readiness |
 | [Native segment ownership](../decisions/physical-storage.md#database-owned-native-segments) | Accepted database-dedicated active segments and common bounded empty reserve |
 | [Root lookup during relocation](questions/root-location.md) | Accepted stable root control entries; safe acquisition and reuse engineering |
-| [Physical index structures](../decisions/index-structures.md) | ArcSlim selected for the primary index; Arc OrderedMultiMap accepted for ordered secondary indexes; fixed-size key copies and shared protected text accepted; preparation and remaining engine integration |
+| [Physical index structures](../decisions/index-structures.md) | A hash table of the engine's own for the primary index and a copy-on-write B+tree of its own for secondary indexes; fixed-size key copies, copies of text keys of 64 bytes or less and shared protected text above; the earlier package selections kept as their record |
 | [Mutation preparation](questions/mutation-preparation.md) | Accepted targeted partial updates and full Save replacement without diff |
 | [Write coordination and group commit](questions/master-write-order.md) | Accepted per-object coordination and internal storage batching; the milestone contract specifies the scheduler |
 | [Explicit database WriteBatch](questions/write-batch.md) | Accepted atomic writes in one database, without a limit of their own since 15 November 2026; publication/read boundary and costs |

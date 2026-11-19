@@ -41,7 +41,7 @@ with recovery within 60 seconds at ordinary load. These remain unproven product 
 | --- | --- |
 | Schema/catalog | Compile JSON/builder input into immutable field/layout/index metadata; no transport or persistence dependency |
 | Arena | Native segments, owned blocks, string storage, root entries and lifetime protection; depends on compiled schema |
-| Index owner | The primary hash table of the engine's own and the Arc secondary adapters, comparison, capacity/node reservations; depends on arena key views |
+| Index owner | The primary hash table and the copy-on-write B+trees of the secondary indexes, both the engine's own, comparison, capacity and node reservations; depends on the arena and its text entries |
 | Mutation coordinator | Admission, per-root ordering, preparation, ordered commit/publication and results; owns reservations, never application callbacks inside publication |
 | PostgreSQL provider | Catalog, independent base units, logical journal, receipts and recovery; consumes versioned encoded effects, not native pointers |
 | Replication session | Binary framing, initial capture and ordered application; consumes the same prepared-effect application path; no SQL dependency on children |
@@ -81,18 +81,23 @@ and 16-byte variable descriptors in stable field-ID order. A descriptor contains
 kind/flags (4), length/count (4), and relative address (8); for a Dictionary field the
 address of the shared entry.
 Fixed-layout size must fit one 64-KiB block; large values live outside it. Schema
-compilation reports an oversized fixed layout before data admission. Numeric widths
-come from the schema; do not widen all small integer fields to Int64.
+compilation reports an oversized fixed layout before data admission. A secondary index
+has a limit of the same kind, a rule of the schema language and the same on every node:
+a node of 64 KiB holds four of its widest entries, each String part counted as a copy of
+64 bytes, and an index whose four widest entries cannot fit one fails the open with
+`InvalidSchema` and the index named (`LatticeIndex` states the widths;
+[ordered index](ordered-index.md#nodes-in-the-arena)). Numeric widths come from the
+schema; do not widen all small integer fields to Int64.
 
 Store small owned values <=64 bytes in the packed root tail when the root still
 fits its block: the descriptor's Inline kind stores root-relative offset/capacity
-and logical length. Root moves repair indexed Plain-text entry locations under root
-and text protection. A partial update that outgrows inline capacity prepares an
-external block; the old inline span becomes counted root slack. Repack that root
-under the same bounded compaction protocol; do not keep appending unused tail space.
-Dictionary text remains independently owned. No inline byte location escapes a gate.
-Never overwrite indexed Plain bytes while an old text entry retains them: prepare
-replacement text and switch its entry only after old index/reader retainers drain.
+and logical length. An index entry never points into a root: it holds a copy of a key
+of 64 bytes or less and references the text entry of a longer one ("Index preparation
+and traversal"), so a root that moves repairs no index. A partial update that outgrows
+inline capacity prepares an external block; the old inline span becomes counted root
+slack. Repack that root under the same bounded compaction protocol; do not keep
+appending unused tail space. Dictionary text remains independently owned. No inline
+byte location escapes a gate.
 
 Other variable values <=4 KiB payload initially use one suitable block. Larger values
 use blocks with at most 65,504 payload bytes and a bounded directory of chunk
@@ -129,8 +134,15 @@ List/Map/Set input and comparison semantics stay as already accepted.
 Plain strings preserve their original encoded bytes. Dictionary fields use one
 database-wide content table with exact-text equality, preserving case/spelling even
 when a field's search policy ignores case. No automatic Plain/Dictionary switching.
-All text used by an index has a stable text entry; an indexed Plain value can share
-its existing text with the index without content interning. A text entry has one
+An index entry holds a copy of a text key of 64 bytes or less, whatever the storage
+mode of the field; a longer key is shared, the index entry referencing the text entry
+the root already references, and an indexed value is never moved out of the root
+because it is indexed. A field that is part of an index therefore stores a value longer
+than 64 bytes as a text entry, whatever its storage mode — for a Plain field a rule of
+the layout compiled from the schema — and such an entry is found by its bytes, so equal
+long values of an indexed Plain field are stored once
+([index structures](../decisions/index-structures.md), the note of 19 November 2026). A
+text entry has one
 count: a block holds one reference for each Text descriptor it contains, from the moment
 it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
 to it is freed, which is after the last protected reader that could reach it has left;
@@ -211,36 +223,67 @@ unbounded rescue wait. Native free and the OS working-set decrease are different
 
 The primary lookup is a hash table of the engine's own after the hash index of
 Garnet/Tsavorite, read without locks while a write being published changes it (the owner's
-decision of 16 November 2026, [index structures](../decisions/index-structures.md)). Arc
-OrderedMultiMap remains the selection for secondary keys until the contract of S14
-reviews it under the same direction: an own structure after a named open-source one
-where that is possible. Standard Dictionary
-is not the primary index. Both packages remain behind engine-owned protection.
+decision of 16 November 2026, [index structures](../decisions/index-structures.md)).
+Standard Dictionary is not the primary index. A declared secondary index is a B+tree of
+the engine's own whose published nodes never change (the owner's decision of 19 November
+2026, the same record), after LMDB's copy-on-write tree, the one-store publication of
+ROWEX and LeanStore's walk by a new descent at the fence; the
+[ordered index](ordered-index.md) tells how it works. No package takes part in either.
 Physical indexes are rebuilt locally; no disk or replica images are persisted.
 [Unique enforcement](../decisions/unique-indexes.md) is explicit in schema and checked
 against final state in the ordered commit stage; any-null keys are exempt. Project
 earlier operations in an internal commit group without copying the full index.
 WriteBatch swaps/delete-and-reclaim are valid when every final unique key has one owner.
 
-Reserve primary insertion capacity before commit. Reuse the experimental equivalent
-replacement-table mechanism: serialize index mutations, construct the larger table
-while readers use the old one, then briefly swap under the index gate. Charge both
+Reserve primary insertion capacity before commit. When the table is full the writer
+builds the larger table from the current one while readers go on with it, publishes the
+new table by one store and retires the old one by the epoch of the reads. Charge both
 tables and their references to the memory budget. Initial load sizes from captured
 counts; later growth doubles capacity when needed. If the peak cannot be reserved,
-fail before commit. Do not allow package growth inside publication.
+fail before commit. Nothing grows inside publication.
 
-Prepare secondary nodes by staging/removing package nodes; retain replacement text
-before commit. Remove/reinsert a reused node with the **new descriptor even when
-keys compare equal**. Release the old text only after removing its key. Fixed values
-are copied into keys; text is shared through stable references. Compound keys use
-schema order and explicit field comparers; keys are not raw byte-memcmp tuples.
+A secondary index is kept by copy on write. Its entry is (key, identity of the root
+entry), unique, so the entries of one key form a run ordered by identity. A write copies
+each node it changes into a node reserved for it and publishes the copy by one store of
+its address, with release semantics, into the live parent or into the root of the tree;
+a reader loads every address with acquire semantics, takes no lock, checks no version and
+never retries, and the replaced node is retired and freed after the reads that could
+reach it have left. Nothing of a published node is written again but that one address.
+An entry is a hint: a search reads the root of each entry of its run and returns the
+entity only if its current state has the searched key, so a reader never finds an entity
+under a key it no longer has, and an entity that had the key for the whole search is
+found. The entries of a write are installed in the hold of the lock that publishes its
+root, each by its own stores, in this order: insert the new entries, publish the root,
+remove the old entries; the check against the root covers the moments between. A key
+that compares equal under other bytes (another case, another scale of a Decimal)
+rewrites its entry at its place in the order, by a copy of its leaf as every change of a
+node is. Fixed values are copied into keys as their root stores
+them; the stored form of a fixed value is written, and read, in one place, which the root
+writer, the search key and the order of an index use. A text key of 64 bytes or less is
+copied into the entry, whatever the storage mode of its field; a longer one references
+the text entry its root references, and a node holds one reference for each such key
+among its entries and separators from the moment it is written until it is freed (see
+"Collections and strings"). Compound keys use schema order and explicit field
+comparers; keys are not raw byte-memcmp tuples; a null orders after every value of its
+part.
+
+Index nodes and their text are prepared before the commit: in the hold that prepares a
+write, the index reserves prepared nodes and places in the retired list for the bound of
+its publication — with p inserts and q removes prepared and unpublished, p·(2Hᵢ + 1) +
+q·(Hᵣ + 1) nodes, Hᵢ and Hᵣ the heights an insert and a remove can find while they wait
+([ordered index](ordered-index.md#the-reservation)) — and releases them if
+the write is withdrawn. With the storage step busy a prepared, unpublished write holds
+them and no reader can reach them. A reservation the arena cannot hold refuses the write
+for memory before its commit. A retired node is a retired item of its own, with its bytes
+toward the next look; freeing it releases the references to text entries it holds.
 
 Comparison/hash has one schema-owned service across indexes, Map/Set and direct
-lookups. Use accepted .NET Equals/CompareTo semantics for floating-point values,
-with compatible NaN/zero hashes. String comparison is Ordinal/OrdinalIgnoreCase,
-independent of UTF-8/UTF-16 storage. Comparison without case uses the versioned case
-table of the core ([strings](../decisions/strings.md), Q46), the same on every node; no
-.NET culture or runtime table takes part. No comparison allocates a managed string.
+lookups; the order of a secondary index is the order of the same service. Use accepted
+.NET Equals/CompareTo semantics for floating-point values, with compatible NaN/zero
+hashes. String comparison is Ordinal/OrdinalIgnoreCase, independent of UTF-8/UTF-16
+storage. Comparison without case uses the versioned case table of the core
+([strings](../decisions/strings.md), Q46), the same on every node; no .NET culture or
+runtime table takes part. No comparison allocates a managed string.
 
 Numeric lookup/bound parameters bind once to the declared field type using the
 accepted allowlist: same-type values; in-range integer-to-integer; exact integer-to-
@@ -252,6 +295,10 @@ conversion, even for 42.0. Reject overflow and invalid enum/Flags bits. Unsuppor
 combinations require an explicitly typed caller value. This closes the shared
 Q07.3.6 binding boundary without OQL or silent rounding. Null ordering and explicit
 primary-key tie-breaking stay unchanged.
+
+The two paragraphs below predate the structure; the sprint of ranges and paging (S15)
+rewrites them for the tree, whose step holds nothing and seeks after the last key and
+identity ([ordered index](ordered-index.md#how-a-range-will-be-walked)).
 
 Enumeration and index traversal copy bounded candidate batches and claim root
 lifetimes before releasing index protection. Recheck predicate/liveness while reading
@@ -339,7 +386,11 @@ Durable logical values use explicit little-endian numeric encoding, .NET
 Decimal's four UInt32 components, Guid's documented RFC byte order, UTC ticks for
 DateTimeOffset, day number for DateOnly and ticks for TimeOnly/TimeSpan. The replication
 stream carries stored bytes in the layout and byte order the Hello has checked (decided
-after the studies of S10 and S11). Validate declared ranges and Unicode. The format header carries magic, format version, schema
+after the studies of S10 and S11). The layout is one version for the node, carried in
+every block header and root envelope and in the low 16 bits of the Hello's layout format,
+and raised when the same schema would compile to bytes an earlier build reads otherwise:
+2 since a field that is part of an index stores a value longer than 64 bytes as a text
+entry, so builds of the two forms refuse each other at the handshake. Validate declared ranges and Unicode. The format header carries magic, format version, schema
 version, payload length and checksum. No CLR object image, package node or native
 segment address is a durable format. Fixed layout offsets derive deterministically
 from the compiled schema; unit/chunk placement is internal.
@@ -611,7 +662,11 @@ accumulates and takes a transaction that exceeds it alone, and none refuses a tr
 for its own size. What a transaction needs is reserved in the instance budget before it is
 committed, the copy for delivery to children included (from S24/S33; until then that copy
 is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
-hold is refused before it has any effect.
+hold is refused before it has any effect: it leaves no entry, no reference and no native byte
+behind. Only managed capacity kept for later writes may stay; of what the counters report, that is
+the managed capacity of the text table — its slot array as well as its bucket table — which a new
+text entry may have grown before the arena refused the entry, and which keeps that room for the
+next one and is not given back. It is reported, and not charged to the budget.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.
@@ -707,8 +762,9 @@ threshold. The owner confirmed both judging rules on 14 November 2026; the condi
 of a gate run are in the [performance requirements](performance-requirements.md#accepted-measurement-conditions).
 
 The managed reference uses compact preallocated managed rows, bounded collections,
-the same declared indexes/comparers and explicit dictionary-string sharing. Reuse
-the selected Arc containers where appropriate so an intentionally wasteful baseline
+the same declared indexes/comparers and explicit dictionary-string sharing. Use
+compact managed containers of the same kind as the engine's structures — a hash table
+and an ordered tree — so an intentionally wasteful baseline
 cannot manufacture the 25% result. Include reserved capacities and all retained
 index/control/text structures on both sides. Collect runtime/process/peak metrics
 separately. Record hardware, .NET/PostgreSQL versions, CPU quotas, memory limits and

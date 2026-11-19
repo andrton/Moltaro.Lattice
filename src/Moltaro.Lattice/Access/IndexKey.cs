@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Access.Values;
+
 namespace Moltaro.Lattice.Access;
 
 /// <summary>
@@ -29,21 +31,68 @@ namespace Moltaro.Lattice.Access;
 /// owned value, which is absent in such an entity, see <see cref="Schema.LatticeIndexPart"/>.
 /// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>.
 /// </para>
+/// <para>
+/// A key is a small value. Making one allocates nothing and boxes none of its values when each
+/// has the .NET type of a scalar field type, or is a <see cref="Nullable{T}"/> of one, or a
+/// <see cref="string"/>: the values are kept in the key as they were given, and a value given as
+/// an <see cref="object"/> is unboxed, not boxed again. A value of any other type is kept as an
+/// object, to be refused when the key is used. A key can be kept and used for any number of
+/// searches, from any thread; a copy of a key is the same key.
+/// </para>
+/// <para>
+/// A key is made by <see cref="All"/>, an <c>Equal</c> or <see cref="Range"/>. The default value
+/// of <see cref="IndexKey"/>, which none of them makes, is no key, and is an error wherever it is
+/// used, as the default of <see cref="IndexBound"/> is: given to a search, <c>Find</c> or
+/// <c>FindAsync</c> of <see cref="ILatticeIndex{TEntity}"/>, it is an
+/// <see cref="ArgumentException"/>; its one member, <see cref="Range"/>, is an
+/// <see cref="InvalidOperationException"/>. <see cref="All"/> is the key of every entry of an
+/// index, and is not the default. What every struct inherits from <see cref="object"/>,
+/// <c>Equals</c>, <c>GetHashCode</c> and <c>ToString</c>, does not read the key and refuses
+/// nothing.
+/// </para>
 /// </remarks>
-public sealed class IndexKey
+public readonly struct IndexKey
 {
-    private IndexKey(object?[] values, IndexBound? from, IndexBound? to)
+    // The values one Equal takes at most, in the order of the index fields.
+    private const int MostValues = 4;
+
+    // How many of the values below the key has: one for each leading field, at most MostValues.
+    private readonly int _count;
+
+    // Whether a factory made the key; false only for the default value, which is no key.
+    private readonly bool _made;
+
+    private readonly IndexValue _value1;
+
+    private readonly IndexValue _value2;
+
+    private readonly IndexValue _value3;
+
+    private readonly IndexValue _value4;
+
+    internal IndexKey(int count, IndexValue value1, IndexValue value2, IndexValue value3, IndexValue value4, IndexBound? from, IndexBound? to)
     {
-        Values = values;
+        _count = count;
+        _made = true;
+        _value1 = value1;
+        _value2 = value2;
+        _value3 = value3;
+        _value4 = value4;
         From = from;
         To = to;
     }
 
-    /// <summary>The whole index, in its order.</summary>
-    public static IndexKey All { get; } = new([], null, null);
+    /// <summary>
+    /// The whole index, in its order: the key of every entry. It is not the default value of
+    /// <see cref="IndexKey"/>, which is no key.
+    /// </summary>
+    public static IndexKey All => new(0, default, default, default, default, null, null);
 
-    // Values of the leading index fields that must be equal.
-    internal object?[] Values { get; }
+    // Whether this is the default value, which no factory makes and which is no key.
+    internal bool IsDefault => !_made;
+
+    // The values of the leading index fields that must be equal: as many as the key has.
+    internal int Count => _count;
 
     // Range on the field after the equal ones; either end may be open.
     internal IndexBound? From { get; }
@@ -53,14 +102,16 @@ public sealed class IndexKey
     /// <summary>Entities whose first index field has this value.</summary>
     /// <typeparam name="T1">The type of the first index field.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
-    public static IndexKey Equal<T1>(T1 value1) => new([value1], null, null);
+    public static IndexKey Equal<T1>(T1 value1) =>
+        new(1, IndexValue.Of(value1), default, default, default, null, null);
 
     /// <summary>Entities whose first two index fields have these values.</summary>
     /// <typeparam name="T1">The type of the first index field.</typeparam>
     /// <typeparam name="T2">The type of the second index field.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
-    public static IndexKey Equal<T1, T2>(T1 value1, T2 value2) => new([value1, value2], null, null);
+    public static IndexKey Equal<T1, T2>(T1 value1, T2 value2) =>
+        new(2, IndexValue.Of(value1), IndexValue.Of(value2), default, default, null, null);
 
     /// <summary>Entities whose first three index fields have these values.</summary>
     /// <typeparam name="T1">The type of the first index field.</typeparam>
@@ -69,7 +120,8 @@ public sealed class IndexKey
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>
-    public static IndexKey Equal<T1, T2, T3>(T1 value1, T2 value2, T3 value3) => new([value1, value2, value3], null, null);
+    public static IndexKey Equal<T1, T2, T3>(T1 value1, T2 value2, T3 value3) =>
+        new(3, IndexValue.Of(value1), IndexValue.Of(value2), IndexValue.Of(value3), default, null, null);
 
     /// <summary>Entities whose first four index fields have these values.</summary>
     /// <typeparam name="T1">The type of the first index field.</typeparam>
@@ -80,19 +132,30 @@ public sealed class IndexKey
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>
     /// <param name="value4">The value of the fourth index field.</param>
-    public static IndexKey Equal<T1, T2, T3, T4>(T1 value1, T2 value2, T3 value3, T4 value4) => new([value1, value2, value3, value4], null, null);
+    public static IndexKey Equal<T1, T2, T3, T4>(T1 value1, T2 value2, T3 value3, T4 value4) =>
+        new(MostValues, IndexValue.Of(value1), IndexValue.Of(value2), IndexValue.Of(value3), IndexValue.Of(value4), null, null);
 
     /// <summary>
     /// Narrows the key to a range of values of the next index field: the one after the
     /// fields that already have a value. Entities without a value in that field are not in
     /// any range.
     /// </summary>
+    /// <remarks>
+    /// The key it is called on does not change: the range is in the key it returns.
+    /// </remarks>
     /// <param name="from">Where the range starts; <see langword="null"/> for no lower end.</param>
     /// <param name="to">Where the range ends; <see langword="null"/> for no upper end.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The key already has a range, or it is the default of <see cref="IndexKey"/>, which is no key.
+    /// </exception>
     /// <exception cref="ArgumentException">Both ends are <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException">The key already has a range.</exception>
     public IndexKey Range(IndexBound? from, IndexBound? to)
     {
+        if (!_made)
+        {
+            throw new InvalidOperationException("The key is the default of IndexKey, which is no key: make one with IndexKey.All or IndexKey.Equal.");
+        }
+
         if (from is null && to is null)
         {
             throw new ArgumentException("A range needs at least one end.");
@@ -103,6 +166,16 @@ public sealed class IndexKey
             throw new InvalidOperationException("The key already has a range.");
         }
 
-        return new IndexKey(Values, from, to);
+        return new IndexKey(_count, _value1, _value2, _value3, _value4, from, to);
     }
+
+    // The value of a leading index field, 0 to Count less one, as the key holds it.
+    internal IndexValue ValueAt(int part) => part switch
+    {
+        0 when _count > 0 => _value1,
+        1 when _count > 1 => _value2,
+        2 when _count > 2 => _value3,
+        3 when _count > 3 => _value4,
+        _ => throw new ArgumentOutOfRangeException(nameof(part), part, $"The key has {_count} values."),
+    };
 }

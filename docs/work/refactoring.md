@@ -37,7 +37,8 @@ Gone through by the planner and the coordinator on 18 November 2026.
   the one walk of B1 is among the small entries; B2 is a commit of its own that waits
   for its figures.
 - **S14R**, after S14: A3 with B4, A4 with B1 (in before S18), A5, A11, A12, A13; A9
-  and B2, left by part 2 of S13R, B2 before the scenarios of S15 are written; M1.
+  and B2, left by part 2 of S13R, B2 before the scenarios of S15 are written; M1; I1 to
+  I4 of the review of S14.
 - Comments never ride in a commit that moves code.
 
 ## Review of understandability, 18 November 2026
@@ -141,6 +142,23 @@ so the question for the owner did not arise. A9 and B2 are taken into S14R.
 | # | Place | What is wrong | The simpler form | Status |
 | --- | --- | --- | --- | --- |
 | M1 | `src/Moltaro.Lattice.Measurements/Scenarios`: `RemoteChild.cs`, `RemoteForwarder.cs` | The two put a child into a process of its own, for the scenarios following-children and forwarding-costs, and start `Environment.ProcessPath` as that second process, so those scenarios fail when the program is started as `dotnet <dll>` | Start the second process the way the first was started; two lines | taken (S14R) |
+
+## Review of S14, 19 November 2026
+
+What the two reviewers of S14 named under the question of simplicity. Every entry is
+structure only and changes no behavior.
+
+| # | Place | What is wrong | The simpler form | Status |
+| --- | --- | --- | --- | --- |
+| I1 | `Engine/Indexes/OrderedTree.cs` | The binary search over the entries of a node is written four times, and the descent from the root to a leaf twice | One of each, used by every caller | taken (S14R) |
+| I2 | `Engine/Indexes/SearchKey.cs` | `SearchKey` holds the key of a search, an `IndexKey`, by value | The key not copied into it | taken (S14R) |
+| I3 | The index types, `Storage/Ordered` and `Engine/Indexes` | Members that nothing calls, and members that only tests call | The dead ones removed; the test-only ones as A13 treats its members | taken (S14R) |
+| I4 | `Engine/Entities/ChangePublisher.cs`, `Publish` | The parameter `armedFault` hands a fault of a test into every publication: a child always passes null, and the other fault points are reached through `WriteExecutor.Pass` | The fault point reached without a parameter of the publication | taken (S14R) |
+
+The costs the reviews found — the pool of nodes topped up and trimmed on every write, both
+entries built three times for each index, what a search allocates, `CompareText` — are
+not refactoring: they change measured figures and belong to S14, part 2 of the
+[epic](epic-1-core.md).
 
 ## Architect's review after S13, 18 November 2026
 

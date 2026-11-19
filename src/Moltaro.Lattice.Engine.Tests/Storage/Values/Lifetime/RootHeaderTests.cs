@@ -29,7 +29,7 @@ public sealed class RootHeaderTests
             Assert.True(header.Parent.IsNull);
             Assert.Equal(0u, header.DescriptorOffset);
             Assert.Equal(item.Layout.LayoutVersion, header.LayoutVersion);
-            Assert.Equal(1u, header.LayoutVersion);
+            Assert.Equal(2u, header.LayoutVersion);
         }
     }
 }

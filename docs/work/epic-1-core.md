@@ -66,7 +66,9 @@ enum that has to agree with its enum type. Records and owned values that hold ne
 values and copy what is set into them. Sets by class and by name, for
 entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
 and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
-replace, upsert, delete, expected revisions. Positions and sessions; a write through a
+replace, upsert, delete, expected revisions. Search through a declared secondary index
+by its full key, by class and by name, on a master and on a child; a search by the
+leading fields, with a range, in reverse or in pages is S15. Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
 **How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
@@ -97,7 +99,7 @@ takes no lock; what a write replaces or removes is retired and freed once the re
 could reach it have left; the primary index is a hash table of the engine's own that is
 read while a write is published; the package `Arc.Collections`, referenced by the engine
 and used by none of its code, was removed in S13 by the owner's decision of 18 November
-2026, and the ordered indexes of S14 are decided by their study. Since S13 a String field
+2026, and the secondary indexes of S14 are a structure of its own. Since S13 a String field
 with Dictionary storage is stored once for the database: a text entry of the arena that
 holds the exact bytes, the root holding its relative address, one count of the blocks
 that refer to it changed only under the lock of the writes, and a table by content that
@@ -131,14 +133,23 @@ master that closes ends its connections in order and says so with the frame `Clo
 a write it did not execute ends in `Unavailable` and only a connection lost without that
 frame leaves a sent write `IndeterminateOutcome`. A wait for a position wakes only when a
 publication reaches it. A child that lost its master serves reads at its position and
-refuses writes; it does not connect again until S34.
+refuses writes; it does not connect again until S34. From S14 every declared secondary
+index is a copy-on-write B+tree of the engine's own in the arena: its published nodes
+never change and a reader takes no lock; the entries of a write are installed in the hold
+that publishes its root, the upkeep of every index of a type in one place
+(`ChangePublisher`); a search by the full key returns an entity only if its current state
+has the key. A text key of 64 bytes or less is copied into the entry whatever the storage
+mode of its field, a longer one references the text entry of its root, and a field that
+is part of an index stores a value longer than 64 bytes as a text entry. A child builds
+its indexes while it loads and keeps them while it follows. An entity deleted and created
+again during a search may be returned twice until S15.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Search through a declared index | `set.Index(name).Find` / `FindAsync` | `IndexTests` | S14–S15 |
+| Search through a declared index by its leading fields, with a range, in reverse or with Offset or Limit | `set.Index(name).Find` / `FindAsync` | `IndexTests` | S15 |
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
@@ -379,6 +390,19 @@ documentation before this document is removed.
 | S13R, part 2 | Read by key of text after A6 | a first series of two builds and three rounds showed 5 to 7 % slower; a series of four builds did not reproduce it: ratios about 1.00 for A6 as committed, A6 as fixed and main. Not measurable on this scenario, ±10 % a pair | rented-arm64-1 | 19 November 2026 |
 | S13R, part 2 | Writes after D1, write-callers, eight rounds with the builds rotating; the median of the ratio to main (40f6a8c) for one caller and for 16 that replace, one caller and 16 that insert and delete | the first cut, 670617c: 0.967, 0.981, 0.967, 0.960; the head before the attempts, 0151c9f: 0.979, 0.985, 0.987, 0.968; 70fcc30: 0.999, 0.992, 0.974, 0.967; babd343: 0.979, 0.976, 0.974, 0.965. A second series of the same form with 0d63331: 670617c 0.996, 0.970, 0.984, 0.974; babd343 0.983, 0.974, 0.991, 0.981; 0d63331 1.014, 1.000, 1.011, 1.001; beside 16 readers the writes of 0d63331 0.99 to 1.03 and the reads 1.00 to 1.04. The first cut cost 2 to 3 % on a write; written where it lies, the change costs nothing measurable. The rows of 4 callers scatter 0.85 to 1.13 a round and are not judged | rented-arm64-1 | 19 November 2026 |
 | S13R, part 2 | Writes with children following, following-children, four rounds, five builds rotating (main, 670617c, 42b6317, 0151c9f, babd343), the children in processes of their own started through the executable | 16 callers that replace, over main for 670617c, 42b6317, 0151c9f and babd343: no child 0.969, 0.934, 0.953, 0.945; one child 0.988, 0.950, 0.978, 0.966; two children 0.946, 0.969, 0.947, 0.951; one child in its own process 0.958, 0.944, 0.971, 0.957; two in their own processes 0.958, 0.948, 0.972, 0.966; reads beside the writers 0.97 to 1.01. An earlier series of two builds and three rounds had shown 0.94 and 0.91 with a child following. No fall belongs to a child: the rows with a child lose what the rows without lose, the cost of the first cut of D1, which 0d63331 removes | rented-arm64-1 | 19 November 2026 |
+| S14 | Memory and the build of secondary indexes, index-build, on a rented ARM64 machine, 16 cores, the engine at 11adfeb (before the last fixes of the review), two or three runs of each case within a few per cent: bytes of the arena for an entry of an index and for an entity; the time of one caller to insert 100,000 entities of a type with 0, 1, 3 and 6 Int64 indexes | 17.6 bytes an entry with ascending keys and 25.1 with random keys, the same with 1, 3 and 6 indexes; 112 bytes an entity without indexes. The build 104 ms with no index; 254 to 327 ms with one; 546 to 770 ms with three; 980 to 1,440 ms with six, the first figure with ascending keys and the second with random ones | rented-arm64-1 | 19 November 2026 |
+| S14 | Writes a second of one caller, index-writes, a type with 0, 1, 3 and 6 indexes; and of eight callers | a replace that changes every indexed key 952 k, 210 k, 85 k, 47 k; a replace that keeps every key 814 k, 648 k, 436 k, 307 k; insert and delete 1,385 k, 436 k, 166 k, 85 k. Eight callers, the replace that changes every key: 408 k, 79 k, 41 k, 26 k | rented-arm64-1 | 19 November 2026 |
+| S14 | The same writes of one caller as the time of a write; what a write allocates and takes | a replace that changes the key 1.05 µs with no index and 4.8, 11.8, 21.3 µs with 1, 3 and 6, about 3.5 µs an index; an insert or a delete 0.72 µs and 2.3, 6.0, 11.8 µs, about 1.85 µs an index. Managed bytes a write unchanged by indexes. Blocks of the arena taken for an insert, a replace and a delete with one index 7.6, 13 and 4, about one of them used | rented-arm64-1 | 19 November 2026 |
+| S14 | Exact search by the full key, index-search, 1 and 8 readers: an Int64 key, distinct keys, through the class, alone, beside a writer that changes indexed keys, and by name; the first item under one of 16 keys; a text key, Plain, Ordinal, distinct | Int64: 450 k a second on 1 thread and 2.9 M on 8; beside the writer 400 to 415 k and 2.4 to 2.6 M; by name 445 k and 2.7 M. The first item under one of 16 keys 776 k and 4.4 M. Text of 8 bytes 163 k and 1.2 M; of 100 bytes 119 k and 0.86 M. For scale, the read by primary key of the same items 1.5 M and 12 M. Managed bytes a search 720 through the class and 936 by name, against 88 for a read by key | rented-arm64-1 | 19 November 2026 |
+| S14 | Read by primary key beside writes to indexes, index-read-by-key, through the class: a type with 6 indexes alone and beside a writer that changes every indexed key; the same type with no index | 1 reader: 1.53 M a second alone and 1.38 M beside the writer with 6 indexes, 1.49 M and 1.44 M with none; 8 readers: 11.9 M and 10.3 M with 6 indexes, 11.6 M and 10.7 M with none | rented-arm64-1 | 19 November 2026 |
+| S14 | The prototype of the study on the same machine, bare trees and no engine, 8 readers, three runs: the copy-on-write tree against the tree changed in place. Not a figure of the engine | exact search alone 15.6 M a second and 15.2 M; beside a writer of the same index at full speed 10.4 M against 14.5 M; ranges forwards 6.2 M and 5.8 M alone, 3.7 M against 5.4 M beside the writer. One index write beside the 8 readers, ns: an insert 840 against 525, a delete 842 against 619, a replace 1,762 against 1,197. The bare tree alone: a replace that changes the key 1.14 µs, an insert 0.52 µs, a search 2.1 M a second on a thread | rented-arm64-1 | 19 November 2026 |
+| S14 | The forms of a text key in the prototype on the same machine, 8 readers, random keys, searches a second at keys of 8, 32 and 100 bytes. Not a figure of the engine | a copy 10.1 M, 7.1 M, 4.6 M; a shared text entry 4.6 M, 4.3 M, 4.0 M; a shared entry with a prefix 9.2 M, 9.0 M, 9.2 M | rented-arm64-1 | 19 November 2026 |
+
+The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
+and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
+review; the rows of the prototype are the bare trees of its study on the same machine.
+No acceptance of S14 set a target for the cost of a write or of a search; the record of
+S14 says what is weak in them, and S14, part 2 is about them.
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1098,7 +1122,9 @@ Why this order:
 | After S13 | The fixes after the outside review | Full | Done |
 | S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
-| S14 | Secondary indexes and exact search | Full | Not started |
+| S14 | Secondary indexes and exact search | Full | Done |
+| S14, part 2 | The cost of index upkeep and of a search | Full | Not started |
+| S14R | Refactoring after S14: structure only | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
@@ -5460,6 +5486,249 @@ index through the read-only view of the schema, two interface calls for a part; 
 search becomes a read path it takes a span over the private array, as the fields do, if
 its measurement asks for it.
 
+**The study of S14, 18 November 2026: what it found; nothing is decided.** The choice of
+the structure and of the form of a text key is the owner's and waits for the timing
+figures, which need a quiet machine. The prototype is
+`src/Prototypes/SecondaryIndexComparison/Ordered`; its sources, with licence and commit,
+are named in its README.
+
+- **Read:** the skip list of LevelDB (BSD-3-Clause) and RocksDB (under Apache-2.0), the
+  copy-on-write B+tree of LMDB (OpenLDAP Public License), the B+tree with optimistic
+  versions of LeanStore (MIT), the adaptive radix tree of DuckDB (MIT) and its
+  synchronization after Leis and Scheibner (Apache-2.0), nbtree of PostgreSQL,
+  `OrderedMultiMap` of `Arc.Collections` (MIT), `ImmutableSortedSet` of .NET (MIT).
+- **Recommended by the study:** a B+tree of the engine's own whose published nodes never
+  change — a write copies the node it changes and publishes the copy with one store of
+  its address into the live parent; a reader takes no lock, checks no version and never
+  retries. After LMDB, with the publication by one store of the radix tree's
+  synchronization and LeanStore's walk from leaf to leaf by a new descent at the fence.
+  Second: the same tree changed in place under optimistic versions — cheaper writes,
+  readers that validate and restart beside a writer, fixed keys only. Third: a skip list
+  — 68 to 81 bytes for an entry in the arena, and every backward step a new search from
+  the head. Not built: a radix tree, which needs keys whose bytes compare in the order
+  of the values, a second definition of order beside the comparison service. Excluded:
+  `OrderedMultiMap` behind a lock around readers; 72 to 88 managed bytes for an entry.
+- **Measured, bytes for an entry** (1,000,000 entries, nodes of 1 KiB, the key and an
+  identity of 8 bytes): both B+trees 18.8, 25.1 and 38.6 for a key of 4, 8 and 16 bytes
+  in random order; 12.9, 17.2 and 26.5 ascending; 46.3 for an Int64 key after a random
+  half was deleted.
+- **Correct under change:** a walker forwards and backwards beside a writer, 30 s for a
+  case in Debug and Release — no entry out of order, none twice, none missed that was
+  present for the whole walk, also inside one key of 6,000 identities.
+- **What a write costs in the recommended tree:** the copy of one leaf for each index, a
+  retired node for each index write, a reservation before the commit of at most
+  2·(h+2)+1 nodes. Several entries of one write are published each by its own store, in
+  the order: insert the new entries, publish the root, remove the old entries; the check
+  of a found entry against its root covers the windows between.
+- **A text key.** The form in which an entry names the root and a comparison reads the
+  key from the root, and the form of a bounded prefix with the root as the tie-breaker,
+  are not safe: a separator of an inner node goes on steering searches after its entity
+  is gone, and a replace that changes the key leaves the entry where the old key
+  belongs. They stay in the timing run as reference lines only. Left for the owner: a
+  copy of the key in the entry when the value lies inline in the root, 64 bytes or less,
+  and a shared text entry with a prefix of 8 bytes above that (the study's
+  recommendation; it departs from "Search key ownership" of the decision on index
+  structures for short values) — or a shared text entry throughout, which puts an
+  indexed Plain value of 8 bytes out of the root at 96 bytes more for an entity and one
+  more dependent load on a read by key. Bytes for an entity at keys of 8, 32 and 100
+  bytes: a copy 92, 164, 420; shared 185, 201, 281; shared with a prefix 199, 215, 294.
+  A shared entry needs a reference held for an entry of the index and released when the
+  retired leaf that last holds it is freed; the rule of one reference for each
+  descriptor of each block would add and release about 60 on every write to every index.
+- **Not modelled by the prototype:** the cost of the comparison service, entries of
+  variable length, nulls, composite keys, several entries in one hold, ARM64, and the
+  checks `Arena.Payload` makes on every read, which the path of an index pays at every
+  level unless an address is translated more cheaply — measured together with the
+  figure for that validation.
+- **Third-party notices:** decided at the contract step of this sprint by what the code
+  then follows; if it follows the code of LMDB closely, the notices gain the OpenLDAP
+  licence. The prototype ports no code.
+
+**Chosen by the owner on 19 November 2026, as the planner relays:** the copy-on-write
+B+tree. He was shown the two trees side by side, the price of this one — a write beside
+sixteen readers about twice as dear, one retired node for every write to an index — and
+that every figure is one run of 5 s. The decision is recorded in
+[index structures](../decisions/index-structures.md); the contract step of this sprint
+writes the internal types for this tree. The form of a text key is his next question.
+
+**The form of a text key, chosen by the owner on 19 November 2026, as the planner
+relays:** short values are copied, long ones shared. An index entry holds a copy of a
+text key of 64 bytes or less, whatever the storage mode of the field — a Dictionary
+field of that length is copied into the entry like a Plain one, and no reference is
+built for it; a longer key references the text entry the root already references. He
+was shown the search of a copy against a shared entry at 8, 32 and 100 bytes, the bytes
+for an entity, what sharing short values costs the read by key, the price — two ways
+to hold a key, a departure from the accepted record for short values — and that every
+figure is one run. Whether a shared key carries its first 8 bytes beside the reference
+is settled in this sprint by a measurement in the engine on keys with random and with
+common heads. For the plan: long keys need "one more reference at this address", a
+release by address and the retired item of a leaf, so T1 with B3 of the
+[refactoring backlog](refactoring.md) comes before the implementation of this sprint.
+A field that is part of an index stores a value longer than 64 bytes as a text entry,
+whatever its storage mode; it goes through the text table, the mechanism that exists —
+a counted entry outside the table would be a second lifetime to prove. Its known cost,
+about 330 ns for a new value and about 50 bytes of table for each distinct value, is
+reported with the figure of this sprint for a load of long distinct indexed values and
+is not solved in advance. Adding or dropping an index therefore changes the layout of
+the fields it names: nothing stored outlives a process yet, so there is no migration
+now, and the sprint that persists roots takes the note. The trap of `LiesInChunks` for
+S18 is unaffected.
+
+**The public change of the stage, approved by the owner on 19 November 2026, as the
+planner relays.** `IndexKey` and `IndexBound` are structs that hold their values without
+a box, with the names and factories they had; a search allocated four to six objects
+for its key before and allocates none now (counted by reading; the allocation test of
+this sprint states it). The key is about 230 bytes and is passed by value. A default
+key is an error: passed to a search it is an `ArgumentException`, by class and by name;
+"every entry of the index" is said only by `IndexKey.All`, which is distinguishable
+from the default; reading a property of a default key or bound is an
+`InvalidOperationException`. Confirmed by the planner as rules of the schema language
+and of the contract: an index whose four widest entries cannot fit a node of 64 KiB
+fails the open with `InvalidSchema`; an index node holds one reference for each shared
+key it contains, as the rule of counts says, and the write of an index of long keys is
+measured before that rule is questioned. What only a timing decides, each built with
+its default: a prefix beside a shared key (none), `Find(in IndexKey)` (by value),
+references for a node or for an entry (for a node), the size of a node (1 KiB), the
+checks of an address at every level of a descent (as they are).
+
+**The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
+case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy
+with other work before a case (two cases at 44 and 51 %): differences below about a
+tenth decide nothing. The structure that is chosen is measured again in the engine, in
+this sprint, against the same scenarios. 1,000,000 entries, an Int64 key, nodes of 1 KiB
+unless said.
+
+- **The read by key beside writes to an index** (a stand-in that shares only the line of
+  the epoch with the writer), reads a second: one reader 14.6 M with no writer, 11.3 M
+  beside the copy-on-write tree, 11.7 M beside the tree changed in place; 16 readers
+  31.0 M, 36.6 M and 29.6 M. The moves of the epoch that the copy-on-write tree causes,
+  78 for 10,000 writes to an index, do not show as a cost of the read by key.
+- **One write to an index**, ns, beside 0, 1 and 16 searching readers: copy-on-write
+  insert 374, 531, 4,207; delete 420, 483, 4,891; a replace that changes the key 877,
+  1,023, 9,956. In place: 1,077, 924, 2,810; 907, 895, 2,264; 1,935, 2,583, 4,799. One
+  writer alone in the group of writes: copy-on-write 375 and 372 for a random insert and
+  delete, 61.5 and 60.8 ascending; in place 318 and 259, 41.9 and 45.8. Beside 16 readers
+  a write of the copy-on-write tree costs about twice the other.
+- **The readers beside those writes**, searches a second: one reader 2.0 to 2.2 M on the
+  copy-on-write tree against 0.67 to 0.90 M in place; 16 readers 6.0 to 6.9 M against
+  5.8 to 7.0 M. Readers of the tree changed in place restarted 2 to 8 times in 100,000.
+- **Exact search**, a second, 1 thread alone, 1 beside a writer, 16 alone, 16 beside a
+  writer: copy-on-write 1.90 M, 0.94 M, 7.32 M, 6.19 M; in place 1.66 M, 0.91 M, 7.51 M,
+  6.87 M; the skip list 0.38 M, 0.24 M, 2.28 M, 1.95 M; `OrderedMultiMap` behind a
+  reader-writer lock 0.72 M, 0.23 M, 1.80 M, 1.63 M, its writer making 64 pairs of
+  writes a second beside 16 readers against 133,574 and 219,968 of the two trees. With
+  nodes of 4 KiB: copy-on-write 2.15 M, 0.85 M, 8.26 M, 6.93 M; in place 2.10 M, 0.91 M,
+  9.47 M, 8.79 M.
+- **A range of 100 entries**, walks a second, the same four cases: copy-on-write
+  forwards 745 k, 345 k, 4.21 M, 3.81 M and backwards 683 k, 286 k, 2.90 M, 2.61 M; in
+  place forwards 677 k, 201 k, 3.32 M, 3.02 M and backwards 599 k, 288 k, 3.66 M, 3.45 M;
+  the skip list forwards 67 k, 71 k, 388 k, 350 k; `OrderedMultiMap` 48 k, 16 k, 342 k,
+  321 k.
+- **A text key**, exact search a second on 1 thread and on 16, no writer: at 8 bytes a
+  copy 933 k and 5.61 M, a shared entry 270 k and 2.63 M, a shared entry with a prefix of
+  8 bytes 1.09 M and 5.09 M; at 32 bytes 585 k and 3.68 M, 179 k and 2.61 M, 952 k and
+  4.53 M; at 100 bytes 337 k and 2.42 M, 176 k and 2.69 M, 755 k and 5.76 M. Keys of 32
+  bytes that share their first bytes, as numbered logins do: a copy 868 k and 4.25 M, a
+  shared entry 351 k and 3.13 M, with the prefix 229 k and 2.88 M — the prefix loses
+  where keys have a common head, which long values such as addresses and paths have, so
+  the form above 64 bytes is not settled by the random keys. The entry that names the
+  root, kept as a reference line only, 32 bytes: 253 k and 1.86 M. One write, ns, at 8,
+  32 and 100 bytes: a copy 1,204, 2,142, 1,755; shared 2,362, 2,591, 2,968; shared with
+  the prefix 1,808, 1,609, 910.
+- **What a read by key pays when an indexed text lies in a text entry and not in the
+  root**, reads a second on 1 thread and on 16: at 8 bytes 4.60 M against 3.95 M and
+  23.2 M against 17.3 M; at 32 bytes 2.55 M against 2.07 M and 18.8 M against 17.4 M; at
+  100 bytes 2.38 M against 1.96 M and 13.5 M against 13.2 M.
+
+**Carried out and reviewed on 19 November 2026.** Where a sentence above says otherwise,
+these replace it.
+
+1. **What was built.** A copy-on-write B+tree of the engine's own: its nodes and entries
+   in arena memory in `Storage/Ordered` (`IndexNode`, `NodeWriter`, `NodeStorage`,
+   `IndexLayout`, `NodeHeader`), the tree, its order and the index of an entity type in
+   `Engine/Indexes` (`OrderedTree`, `SecondaryIndex`, `IndexOrder`, `SearchKey`). The order
+   of stored values is that of the comparison service, `ValueComparer.CompareStored` and
+   `CompareText`, over the stored form of a fixed value in `Storage/Values/StoredScalars`.
+   The search by the full key is `Engine/Entities/IndexSearch` with
+   `EntityTable.TrySearch`, reached through `Engine/Sets/SetIndex` and `IndexMatches`. The
+   upkeep of every index of a type is in one place, `ChangePublisher`.
+2. **Text keys.** A text key of 64 bytes or less is copied into the entry, whatever the
+   storage mode of its field; a longer one is shared as a text entry, its references
+   counted for each node. A field that is part of an index stores a value longer than 64
+   bytes as a text entry; `RootLayout.Version` is 2.
+3. **The public form.** `IndexKey` and `IndexBound` are readonly structs. A default key or
+   bound is an error: passed to a search, an `ArgumentException`; a member of one used, an
+   `InvalidOperationException`.
+4. **A rule of the schema language, new:** an index whose four widest entries do not fit
+   64 KiB fails the open with `InvalidSchema`.
+5. **The review.** Two independent reviewers in parallel with the same brief, then a
+   second look: "fit to merge once the layout version is raised"; it is raised. Fixed on
+   their findings: the end position of a search could precede a delete the search had
+   seen (73ad394); calls had been added to the write of a type without an index
+   (8b60534). An intermittent test of refused reservations was restated: the managed
+   capacity of the text table may stay grown after a refused write. Three wrong tests
+   were corrected by the test author.
+6. **The hardest part to follow,** named by both reviewers: the accounting of reserved
+   nodes in `OrderedTree`.
+7. **The merge of part 2 of S13R.** The branch took part 2 of S13R (merge 8ea11dc, which
+   reshaped the record of a prepared change), and the resolution of that merge was
+   reviewed separately with one question. Does the upkeep see, for every kind of change, the replaced root
+   and the new root it saw before, on a master's write, a forwarded write, a load and
+   a child's transaction? It does: no P1, P2 or P3. The merge changed only the three
+   preparations of `WriteExecutor` and the record of a change; `ChangePublisher`,
+   `WriteCoordinator` and `ReceivedChanges` are byte for byte what was reviewed, and the
+   upkeep takes the replaced root from the root entry, not from the record. A probe of
+   the reviewer refused a replace, an insert and a delete on a reused record and found
+   the indexes agreeing with the stored entities. Two P4 go to S14R: nothing asserts
+   that a record written for a preparation changes no entity yet, and one comment of
+   `PreparedWrite` is inexact. The reviewer named what the tests of the sprint do not
+   cover: a refused replace or delete of an indexed type, a refusal at a later index, a
+   throw after the indexes are reserved, a refused forwarded write and a refused change
+   of a child; those tests are written first in S14, part 2. By the listings of the JIT
+   the write of a type without an index makes the calls it made at the head of part 2
+   of S13R (a replace and a delete one fewer); what is added is the test for indexes,
+   two loads and two branches, at four places.
+8. **Confirmed by the owner on 19 November 2026** after the figures on ARM64: the
+   copy-on-write tree ([index structures](../decisions/index-structures.md)).
+
+**Checked by the coordinator:** on 376b44c the build with 0 warnings, the format clean,
+2,656 tests with 2,506 passed, 150 skipped and 0 failed, the samples in Debug and in
+Release. Ten repeats of the suite in Release while three agents built and ran the suite
+on the same workstation had three failures, none in a test of the indexes:
+`ClosedFrameTests.Closed_that_is_not_valid_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome`
+once (the master could not listen: the system lacked buffer space for a socket) and
+`OpenTimeoutTests.Load_that_takes_longer_than_the_OpenTimeout_while_its_parts_keep_arriving_becomes_ready`
+twice (no frame within its open timeout of one second); the reviewer of the merge saw
+one failure of `AnnouncedLengthTests` in the handshake under the same load. Twelve
+repeats with nothing else running were clean. These tests depend on the load of the
+machine, which is a defect of the tests: a task of its own makes them independent of
+it, and the single failure without a name in part 2 of S13R is most likely one of them.
+
+**Accepted and known.**
+
+- An entity deleted and created again during a search may be returned twice; S15 is
+  required to end it (its brief).
+- A step of a search waits for the stamp of an entry as a read does.
+- The memory reserved for index upkeep grows quadratically with the number of changes
+  prepared and not yet published: 600 waiting writes 16 to 18 MiB with one index and 205
+  to 280 MiB with seven; 2,000 waiting writes on seven indexes 2.0 to 3.05 GiB; 43,780
+  nodes reserved against 28,747 used. The requirement is moved to S17.
+
+**What is weak.** The write of a type with indexes, and the cost of a search. No
+acceptance of S14 set a target for either; they are the subject of S14, part 2. On the
+rented machine (see the measured results):
+
+- A replace that changes every indexed key, one caller: 952 k writes a second with no
+  index, 210 k with one, 85 k with three, 47 k with six — about 3.5 µs an index on top of
+  1.05 µs, where the bare tree of the prototype does such a replace in 1.14 µs: the
+  upkeep of one index costs 3 to 3.5 times the tree's own work.
+- A replace that keeps every key still pays for the indexes: 814 k with none, 648 k with
+  one (−20 %), 307 k with six (−62 %).
+- A search by a full Int64 key: 450 k a second on one thread, against 2.1 M for the bare
+  tree and 1.5 M for a read by primary key of the same items; a text key of 8 bytes 163 k.
+  A search allocates 720 managed bytes through the class and 936 by name, against 88 for
+  a read by key.
+
 **After S14, on the light track: the samples as a learning path** (asked by the owner on
 19 November 2026, as the planner relays; the form decided by the planner). The samples
 project is a flat list of seventeen files today. It gets folders by topic, each a
@@ -5478,6 +5747,47 @@ reports where it stops. The README of the repository points to it in one sentenc
 behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
 runs to the end. It starts right after S14 is merged, because S14 changes `IndexSample`
 and two agents must not edit the project at once.
+
+**After S14, not part of any sprint: SDK 11 as a change of its own.** `src/global.json`,
+the three jobs of CI, and the same commit built by both SDKs and compared on the
+measurement scenarios.
+
+#### S14, part 2 · The cost of index upkeep and of a search
+
+**Track:** full · **Needs:** S14 · **Decided by:** the planner, 19 November 2026, on the
+figures of S14 ("What is weak" in its record). It comes before S14R and S15 and is
+planned for the copy-on-write tree.
+
+- **Goal.** The upkeep of the indexes of a write and a search by a full key cost what
+  their work needs, measured against the same type without indexes and against the bare
+  tree of the prototype.
+- **Step 1, a short study, for (d) only:** how LMDB and LeanStore avoid work for each
+  comparison.
+- **Acceptance, measured** with the scenarios `index-writes`, `index-search`,
+  `index-read-by-key` and `index-build` on the rented machine, once, at the end, by a plan
+  written before the start:
+  - (a) a replace that keeps every indexed key costs what it costs for the same type
+    without indexes, within the gauge (today −20 % with one index, −62 % with six);
+  - (b) the upkeep of one index for a write that changes its key costs at most 1.5 times
+    the bare tree's work measured by the prototype on the same machine (today 3 to 3.5
+    times): each entry built once for a write, and a standing reserve of nodes instead of
+    topping up and trimming on every write;
+  - (c) a search for one entity allocates what its result needs, and no copy of the key on
+    the heap;
+  - (d) a search by an Int64 key and by a text key: first a listing and a profile that say
+    what the difference between the bare tree (2.1 M a second) and the engine (450 k; a
+    text key of 8 bytes 163 k) is made of, and a target after that. Named candidates:
+    `CompareText` zeroing its stack buffers and decoding UTF-8 on every comparison, and a
+    hint that misses and descends again;
+  - (e) decided in it by measurement: the size of a node, 1 KiB against 2 KiB, with
+    readers beside a writer on ARM64 as the deciding scenario; a prefix beside a shared
+    key; `Find(in IndexKey)`; text references for a node against for an entry; the cost of
+    `Arena.Payload` at every level.
+- **Tests first.** For (a): tests that the index is exactly right after replaces that
+  keep, change and swap keys, among them a replace whose key changes only in case under a
+  comparison without case, and a replace from null to null.
+- **After it.** S14R holds structure only ([refactoring backlog](refactoring.md)); what the
+  reviews of S14 found as cost is this sprint's. S15 starts after S14R.
 
 #### S15 · Ranges, order, paging and the binding rules
 
@@ -5551,6 +5861,27 @@ For this sprint:
   indexes, with and without a writer.
 - **Out of scope.** Uniqueness (S16). A query language, automatic choice of an index,
   continuation by key.
+
+**Carried from the study of S14.** If the identity in an entry of an index is the handle
+of the root, an entity that is deleted and created again with the same primary key under
+the same index key during a pass has a new handle and can be returned a second time,
+against "no identity twice". This sprint chooses: a run of equal keys ordered by the
+primary key, 8 to 16 bytes more for an entry with an Int64 or a Guid key; lifetimes
+created after the pass began are passed over, which needs a stamp of creation for a
+lifetime; or a remembered set, as an enumeration has. A step that holds nothing works on
+the studied tree: it enters the protection, seeks after the last key and identity in
+either direction, and reaches the next leaf by a new descent at the fence. Offset is
+linear in the entries passed over; nulls last in both directions is a rule of the walk.
+The tree needs an order from the comparison service, beside its equality.
+
+**Required of this sprint, decided by the planner on 19 November 2026.** As S14 is
+built, the identity in an entry of an index is the handle of the root, so an entity that
+is deleted and created again while a search runs may be returned twice; S14 states only
+what it guarantees, and its documentation says so once. This sprint ends with: a search
+returns an entity at most once, also across a delete and a re-creation — by one of the
+three ways named above, chosen here with its figure. The test of three entities under
+one key, the first deleted and inserted again during a paused search, exists in the form
+that asserts exactly the three and is skipped until this sprint.
 
 #### S16 · Unique indexes
 
@@ -5627,6 +5958,13 @@ three steps of a publication: it uses the shared type of entry D1 of the
 span for this reason. A batch is one publication for the drain of retired memory, and it
 retired something if any of its changes did. The envelopes of the effects of a
 transaction move beside the code that reads them in this sprint (entry D5).
+
+**Required of this sprint, carried from S14.** The memory reserved for index upkeep grows
+at most linearly with the number of changes prepared before a publication. As S14 built
+it, it grows quadratically with the changes prepared and not yet published: 600 waiting
+writes 16 to 18 MiB with one index and 205 to 280 MiB with seven; 2,000 waiting writes on
+seven indexes 2.0 to 3.05 GiB; 43,780 nodes reserved against 28,747 used. Candidates
+include a linear bound, with its proof first.
 
 ### Stage 5. The full type model and access
 
@@ -6024,7 +6362,18 @@ second per storage commit.
 - **Measured.** Reported: time to open an empty and an initialized storage.
 - **Out of scope.** Writing data durably (S28–S29). The saved base (S30–S31).
 
+**Carried from S14.** A field that is part of an index stores a value longer than 64
+bytes as a text entry, so adding or dropping an index changes the layout of the fields it
+names. From the sprint that stores roots beyond the life of a process on, that is a
+change of the stored form and belongs to what a migration converts.
+
+**Also carried from S14:** the memory reserved for index upkeep grows with the changes
+prepared and not yet published; its bound is a requirement of S17.
+
 #### S28 · Durable commit
+
+**Carried from S14, a question and not a decision:** whether a search may see inside a
+group of writes being published.
 
 **Track:** full · **Needs:** S27 · **Decisions:** O9 · **Owners:** E06, E03
 

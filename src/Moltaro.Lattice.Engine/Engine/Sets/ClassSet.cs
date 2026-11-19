@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
-using Moltaro.Lattice.Access.Sets;
 using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Sets;
@@ -36,7 +35,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     public LatticeEntityType EntityType => _binding.EntityType;
 
     public ILatticeIndex<TEntity> Index(string indexName) =>
-        SetIndex<TEntity>.Resolve(EntityType, indexName);
+        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier!));
 
     public TEntity? Get<TKey>(TKey key)
         where TKey : notnull =>

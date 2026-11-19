@@ -18,4 +18,8 @@ internal enum BlockKindEnum : ushort
 
     // Text of the database-wide dictionary. It belongs to a text entry instead of a root.
     SharedText = 5,
+
+    // A node of the ordered tree of a secondary index (Ordered.IndexNode). It belongs to the index:
+    // the root handle of its header is default, and it has no parent.
+    IndexNode = 6,
 }

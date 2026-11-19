@@ -53,15 +53,9 @@ public sealed class IndexPartTypeTests
 
         foreach (var byMentor in new[] { database.Set("Person").Index("ByMentor"), (object)database.Set<Person>().Index("ByMentor") })
         {
-            // Mentor refers to Person, whose key is an Int64. The key is accepted, and the
-            // search, which is not implemented, is refused after it.
+            // Mentor refers to Person, whose key is an Int64, and is given as that key.
             ExpectAccepted(byMentor, IndexKey.Equal(7L));
             ExpectAccepted(byMentor, IndexKey.Equal(7));
-            ExpectRefused(byMentor, IndexKey.Equal("seven"));
-            ExpectRefused(byMentor, IndexKey.Equal(Guid.Empty));
-
-            // Mentor is never null.
-            ExpectRefused(byMentor, IndexKey.Equal<long?>(null));
         }
 
         // Manager is nullable, and so is the Owner of an Address.
@@ -77,7 +71,6 @@ public sealed class IndexPartTypeTests
 
         ExpectAccepted(database.Set("Person").Index("ByLevel"), IndexKey.Equal(1));
         ExpectAccepted(database.Set("Person").Index("ByWorkRank"), IndexKey.Equal(1));
-        ExpectRefused(database.Set("Person").Index("ByWorkRank"), IndexKey.Equal("High"));
     }
 
     [Fact]
@@ -90,12 +83,33 @@ public sealed class IndexPartTypeTests
         ExpectAccepted(byWorkFloor, IndexKey.Equal((short)3));
         ExpectAccepted(byWorkFloor, IndexKey.Equal(3));
         ExpectAccepted(byWorkFloor, IndexKey.Equal(3L));
-        ExpectRefused(byWorkFloor, IndexKey.Equal(70_000));
     }
 
-    // The key is accepted: the search that follows is refused as not implemented.
+    [Fact]
+    public async Task Search_key_that_is_not_a_value_of_its_part_is_refused_before_the_search()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: PartSchema());
+
+        foreach (var byMentor in new[] { database.Set("Person").Index("ByMentor"), (object)database.Set<Person>().Index("ByMentor") })
+        {
+            // A reference is given as the key of its target, an Int64.
+            ExpectRefused(byMentor, IndexKey.Equal("seven"));
+            ExpectRefused(byMentor, IndexKey.Equal(Guid.Empty));
+
+            // Mentor is never null.
+            ExpectRefused(byMentor, IndexKey.Equal<long?>(null));
+        }
+
+        // An Enum part is given as its underlying integer, not by the name of a member.
+        ExpectRefused(database.Set("Person").Index("ByWorkRank"), IndexKey.Equal("High"));
+
+        // An integer of another width that the Int16 Floor does not hold.
+        ExpectRefused(database.Set<Person>().Index("ByWorkFloor"), IndexKey.Equal(70_000));
+    }
+
+    // The key is accepted, and the search on a type the engine cannot store finds nothing (AcceptedKey).
     private static void ExpectAccepted(object index, IndexKey key) =>
-        Assert.Throws<NotSupportedException>(() => Find(index, key));
+        AcceptedKey.Expect(() => Find(index, key));
 
     private static void ExpectRefused(object index, IndexKey key) =>
         Assert.Throws<ArgumentException>(() => Find(index, key));

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Ordered;
 
 namespace Moltaro.Lattice.Engine.Protection;
 
@@ -9,14 +10,15 @@ namespace Moltaro.Lattice.Engine.Protection;
 // THIRD-PARTY-NOTICES.md).
 //
 // What the writes of one database retired and have not freed yet, and the freeing of it
-// (docs/design/arena-protocol.md, "Deferred reclamation"). A write that replaces or deletes a root, or
-// grows a primary index, first unlinks the old thing, so that no read that enters afterwards can
-// reach it, and then retires it here, tagged with the current epoch of ReadEpochs. It is freed once
-// no read that entered with that epoch or an earlier one is inside: an old root and the root of a
-// deleted entity go back to the arena, the entry of a deleted entity to the free slots of the table
-// of root entries, and a replaced table of an index is let go of. Until then a retired root counts
-// in ArenaCounters.RetiredBytes, a retired entry in RootTable.Count, and a retired table in
-// IndexBytes.
+// (docs/design/arena-protocol.md, "Deferred reclamation"). A write that replaces or deletes a root,
+// grows a primary index or replaces a node of a secondary index first unlinks the old thing, so that no
+// read that enters afterwards can reach it, and then retires it here, tagged with the current epoch of
+// ReadEpochs. It is freed once no read that entered with that epoch or an earlier one is inside: an old
+// root and the root of a deleted entity go back to the arena, the entry of a deleted entity to the free
+// slots of the table of root entries, a replaced table of an index is let go of, and a replaced node of
+// an index releases the references of its shared keys and goes back to the arena
+// (docs/design/ordered-index.md, "The retired node"). Until then a retired root or node counts in
+// ArenaCounters.RetiredBytes, a retired entry in RootTable.Count, and a retired table in IndexBytes.
 //
 // Who calls it, and when. Only the thread that holds the lock of the writes (Writes.WriteExecutor),
 // because the arena, the table of root entries and the indexes take no lock and have one writer.
@@ -51,7 +53,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   Dictionary text it names: an entry whose last reference lies in retired roots stays live until the
 //   drain frees them, and is freed with them, so it waits for the same look. A text that other roots
 //   share is counted for each root that names it; that only makes a look come earlier, and a look
-//   frees nothing a read can still reach.
+//   frees nothing a read can still reach. A retired node counts its slot and the slots of the text
+//   entries its shared keys name, by the same rule.
 // - EngineDatabase.DrainRetired, which a test calls before it counts and the close after it waited
 //   for the reads.
 // - a write that the arena refused, which drains, and in its resolution waits, outside the lock, for
@@ -61,7 +64,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 // Room. A write that will retire something reserves a place for it while it is prepared (Reserve),
 // beside the places the writes prepared before it and not published yet reserved, so that retiring it
 // after its publication allocates nothing; the place is taken when it retires and given back when the
-// write is withdrawn (Release).
+// write is withdrawn (Release). The tree of a secondary index reserves as many places as it reserves
+// nodes (Indexes.OrderedTree, "The reservation").
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a
@@ -130,29 +134,41 @@ internal sealed class RetiredMemory
     // Makes room for one more retired thing beside those reserved before, so that retiring it after a
     // publication allocates nothing and cannot fail. Called before the publication; the reservation
     // ends when the thing is retired, or with Release for a write that is withdrawn.
-    public void Reserve()
+    public void Reserve() => Reserve(1);
+
+    // Makes room for that many more retired things, as Reserve does for one; nothing is reserved when the
+    // managed heap cannot hold the room.
+    public void Reserve(int places)
     {
-        _capacity = _items.EnsureCapacity(_items.Count + _reserved + 1);
-        _reserved++;
+        _capacity = _items.EnsureCapacity(_items.Count + _reserved + places);
+        _reserved += places;
     }
 
     // Gives back the place a write reserved and does not use, because it was withdrawn.
-    public void Release() => _reserved--;
+    public void Release() => Release(1);
+
+    // Gives back that many places reserved and not used.
+    public void Release(int places) => _reserved -= places;
 
     // Retires the root a replace replaced: its blocks become retired in the arena (RootStorage.Retire).
     public void RetireRoot(RootLayout layout, ArenaAddress root) =>
-        Add(RetiredKindEnum.Root, layout, root, default, table: null, RetireBlocks(layout, root));
+        Add(RetiredKindEnum.Root, layout, root, default, RetireBlocks(layout, root));
 
     // Retires the root of a deleted entity and its entry, which stays counted until it is released.
     public void RetireDeleted(RootLayout layout, RootHandle handle, ArenaAddress root) =>
-        Add(RetiredKindEnum.DeletedRoot, layout, root, handle, table: null, RetireBlocks(layout, root));
+        Add(RetiredKindEnum.DeletedRoot, layout, root, handle, RetireBlocks(layout, root));
 
     // Retires a table of an index that a larger one replaced, with its bytes.
     public void RetireTable(object table, long bytes)
     {
         IndexBytes += bytes;
-        Add(RetiredKindEnum.IndexTable, layout: null, default, default, table, bytes);
+        Add(RetiredKindEnum.IndexTable, table, default, default, bytes);
     }
+
+    // Retires a node of the index of the layout that a write replaced: its block becomes retired in the
+    // arena, and it counts its slot and the text entries its shared keys name (NodeStorage.Retire).
+    public void RetireNode(IndexLayout layout, ArenaAddress node) =>
+        Add(RetiredKindEnum.IndexNode, layout, node, default, layout.NodeBytes + NodeStorage.Retire(_arena, layout, node));
 
     // After the publication of one position, or of one root of a load: looks when enough was counted
     // since the last look, a publication after which nothing was retired since the one before it
@@ -194,9 +210,9 @@ internal sealed class RetiredMemory
 
         _leftBehind = _items.Count > 0;
 
-        // The list keeps the capacity of its peak, 56 bytes a place, which reads held long can make
+        // The list keeps the capacity of its peak, 48 bytes a place, which reads held long can make
         // large: a read held for a second beside a million writes a second leaves a million places.
-        // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 448 KiB with
+        // Once it is empty and its capacity is more than 64 looks' worth (8,192 places, 384 KiB with
         // 128 slots), it lets the places go, unless places are reserved for writes not published yet;
         // emptied, the list allocates nothing for that, and it grows again by doubling, before a
         // publication (Reserve), when retiring needs it. The margin keeps an ordinary load, which holds
@@ -260,10 +276,10 @@ internal sealed class RetiredMemory
     }
 
     // Retires a thing into the place its write reserved.
-    private void Add(RetiredKindEnum kind, RootLayout? layout, ArenaAddress root, RootHandle handle, object? table, long bytes)
+    private void Add(RetiredKindEnum kind, object owner, ArenaAddress address, RootHandle handle, long bytes)
     {
         _newest = _epochs.Current;
-        _items.Enqueue(new RetiredItem(kind, _newest, layout, root, handle, table, bytes));
+        _items.Enqueue(new RetiredItem(kind, _newest, owner, address, handle, bytes));
         _reserved--;
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
@@ -275,12 +291,16 @@ internal sealed class RetiredMemory
         switch (item.Kind)
         {
             case RetiredKindEnum.Root:
-                RootStorage.Free(_arena, item.Layout!, item.Root);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
                 break;
 
             case RetiredKindEnum.DeletedRoot:
-                RootStorage.Free(_arena, item.Layout!, item.Root);
+                RootStorage.Free(_arena, (RootLayout)item.Owner!, item.Address);
                 _roots.Release(item.Handle);
+                break;
+
+            case RetiredKindEnum.IndexNode:
+                NodeStorage.Free(_arena, (IndexLayout)item.Owner!, item.Address);
                 break;
 
             default:

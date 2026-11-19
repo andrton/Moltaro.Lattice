@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <Optimize>true</Optimize>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- The candidates of the study of ordered structures keep their nodes in native memory. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Arc.Collections" />

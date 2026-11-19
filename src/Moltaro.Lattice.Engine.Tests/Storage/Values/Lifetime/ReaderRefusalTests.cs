@@ -57,15 +57,16 @@ public sealed class ReaderRefusalTests
     }
 
     [Theory]
-    [InlineData(0u)]
-    [InlineData(2u)]
-    [InlineData(uint.MaxValue)]
-    public void A_root_of_another_layout_version_is_refused(uint layoutVersion)
+    [InlineData("none")]
+    [InlineData("an older one")]
+    [InlineData("a newer one")]
+    [InlineData("the largest")]
+    public void A_root_of_another_layout_version_is_refused(string version)
     {
         using var item = RootArena.Of(Fields);
         var root = Write(item);
 
-        item.Arena.Header(root).LayoutVersion = layoutVersion;
+        item.Arena.Header(root).LayoutVersion = OtherLayoutVersion.Of(item.Layout, version);
 
         Assert.Throws<ArgumentException>(() => item.Reader(root));
     }
