@@ -21,7 +21,9 @@ namespace Moltaro.Lattice.Storage.Values;
 // so a high surrogate is always followed by its low one and decoding meets no malformed sequence.
 //
 // Made by RootReader.ReadText, and valid only while the caller holds the protection of the root, as
-// the reader is: it holds spans over the blocks of the value.
+// the reader is: it holds spans over the blocks of the value. Made over a copy of stored text, such as
+// the copy of a text key in an entry of an index (Ordered.IndexLayout), it reads that copy, which is
+// whole characters in the encoding of the database, and is valid while the copy is.
 internal ref struct StoredTextReader
 {
     private readonly Arena _arena;
@@ -54,6 +56,14 @@ internal ref struct StoredTextReader
         {
             _bytes = ValueBlocks.Contiguous(arena, descriptor, rootPayload);
         }
+    }
+
+    // The text of a copy of stored text: its bytes in the encoding, in one piece.
+    public StoredTextReader(ReadOnlySpan<byte> copy, LatticeStringEncodingEnum encoding)
+    {
+        _arena = null!;
+        _encoding = encoding;
+        _bytes = copy;
     }
 
     // Whether a chunk follows the one being read.

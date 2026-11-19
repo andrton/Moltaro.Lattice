@@ -1,15 +1,17 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Comparison;
 
-// The equality and the hash of values by the rules the schema declares: the one comparison and hash
-// service of the schema that the milestone contract asks for ("Index preparation and traversal"),
-// across indexes, Map and Set and direct lookups. From S07 the primary index uses it, and nothing else
-// in the engine compares a key with stored text. It knows the comparison from the declaration of the
-// field and the encoding of the database from the root layout, so it has no state of its own and one
-// set of rules serves every database. S14 adds the order of values, S19 the members of a Map and a Set.
+// The equality, the hash and the order of values by the rules the schema declares: the one comparison
+// and hash service of the schema that the milestone contract asks for ("Index preparation and
+// traversal"), across indexes, Map and Set and direct lookups. The primary index uses its equality and
+// its hash, the secondary indexes its order (Indexes.IndexOrder), and nothing else in the engine
+// compares a key with stored text. It knows the comparison from the declaration of the field and the
+// encoding of the database from what reads the text, so it has no state of its own and one set of rules
+// serves every database. The members of a Map and a Set are not stored yet.
 //
 // What equality is, for each type of a primary key:
 // - an integer and a Guid are held in the index as their value, and the equality and the hash of that
@@ -44,6 +46,21 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // UTF-16 database; the engine computes it from the text a caller gives, when it makes the key
 // (Sets.KeyArgument), before the read enters the protection of reads, and the index keeps it in its
 // entry, so no stored text is ever hashed.
+//
+// The order (CompareStored, CompareText), which an index needs beside the equality. A value of a fixed
+// type is compared by the value its stored bytes hold, read by the one reader of that form
+// (Storage.Values.StoredScalars), never as raw bytes: an integer by its number, signed or unsigned at its
+// width; a Boolean false before true; a Float32 or a Float64 by its CompareTo, so that a NaN comes first
+// and equals a NaN, and the two zeros are equal (decision on queries, Q07.3.6); a Decimal by its value,
+// so 1.0 and 1.00 are equal; a Guid by its CompareTo; a DateTimeOffset, a TimeOnly and a TimeSpan by
+// their ticks and a DateOnly by its day number. A text is compared by the comparison its field declares,
+// the same in a UTF-8 and in a UTF-16 database (Q07.3.6, "String ordering and query overrides"): Ordinal
+// by its UTF-16 code units, and without case by the code units of the texts mapped through the case
+// table of the core (TextComparison.ToUpper; decision on strings, Q46), which keeps the number of code
+// units of every scalar value, so that the order holds two texts equal exactly where the equality above
+// does. Both texts are read a piece at a time, a stored one through StoredTextReader, a given one as it
+// is, and a text that the other begins with comes first. A null is no value here: the order of an index
+// puts it after every value of its part.
 //
 // What it reserves: nothing. The buffer is 512 bytes of the stack of the comparison, and a comparison
 // allocates nothing, whatever the length of the text and wherever it lies. The hash without case maps
@@ -118,6 +135,156 @@ internal static class ValueComparer
         }
     }
 
+    // The order of two stored values of the fixed type given, from their places at the width of the
+    // type (see the class): below zero when the left one comes first. Allocates nothing.
+    public static int CompareStored(StoredTypeEnum type, ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => type switch
+    {
+        StoredTypeEnum.Boolean => left[0].CompareTo(right[0]),
+        StoredTypeEnum.SignedInteger => StoredScalars.ReadInteger(left).CompareTo(StoredScalars.ReadInteger(right)),
+        StoredTypeEnum.UnsignedInteger => StoredScalars.ReadUnsigned(left).CompareTo(StoredScalars.ReadUnsigned(right)),
+        StoredTypeEnum.Float32 => StoredScalars.ReadFloat32(left).CompareTo(StoredScalars.ReadFloat32(right)),
+        StoredTypeEnum.Float64 => StoredScalars.ReadFloat64(left).CompareTo(StoredScalars.ReadFloat64(right)),
+        StoredTypeEnum.Decimal => decimal.Compare(StoredScalars.ReadDecimal(left), StoredScalars.ReadDecimal(right)),
+        StoredTypeEnum.Guid => StoredScalars.ReadGuid(left).CompareTo(StoredScalars.ReadGuid(right)),
+        StoredTypeEnum.DateTimeOffset => StoredScalars.ReadDateTimeOffset(left).CompareTo(StoredScalars.ReadDateTimeOffset(right)),
+        StoredTypeEnum.DateOnly => StoredScalars.ReadDateOnly(left).CompareTo(StoredScalars.ReadDateOnly(right)),
+        StoredTypeEnum.TimeOnly => StoredScalars.ReadTimeOnly(left).CompareTo(StoredScalars.ReadTimeOnly(right)),
+        StoredTypeEnum.TimeSpan => StoredScalars.ReadTimeSpan(left).CompareTo(StoredScalars.ReadTimeSpan(right)),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type."),
+    };
+
+    // The order of two stored texts under the comparison given (see the class): below zero when the left
+    // one comes first. Allocates nothing.
+    public static int CompareText(StoredTextReader left, StoredTextReader right, TextComparison comparison)
+    {
+        Span<char> leftPiece = stackalloc char[PieceLength];
+        Span<char> leftMapped = stackalloc char[PieceLength];
+        Span<char> rightPiece = stackalloc char[PieceLength];
+        Span<char> rightMapped = stackalloc char[PieceLength];
+        var leftUnits = new Units(left, leftPiece, leftMapped, comparison.IgnoresCase);
+        var rightUnits = new Units(right, rightPiece, rightMapped, comparison.IgnoresCase);
+
+        return Compare(ref leftUnits, ref rightUnits);
+    }
+
+    // The order of a stored text and a given one under the comparison given: below zero when the stored
+    // one comes first. Allocates nothing.
+    public static int CompareText(StoredTextReader stored, ReadOnlySpan<char> given, TextComparison comparison)
+    {
+        Span<char> storedPiece = stackalloc char[PieceLength];
+        Span<char> storedMapped = stackalloc char[PieceLength];
+        Span<char> givenMapped = stackalloc char[PieceLength];
+        var storedUnits = new Units(stored, storedPiece, storedMapped, comparison.IgnoresCase);
+        var givenUnits = new Units(given, givenMapped, comparison.IgnoresCase);
+
+        return Compare(ref storedUnits, ref givenUnits);
+    }
+
+    // The order of the code units of two texts, read a piece at a time: the first place where they
+    // differ decides, and a text that ends first comes first.
+    private static int Compare(scoped ref Units left, scoped ref Units right)
+    {
+        while (true)
+        {
+            var leftEnds = left.Current.IsEmpty && !left.Next();
+            var rightEnds = right.Current.IsEmpty && !right.Next();
+
+            if (leftEnds || rightEnds)
+            {
+                return leftEnds == rightEnds ? 0 : leftEnds ? -1 : 1;
+            }
+
+            var length = Math.Min(left.Current.Length, right.Current.Length);
+            var order = left.Current[..length].SequenceCompareTo(right.Current[..length]);
+
+            if (order != 0)
+            {
+                return order;
+            }
+
+            left.Current = left.Current[length..];
+            right.Current = right.Current[length..];
+        }
+    }
+
     // The comparison of a String field, as the schema gives it to the core and to the engine alike.
     private static TextComparison ComparisonOf(LatticeField field) => field.Declaration.TextComparison!;
+
+    // The code units of one text for the order, a piece at a time: of a stored text, read into a piece of
+    // the stack, which ends between two characters; of a given text, as it is. Without case each piece is
+    // mapped through the case table of the core, which never cuts a surrogate pair, into a buffer of the
+    // stack. Current is what is left of the piece being compared.
+    private ref struct Units
+    {
+        private readonly bool _isStored;
+
+        private readonly bool _ignoresCase;
+
+        private readonly Span<char> _piece;
+
+        private readonly Span<char> _mapped;
+
+        private StoredTextReader _stored;
+
+        private ReadOnlySpan<char> _given;
+
+        public Units(StoredTextReader stored, Span<char> piece, Span<char> mapped, bool ignoresCase)
+        {
+            _isStored = true;
+            _stored = stored;
+            _piece = piece;
+            _mapped = mapped;
+            _ignoresCase = ignoresCase;
+        }
+
+        public Units(ReadOnlySpan<char> given, Span<char> mapped, bool ignoresCase)
+        {
+            _given = given;
+            _mapped = mapped;
+            _ignoresCase = ignoresCase;
+        }
+
+        public ReadOnlySpan<char> Current { get; set; }
+
+        // Reads the next piece into Current: false at the end of the text.
+        public bool Next()
+        {
+            ReadOnlySpan<char> units;
+
+            if (_isStored)
+            {
+                units = _piece[.._stored.Read(_piece)];
+            }
+            else
+            {
+                units = _given;
+            }
+
+            if (units.IsEmpty)
+            {
+                return false;
+            }
+
+            if (!_ignoresCase)
+            {
+                Current = units;
+                _given = default;
+
+                return true;
+            }
+
+            // A piece of stored text holds whole characters, so all of it is mapped; of a given text as
+            // much as the buffer holds without cutting a pair, and the rest comes with the next piece.
+            var mapped = TextComparison.ToUpper(units, _mapped);
+
+            Current = _mapped[..mapped];
+
+            if (!_isStored)
+            {
+                _given = _given[mapped..];
+            }
+
+            return true;
+        }
+    }
 }
