@@ -148,12 +148,12 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Admission = admission;
     }
 
-    // The hash of its key, as its entity type hashes keys (EntityTable.HashOf), computed once.
+    // The hash of its key, as its entity type hashes keys (Entities.PrimaryKeys.HashOf), computed once.
     public uint HashOf()
     {
         if (!_hashed)
         {
-            _hash = Table.HashOf(Key);
+            _hash = Table.Keys.HashOf(Key);
             _hashed = true;
         }
 
@@ -162,9 +162,9 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     // Whether the other write is of the same entity: of the same entity type and with a key that the
     // schema compares equal to this one, so that two spellings of a String key compared without case
-    // are one entity (EntityTable.KeysEqual).
+    // are one entity (Entities.PrimaryKeys.KeysEqual).
     public bool IsOfSameEntity(PendingWrite other) =>
-        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.KeysEqual(Key, other.Key);
+        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.Keys.KeysEqual(Key, other.Key);
 
     // The prepared state of a write that changes an entity, set from what its preparation made
     // (WriteExecutor).

@@ -65,7 +65,7 @@ internal sealed class StandaloneKeys : IDisposable
     public RootReader Stored => _keyType == "String" ? new(_arena, _layout, _root) : new(_layout, _fixedPart);
 
     // A new set of returned keys of the entity type.
-    public ReturnedKeys NewReturnedKeys() => new(_table);
+    public ReturnedKeys NewReturnedKeys() => new(_table.Keys);
 
     // Writes the key of the number and returns the hash the index gives it.
     public uint Write(long number)
@@ -83,7 +83,7 @@ internal sealed class StandaloneKeys : IDisposable
             writer.SetString(Body, string.Empty);
             _root = writer.Complete();
 
-            return _table.TextHash(text);
+            return _table.Keys.TextHash(text);
         }
 
         if (_keyType == "Int64")
@@ -92,7 +92,7 @@ internal sealed class StandaloneKeys : IDisposable
 
             BinaryPrimitives.WriteInt64LittleEndian(_fixedPart.AsSpan(_offset), key);
 
-            return _table.IntegerHash(key);
+            return _table.Keys.IntegerHash(key);
         }
 
         // The two halves of the Guid, as the engine holds them, both different for every number.
@@ -102,7 +102,7 @@ internal sealed class StandaloneKeys : IDisposable
         BinaryPrimitives.WriteInt64LittleEndian(_fixedPart.AsSpan(_offset), first);
         BinaryPrimitives.WriteInt64LittleEndian(_fixedPart.AsSpan(_offset + 8), second);
 
-        return _table.GuidHash(first, second);
+        return _table.Keys.GuidHash(first, second);
     }
 
     public void Dispose() => _arena.Dispose();

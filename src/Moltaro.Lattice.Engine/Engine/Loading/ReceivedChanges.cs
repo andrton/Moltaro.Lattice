@@ -336,7 +336,7 @@ internal sealed class ReceivedChanges
 
             case EffectKindEnum.Delete:
                 var deleted = TableOf(typeId, sequence);
-                var key = deleted.ReadKey(ref reader);
+                var key = deleted.Keys.ReadKey(ref reader);
 
                 PrepareDelete(deleted, key, sequence);
 
@@ -504,14 +504,14 @@ internal sealed class ReceivedChanges
     // The key of a checked root, read where the root holds it and hashed under the seed of this instance.
     private EntityKey KeyOf(EntityTable table, in ReceivedRoot received)
     {
-        if (table.KeyKind == KeyKindEnum.Text)
+        if (table.Keys.KeyKind == KeyKindEnum.Text)
         {
-            return table.KeyOfText(_import.Text(received, table.EntityType.Key));
+            return table.Keys.KeyOfText(_import.Text(received, table.EntityType.Key));
         }
 
         var fixedPart = _import.FixedPart(received);
 
-        return table.StoredKey(fixedPart);
+        return table.Keys.StoredKey(fixedPart);
     }
 
     // A transaction names each key once: two changes of one key in one transaction would be prepared
@@ -521,7 +521,7 @@ internal sealed class ReceivedChanges
     {
         foreach (var change in _prepared)
         {
-            if (ReferenceEquals(change.Table, table) && table.KeysEqual(change.Key, key))
+            if (ReferenceEquals(change.Table, table) && table.Keys.KeysEqual(change.Key, key))
             {
                 throw NamedTwice(table, key);
             }
@@ -529,7 +529,7 @@ internal sealed class ReceivedChanges
 
         foreach (var (skippedTable, skippedKey) in _skipped)
         {
-            if (ReferenceEquals(skippedTable, table) && table.KeysEqual(skippedKey, key))
+            if (ReferenceEquals(skippedTable, table) && table.Keys.KeysEqual(skippedKey, key))
             {
                 throw NamedTwice(table, key);
             }

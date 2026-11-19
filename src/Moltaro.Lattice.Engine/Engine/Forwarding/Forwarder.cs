@@ -176,7 +176,7 @@ internal sealed class Forwarder
         var layout = table.Layout!;
 
         ForwardEncoding.WriteRequestHead(request, kind, (uint)table.EntityType.Id, expectedRevision, minimumPosition);
-        table.WriteKey(key, request);
+        table.Keys.WriteKey(key, request);
 
         if (kind != WriteKindEnum.Delete)
         {

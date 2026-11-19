@@ -83,7 +83,7 @@ internal sealed class BlockImport
     // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
     // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
     // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
-    // is not (Engine.Entities.EntityTable.ReadKey): a key that a master stores is well-formed, since every
+    // is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is well-formed, since every
     // write checks its text (docs/decisions/strings.md, "Input validity and preservation"), so such a root
     // did not come from one. Every other text of a root is placed as the bytes it is and not decoded.
     public string Text(in ReceivedRoot root, LatticeField field)
