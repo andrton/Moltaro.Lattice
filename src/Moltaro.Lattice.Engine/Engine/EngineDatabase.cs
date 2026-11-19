@@ -929,7 +929,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, _executor!, schema, tables, _writes!, _barrier, _coordinator!, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, schema, tables, _writes!, _barrier, _coordinator!, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
@@ -1062,10 +1062,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this);
             var delivery = new DeliveryTail();
-            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs, delivery, schema);
+            var changes = new ChangePublisher(arena, roots, retired, clock);
+            var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery, schema);
             var coordinator = new WriteCoordinator(
                 writes,
                 executor,
+                changes,
                 retired,
                 _epochs,
                 delivery,

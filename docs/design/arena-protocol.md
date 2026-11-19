@@ -134,7 +134,7 @@ each store with release semantics. A read loads the stamp with acquire semantics
 off while it finds the mark, loads the state and the root with acquire semantics, and loads
 the stamp again: the same stamp both times is one state, another one means that a write came
 between, and the read takes the entry again. The reader's half is in
-`Engine/Entities/EntityTable.cs`, the writer's in `Engine/Writes/WriteExecutor.cs`.
+`Engine/Entities/EntityTable.cs`, the writer's in `Engine/Entities/ChangePublisher.cs`.
 
 The protocol is that of `SeqLock` of crossbeam (`crossbeam-utils/src/atomic/seq_lock.rs`) and
 of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit

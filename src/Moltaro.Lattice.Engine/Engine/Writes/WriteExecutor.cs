@@ -18,14 +18,6 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (WriteCoordinator). Insert, replace, upsert and delete, with or without an expected revision
 // (docs/decisions/mutation-commands.md).
 //
-// The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted
-// from crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
-// crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
-// project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
-// The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md). Entities.EntityTable, whose reads
-// they pair with, describes the protocol, and docs/design/arena-protocol.md, "The stamp of a root
-// entry", says what differs from the source. The rest of the type is the engine's own.
-//
 // The arena, the table of root entries, the primary indexes, the position clock and the retired list
 // take no lock and have one changing thread at a time: the holder of the lock of the writes. Reads
 // take no lock: they are protected by epochs, and what a read could still reach is retired, not freed
@@ -44,13 +36,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    stored one.
 // 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
 //    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
-//    size of the write; an insert reserves room in the index, which may grow it, and a replace or a delete a
-//    place in the retired list, beside what the writes prepared before it and not published yet reserved. A
-//    failure frees all of it, so nothing of a failed write is left in any counter. An entity has no size
-//    limit of its own; only the memory of the arena, the memory budget of the database, refuses one
-//    (docs/decisions/write-admission.md, "Configurable root-object size limit"): then TryPrepare returns
-//    false with everything freed, and the coordinator decides what the write waits for before it tries again
-//    (WriteCoordinator, "The refusal").
+//    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.Reserve): room in
+//    the index for an insert, which may grow it, and for a replace or a delete a place in the retired list,
+//    beside what the writes prepared before it and not published yet reserved. A failure frees all of it, so
+//    nothing of a failed write is left in any counter. An entity has no size limit of its own; only the
+//    memory of the arena, the memory budget of the database, refuses one (docs/decisions/write-admission.md,
+//    "Configurable root-object size limit"): then TryPrepare returns false with everything freed, and the
+//    coordinator decides what the write waits for before it tries again (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
 // A write a child forwarded brings the root the child wrote, in the load format, instead of values
@@ -63,27 +55,15 @@ namespace Moltaro.Lattice.Engine.Writes;
 // values.
 //
 // A publication (Publish), of the writes of a group in its order, after the storage step: it only
-// installs what was prepared: the stores below in their order, the position, the retirement of what
-// was replaced. It obtains no native memory, grows no index, adds no root entry, does no I/O and runs no
-// code of the application. Each store has release semantics (Volatile.Write), so a read that sees one,
-// by a load with acquire semantics, sees every store before it, the blocks the preparation wrote
-// included.
-// - Insert: the root is published in the arena and the root entry written while no read by key can
-//   reach them, its state Live last, by a release, for the capture of a load, which reaches entries by
-//   their slots (EntityTable.TryTakeLive); the entry of the index is the store that publishes them to a
-//   read by key (Storage.Hashing.IndexTable.Add); then the sequence of the database (PositionClock.Publish).
-// - Replace: the entry's stamp becomes MutationInProgress, then the root, then the sequence of the
-//   database, then the entry's stamp becomes the write's sequence; the old root is retired.
-// - Delete: the entry's stamp becomes MutationInProgress, then its state Deleted, then the sequence of
-//   the database, then the entry's stamp; then the entry of the index is removed; the root and its
-//   entry are retired. The entry keeps the address of the retired root.
-// - A delete of an absent key publishes only its sequence.
-// Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
-// look, a write that retired nothing counting as one thing from a look that left something behind
-// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a
-// test armed, for a defect, or when the managed heap cannot hold a block of the tail of the children
-// (below); the write that failed and those after it stay unpublished, and the coordinator faults the
-// database.
+// installs what was prepared. The change of each write is published at the sequence of the write, with
+// the stores before the position, the position and the stores after it (Entities.ChangePublisher;
+// docs/design/write-path.md, "How a publication is made"); a delete of an absent key changes no entity and
+// publishes only its sequence. Then RetiredMemory frees what no read can reach any more, once enough was
+// retired since its last look, a write that retired nothing counting as one thing from a look that left
+// something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a
+// fault point a test armed (Pass, FaultAt), for a defect, or when the managed heap cannot hold a block of
+// the tail of the children (below); the write that failed and those after it stay unpublished, and the
+// coordinator faults the database.
 //
 // The children. While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
 // encoded for the children before its stores, from what it publishes — the root it prepared, the key it
@@ -91,12 +71,6 @@ namespace Moltaro.Lattice.Engine.Writes;
 // senders of the children are woken once the lock is released (DeliveryTail.Wake). The copy is written into
 // the blocks of the tail, under the lock, which allocates only when the tail takes a block it has no spare
 // for. With no child and no capture nothing is encoded.
-//
-// A child (Loading.ReceivedChanges) publishes what it received from its master through the members
-// Install, MarkReplace, MarkDelete, StampReplace and StampDelete: the stores of the writes of a
-// master, split where a master publishes its position, so that a transaction of several effects marks or
-// installs every entity it changes, publishes its position once, then stores the stamps. With the
-// sequence of the master as the stamp, and with no fault point: a test arms one on a master.
 //
 // Every write that passes its condition and its preparation and is committed is published at a position of
 // its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
@@ -112,7 +86,7 @@ internal sealed class WriteExecutor
 
     private readonly PositionClock _clock;
 
-    private readonly ReadEpochs _epochs;
+    private readonly ChangePublisher _changes;
 
     private readonly DeliveryTail _delivery;
 
@@ -132,13 +106,13 @@ internal sealed class WriteExecutor
     // looked (TakeDelivered).
     private bool _delivered;
 
-    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ReadEpochs epochs, DeliveryTail delivery, LatticeSchema schema)
+    public WriteExecutor(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, ChangePublisher changes, DeliveryTail delivery, LatticeSchema schema)
     {
         _arena = arena;
         _roots = roots;
         _retired = retired;
         _clock = clock;
-        _epochs = epochs;
+        _changes = changes;
         _delivery = delivery;
         _schema = schema;
     }
@@ -175,7 +149,7 @@ internal sealed class WriteExecutor
 
         if (write.Kind == WriteKindEnum.Delete)
         {
-            prepared = exists ? PrepareDelete(write, handle) : write.Prepare(PublicationKindEnum.NothingToDelete, default, default, 0);
+            prepared = exists ? PrepareDelete(write, handle) : write.PrepareNothingToDelete();
 
             return true;
         }
@@ -183,32 +157,6 @@ internal sealed class WriteExecutor
         return exists
             ? TryPrepareReplace(write, handle, out prepared, out refusal)
             : TryPrepareInsert(write, out prepared, out refusal);
-    }
-
-    // Gives back everything a prepared write reserved and does not publish, because it was withdrawn
-    // before its dispatch: its new root and, for an insert, its root entry, to which no index maps a
-    // key, so that no read can have reached either; its room in the index or in the retired list.
-    public void Release(PreparedWrite prepared)
-    {
-        var table = prepared.Write.Table;
-
-        switch (prepared.Kind)
-        {
-            case PublicationKindEnum.Insert:
-                RootStorage.Free(_arena, table.Layout!, prepared.Root);
-                _roots.Release(prepared.Handle);
-                table.ReleaseReservation();
-                break;
-
-            case PublicationKindEnum.Replace:
-                RootStorage.Free(_arena, table.Layout!, prepared.Root);
-                _retired.Release();
-                break;
-
-            case PublicationKindEnum.Delete:
-                _retired.Release();
-                break;
-        }
     }
 
     // Publishes the writes of the group in its order, the first at the sequence given and each next at
@@ -235,7 +183,7 @@ internal sealed class WriteExecutor
 
                 PublishOne(prepared, firstSequence + (ulong)published);
 
-                if (prepared.Kind is PublicationKindEnum.Insert or PublicationKindEnum.NothingToDelete)
+                if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Insert)
                 {
                     retiredNothing++;
                 }
@@ -284,9 +232,11 @@ internal sealed class WriteExecutor
 
     private PreparedWrite PrepareDelete(PendingWrite write, RootHandle handle)
     {
-        _retired.Reserve();
+        var change = new PreparedChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default);
 
-        return write.Prepare(PublicationKindEnum.Delete, handle, default, 0);
+        _changes.Reserve(change);
+
+        return write.Prepare(change, 0);
     }
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
@@ -316,9 +266,11 @@ internal sealed class WriteExecutor
             return false;
         }
 
+        var change = new PreparedChange(ChangeKindEnum.Replace, table, write.Key, handle, root);
+
         try
         {
-            _retired.Reserve();
+            _changes.Reserve(change);
         }
         catch
         {
@@ -326,7 +278,7 @@ internal sealed class WriteExecutor
             throw;
         }
 
-        prepared = write.Prepare(PublicationKindEnum.Replace, handle, root, size);
+        prepared = write.Prepare(change, size);
 
         return true;
     }
@@ -356,8 +308,10 @@ internal sealed class WriteExecutor
                 return false;
             }
 
-            table.Reserve(write.Key);
-            prepared = write.Prepare(PublicationKindEnum.Insert, handle, root, size);
+            var change = new PreparedChange(ChangeKindEnum.Insert, table, write.Key, handle, root);
+
+            _changes.Reserve(change);
+            prepared = write.Prepare(change, size);
 
             return true;
         }
@@ -512,15 +466,14 @@ internal sealed class WriteExecutor
         return size;
     }
 
-    // The stores of the publication of one write (see the class), with the fault points of the tests,
-    // and its transaction for the children while one is registered: encoded before the stores, so that a
-    // failure to hold it leaves the write unpublished, and appended after them.
+    // The publication of one write (see the class), with the fault points of the tests, and its
+    // transaction for the children while one is registered: encoded before the stores, so that a failure
+    // to hold it leaves the write unpublished, and appended after them.
     private void PublishOne(PreparedWrite prepared, ulong sequence)
     {
         Pass(EngineFaultPointEnum.BeforePublication);
 
         var write = prepared.Write;
-        var table = write.Table;
         var delivers = _delivery.Retains;
 
         if (delivers)
@@ -528,30 +481,18 @@ internal sealed class WriteExecutor
             Deliver(prepared, sequence);
         }
 
-        switch (prepared.Kind)
-        {
-            case PublicationKindEnum.Insert:
-                PublishInsert(table, write.Key, prepared, sequence);
-                break;
+        // The fault point inside the publication lies after the stores before the position, which a delete
+        // of an absent key, with no change, does not make.
+        var changes = prepared.Changes;
+        var fault = changes.IsEmpty ? null : FaultAt(EngineFaultPointEnum.DuringPublication);
 
-            case PublicationKindEnum.Replace:
-                ReplaceRoot(table.Layout!, prepared.Handle, prepared.Root, sequence);
-                break;
-
-            case PublicationKindEnum.Delete:
-                DeleteRoot(table, write.Key, prepared.Handle, sequence);
-                break;
-
-            default:
-                _clock.Publish(sequence);
-                break;
-        }
+        _changes.Publish(changes, sequence, publishesPosition: true, fault);
 
         // The reply of a write a child forwarded, before its transaction is appended, so that the child
         // takes the reply first (Delivery.RecordedReplies).
         if (write.Forwarded is { } forwarded)
         {
-            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.Kind != PublicationKindEnum.NothingToDelete));
+            forwarded.Replies.Succeed(forwarded.CorrelationId, new LatticeWriteResult(_clock.At(sequence), prepared.ChangesEntity));
         }
 
         if (delivers)
@@ -567,150 +508,49 @@ internal sealed class WriteExecutor
     {
         var write = prepared.Write;
 
-        switch (prepared.Kind)
+        if (!prepared.ChangesEntity)
         {
-            case PublicationKindEnum.Insert or PublicationKindEnum.Replace:
-                TransactionEncoder.Write(_delivery, sequence, write.Table, _arena, prepared.Root);
-                break;
-
-            case PublicationKindEnum.Delete:
-                TransactionEncoder.Delete(_delivery, sequence, write.Table, write.Key);
-                break;
-
-            default:
-                TransactionEncoder.Unchanged(_delivery, sequence);
-                break;
+            TransactionEncoder.Unchanged(_delivery, sequence);
         }
-    }
-
-    private void PublishInsert(EntityTable table, in EntityKey key, PreparedWrite prepared, ulong sequence)
-    {
-        Install(table, key, prepared.Handle, prepared.Root, sequence);
-        Pass(EngineFaultPointEnum.DuringPublication);
-
-        // The sequence of the database after the entry of the index, so that a read that sees the
-        // sequence finds the key.
-        _clock.Publish(sequence);
-    }
-
-    // The stores of the publication of a write, which a master makes here (PublishOne) and a child for what
-    // it received from its master (Loading.ReceivedChanges), under the lock of the writes, each with the
-    // sequence of its write as the stamp: Install, MarkReplace and MarkDelete before the position of the
-    // write, StampReplace and StampDelete after it (see the class). The caller reserved what they use:
-    // room in the index for an insert, a place in the retired list for a replace and a delete. A child,
-    // whose transaction may change several entities, makes the stores before the position for each of
-    // them, publishes its position once, and then makes the stores after it.
-    //
-    // The stores of an insert before its position: the root becomes live, then the entry, its state last,
-    // then the entry of the index, which publishes both to a read by key.
-    public void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
-    {
-        RootStorage.Publish(_arena, table.Layout!, root);
-
-        // No read by key reaches the entry before the index maps the key to it, and the first stamp of the
-        // entry is the write's sequence, with no mark before it. The capture of a load reaches it by its
-        // slot (Children.Capture), and takes more of it only once it loads the state Live with acquire
-        // semantics, so that state is stored last, with release semantics: a capture that sees it sees
-        // the root and the sequence of this lifetime, never those of an earlier one of the slot
-        // (EntityTable.TryTakeLive). x64 keeps stores in their order and
-        // hides the difference; hardware that orders stores weakly does not.
-        ref var entry = ref _roots.Entry(handle);
-
-        entry.Root = root;
-        entry.LastMutationSequence = sequence;
-        entry.ReleaseState(RootStateEnum.Live);
-
-        // The store that publishes the entry and the root to a read by key, with release semantics.
-        table.Add(key, handle);
-    }
-
-    // The stores of a replace of a master, with the fault point of the tests (see the head of the file).
-    private void ReplaceRoot(RootLayout layout, RootHandle handle, ArenaAddress root, ulong sequence)
-    {
-        var replaced = MarkReplace(layout, handle, root);
-
-        Pass(EngineFaultPointEnum.DuringPublication);
-
-        // The sequence of the database between the mark and the stamp, so that a read that loads the new
-        // stamp reads that sequence or a later one (the position of an answer, EntityTable).
-        _clock.Publish(sequence);
-        StampReplace(layout, handle, replaced, sequence);
-    }
-
-    // The stores of a delete of a master, with the fault point of the tests, in the order of a replace.
-    private void DeleteRoot(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
-    {
-        MarkDelete(handle);
-        Pass(EngineFaultPointEnum.DuringPublication);
-        _clock.Publish(sequence);
-        StampDelete(table, key, handle, sequence);
-    }
-
-    // The stores of a replace before the position (see the head of the file), each with release semantics:
-    // the mark first; the release of the root's store keeps the mark before the root, as the release fence
-    // after the source's swap keeps it before the data. Returns the root replaced.
-    public ArenaAddress MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
-    {
-        RootStorage.Publish(_arena, layout, root);
-
-        ref var entry = ref _roots.Entry(handle);
-        var replaced = entry.Root;
-
-        entry.ReleaseLastMutation(EntityTable.MutationInProgress);
-        entry.ReleaseRoot(root);
-
-        return replaced;
-    }
-
-    // The stores of a replace after the position: the new stamp, whose release keeps the root before it,
-    // so a read that loads it sees the new root. Reads that took the old root before go on copying it; it
-    // is freed once they have left.
-    public void StampReplace(RootLayout layout, RootHandle handle, ArenaAddress replaced, ulong sequence)
-    {
-        _roots.Entry(handle).ReleaseLastMutation(sequence);
-        _retired.RetireRoot(layout, replaced);
-    }
-
-    // The stores of a delete before the position: the mark, then the state where a replace has the root.
-    // The entry keeps the address of its root, which is retired, not freed.
-    public void MarkDelete(RootHandle handle)
-    {
-        ref var entry = ref _roots.Entry(handle);
-
-        entry.ReleaseLastMutation(EntityTable.MutationInProgress);
-        entry.ReleaseState(RootStateEnum.Deleted);
-    }
-
-    // The stores of a delete after the position: the stamp, then the entry of the index is removed, so a
-    // read that misses the key reads the position of the delete or a later one; the root and its entry are
-    // retired.
-    public void StampDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
-    {
-        ref var entry = ref _roots.Entry(handle);
-
-        entry.ReleaseLastMutation(sequence);
-        table.Remove(key, handle);
-        _retired.RetireDeleted(table.Layout!, handle, entry.Root);
+        else if (prepared.Change.Kind == ChangeKindEnum.Delete)
+        {
+            TransactionEncoder.Delete(_delivery, sequence, write.Table, write.Key);
+        }
+        else
+        {
+            TransactionEncoder.Write(_delivery, sequence, write.Table, _arena, prepared.Change.Root);
+        }
     }
 
     // A pass through a fault point: nothing unless a test armed this point; then the passes it lets
     // through go on, and the next one throws, once.
     private void Pass(EngineFaultPointEnum point)
     {
+        if (FaultAt(point) is { } fault)
+        {
+            throw fault;
+        }
+    }
+
+    // A pass through a fault point where another part throws: null unless a test armed this point; then
+    // the passes it lets through go on, and the next one gets the exception to throw, once. The point
+    // inside the publication lies in the publisher (Entities.ChangePublisher.Publish), between its stores.
+    private InvalidOperationException? FaultAt(EngineFaultPointEnum point)
+    {
         if (_armedPoint != point)
         {
-            return;
+            return null;
         }
 
         if (_skippedPasses > 0)
         {
             _skippedPasses--;
 
-            return;
+            return null;
         }
 
         _armedPoint = default;
 
-        throw new InvalidOperationException($"The fault point {point}, armed by a test of the engine, failed this publication.");
+        return new InvalidOperationException($"The fault point {point}, armed by a test of the engine, failed this publication.");
     }
 }

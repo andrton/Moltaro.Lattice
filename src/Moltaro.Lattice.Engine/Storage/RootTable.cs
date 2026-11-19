@@ -25,7 +25,7 @@ namespace Moltaro.Lattice.Storage;
 // reader reads. The capture of a load on a master walks the slots below the extent it took instead,
 // whatever lifetime each holds, while the master writes (Engine.Children.Capture): it takes more of an
 // entry only once it has loaded the state Live with acquire semantics, which an insert stores last with
-// release semantics (Engine.Writes.WriteExecutor.Install), and every other state it skips; Add writes
+// release semantics (Engine.Entities.ChangePublisher.Install), and every other state it skips; Add writes
 // the fields of an entry one by one, so that the state is never read torn. The protection of reads keeps
 // a slot from being released while a read that could have found it is inside: the entry of a deleted
 // root is retired and released only after those reads have left (Engine.Protection.RetiredMemory).

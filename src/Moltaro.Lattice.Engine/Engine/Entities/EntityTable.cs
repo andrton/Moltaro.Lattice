@@ -22,7 +22,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // says how reads read them while it does. A write being prepared looks its key up under that lock
 // (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
 //
-// The stamp of a root entry, read here (TakeEntry) and written by Writes.WriteExecutor. A read takes
+// The stamp of a root entry, read here (TakeEntry) and written by ChangePublisher. A read takes
 // the state, the root and the sequence of the last mutation of an entry as one state, without a lock,
 // while the one thread that holds the lock of the writes changes the entry:
 // - The stamp is the sequence of the last mutation of the entry. MutationInProgress, 0, which no
@@ -78,7 +78,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // delete. For an absent key: the sequence of the database read before the lookup, when the lookup
 // ended with the sequence unchanged; otherwise the read looks up again. An insert publishes its entry
 // in the index before the sequence of the database and a delete the sequence before it removes the
-// entry (Writes.WriteExecutor), so an absence seen at an unchanged sequence holds at that sequence.
+// entry (ChangePublisher), so an absence seen at an unchanged sequence holds at that sequence.
 //
 // An enumeration, a step at a time (TryReadNext). Between two steps nothing is held but what its pass
 // holds (EntityPass), managed memory of the enumeration. A step is made of rounds, each inside the
@@ -785,7 +785,7 @@ internal sealed class EntityTable
     // file), and copies a live root. False, with the sequence of its delete, for a deleted root.
     //
     // Why the triple is never torn. Every load here has acquire semantics and every store of the
-    // writer release semantics (Writes.WriteExecutor), so a load that reads what a store wrote sees
+    // writer release semantics (ChangePublisher), so a load that reads what a store wrote sees
     // everything stored before that store, by the writes before it as well, which the lock of the
     // writes orders. Suppose both loads of the stamp give S.
     // - A state or a root older than those S was stored with: they were stored before S, and the
@@ -828,7 +828,7 @@ internal sealed class EntityTable
     //
     // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
     // insert writes the root and the sequence of a new entry and only then stores the state Live, by a
-    // store with release semantics (Writes.WriteExecutor.Install); the state is loaded here with acquire
+    // store with release semantics (ChangePublisher.Install); the state is loaded here with acquire
     // semantics, so a capture that loads Live sees the root, the sequence and the type id of the lifetime
     // that store published, and the blocks of the root; it never pairs Live with the root or the sequence
     // of an earlier lifetime of the slot, a root that may have been freed. That earlier lifetime cannot be

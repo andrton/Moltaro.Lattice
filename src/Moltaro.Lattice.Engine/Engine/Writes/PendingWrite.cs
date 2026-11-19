@@ -1,7 +1,6 @@
 using System.Threading.Tasks.Sources;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -167,20 +166,30 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public bool IsOfSameEntity(PendingWrite other) =>
         ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.KeysEqual(Key, other.Key);
 
-    // The prepared state of the write, set from what its preparation made (WriteExecutor).
-    public PreparedWrite Prepare(PublicationKindEnum kind, RootHandle handle, ArenaAddress root, long encodedSize)
+    // The prepared state of a write that changes an entity, set from what its preparation made
+    // (WriteExecutor).
+    public PreparedWrite Prepare(in PreparedChange change, long encodedSize)
     {
         _record ??= new PreparedWrite(this);
-        _record.Set(kind, handle, root, encodedSize);
+        _record.Set(change, encodedSize);
+
+        return _record;
+    }
+
+    // The prepared state of a delete of a key that is absent, which changes no entity.
+    public PreparedWrite PrepareNothingToDelete()
+    {
+        _record ??= new PreparedWrite(this);
+        _record.Clear();
 
         return _record;
     }
 
     // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
-    // go of the inputs, so that the record keeps nothing of the caller alive, and clears its state, its
-    // prepared state, its outcome and the hash of its key; no list, chain, registration or task was
-    // ever given it, so its links are null and its value source was never read (WriteCoordinator, "What
-    // a write allocates").
+    // go of the inputs and of the change of its prepared state, which names the table and the key, so that
+    // the record keeps nothing of the caller alive, and clears its state, its prepared state, its outcome
+    // and the hash of its key; no list, chain, registration or task was ever given it, so its links are
+    // null and its value source was never read (WriteCoordinator, "What a write allocates").
     public void ResetAfterItsCall()
     {
         Table = null!;
@@ -192,6 +201,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         ExpectedRevision = null;
         State = default;
         Prepared = null;
+        _record?.Clear();
         Failure = null;
         _hashed = false;
     }

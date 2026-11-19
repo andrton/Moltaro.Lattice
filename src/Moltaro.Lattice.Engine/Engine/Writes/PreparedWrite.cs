@@ -1,27 +1,26 @@
-using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Engine.Entities;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
-// One write as the commit stage sees it: prepared, with everything its publication needs reserved
-// (brief of Epic 1, sprint S09, "Types and members of S09").
+// One write as the commit stage sees it: prepared, with everything its publication needs reserved.
 //
-// EncodedSize is the bytes of the slots the write prepared in the arena: the root and every block of
-// its values (brief of S09, "What is counted"), as the root writer counted them when it allocated them
-// (Storage.RootWriter.SlotBytes). It is a long, and so is every sum of it, because no rule bounds the
-// size of an entity (decision O19). A write that waits and is not prepared yet holds nothing in the
-// engine and has no PreparedWrite.
+// EncodedSize is the bytes of the slots the write prepared in the arena: the root and every block of its
+// values, as the root writer counted them when it allocated them (Storage.RootWriter.SlotBytes). It is a
+// long, and so is every sum of it, because no rule bounds the size of an entity. A write that waits and is
+// not prepared yet holds nothing in the engine and has no PreparedWrite.
 //
-// The rest is what the publication installs (WriteExecutor.Publish), set at the end of the
-// preparation and not changed until the write has its outcome: the write it belongs to, the root entry
-// it publishes under and the root it publishes. For an insert the entry is a new one, prepared, which
-// no index maps yet; for a replace and a delete it is the entry of the stored entity, which stays as
-// the write found it, since no other write of the entity is prepared before this one is published or
-// withdrawn (WriteCoordinator). Until the write is published or withdrawn its root is prepared and its
-// room in the index or in the retired list is reserved (WriteExecutor.Release gives it back). The
-// record of a write owns it and sets it for each write it holds (PendingWrite.Prepare), so that it is
+// The rest is what the publication installs (WriteExecutor.Publish): the write it belongs to and the change
+// of its entity (Entities.PreparedChange), set at the end of the preparation and not changed until the write
+// has its outcome, but for the root a replace replaces, which its publication records. A delete of a key that
+// is absent changes no entity: it has no change and publishes only its position. Until the write is published
+// or withdrawn its change holds what it took and reserved (Entities.ChangePublisher.Release gives it back).
+// The record of a write owns it and sets it for each write it holds (PendingWrite.Prepare), so that it is
 // made once for the record.
 internal sealed class PreparedWrite
 {
+    // The change of the write, valid while ChangesEntity is true.
+    private PreparedChange _change;
+
     public PreparedWrite(PendingWrite write)
     {
         Write = write;
@@ -32,20 +31,30 @@ internal sealed class PreparedWrite
     // The write this is the prepared state of.
     public PendingWrite Write { get; }
 
-    public PublicationKindEnum Kind { get; private set; }
+    // Whether the write changes an entity: false for a delete of a key that is absent.
+    public bool ChangesEntity { get; private set; }
 
-    // The root entry the write publishes under; default for a delete of an absent key.
-    public RootHandle Handle { get; private set; }
+    // The change the write makes to its entity, when it changes one.
+    public ref readonly PreparedChange Change => ref _change;
 
-    // The new root of an insert or a replace, in prepared blocks; null for a delete.
-    public ArenaAddress Root { get; private set; }
+    // What the publication of the write installs, as the publisher takes it: its one change, or none. A
+    // span over the field of this record, so that it is passed without a copy and without an allocation.
+    public Span<PreparedChange> Changes => ChangesEntity ? new Span<PreparedChange>(ref _change) : default;
 
-    // What the preparation of the write made.
-    public void Set(PublicationKindEnum kind, RootHandle handle, ArenaAddress root, long encodedSize)
+    // What the preparation of a write that changes an entity made.
+    public void Set(in PreparedChange change, long encodedSize)
     {
-        Kind = kind;
-        Handle = handle;
-        Root = root;
+        _change = change;
+        ChangesEntity = true;
         EncodedSize = encodedSize;
+    }
+
+    // No change: what the preparation of a delete of a key that is absent made, and what a record kept
+    // for the next write holds, so that it keeps no table and no key of an earlier write alive.
+    public void Clear()
+    {
+        _change = default;
+        ChangesEntity = false;
+        EncodedSize = 0;
     }
 }

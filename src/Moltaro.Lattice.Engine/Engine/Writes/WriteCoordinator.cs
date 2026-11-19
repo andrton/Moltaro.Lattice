@@ -77,8 +77,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 // Why the hand-overs are ordered (the .NET memory model). Everything a write is and has passes between
 // threads only under the lock of the writes, which releases what a thread wrote before it and acquires
 // it on the thread that takes it next; the stores of a publication have release semantics
-// (WriteExecutor), so a read that sees them sees the blocks. The outcome of a write that another
-// thread completes is written under the lock and given after it, by its value source.
+// (Entities.ChangePublisher), so a read that sees them sees the blocks. The outcome of a write that
+// another thread completes is written under the lock and given after it, by its value source.
 //
 // Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
 // dispatch, the call of ICommitStorage.CommitAsync for its group, the token of a write is honored at every
@@ -183,6 +183,9 @@ internal sealed class WriteCoordinator
 
     private readonly WriteExecutor _executor;
 
+    // Gives back what a prepared write that is not published took and reserved.
+    private readonly ChangePublisher _changes;
+
     private readonly RetiredMemory _retired;
 
     private readonly ReadEpochs _epochs;
@@ -256,6 +259,7 @@ internal sealed class WriteCoordinator
     public WriteCoordinator(
         Lock writes,
         WriteExecutor executor,
+        ChangePublisher changes,
         RetiredMemory retired,
         ReadEpochs epochs,
         DeliveryTail delivery,
@@ -267,6 +271,7 @@ internal sealed class WriteCoordinator
     {
         _writes = writes;
         _executor = executor;
+        _changes = changes;
         _retired = retired;
         _epochs = epochs;
         _delivery = delivery;
@@ -403,7 +408,7 @@ internal sealed class WriteCoordinator
 
                 case PendingWriteStateEnum.Prepared:
                     Unlink(ref _preparedFirst, ref _preparedLast, write);
-                    _executor.Release(write.Prepared!);
+                    _changes.Release(write.Prepared!.Changes);
                     End(write, cancelled, ref pass);
                     AdvanceChain(write, ref pass);
                     break;
@@ -853,7 +858,7 @@ internal sealed class WriteCoordinator
         // Its token is honored when its preparation ends, before it can be dispatched.
         if (write.Token.IsCancellationRequested)
         {
-            _executor.Release(prepared);
+            _changes.Release(prepared.Changes);
             End(write, new OperationCanceledException(write.Token), ref pass);
             AdvanceChain(write, ref pass);
 
@@ -1098,7 +1103,7 @@ internal sealed class WriteCoordinator
             {
                 if (write.Token.IsCancellationRequested)
                 {
-                    _executor.Release(prepared);
+                    _changes.Release(prepared.Changes);
                     End(write, new OperationCanceledException(write.Token), ref pass);
 
                     return;
@@ -1193,7 +1198,7 @@ internal sealed class WriteCoordinator
             {
                 _preparedFirst = write.Next;
                 write.Next = null;
-                _executor.Release(write.Prepared!);
+                _changes.Release(write.Prepared!.Changes);
                 End(write, new OperationCanceledException(write.Token), ref pass);
                 AdvanceChain(write, ref pass);
 
@@ -1335,7 +1340,7 @@ internal sealed class WriteCoordinator
         {
             var prepared = writes[index];
 
-            Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.Kind != PublicationKindEnum.NothingToDelete), ref pass);
+            Succeed(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.ChangesEntity), ref pass);
             AdvanceChain(prepared.Write, ref pass);
         }
     }
@@ -1367,7 +1372,7 @@ internal sealed class WriteCoordinator
         {
             _preparedFirst = prepared.Next;
             prepared.Next = null;
-            _executor.Release(prepared.Prepared!);
+            _changes.Release(prepared.Prepared!.Changes);
             End(prepared, ReadEpochs.FaultedRefusal(), ref pass);
             AdvanceChain(prepared, ref pass);
         }

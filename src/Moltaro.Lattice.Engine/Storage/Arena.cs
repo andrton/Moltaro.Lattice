@@ -41,7 +41,7 @@ namespace Moltaro.Lattice.Storage;
 // reader sees their old or their new value, either of which leaves the bit of its own block set. A
 // grown segment table is a new array: a reader that still has the old one finds the same segments in
 // it. A reader learns of a block only through the publication of a root, which is ordered after
-// everything the arena wrote for that block (Engine.Writes.WriteExecutor says which store
+// everything the arena wrote for that block (Engine.Entities.ChangePublisher says which store
 // publishes).
 internal sealed unsafe class Arena : IDisposable
 {

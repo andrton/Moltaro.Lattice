@@ -42,7 +42,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 //
 // Why a read and the writer never miss each other (the .NET memory model, not that of x64). The
 // writer first unlinks what it retires, by a store with release semantics (the index, the root
-// entry: Writes.WriteExecutor), then moves the epoch on by Interlocked.Increment, a full fence, and
+// entry: Entities.ChangePublisher), then moves the epoch on by Interlocked.Increment, a full fence, and
 // only then reads the slots (Advance). A read reads the epoch, writes it into a slot by
 // Interlocked.CompareExchange, a full fence, and only then reads the index and the roots. Of two
 // threads that each write one place and then read the other's, behind full fences, at least one
