@@ -7,28 +7,13 @@ namespace Moltaro.Lattice.Tests.Indexes;
 //   User.ByAgeAndName (Age, Name)
 //   Setting.ByPriority (Priority)
 //
-// The contract is in place; the search itself is not implemented yet. The tests that need
-// it are written and skipped: remove their Skip when the search exists, and they have to pass.
+// The search by the full key of an index comes first; the search by its leading fields, with a
+// range, in reverse and in pages comes after it. A test that needs a search that is not built yet
+// is written and skipped: when the search exists its Skip is removed, and it has to pass. Until
+// then such a search is refused with NotSupportedException, as RefusedSearchTests states.
 public sealed class IndexTests
 {
-    private const string SearchNotImplemented = "Searching an index is not implemented yet.";
-
-    [Fact]
-    public async Task Search_is_not_implemented_yet()
-    {
-        await using var database = await TestData.OpenMasterAsync();
-        var byEmail = database.Set<User>().Index("ByEmail");
-
-        // The index is declared and resolved ...
-        Assert.Equal("ByEmail", byEmail.Definition.Name);
-        Assert.Equal("ByPriority", database.Set("Setting").Index("ByPriority").Definition.Name);
-
-        // ... but it cannot be searched yet, in either form.
-        Assert.Throws<NotSupportedException>(() => byEmail.Find(IndexKey.Equal("ada@example.org")));
-        Assert.Throws<NotSupportedException>(() => byEmail.FindAsync(IndexKey.Equal("ada@example.org"), new LatticeFindOptions()));
-    }
-
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Index_on_one_field_finds_by_its_value()
     {
         await using var database = await OpenWithUsersAsync();
@@ -44,7 +29,7 @@ public sealed class IndexTests
         Assert.Equal("Alan", Assert.Single(byEmail.Find(IndexKey.Equal<string?>(null))).Name);
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint15)]
     public async Task Index_on_two_fields_finds_by_both_or_by_the_first()
     {
         await using var database = await OpenWithUsersAsync();
@@ -60,7 +45,7 @@ public sealed class IndexTests
         Assert.Equal(3, byAgeAndName.Find(IndexKey.Equal(36L)).Count());
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint15)]
     public async Task Range_narrows_the_field_after_the_equal_ones()
     {
         await using var database = await OpenWithUsersAsync();
@@ -90,7 +75,7 @@ public sealed class IndexTests
             user => user.Name == "Edsger");
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint15)]
     public async Task Whole_index_is_traversed_in_its_order()
     {
         await using var database = await OpenWithUsersAsync();
@@ -102,7 +87,7 @@ public sealed class IndexTests
             byAgeAndName.Find(IndexKey.All).Select(user => user.Name));
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint15)]
     public async Task Options_choose_direction_and_page()
     {
         await using var database = await OpenWithUsersAsync();
@@ -127,7 +112,7 @@ public sealed class IndexTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new LatticeFindOptions { Offset = -1 });
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Index_follows_every_write()
     {
         await using var database = await OpenWithUsersAsync();
@@ -148,7 +133,7 @@ public sealed class IndexTests
         Assert.Empty(byEmail.Find(IndexKey.Equal("tim@example.org")));
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Found_entities_are_owned_copies()
     {
         await using var database = await OpenWithUsersAsync();
@@ -187,7 +172,7 @@ public sealed class IndexTests
         Assert.Throws<InvalidOperationException>(() => IndexKey.All.Range(IndexBound.Inclusive(1), null).Range(null, IndexBound.Inclusive(2)));
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint15)]
     public async Task Records_are_found_through_indexes_the_same_way()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -211,7 +196,7 @@ public sealed class IndexTests
         Assert.Equal("Ada", Assert.Single(database.Set("User").Index("ByEmail").Find(IndexKey.Equal("ada@example.org")))["Name"]);
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Search_with_a_session_waits_until_the_child_has_caught_up()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -239,7 +224,7 @@ public sealed class IndexTests
         Assert.Equal(result.Position, session.MinPosition);
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Search_result_has_a_position_even_when_nothing_is_found()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -253,7 +238,7 @@ public sealed class IndexTests
         Assert.Equal(database.Position, session.MinPosition);
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Search_that_cannot_catch_up_in_time_fails_instead_of_using_an_old_index()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -294,7 +279,7 @@ public sealed class IndexTests
         Assert.True(child.WaitForPositionAsync(child.Position).IsCompletedSuccessfully);
     }
 
-    [Fact(Skip = SearchNotImplemented)]
+    [Fact(Skip = SkipReason.BeforeSprint14)]
     public async Task Waiting_for_a_position_once_makes_the_following_index_searches_current()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);

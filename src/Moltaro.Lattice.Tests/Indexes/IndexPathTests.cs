@@ -108,21 +108,21 @@ public sealed class IndexPathTests
     }
 
     [Fact]
-    public async Task Search_key_may_give_null_for_a_part_that_can_be_null_and_the_search_is_not_implemented_yet()
+    public async Task Search_key_may_give_null_for_a_part_that_can_be_null()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());
 
         foreach (var index in new[] { "ByHomeCity", "ByWorkStreet", "ByWorkLocationLat" })
         {
-            // Home is nullable; Street is nullable; Location is nullable. The key is accepted,
-            // and the search, which is not implemented, is refused after it.
+            // Home is nullable; Street is nullable; Location is nullable. The key is accepted
+            // (AcceptedKey).
             var byRecord = database.Set("Person").Index(index);
             var byClass = database.Set<Person>().Index(index);
 
-            Assert.Throws<NotSupportedException>(() => byRecord.Find(IndexKey.Equal<object?>(null)).ToList());
-            Assert.Throws<NotSupportedException>(() => byClass.Find(IndexKey.Equal<object?>(null)).ToList());
-            await Assert.ThrowsAsync<NotSupportedException>(async () => await byRecord.FindAsync(IndexKey.Equal<object?>(null), new LatticeFindOptions()));
-            await Assert.ThrowsAsync<NotSupportedException>(async () => await byClass.FindAsync(IndexKey.Equal<object?>(null), new LatticeFindOptions()));
+            AcceptedKey.Expect(() => byRecord.Find(IndexKey.Equal<object?>(null)));
+            AcceptedKey.Expect(() => byClass.Find(IndexKey.Equal<object?>(null)));
+            await AcceptedKey.ExpectAsync(byRecord, IndexKey.Equal<object?>(null));
+            await AcceptedKey.ExpectAsync(byClass, IndexKey.Equal<object?>(null));
         }
     }
 
@@ -141,7 +141,7 @@ public sealed class IndexPathTests
         await Assert.ThrowsAsync<ArgumentException>(async () => await byClass.FindAsync(IndexKey.Equal<string?>(null), new LatticeFindOptions()));
 
         // A value is checked against the indexed field, as for a field of the entity type.
-        Assert.Throws<NotSupportedException>(() => byRecord.Find(IndexKey.Equal("Oslo")).ToList());
+        AcceptedKey.Expect(() => byRecord.Find(IndexKey.Equal("Oslo")));
         Assert.Throws<ArgumentException>(() => byRecord.Find(IndexKey.Equal(42)).ToList());
     }
 

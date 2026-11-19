@@ -53,8 +53,7 @@ public sealed class IndexPartTypeTests
 
         foreach (var byMentor in new[] { database.Set("Person").Index("ByMentor"), (object)database.Set<Person>().Index("ByMentor") })
         {
-            // Mentor refers to Person, whose key is an Int64. The key is accepted, and the
-            // search, which is not implemented, is refused after it.
+            // Mentor refers to Person, whose key is an Int64, and is given as that key.
             ExpectAccepted(byMentor, IndexKey.Equal(7L));
             ExpectAccepted(byMentor, IndexKey.Equal(7));
             ExpectRefused(byMentor, IndexKey.Equal("seven"));
@@ -93,9 +92,9 @@ public sealed class IndexPartTypeTests
         ExpectRefused(byWorkFloor, IndexKey.Equal(70_000));
     }
 
-    // The key is accepted: the search that follows is refused as not implemented.
+    // The key is accepted: the index does not refuse it (AcceptedKey).
     private static void ExpectAccepted(object index, IndexKey key) =>
-        Assert.Throws<NotSupportedException>(() => Find(index, key));
+        AcceptedKey.Expect(() => Find(index, key));
 
     private static void ExpectRefused(object index, IndexKey key) =>
         Assert.Throws<ArgumentException>(() => Find(index, key));
