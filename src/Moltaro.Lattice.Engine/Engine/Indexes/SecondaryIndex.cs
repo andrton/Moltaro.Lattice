@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -39,18 +40,30 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //
 // Memory. The nodes are blocks of the arena, counted in its live, prepared and retired bytes and so in
 // the budget of the instance; the bytes of the live ones are Tree.Bytes. The close frees them with the
-// arena. Readers take no lock; only the holder of the lock of the writes calls the members of a write.
+// arena. The two entries of a write are made in scratch of the writer that the index holds, of the
+// widest entry each, allocated when the database opens. Readers take no lock; only the holder of the
+// lock of the writes calls the members of a write.
 internal sealed class SecondaryIndex
 {
     private readonly RootLayout _roots;
 
     private readonly Arena _arena;
 
-    private SecondaryIndex(LatticeIndex definition, RootLayout roots, Arena arena, IndexLayout layout, OrderedTree tree)
+    private readonly IndexOrder _order;
+
+    // The entries of the old and of the new state of the entity of a write: the writer's alone.
+    private readonly byte[] _old;
+
+    private readonly byte[] _new;
+
+    private SecondaryIndex(LatticeIndex definition, RootLayout roots, Arena arena, IndexLayout layout, IndexOrder order, OrderedTree tree)
     {
         Definition = definition;
         _roots = roots;
         _arena = arena;
+        _order = order;
+        _old = new byte[layout.WidestEntryBytes];
+        _new = new byte[layout.WidestEntryBytes];
         Layout = layout;
         Tree = tree;
     }
@@ -73,40 +86,141 @@ internal sealed class SecondaryIndex
         var layout = IndexLayout.Compile(definition, roots);
         var order = new IndexOrder(layout, arena);
 
-        return new SecondaryIndex(definition, roots, arena, layout, new OrderedTree(layout, order, arena, retired));
+        return new SecondaryIndex(definition, roots, arena, layout, order, new OrderedTree(layout, order, arena, retired));
     }
 
     // For a search inside the protection of reads: whether the root, the current state of the entity an
-    // entry of the run names, has the key of the search, by the order of the index (see the class).
+    // entry of the run names, has the key of the search, by the order of the index (see the class): each
+    // part null in both, or a value in both that the comparison of its field holds equal to the key's.
     // Allocates nothing.
-    public bool HasKey(in RootReader root, scoped in SearchKey key) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public bool HasKey(in RootReader root, scoped in SearchKey key)
+    {
+        var parts = Layout.Parts;
+        var keyOffset = SearchKey.FixedStart;
+
+        for (var place = 0; place < parts.Length; place++)
+        {
+            ref readonly var part = ref parts[place];
+            var rootNull = root.IsNull(part.Field);
+            var keyNull = key.IsNull(place);
+
+            if (rootNull || keyNull)
+            {
+                if (rootNull != keyNull)
+                {
+                    return false;
+                }
+            }
+            else if (part.IsText)
+            {
+                if (!ValueComparer.TextEquals(root, part.Field, key.TextAt(place)))
+                {
+                    return false;
+                }
+            }
+            else if (ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(keyOffset, part.Width)) != 0)
+            {
+                return false;
+            }
+
+            if (!part.IsText)
+            {
+                keyOffset += part.Width;
+            }
+        }
+
+        return true;
+    }
 
     // For the writer: what the write does to the index, from the root the entity has, null for an
     // insert, and the root the write publishes, null for a delete; both are the write's own until it is
     // published or withdrawn.
-    public IndexChangeEnum ChangeOf(ArenaAddress replaced, ArenaAddress root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public IndexChangeEnum ChangeOf(ArenaAddress replaced, ArenaAddress root) => Change(default, replaced, root, out _, out _);
 
     // For the writer, in the hold that prepares the write: reserves what the change of the write needs
     // (OrderedTree.TryReserve): an insert for Insert, Move and Rewrite, a remove for Remove and Move.
     // False when the arena cannot hold it, with nothing taken (see the class).
-    public bool TryReserve(ArenaAddress replaced, ArenaAddress root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public bool TryReserve(ArenaAddress replaced, ArenaAddress root) => ChangeOf(replaced, root) switch
+    {
+        IndexChangeEnum.None => true,
+        IndexChangeEnum.Insert or IndexChangeEnum.Rewrite => Tree.TryReserve(inserts: 1, removes: 0),
+        IndexChangeEnum.Remove => Tree.TryReserve(inserts: 0, removes: 1),
+        _ => Tree.TryReserve(inserts: 1, removes: 1),
+    };
 
     // For the writer: gives back what TryReserve took, for a write withdrawn before its publication.
-    public void Release(ArenaAddress replaced, ArenaAddress root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public void Release(ArenaAddress replaced, ArenaAddress root)
+    {
+        switch (ChangeOf(replaced, root))
+        {
+            case IndexChangeEnum.Insert or IndexChangeEnum.Rewrite:
+                Tree.Release(inserts: 1, removes: 0);
+                break;
+
+            case IndexChangeEnum.Remove:
+                Tree.Release(inserts: 0, removes: 1);
+                break;
+
+            case IndexChangeEnum.Move:
+                Tree.Release(inserts: 1, removes: 1);
+                break;
+        }
+    }
 
     // For the writer, in the publication of the write, before the stores of its root: adds the new entry
     // of an Insert or a Move, under the handle of the root entry, from what was reserved. Allocates
     // nothing; does nothing for another change.
-    public void InstallNew(RootHandle handle, ArenaAddress replaced, ArenaAddress root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public void InstallNew(RootHandle handle, ArenaAddress replaced, ArenaAddress root)
+    {
+        if (Change(handle, replaced, root, out _, out var newLength) is IndexChangeEnum.Insert or IndexChangeEnum.Move)
+        {
+            Tree.Insert(_new.AsSpan(0, newLength));
+        }
+    }
 
     // For the writer, in the publication of the write, after its position and before what it replaced
     // or deleted is retired: takes away the old entry of a Remove or a Move, and replaces the entry of a
     // Rewrite by the new bytes. Allocates nothing; does nothing for another change.
-    public void RemoveOld(RootHandle handle, ArenaAddress replaced, ArenaAddress root) =>
-        throw new NotSupportedException("Secondary indexes are not implemented yet.");
+    public void RemoveOld(RootHandle handle, ArenaAddress replaced, ArenaAddress root)
+    {
+        switch (Change(handle, replaced, root, out var oldLength, out var newLength))
+        {
+            case IndexChangeEnum.Remove or IndexChangeEnum.Move:
+                Tree.Remove(_old.AsSpan(0, oldLength));
+                break;
+
+            case IndexChangeEnum.Rewrite:
+                Tree.Rewrite(_new.AsSpan(0, newLength));
+                break;
+        }
+    }
+
+    // The entry of each state under the handle, in the scratch of the writer, and what the write does
+    // with them: the same bytes, nothing; equal keys by the order in other bytes, a rewrite; another key,
+    // a move.
+    private IndexChangeEnum Change(RootHandle handle, ArenaAddress replaced, ArenaAddress root, out int oldLength, out int newLength)
+    {
+        oldLength = replaced.IsNull ? 0 : Layout.WriteEntry(new RootReader(_arena, _roots, replaced), handle, _old);
+        newLength = root.IsNull ? 0 : Layout.WriteEntry(new RootReader(_arena, _roots, root), handle, _new);
+
+        if (replaced.IsNull)
+        {
+            return IndexChangeEnum.Insert;
+        }
+
+        if (root.IsNull)
+        {
+            return IndexChangeEnum.Remove;
+        }
+
+        var old = _old.AsSpan(0, oldLength);
+        var current = _new.AsSpan(0, newLength);
+
+        if (old.SequenceEqual(current))
+        {
+            return IndexChangeEnum.None;
+        }
+
+        return _order.SameKey(old, current) ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
+    }
 }

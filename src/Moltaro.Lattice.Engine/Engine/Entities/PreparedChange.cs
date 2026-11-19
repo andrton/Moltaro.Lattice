@@ -4,9 +4,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 
 // One change of an entity, prepared for its publication (ChangePublisher): what it does, to which entity,
 // and what its publication installs. It is made at the end of a preparation, under the lock of the writes,
-// once everything it holds is taken and what its publication uses is reserved (ChangePublisher.Reserve), and
-// it holds that until it is published or released. No other change of the same entity is prepared and not
-// published meanwhile, so the root entry of a stored entity stays as the preparation found it.
+// once everything it holds is taken and what its publication uses is reserved
+// (ChangePublisher.TryReserve), and it holds that until it is published or released. No other change of
+// the same entity is prepared and not published meanwhile, so the root entry of a stored entity stays as
+// the preparation found it.
 //
 // A value, so that the record of a write on a master and the list of a transaction on a child hold it
 // without an object of its own, and a publication takes them as a span.

@@ -35,13 +35,14 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    stored one.
 // 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
 //    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
-//    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.Reserve): room in
-//    the index for an insert, which may grow it, and for a replace or a delete a place in the retired list,
-//    beside what the writes prepared before it and not published yet reserved. A failure frees all of it, so
-//    nothing of a failed write is left in any counter. An entity has no size limit of its own; only the
-//    memory of the arena, the memory budget of the database, refuses one (docs/decisions/write-admission.md,
-//    "Configurable root-object size limit"): then TryPrepare returns false with everything freed, and the
-//    coordinator decides what the write waits for before it tries again (WriteCoordinator, "The refusal").
+//    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.TryReserve): the
+//    nodes of the secondary indexes it changes, room in the primary index for an insert, which may grow it,
+//    and for a replace or a delete a place in the retired list, beside what the writes prepared before it
+//    and not published yet reserved. A failure frees all of it, so nothing of a failed write is left in any
+//    counter. An entity has no size limit of its own; only the memory of the arena, the memory budget of the
+//    database, refuses one or the nodes of its indexes (docs/decisions/write-admission.md, "Configurable
+//    root-object size limit"): then TryPrepare returns false with everything freed, and the coordinator
+//    decides what the write waits for before it tries again (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
 // A write a child forwarded brings the root the child wrote, in the load format, instead of values
@@ -143,11 +144,16 @@ internal sealed class WriteExecutor
             throw new LatticeException(LatticeErrorEnum.NotFound, $"{table.EntityType.Name} '{write.Key}' does not exist.");
         }
 
-        if (write.Kind == WriteKindEnum.Delete)
+        if (write.Kind == WriteKindEnum.Delete && !exists)
         {
-            prepared = exists ? PrepareDelete(write, handle) : write.PrepareNothingToDelete();
+            prepared = write.PrepareNothingToDelete();
 
             return true;
+        }
+
+        if (write.Kind == WriteKindEnum.Delete)
+        {
+            return TryPrepareDelete(write, handle, out prepared, out refusal);
         }
 
         return exists
@@ -207,13 +213,23 @@ internal sealed class WriteExecutor
     private LatticeRevision RevisionOf(RootHandle handle) =>
         new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
-    private PreparedWrite PrepareDelete(PendingWrite write, RootHandle handle)
+    // False, with the refusal, when the arena cannot hold the nodes the indexes need for the delete.
+    private bool TryPrepareDelete(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var change = new PreparedChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default);
 
-        _changes.Reserve(change);
+        if (!_changes.TryReserve(change))
+        {
+            prepared = null;
+            refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
 
-        return write.Prepare(change, 0);
+            return false;
+        }
+
+        prepared = write.Prepare(change, 0);
+        refusal = null;
+
+        return true;
     }
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
@@ -244,15 +260,25 @@ internal sealed class WriteExecutor
         }
 
         var change = new PreparedChange(ChangeKindEnum.Replace, table, write.Key, handle, root);
+        bool reserved;
 
         try
         {
-            _changes.Reserve(change);
+            reserved = _changes.TryReserve(change);
         }
         catch
         {
             RootStorage.Free(_arena, table.Layout!, root);
             throw;
+        }
+
+        if (!reserved)
+        {
+            RootStorage.Free(_arena, table.Layout!, root);
+            refusal = RootWriter.RefusalForMemory(table.Layout!);
+            prepared = null;
+
+            return false;
         }
 
         prepared = write.Prepare(change, size);
@@ -287,7 +313,13 @@ internal sealed class WriteExecutor
 
             var change = new PreparedChange(ChangeKindEnum.Insert, table, write.Key, handle, root);
 
-            _changes.Reserve(change);
+            if (!_changes.TryReserve(change))
+            {
+                refusal = RootWriter.RefusalForMemory(layout);
+
+                return false;
+            }
+
             prepared = write.Prepare(change, size);
 
             return true;

@@ -39,8 +39,10 @@ namespace Moltaro.Lattice.Engine.Loading;
 //
 // How. Under the lock of the writes, as a write on a master is: each change is checked and prepared
 // first — the root placed in prepared blocks for the lifetime it goes to, with the room its publication
-// needs reserved (Entities.ChangePublisher.Reserve), in the index for an insert and in the retired list
-// for a replace or a delete — and nothing is published until every change of the transaction is prepared
+// needs reserved (Entities.ChangePublisher.TryReserve), the nodes of the secondary indexes it changes, in
+// the primary index for an insert and in the retired list for a replace or a delete; the publisher keeps
+// the secondary indexes, which a child builds while it loads and keeps while it follows, as a master does
+// — and nothing is published until every change of the transaction is prepared
 // (Publish); a change that is not valid, or that the arena refuses, abandons every change prepared since
 // (Abandon), so a transaction is applied whole or not at all. Then everything prepared is published at
 // once by the publisher of the write path (Entities.ChangePublisher), with the sequence of the master as
@@ -338,9 +340,7 @@ internal sealed class ReceivedChanges
                 var deleted = TableOf(typeId, sequence);
                 var key = deleted.Keys.ReadKey(ref reader);
 
-                PrepareDelete(deleted, key, sequence);
-
-                return true;
+                return TryPrepareDelete(deleted, key, sequence);
 
             default:
                 // An Unchanged changes no entity.
@@ -418,7 +418,13 @@ internal sealed class ReceivedChanges
             }
 
             change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root);
-            _publisher.Reserve(change);
+
+            if (!_publisher.TryReserve(change))
+            {
+                GiveBack(table, inserts, handle, root);
+
+                return false;
+            }
         }
         catch
         {
@@ -433,9 +439,10 @@ internal sealed class ReceivedChanges
 
     // Under the lock of the writes: prepares the delete of the key at the sequence by the rule (see the
     // class); nothing when the child does not hold the key, or holds a state not earlier than the delete.
-    // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped,
-    // with every change prepared since the last Publish abandoned.
-    private void PrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
+    // False when the arena cannot hold the nodes its indexes need, with every change prepared since the
+    // last Publish abandoned. ValidationFailed for a key an earlier effect of the same transaction names,
+    // prepared or skipped, with every change prepared since the last Publish abandoned.
+    private bool TryPrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
     {
         try
         {
@@ -451,14 +458,15 @@ internal sealed class ReceivedChanges
         {
             _skipped.Add((table, key));
 
-            return;
+            return true;
         }
 
         var change = new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default);
+        bool reserved;
 
         try
         {
-            _publisher.Reserve(change);
+            reserved = _publisher.TryReserve(change);
         }
         catch
         {
@@ -466,7 +474,16 @@ internal sealed class ReceivedChanges
             throw;
         }
 
+        if (!reserved)
+        {
+            Abandon();
+
+            return false;
+        }
+
         _prepared.Add(change);
+
+        return true;
     }
 
     // Under the lock of the writes: publishes every change prepared, in the three steps of a publication,

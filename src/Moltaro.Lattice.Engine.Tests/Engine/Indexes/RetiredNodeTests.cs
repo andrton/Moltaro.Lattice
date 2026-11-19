@@ -23,7 +23,7 @@ public sealed class RetiredNodeTests
 
     private const int HeldWrites = 20;
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Nodes_replaced_under_a_held_read_are_retired_bytes_until_the_read_leaves_and_a_drain_then_frees_them()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
