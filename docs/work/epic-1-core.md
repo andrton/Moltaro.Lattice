@@ -5437,6 +5437,55 @@ are named in its README.
   then follows; if it follows the code of LMDB closely, the notices gain the OpenLDAP
   licence. The prototype ports no code.
 
+**The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
+case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy
+with other work before a case (two cases at 44 and 51 %): differences below about a
+tenth decide nothing. The structure that is chosen is measured again in the engine, in
+this sprint, against the same scenarios. 1,000,000 entries, an Int64 key, nodes of 1 KiB
+unless said.
+
+- **The read by key beside writes to an index** (a stand-in that shares only the line of
+  the epoch with the writer), reads a second: one reader 14.6 M with no writer, 11.3 M
+  beside the copy-on-write tree, 11.7 M beside the tree changed in place; 16 readers
+  31.0 M, 36.6 M and 29.6 M. The moves of the epoch that the copy-on-write tree causes,
+  78 for 10,000 writes to an index, do not show as a cost of the read by key.
+- **One write to an index**, ns, beside 0, 1 and 16 searching readers: copy-on-write
+  insert 374, 531, 4,207; delete 420, 483, 4,891; a replace that changes the key 877,
+  1,023, 9,956. In place: 1,077, 924, 2,810; 907, 895, 2,264; 1,935, 2,583, 4,799. One
+  writer alone in the group of writes: copy-on-write 375 and 372 for a random insert and
+  delete, 61.5 and 60.8 ascending; in place 318 and 259, 41.9 and 45.8. Beside 16 readers
+  a write of the copy-on-write tree costs about twice the other.
+- **The readers beside those writes**, searches a second: one reader 2.0 to 2.2 M on the
+  copy-on-write tree against 0.67 to 0.90 M in place; 16 readers 6.0 to 6.9 M against
+  5.8 to 7.0 M. Readers of the tree changed in place restarted 2 to 8 times in 100,000.
+- **Exact search**, a second, 1 thread alone, 1 beside a writer, 16 alone, 16 beside a
+  writer: copy-on-write 1.90 M, 0.94 M, 7.32 M, 6.19 M; in place 1.66 M, 0.91 M, 7.51 M,
+  6.87 M; the skip list 0.38 M, 0.24 M, 2.28 M, 1.95 M; `OrderedMultiMap` behind a
+  reader-writer lock 0.72 M, 0.23 M, 1.80 M, 1.63 M, its writer making 64 pairs of
+  writes a second beside 16 readers against 133,574 and 219,968 of the two trees. With
+  nodes of 4 KiB: copy-on-write 2.15 M, 0.85 M, 8.26 M, 6.93 M; in place 2.10 M, 0.91 M,
+  9.47 M, 8.79 M.
+- **A range of 100 entries**, walks a second, the same four cases: copy-on-write
+  forwards 745 k, 345 k, 4.21 M, 3.81 M and backwards 683 k, 286 k, 2.90 M, 2.61 M; in
+  place forwards 677 k, 201 k, 3.32 M, 3.02 M and backwards 599 k, 288 k, 3.66 M, 3.45 M;
+  the skip list forwards 67 k, 71 k, 388 k, 350 k; `OrderedMultiMap` 48 k, 16 k, 342 k,
+  321 k.
+- **A text key**, exact search a second on 1 thread and on 16, no writer: at 8 bytes a
+  copy 933 k and 5.61 M, a shared entry 270 k and 2.63 M, a shared entry with a prefix of
+  8 bytes 1.09 M and 5.09 M; at 32 bytes 585 k and 3.68 M, 179 k and 2.61 M, 952 k and
+  4.53 M; at 100 bytes 337 k and 2.42 M, 176 k and 2.69 M, 755 k and 5.76 M. Keys of 32
+  bytes that share their first bytes, as numbered logins do: a copy 868 k and 4.25 M, a
+  shared entry 351 k and 3.13 M, with the prefix 229 k and 2.88 M — the prefix loses
+  where keys have a common head, which long values such as addresses and paths have, so
+  the form above 64 bytes is not settled by the random keys. The entry that names the
+  root, kept as a reference line only, 32 bytes: 253 k and 1.86 M. One write, ns, at 8,
+  32 and 100 bytes: a copy 1,204, 2,142, 1,755; shared 2,362, 2,591, 2,968; shared with
+  the prefix 1,808, 1,609, 910.
+- **What a read by key pays when an indexed text lies in a text entry and not in the
+  root**, reads a second on 1 thread and on 16: at 8 bytes 4.60 M against 3.95 M and
+  23.2 M against 17.3 M; at 32 bytes 2.55 M against 2.07 M and 18.8 M against 17.4 M; at
+  100 bytes 2.38 M against 1.96 M and 13.5 M against 13.2 M.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
