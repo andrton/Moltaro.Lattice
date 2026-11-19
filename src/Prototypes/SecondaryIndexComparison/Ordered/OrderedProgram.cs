@@ -11,7 +11,7 @@ internal static class OrderedProgram
     {
         if (arguments.IsEmpty)
         {
-            Console.Error.WriteLine("Use: ordered <bytes|textbytes|check|find|range|writes|text> [--option value ...]; README.md lists the options.");
+            Console.Error.WriteLine("Use: ordered <bytes|textbytes|check|find|range|writes|text|writecost|looks|primaryread> [--option value ...]; README.md lists the options.");
 
             return 1;
         }
@@ -59,6 +59,18 @@ internal static class OrderedProgram
 
             case "text":
                 TextScenario.Run(options);
+                break;
+
+            case "writecost":
+                WriteCostScenario.Run(options);
+                break;
+
+            case "looks":
+                LooksScenario.Run(options);
+                break;
+
+            case "primaryread":
+                PrimaryReadScenario.Run(options);
                 break;
 
             default:

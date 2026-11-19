@@ -13,6 +13,8 @@ internal readonly struct SharedEntry : ITextForm<SharedEntry, SharedOrder>
 
     public static string Name => "Shared";
 
+    public static bool IsCandidate => true;
+
     public static bool SharesText => true;
 
     public ulong Text { get; }

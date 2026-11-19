@@ -82,11 +82,13 @@ internal sealed unsafe class OptimisticTree<TEntry, TOrder> : IOrderedIndex<TEnt
 
     private int _removedCount;
 
-    public OptimisticTree(NodeArena arena, ReadEpochs epochs, TOrder order, int nodeBytes)
+    // The tree retires into the list given, which other structures of one database may share, or into a
+    // list of its own.
+    public OptimisticTree(NodeArena arena, ReadEpochs epochs, TOrder order, int nodeBytes, RetiredBlocks? retired = null)
     {
         _arena = arena;
         _epochs = epochs;
-        _retired = new RetiredBlocks(epochs, arena);
+        _retired = retired ?? new RetiredBlocks(epochs, arena);
         _order = order;
         _shape = new NodeShape(nodeBytes, sizeof(TEntry));
         _separators = new TEntry[_shape.InnerCapacity + 1];

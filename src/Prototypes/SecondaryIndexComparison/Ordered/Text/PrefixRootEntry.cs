@@ -12,6 +12,8 @@ internal readonly struct PrefixRootEntry : ITextForm<PrefixRootEntry, PrefixRoot
 
     public static string Name => "PrefixRoot";
 
+    public static bool IsCandidate => false;
+
     public static bool SharesText => false;
 
     public ulong Prefix { get; }

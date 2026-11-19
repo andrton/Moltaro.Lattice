@@ -14,6 +14,12 @@ internal interface ITextForm<TEntry, TOrder>
 {
     static abstract string Name { get; }
 
+    // Whether the form is a candidate for the engine. Root and PrefixRoot are not, and are measured as
+    // reference lines only: a separator that names an entity goes on steering searches after the entity
+    // is gone and its control entry is reused, and a replace that changes the key leaves the entry at
+    // the old key's place while the root already holds the new one.
+    static abstract bool IsCandidate { get; }
+
     // Whether the root keeps its text in an entry of its own, for the index to share.
     static abstract bool SharesText { get; }
 

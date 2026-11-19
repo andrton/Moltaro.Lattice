@@ -17,6 +17,8 @@ internal readonly struct SharedPrefixEntry : ITextForm<SharedPrefixEntry, Shared
 
     public static string Name => "SharedPrefix";
 
+    public static bool IsCandidate => true;
+
     public static bool SharesText => true;
 
     public ulong Prefix { get; }

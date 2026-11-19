@@ -54,7 +54,7 @@ internal sealed class TextScenario : ITextCase
 
         FixedBuild.InsertAll(tree, entries);
 
-        (string, object)[] parameters = [("form", TEntry.Name), ("length", length), ("text", distribution), ("entries", count)];
+        (string, object)[] parameters = [("form", TEntry.Name), ("candidate", TEntry.IsCandidate), ("length", length), ("text", distribution), ("entries", count)];
 
         foreach (var operation in _options.Words("operations", "find,range,write,readroot"))
         {

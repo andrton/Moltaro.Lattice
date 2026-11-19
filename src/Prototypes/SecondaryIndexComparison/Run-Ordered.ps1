@@ -1,8 +1,8 @@
 param(
     # Seconds each timed case runs; the builds come on top.
     [ValidateRange(1, 60)][int]$Seconds = 5,
-    # Only the groups named: find, range, writes, nodes, text.
-    [string[]]$Groups = @('find', 'range', 'writes', 'nodes', 'text')
+    # Only the groups named: find, range, writes, nodes, text, writecost, looks, primaryread.
+    [string[]]$Groups = @('find', 'range', 'writes', 'nodes', 'text', 'writecost', 'looks', 'primaryread')
 )
 
 # Runs the timing scenarios of the study of ordered structures one after another, each in a fresh
@@ -61,6 +61,21 @@ if ($Groups -contains 'text') {
             }
         }
     }
+}
+
+if ($Groups -contains 'writecost') {
+    foreach ($structure in @('cow', 'optimistic')) {
+        $cases.Add(@('writecost', '--structures', $structure, '--key', 'int64', '--readers', '0,1,16', '--writes', '500000'))
+    }
+}
+
+# A count, not a timing: the same on every machine with up to 64 logical processors.
+if ($Groups -contains 'looks') {
+    $cases.Add(@('looks', '--structures', 'cow,optimistic', '--indexes', '1,3,6', '--writes', '10000', '--node', '1024'))
+}
+
+if ($Groups -contains 'primaryread') {
+    $cases.Add(@('primaryread', '--writers', 'none,cow,optimistic', '--readers', '1,16', '--seconds', "$Seconds"))
 }
 
 $number = 0

@@ -22,6 +22,8 @@ internal struct CopyEntry<TBytes> : ITextForm<CopyEntry<TBytes>, CopyOrder<TByte
 
     public static string Name => $"Copy{Unsafe.SizeOf<TBytes>()}";
 
+    public static bool IsCandidate => true;
+
     public static bool SharesText => false;
 
     public readonly int Length => _length;

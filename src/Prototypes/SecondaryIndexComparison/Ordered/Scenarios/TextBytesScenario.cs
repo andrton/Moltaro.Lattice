@@ -67,6 +67,7 @@ internal sealed class TextBytesScenario : ITextCase
         Line.Write(
             "textbytes",
             ("form", TEntry.Name),
+            ("candidate", TEntry.IsCandidate),
             ("length", length),
             ("text", _distribution),
             ("entries", _count),

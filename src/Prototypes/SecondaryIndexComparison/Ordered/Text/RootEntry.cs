@@ -10,6 +10,8 @@ internal readonly struct RootEntry : ITextForm<RootEntry, RootOrder>
 
     public static string Name => "Root";
 
+    public static bool IsCandidate => false;
+
     public static bool SharesText => false;
 
     public ulong Id { get; }
