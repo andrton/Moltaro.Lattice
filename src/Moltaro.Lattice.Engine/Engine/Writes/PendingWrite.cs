@@ -201,7 +201,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         ExpectedRevision = null;
         State = default;
         Prepared = null;
-        _record?.Clear();
+        _record?.LetGo();
         Failure = null;
         _hashed = false;
     }

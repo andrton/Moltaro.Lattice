@@ -14,10 +14,12 @@ internal struct PreparedChange
 {
     public readonly ChangeKindEnum Kind;
 
-    public readonly EntityTable Table;
+    // The table and the key are the change's references; they are not readonly only so that the record
+    // of a write, kept for the next one, lets go of them alone (Writes.PreparedWrite.LetGo).
+    public EntityTable Table;
 
     // The key of the entity, in the form its primary index takes it.
-    public readonly EntityKey Key;
+    public EntityKey Key;
 
     // The root entry of the change: a new one, prepared, which no index maps yet, for an insert; the
     // entry of the stored entity for a replace and a delete.
