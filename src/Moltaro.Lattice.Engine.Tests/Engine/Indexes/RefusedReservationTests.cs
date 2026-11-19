@@ -16,8 +16,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // 1 KiB too, fill the region of the nodes beside the region of their own roots, until the arena refuses
 // one. A write of Ranked then finds a place for its root and for its long Login, and none for the
 // nodes its indexes need: it is WriteRejected with Limit Memory and leaves nothing behind — no root
-// entry, no prepared, live or retired byte, no text entry and no reference, nothing found by a search —
-// and the instance stays Ready. Once memory is freed, the same write succeeds and is found.
+// entry, no prepared, live or retired byte, no native segment, no text entry and no reference, nothing
+// found by a search; every counter is as before — and the instance stays Ready. One thing it may leave
+// grown: the managed capacity of the text table, whose bucket table a new entry may have grown before the
+// arena refused the entry, and which keeps that room for the next one (Storage.Text.TextTable). That
+// capacity is reported and not charged to the memory budget (EngineCounters, TextTableBytes); it never
+// shrinks for the refusal. Once memory is freed, the same write succeeds and is found.
 public sealed class RefusedReservationTests
 {
     private const int Region = Arena.MaxBlockSize;
@@ -69,7 +73,8 @@ public sealed class RefusedReservationTests
         database.DrainRetired();
         var after = database.Counters;
 
-        Assert.Equal(before, after);
+        Assert.Equal(before with { TextTableBytes = after.TextTableBytes }, after);
+        Assert.True(after.TextTableBytes >= before.TextTableBytes, $"The text table held {before.TextTableBytes} managed bytes before the refusal and {after.TextTableBytes} after it.");
         Assert.Equal(texts, database.TextReferences(), TextEntryComparer.Instance);
         Assert.Null(ranked.Get(2L));
         Assert.Empty(ranked.Index("ByNumber").Find(IndexKey.Equal(2L)));
