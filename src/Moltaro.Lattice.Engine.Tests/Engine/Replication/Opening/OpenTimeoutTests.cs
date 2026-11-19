@@ -14,9 +14,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 //   memory, CountingNativeAllocator).
 // - A child whose master accepts its connection and then sends nothing fails in the same way.
 // - A load that takes longer than OpenTimeout in total, while its parts keep arriving, becomes ready: a
-//   link paces what the master sends (HeldLink.Paced), a portion of two frames of the largest body and
-//   then a pause of a quarter of the timeout, so the child never waits longer than half of it for the
-//   next frame, and the load takes several times the timeout.
+//   link lets what the master sends through one portion at a time (HeldLink.Stepped), and the test lets
+//   the next portion through a step after the last, until more than the timeout has passed since the
+//   open began. A portion holds two frames of the largest body, so each wait of the child for its next
+//   frame lasts about one step. The step is a tenth of the timeout of that child
+//   (ReplicationNodes.ShortOpenTimeout): whatever a loaded machine adds to a step stays within the rest,
+//   and how fast the machine runs changes neither the steps nor that the load outlasts the timeout.
 // - A child started before its master becomes ready when the master opens within its timeout: the port
 //   is held while the child tries (ClosedPort) and freed for the master.
 // What a timeout of the master bounds is stated by SilentPeerTests.
@@ -31,7 +34,11 @@ public sealed class OpenTimeoutTests
     // A timer of the system may fire a tick early.
     private static readonly TimeSpan Tolerance = TimeSpan.FromMilliseconds(100);
 
-    private static readonly TimeSpan Pause = OpenTimeout / 4;
+    // The open timeout of the child whose load takes longer than it, and the step after which the test
+    // lets the next part of that load through.
+    private static readonly TimeSpan LoadOpenTimeout = ReplicationNodes.ShortOpenTimeout;
+
+    private static readonly TimeSpan Step = LoadOpenTimeout / 10;
 
     [Fact]
     public async Task Child_whose_master_cannot_be_reached_fails_with_Unavailable_when_its_OpenTimeout_passes_and_holds_nothing()
@@ -74,13 +81,24 @@ public sealed class OpenTimeoutTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await Pieces.InsertAsync(master, 1, 2, dataBytes: 1024 * 1024);
-        await using var link = HeldLink.Paced(master.ListenUri!, Portion, Pause);
-        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, OpenTimeout));
+        await using var link = HeldLink.Stepped(master.ListenUri!, Portion);
+        await using var child = (EngineDatabase)LatticeDatabase.Create(ReplicationNodes.ChildOptions(link.Address, LoadOpenTimeout));
         var waited = Stopwatch.StartNew();
+        var opening = child.OpenAsync().AsTask();
 
-        await child.OpenAsync().AsTask().WaitAsync(Bound);
+        // The load of 2 MiB fills sixteen portions, and the steps until the timeout has passed are eleven
+        // at most: the link holds before each of them.
+        while (waited.Elapsed <= LoadOpenTimeout)
+        {
+            await link.HeldAsync();
+            await Task.Delay(Step);
+            link.PassNext();
+        }
 
-        Assert.True(waited.Elapsed > OpenTimeout, $"The load took {waited.Elapsed}, not longer than the timeout of {OpenTimeout}: it does not show what it is meant to.");
+        link.Release();
+        await opening.WaitAsync(Bound);
+
+        Assert.True(waited.Elapsed > LoadOpenTimeout, $"The load took {waited.Elapsed}, not longer than the timeout of {LoadOpenTimeout}: it does not show what it is meant to.");
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Pieces.ExpectSame(master, child);
     }

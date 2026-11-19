@@ -9,12 +9,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 // of Epic 1, sprint S10, the planner's decision of 17 November 2026 after the study, point 5): a peer
 // that connects and sends nothing is disconnected by the master once that time has passed, and not
 // before. The peer is a raw TCP connection of the test, which sends no byte and reads until the master
-// ends the connection. The master goes on serving: a child loads from it afterwards.
+// ends the connection. The master goes on serving: a child loads from it afterwards, and its Hello has to
+// arrive within the same timeout, which is therefore one that a loaded machine keeps
+// (ReplicationNodes.ShortOpenTimeout).
 public sealed class SilentPeerTests
 {
     private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
-    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan OpenTimeout = ReplicationNodes.ShortOpenTimeout;
 
     // A timer of the system may fire a tick early.
     private static readonly TimeSpan Tolerance = TimeSpan.FromMilliseconds(100);
