@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -83,10 +84,18 @@ internal readonly ref struct RootReader
 
     // The value of a field of a signed integer type, Int8 to Int64, or of an Enum field whose enum
     // type has a signed underlying type.
+    // Kept out of line, as the JIT compiled it before the stored form moved into StoredScalars, whose
+    // switch on the width is inlined here: inlined in turn, it would copy that switch into each of its
+    // callers, the read by key among them (EntityTable.KeyEquals, 498 bytes of code instead of 762), and
+    // leave the build of a class entity no budget to inline DateOnly.FromDayNumber (JIT listing at full
+    // optimization).
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public long GetInteger(LatticeField field) => StoredScalars.ReadInteger(Value(field, StoredTypeEnum.SignedInteger, nameof(GetInteger)));
 
     // The value of a field of an unsigned integer type, UInt8 to UInt64, or of an Enum field whose
     // enum type has an unsigned underlying type.
+    // Kept out of line, as GetInteger is (see there).
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public ulong GetUnsigned(LatticeField field) => StoredScalars.ReadUnsigned(Value(field, StoredTypeEnum.UnsignedInteger, nameof(GetUnsigned)));
 
     // The value of a Float32 field.

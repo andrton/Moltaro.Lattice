@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access.Values;
 
@@ -21,6 +22,10 @@ namespace Moltaro.Lattice.Storage.Values;
 internal static class StoredScalars
 {
     // Writes an integer, signed or unsigned, at the width of the place.
+    // Inlined, so that the switch on the width lies in RootWriter.SetInteger as it did before the stored
+    // form moved here; out of line it is one more call for every integer and Enum field written (JIT
+    // listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteInteger(Span<byte> place, long value)
     {
         switch (place.Length)
@@ -40,6 +45,8 @@ internal static class StoredScalars
         }
     }
 
+    // Inlined into RootWriter.SetUnsigned, as WriteInteger is (see there).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteUnsigned(Span<byte> place, ulong value)
     {
         switch (place.Length)
@@ -133,6 +140,10 @@ internal static class StoredScalars
     }
 
     // Reads back what the members above wrote, from a place at the width of the value.
+    // Inlined, so that the switch on the width lies in RootReader.GetInteger as it did before the stored
+    // form moved here (JIT listing at full optimization; RootReader.GetInteger says why that stays out of
+    // line).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static long ReadInteger(ReadOnlySpan<byte> place) => place.Length switch
     {
         sizeof(sbyte) => (sbyte)place[0],
@@ -141,6 +152,8 @@ internal static class StoredScalars
         _ => MemoryMarshal.Read<long>(place),
     };
 
+    // Inlined into RootReader.GetUnsigned, as ReadInteger is (see there).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ulong ReadUnsigned(ReadOnlySpan<byte> place) => place.Length switch
     {
         sizeof(byte) => place[0],
