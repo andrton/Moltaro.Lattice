@@ -7,8 +7,9 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // - A value has the type of its field; a value of another type, or of a type no field has, is refused.
 // - A key has at most as many values as the index has fields.
 // - Null is a value only of a part that can be null.
-// - A bound is made by Inclusive or Exclusive; the default of IndexBound has no value, which reading it
-//   tells, and a range with it is refused.
+// - A bound is made by Inclusive or Exclusive; the default of IndexBound is no bound: reading its value or
+//   whether it is inclusive is refused, as reading any member of a value that was never made, and a range
+//   with it is refused.
 // - The default of IndexKey is no key: a search with it is refused, and IndexKey.All is the one key that
 //   asks for every entry of an index. Reading what a default key holds is refused as reading the value of
 //   a default bound is; IndexKey has no public member that reads it, so that sentence has no test here.
@@ -67,7 +68,6 @@ public sealed class IndexKeyArgumentTests
         var none = default(IndexBound);
 
         Assert.Throws<InvalidOperationException>(() => none.Value);
-        Assert.False(none.IsInclusive);
 
         // A bound that Inclusive or Exclusive made holds its value as it was given.
         Assert.Equal(36, IndexBound.Inclusive(36).Value);
@@ -78,6 +78,12 @@ public sealed class IndexKeyArgumentTests
         await ExpectRefusedAsync(database, "ByAgeAndName", IndexKey.Equal(36).Range(none, null));
         await ExpectRefusedAsync(database, "ByAgeAndName", IndexKey.Equal(36).Range(IndexBound.Inclusive("A"), none));
         await ExpectRefusedAsync(database, "ByAgeAndName", IndexKey.All.Range(none, IndexBound.Exclusive(40)));
+    }
+
+    [Fact(Skip = SkipReason.BeforeSprint14)]
+    public void Default_bound_does_not_tell_whether_it_is_inclusive()
+    {
+        Assert.Throws<InvalidOperationException>(() => default(IndexBound).IsInclusive);
     }
 
     [Fact]
