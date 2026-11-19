@@ -1089,6 +1089,56 @@ Why this order:
   not. A failure on ARM64 that the other jobs do not show is a finding about the engine
   first: it is reported with the name of the test before anyone changes the test.
   Longer race runs on a machine with many ARM cores are a later step.
+- **Tests that depended on the load of the machine (19 November 2026).** Ten repeats of
+  the suite in Release beside three other builds and suites on the workstation had three
+  failures in replication tests, and twelve repeats on a quiet workstation none. Three
+  tests raced one second of wall time and were given a hold the test controls or a wait
+  of 5 s: `OpenTimeoutTests.Load_that_takes_longer_than_the_OpenTimeout_while_its_parts_keep_arriving_becomes_ready`,
+  `IdleMasterTests` and `SilentPeerTests`; each then passed 50 of 50 under a loaded
+  machine. The evidence is the margin of each wait, about 0.5 s before and at least 4.5 s
+  now: the load of the author did not break the old tests either, so no failure was
+  reproduced and then cured. Two failures stay unexplained, with what was ruled out: a
+  master that could not listen, "the system lacked sufficient buffer space" (the suite
+  holds about 28 listeners at its peak and leaves none behind a passing test; nothing is
+  retried, in the engine or in a test), and one failure of `AnnouncedLengthTests` in the
+  handshake, which has no short wait. The output of every repeat is kept, so that the
+  next one has a name and a message.
+- **Open work from it, to be taken up at once (owner, 19 November 2026).** Two failures
+  are not explained, and each has a next step:
+  - *A handshake that failed once.* `AnnouncedLengthTests.Request_whose_frames_hold_more_than_it_announced…`
+    failed in the handshake in one run of the engine tests in Debug on 19 November 2026,
+    while two other agents built and ran suites on the workstation, and passed three of
+    three alone; its message was not kept. Ruled out: a short wait in the test (it has
+    none: bounds of one minute, timeouts of 30 s). Next step: a soak that can catch it —
+    the replication tests of the engine in a loop under load, the output of every run
+    kept, until it appears with its message or 500 runs pass; on the workstation at a time
+    when it disturbs no measurement, otherwise as an item of the plan of the next start of
+    the rented machine. When it appears: the engine is examined first and the test second,
+    and it is reported to the planner before any test is changed.
+  - *A master that could not listen.* `ClosedFrameTests.Closed_that_is_not_valid_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome`
+    failed once in ten repeats in Release on the same day under the same load: the bind
+    of the listening socket reported that the system lacked sufficient buffer space or a
+    queue was full. Ruled out: a leak of the tests (about 28 listeners at the peak of the
+    suite, none left behind a passing test) and the range of ports (510 connections
+    against about 14,000 ports under the heaviest load). Suspected and not shown: a
+    shortage of the system as a whole (the commit charge stood at 59 of 72 GB under
+    load). Next step: a small capture in the failure path of the test helper that opens
+    a master — the commit charge, the handles of the process and the count of sockets
+    when a bind fails — for diagnosis only; nothing is retried, so that the next
+    occurrence explains itself.
+  - *A forwarded write the child did not apply in ten seconds.* `CancellationTests.Write_the_sender_has_not_taken_is_withdrawn_by_its_cancellation_and_never_executed`
+    failed once in five repeats in Release on 19 November 2026, on the engine of `main`
+    (the test and the engine unchanged by the change above), while another agent was
+    building and measuring on the workstation: "The write is committed by the master at
+    position …-1, but this child has not applied it: This node did not reach position
+    …-1 within 00:00:10", from `Forwarder.WaitForApplicationAsync`. Ten seconds is long
+    for a loaded machine, so this is examined as a defect of the engine first: a child
+    that does not apply, or is not woken for, the first transaction after its load.
+    Next step: read the path from the master's delivery to the child's application and
+    the wake of the waiter; repeat this test under load with the output kept until it
+    fails again; report to the planner before any test is changed.
+  - Known and left: `SilentPeerTests` asserts only that the master does not give up
+    before its timeout; its upper limit is the bound of one minute.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
@@ -6545,6 +6595,9 @@ writes; the note only forbids a design that loses that list or that moment.
 same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
 connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
 master's close (X6) becomes the option that bounds a send to a child that does not read.
+`ConnectionEndTests` asserts that wait as a range of 4.5 s to 9 s around the constant and
+so depends on the load of the machine; with the option it is given a short one and becomes
+deterministic (planner, 19 November 2026).
 A call withdrawn by its token stays in the queue of the child's sender, with its encoded
 request, until the sender takes it out; judged here with the allocation of a forwarded
 write. Not tested, because nothing can fault the publication of a child: a faulted child ends a
