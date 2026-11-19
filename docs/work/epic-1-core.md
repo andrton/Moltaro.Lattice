@@ -1126,6 +1126,17 @@ Why this order:
     a master — the commit charge, the handles of the process and the count of sockets
     when a bind fails — for diagnosis only; nothing is retried, so that the next
     occurrence explains itself.
+  - *A forwarded write the child did not apply in ten seconds.* `CancellationTests.Write_the_sender_has_not_taken_is_withdrawn_by_its_cancellation_and_never_executed`
+    failed once in five repeats in Release on 19 November 2026, on the engine of `main`
+    (the test and the engine unchanged by the change above), while another agent was
+    building and measuring on the workstation: "The write is committed by the master at
+    position …-1, but this child has not applied it: This node did not reach position
+    …-1 within 00:00:10", from `Forwarder.WaitForApplicationAsync`. Ten seconds is long
+    for a loaded machine, so this is examined as a defect of the engine first: a child
+    that does not apply, or is not woken for, the first transaction after its load.
+    Next step: read the path from the master's delivery to the child's application and
+    the wake of the waiter; repeat this test under load with the output kept until it
+    fails again; report to the planner before any test is changed.
   - Known and left: `SilentPeerTests` asserts only that the master does not give up
     before its timeout; its upper limit is the bound of one minute.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
