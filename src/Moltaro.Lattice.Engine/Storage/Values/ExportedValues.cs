@@ -50,17 +50,7 @@ internal sealed class ExportedValues
 
         foreach (var piece in pieces)
         {
-            ReadOnlySpan<byte> bytes = piece;
-
-            while (!bytes.IsEmpty)
-            {
-                var place = output.GetSpan();
-                var count = Math.Min(place.Length, bytes.Length);
-
-                bytes[..count].CopyTo(place);
-                output.Advance(count);
-                bytes = bytes[count..];
-            }
+            output.Write(piece);
         }
     }
 }

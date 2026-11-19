@@ -119,9 +119,9 @@ public sealed class ChildCloseTests
                 first = at;
             }
 
-            inTransaction = !frames[at].EndsARoot;
+            inTransaction = !frames[at].EndsABody;
 
-            if (first >= 0 && frames[at].EndsARoot)
+            if (first >= 0 && frames[at].EndsABody)
             {
                 return true;
             }

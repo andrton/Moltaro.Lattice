@@ -7,14 +7,13 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Text;
 
-// The text entries of one database (brief of Epic 1, sprint S13; decision on strings, Q04.2 to Q04.4;
-// the planner's decision after the study of S13). Equal text of every field with Dictionary storage, of
-// every entity type, is stored once: as one entry, immutable memory of the arena that holds the exact
-// stored bytes and nothing else, one block up to 4 KiB and a directory with chunks above, by the
-// placement of a Plain value out of line, every block of kind SharedText and its header naming the slot
-// of the entry (Values.ValueBlocks.TryStoreText). A block refers to an entry by a descriptor of kind Text
-// with the length of the text and the relative address of the entry. An empty text stays inline with
-// length 0 and has no entry.
+// The text entries of one database (docs/decisions/strings.md). Equal text of every field with
+// Dictionary storage, of every entity type, is stored once: as one entry, immutable memory of the arena
+// that holds the exact stored bytes and nothing else, one block up to 4 KiB and a directory with chunks
+// above, by the placement of a Plain value out of line, every block of kind SharedText and its header
+// naming the slot of the entry (Values.ValueBlocks.TryStoreText). A block refers to an entry by a
+// descriptor of kind Text with the length of the text and the relative address of the entry. An empty
+// text stays inline with length 0 and has no entry.
 //
 // Who uses it. Writes only: a write of a Dictionary text finds or adds its entry here (TryAcquire), and
 // the free of a block releases the references it holds (Release), on a master and on a child, which
@@ -22,33 +21,34 @@ namespace Moltaro.Lattice.Storage.Text;
 // address its root holds, inside the protection of reads, and never touches this table: no lock and no
 // gate of its own, nothing of it on a line a read reads.
 //
-// One count for each entry, by one rule (point 4): a block holds one reference for each Text descriptor
-// it contains, from the moment it is written (RootWriter, Replication.Load.BlockImport, through
+// One count for each entry, by one rule: a block holds one reference for each Text descriptor it
+// contains, from the moment it is written (RootWriter, Replication.Load.BlockImport, through
 // TryAcquire) until it is freed (Storage.RootStorage.FreeValue, through Release). The rule is worded for
-// any block: a root now, an owned value or a collection with S18 and S19, an index entry later. A
+// any block: a root today, and an owned value, a collection or an index entry once they are stored. A
 // prepared block holds its references as a live one does, so the descriptors of a prepared root are the
 // tally of what its write took, and a write that is withdrawn, cancelled, refused or ended by a fault
 // drops them where its blocks are freed. A retired block holds them until the drain frees it, which is
 // after the last read that could reach it has left.
 //
-// No retirement of an entry on its own, and no generation (point 5). An entry whose count reaches zero
-// leaves the bucket table and is freed in the same call: no block refers to it any more, and a read
-// reaches an entry only through a block it reached inside the protection, which is not freed while the
+// No retirement of an entry on its own, and no generation. An entry whose count reaches zero leaves
+// the bucket table and is freed in the same call: no block refers to it any more, and a read reaches
+// an entry only through a block it reached inside the protection, which is not freed while the
 // read is inside. So an entry is freed only after its last reference and the last protected reader that
 // could reach it are gone, and a reference never resolves to other text. A later write of the same text
 // makes a new entry; an entry that left the table is never found again.
 //
-// Where counts change (point 6, the P1 of the sprint). Every member that changes a count runs on the
-// thread that holds the lock of the writes (Engine.Writes.WriteCoordinator), on a master and on a child:
-// the preparation of a write, the placement of a received root, the free of what a write prepared and
-// does not publish, and the drain of retired memory — under that lock also when the close frees what is
-// retired last (Engine.EngineDatabase). The table takes no lock; in a Debug build every change of a
-// count asserts that the thread holds the lock the database gave the arena, which is how a test shows it.
+// Where counts change. Every member that changes a count runs on the thread that holds the lock of
+// the writes (Engine.Writes.WriteCoordinator), on a master and on a child: the preparation of a write,
+// the placement of a received root, the free of what a write prepared and does not publish, and the
+// drain of retired memory — under that lock also when the close frees what is retired last
+// (Engine.EngineDatabase). The table takes no lock; in a Debug build every change of a count asserts
+// that the thread holds the lock the database gave the arena, which is how a test shows it.
 //
 // The parts. Slots in a managed array that grows by doubling up to the longest array of .NET, and refuses
 // an entry beyond it (TryGrowSlots; TextSlot: the address, the references, the hash, the length, the
-// state or the link of the free list), and the bucket table of the primary index from the hash to the slot (Hashing.IndexTable), the same type and not a second one. The hash is the
-// engine's (Hashing.Marvin) over the stored bytes, with the seed of the instance. An entry is keyed by its
+// state or the link of the free list), and the bucket table of the primary index from the hash to the
+// slot (Hashing.IndexTable), the same type and not a second one. The hash is the engine's
+// (Hashing.Marvin) over the stored bytes, with the seed of the instance. An entry is keyed by its
 // exact bytes always: North and north are two entries, and the comparison a field declares applies only
 // where text is compared. No read touches the slots or the buckets, so a full bucket table is replaced by
 // a grown one at once, without retirement, and the old one is let go of.

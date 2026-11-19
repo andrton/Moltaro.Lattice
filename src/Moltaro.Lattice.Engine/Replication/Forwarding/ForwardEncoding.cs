@@ -3,23 +3,22 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Unicode;
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
-// The bodies of a write forwarded through a child and of its reply (brief of Epic 1, sprint S12, the
-// planner's block of 15 November 2026, "Forwarding had no frames in the brief", and his decisions after the
-// study, points 1, 3 and 6). Every number is little-endian; a mark of presence is one byte, 0 or 1.
+// The bodies of a write forwarded through a child and of its reply
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). Every
+// number is little-endian; a mark of presence is one byte, 0 or 1.
 //
-// A request: its kind (one byte, the value of Storage.WriteKindEnum), the type id of its entity type
+// A request: its kind (one byte, the value of Access.WriteKindEnum), the type id of its entity type
 // (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them;
-// always 0 for an insert, decided at the review of S12, point 4), the minimum position (0, or 1, its history and its sequence, each a UInt64), then the key, in the form
-// of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey); a Delete ends there. An
-// insert, a replace and an upsert go on with the length of the root (UInt64) and the root in the load
-// format of S10, as a Blocks frame carries it: type id (UInt32), last mutation sequence (UInt64), which the
-// child writes as 0 and the master stamps when it prepares the write, then what Load.BlockExport writes.
-// The key and the root are written and read by the engine with the entity type they belong to; here are
-// the parts around them.
+// always 0 for an insert), the minimum position (0, or 1, its history and its sequence, each a UInt64),
+// then the key, in the form of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey);
+// a Delete ends there. An insert, a replace and an upsert go on with the length of the root (UInt64) and
+// the root in the load format, as a Blocks frame carries it: type id (UInt32), last mutation sequence
+// (UInt64), which the child writes as 0 and the master stamps when it prepares the write, then what
+// Load.BlockExport writes. The key and the root are written and read by the engine with the entity type
+// they belong to; here are the parts around them.
 //
 // A reply: 0 and a result — its position, history and sequence, and Changed (one byte, 0 or 1) — or 1 and
 // a refusal: its error (Int32, LatticeErrorEnum), its message (the length of its UTF-8, UInt32, and that
@@ -30,9 +29,6 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // of the engine makes, with ValidationFailed, before anything of it is used.
 internal static class ForwardEncoding
 {
-    // UTF-8 that refuses bytes that are not well-formed, for the message of a refusal.
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
     // The most bytes of UTF-8 one character takes.
     private const int MostBytesOfACharacter = 4;
 
@@ -69,7 +65,7 @@ internal static class ForwardEncoding
     {
         if (!body.TryRead(out var kind) || kind > (byte)WriteKindEnum.Delete)
         {
-            throw Invalid("A forwarded write is empty or names a kind of write that is none.");
+            throw Protocol.Invalid("A forwarded write is empty or names a kind of write that is none.");
         }
 
         if (!body.TryReadLittleEndian(out int typeId))
@@ -92,7 +88,7 @@ internal static class ForwardEncoding
             // for a replace.
             if ((WriteKindEnum)kind == WriteKindEnum.Insert)
             {
-                throw Invalid("A forwarded insert carries an expected revision, which no insert has.");
+                throw Protocol.Invalid("A forwarded insert carries an expected revision, which no insert has.");
             }
         }
 
@@ -120,7 +116,7 @@ internal static class ForwardEncoding
 
         if ((ulong)length != (ulong)body.Remaining)
         {
-            throw Invalid($"A forwarded write announces a root of {(ulong)length} bytes, and {body.Remaining} follow.");
+            throw Protocol.Invalid($"A forwarded write announces a root of {(ulong)length} bytes, and {body.Remaining} follow.");
         }
 
         var root = body.UnreadSequence;
@@ -135,7 +131,7 @@ internal static class ForwardEncoding
     {
         if (!body.End)
         {
-            throw Invalid($"A forwarded delete goes on for {body.Remaining} bytes after its key.");
+            throw Protocol.Invalid($"A forwarded delete goes on for {body.Remaining} bytes after its key.");
         }
     }
 
@@ -196,7 +192,7 @@ internal static class ForwardEncoding
 
             if (!reader.TryRead(out var changed) || changed > 1)
             {
-                throw Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
+                throw Protocol.Invalid("The reply of a forwarded write ends before Changed, or Changed is neither 0 nor 1.");
             }
 
             ExpectEndOfReply(reader);
@@ -206,23 +202,23 @@ internal static class ForwardEncoding
 
         if (!reader.TryReadLittleEndian(out int error) || !Enum.IsDefined((LatticeErrorEnum)error))
         {
-            throw Invalid("The refusal of a forwarded write ends before its error, or names an error that is none.");
+            throw Protocol.Invalid("The refusal of a forwarded write ends before its error, or names an error that is none.");
         }
 
         if (!reader.TryReadLittleEndian(out int length) || (uint)length > (ulong)reader.Remaining)
         {
-            throw Invalid("The refusal of a forwarded write does not hold the message it announces.");
+            throw Protocol.Invalid("The refusal of a forwarded write does not hold the message it announces.");
         }
 
         string message;
 
         try
         {
-            message = StrictUtf8.GetString(reader.UnreadSequence.Slice(0, length));
+            message = Protocol.StrictUtf8.GetString(reader.UnreadSequence.Slice(0, length));
         }
         catch (DecoderFallbackException exception)
         {
-            throw Invalid($"The message of the refusal of a forwarded write is not well-formed UTF-8 ({exception.Message}).");
+            throw Protocol.Invalid($"The message of the refusal of a forwarded write is not well-formed UTF-8 ({exception.Message}).");
         }
 
         reader.Advance(length);
@@ -233,7 +229,7 @@ internal static class ForwardEncoding
         {
             if (!reader.TryReadLittleEndian(out int value) || !Enum.IsDefined((LatticeLimitEnum)value))
             {
-                throw Invalid("The refusal of a forwarded write ends in its limit, or names a limit that is none.");
+                throw Protocol.Invalid("The refusal of a forwarded write ends in its limit, or names a limit that is none.");
             }
 
             limit = (LatticeLimitEnum)value;
@@ -263,15 +259,13 @@ internal static class ForwardEncoding
         });
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
-    private static LatticeException Truncated(string part) => Invalid($"A forwarded write or its reply ends before {part}.");
+    private static LatticeException Truncated(string part) => Protocol.Invalid($"A forwarded write or its reply ends before {part}.");
 
     private static void ExpectEndOfReply(in SequenceReader<byte> reader)
     {
         if (!reader.End)
         {
-            throw Invalid($"The reply of a forwarded write goes on for {reader.Remaining} bytes after its end.");
+            throw Protocol.Invalid($"The reply of a forwarded write goes on for {reader.Remaining} bytes after its end.");
         }
     }
 
@@ -280,7 +274,7 @@ internal static class ForwardEncoding
     {
         if (!reader.TryRead(out var mark) || mark > 1)
         {
-            throw Invalid($"A forwarded write or its reply ends before {part}, or marks it with a value that is neither 0 nor 1.");
+            throw Protocol.Invalid($"A forwarded write or its reply ends before {part}, or marks it with a value that is neither 0 nor 1.");
         }
 
         return mark == 1;
@@ -333,7 +327,7 @@ internal static class ForwardEncoding
 
         if (history == 0)
         {
-            throw Invalid($"A forwarded write or its reply gives {part} with the history 0, which is no position.");
+            throw Protocol.Invalid($"A forwarded write or its reply gives {part} with the history 0, which is no position.");
         }
 
         return new LatticePosition((ulong)history, (ulong)sequence);

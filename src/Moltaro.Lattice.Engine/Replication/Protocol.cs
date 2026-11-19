@@ -1,9 +1,11 @@
+using System.Text;
+
 namespace Moltaro.Lattice.Replication;
 
-// The fixed numbers of the replication transport between a master and its children (brief of Epic 1,
-// sprint S10, "Types and members of S10"; the planner's decision of 17 November 2026 after the study of
-// S10, point 1). They are rules of the format, the same on every node, not settings: a node that differs
-// in one of them is another format and is refused in the handshake.
+// The fixed numbers of the replication transport between a master and its children
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). They are
+// rules of the format, the same on every node, not settings: a node that differs in one of them is
+// another format and is refused in the handshake.
 //
 // A frame is a header of HeaderSize bytes and a body of BodyLength bytes. The body is the payload and,
 // in its last CheckSize bytes, the check: the CRC32C of the header and of the payload (FrameCheck). The
@@ -35,7 +37,7 @@ internal static class Protocol
     // Bit 0 of FrameHeader.Flags: the frame is the last one of a root, or of the schema, or of the
     // whole roots it holds, or of a transaction, or of a forwarded write or its reply. No other flag is
     // defined.
-    public const uint EndsARoot = 1;
+    public const uint EndsABody = 1;
 
     // The payload of Hello and of HelloReply (FrameCodec.WriteHelloBody): a Guid (16), the history (8),
     // the fingerprint of the schema (32) and four Int32 (16).
@@ -44,7 +46,7 @@ internal static class Protocol
     // The payload of Refuse: its reason as a UInt16.
     public const int RefusePayloadSize = 2;
 
-    // The payload of LoadEnd: the start position S of the capture, its end position R and the number of
+    // The payload of LoadEnd: the capture start S, the readiness position R and the number of
     // roots sent, each a UInt64 (Load.LoadEndBody).
     public const int LoadEndPayloadSize = 24;
 
@@ -54,19 +56,21 @@ internal static class Protocol
     // The format of what the bodies of a load and of the stream hold: the envelope of a root, the
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
     // their effects (Replication.Transactions), and the writes a child forwards with their replies
-    // (Replication.Forwarding). Another value is another format. 3 since Epic 1, sprint S12, whose child
-    // forwards its writes on the connection; 2 was S11, whose LoadEnd carries S and R and whose stream
-    // follows the load.
+    // (Replication.Forwarding). Another value is another format. 3 adds to 2 the writes a child forwards
+    // on the connection, with their replies; 2 is the format whose LoadEnd carries S and R and whose
+    // stream follows the load.
     public const int WireFormat = 3;
 
     // The bit of LayoutFormat that a node whose numbers are big-endian sets.
     public const int BigEndianLayout = 0x0001_0000;
 
+    // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
+    public static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     // The format of the bytes of a root as the sender stores them: the version of the root layout
     // (Storage.RootLayout.LayoutVersion) in the low 16 bits, and BigEndianLayout when the machine stores
     // numbers big-endian. A root travels as the bytes of the arena, so a node of the other byte order
-    // has another layout format and is refused with Format; no conversion is built (the planner's block
-    // of 15 November 2026, "Byte order").
+    // has another layout format and is refused with Format; no conversion is built.
     public static int LayoutFormat => BitConverter.IsLittleEndian ? 1 : 1 | BigEndianLayout;
 
     // The largest body of a frame of the kind, its check included; 0 for a value that is no kind. A
@@ -81,4 +85,7 @@ internal static class Protocol
         FrameKindEnum.Closed => CheckSize,
         _ => 0,
     };
+
+    // The refusal of what a peer sent that breaks a rule of the format: ValidationFailed with the reason.
+    public static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

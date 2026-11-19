@@ -1,37 +1,54 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
-using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication.Forwarding;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Forwarding;
 
 // The writes of a child: each is forwarded to its master over the one connection of the child, and the
-// call returns once the master has executed it and this child has applied it (brief of Epic 1, sprint S12;
-// decision Q08.1.2, "Completion of a write forwarded through a child"; session consistency).
+// call returns once the master has executed it and this child has applied it
+// (docs/decisions/replication-and-hosting.md, "Completion of a write forwarded through a child";
+// docs/decisions/session-consistency.md).
+//
+// A write through a child, end to end, across the two nodes:
+// 1. The set of the child (Sets.SetOperations) calls WriteAsync, which checks the write, encodes its
+//    request and queues it (steps 1 to 3 of a call, below).
+// 2. The sender of the child's connection (ChildSender) registers the call (PendingRequests) and sends
+//    the frames of the request (Loading.MasterLink).
+// 3. On the master, the receiver of the connection (Children.ChildConnection, Children.RequestReceiver)
+//    puts the request together (Replication.Forwarding.MessageAssembler), checks it and its root
+//    (Replication.Load.BlockImport) and submits it to the write path (Writes.WriteCoordinator.Forward).
+// 4. The write path prepares it, placing the root it brought (Writes.WriteExecutor), and publishes it as
+//    any write of the master; its reply is recorded for the connection (Delivery.RecordedReplies) before
+//    its transaction is appended to the tail of the children.
+// 5. The sender of that connection sends the reply, then the transaction.
+// 6. On the child, the follower hands the reply to the table of the pending requests, which completes the
+//    call (Following.Follower, PendingRequests), and applies the transaction (Loading.ReceivedChanges).
+// 7. WriteAsync waits until the clock of the child has the position of the write, moves the session to
+//    it, and returns (step 4 of a call).
 //
 // A call, in its order:
 // 1. The checks that need no master. The set has checked the arguments and validated the entity against
-//    the schema (Q25), before it calls. An entity type the engine does not store is NotSupportedException;
+//    the schema, before it calls. An entity type the engine does not store is NotSupportedException;
 //    the session is bound to the history of the child, which is its master's, here, before anything is
 //    queued (Positions.PositionClock.Bind): an empty one is bound, and one of another history, also one
 //    another database bound first, is HistoryMismatch, since no node can order a write after it
-//    (docs/decisions/session-consistency.md, point 7); the master checks it again. So the session of a
-//    write the master committed always moves to its position (step 4). A token cancelled already ends
-//    the call. The child
-//    does not wait for the position of the session: the master orders the write after it (session
-//    consistency, "Facade handoff", point 4).
+//    (docs/decisions/session-consistency.md, "Facade handoff"); the master checks it again. So the session
+//    of a write the master committed always moves to its position (step 4). A token cancelled already ends
+//    the call. The child does not wait for the position of the session: the master orders the write after
+//    it (docs/decisions/session-consistency.md, "Facade handoff").
 // 2. The request (Replication.Forwarding.ForwardEncoding): the kind, the entity type, the expected
 //    revision, the position of the session, the key, and for an insert, a replace or an upsert the root of
 //    the entity in the load format, which the root writer writes without the arena of the child
-//    (Storage.RootWriter, "A root for a forwarded write"; point 1). No timeout travels (point 9).
+//    (Storage.RootWriter, "A root for a forwarded write"). No timeout travels.
 // 3. The queue of the sender of the connection (ChildSender), unless the child has no connection to its
 //    master: then Unavailable, not executed. The sender is looked for before the request is encoded, and a
 //    call it refuses to queue leaves no registration on the token, so that a refused write keeps nothing
-//    reachable (decided at the review of S12, point 4). Until the sender takes it, the token withdraws the
-//    call; then the call waits for the real outcome.
+//    reachable. Until the sender takes it, the token withdraws the call; then the call waits for the real
+//    outcome.
 // 4. The reply. A refusal of the master is thrown as the master gave it. A result is waited for until this
 //    child has applied its position, on the clock of the child, bounded by the SynchronizationTimeout of
 //    the session when it sets one, otherwise by the option; then the session moves to the position, and
@@ -40,9 +57,8 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 //
 // The wait for the application ends otherwise: at the timeout, or at once when the child lost its master
 // or faulted, in SynchronizationTimeout with the committed position, since the write is committed and must
-// not be repeated, and an application retries on Unavailable (settled by the planner with the
-// implementation of S12, point 1); at the close of the child, with the result, since a closed child serves
-// no read (point 8). The session moves to the committed position in each of these.
+// not be repeated, and an application retries on Unavailable; at the close of the child, with the result,
+// since a closed child serves no read. The session moves to the committed position in each of these.
 //
 // What the end of the connection does to a call is the sender's and the table's (ChildSender,
 // PendingRequests): not sent whole, Unavailable; sent whole and not answered, IndeterminateOutcome, unless
@@ -52,8 +68,8 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // The waits, and how each ends. The wait for the reply has no timeout and no token, once the sender has
 // taken the call, as a write of a master after its dispatch: it ends with the reply, with the end of the
 // connection, and with the close of the child, which ends the connection; a master that vanishes without
-// ending the connection keeps it waiting until S34 brings reconnection (exception X6). The wait for the
-// application has the timeout of the call and ends as the class says.
+// ending the connection keeps it waiting, since reconnection is not built yet (exception X6). The wait for
+// the application has the timeout of the call and ends as the class says.
 internal sealed class Forwarder
 {
     private readonly PositionClock _clock;
@@ -169,6 +185,8 @@ internal sealed class Forwarder
             try
             {
                 RootValues.Write(ref writer, table.EntityType, values!);
+                ForwardEncoding.WriteRootLength(request, RootEnvelope.Size + writer.ExportLength);
+                RootEnvelope.Write(request, (uint)table.EntityType.Id, lastMutation: 0);
                 writer.Export(request);
             }
             catch

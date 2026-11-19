@@ -1,10 +1,12 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
-// How a committed transaction travels from a master to its children after LoadEnd (brief of Epic 1,
-// sprint S11; the planner's decision of 17 November 2026 after the study, points 5 to 8). Every number
-// outside a root is little-endian.
+// How a committed transaction travels from a master to its children after LoadEnd
+// (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). Every
+// number outside a root is little-endian.
 //
 // A transaction is its sequence (UInt64), the length of its effects (UInt64), and its effects, one after
 // another until that length:
@@ -17,9 +19,9 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // - Unchanged: its kind and nothing more.
 // It travels in Transaction frames (FrameKindEnum.Transaction) cut from those bytes in their order: a
 // transaction begins a frame of its own, each frame holds at most Protocol.MaxDataPayload bytes of it,
-// and its last frame carries Protocol.EndsARoot. Its frames are its check: the check of each frame, the
+// and its last frame carries Protocol.EndsABody. Its frames are its check: the check of each frame, the
 // announced length, which the frames end exactly, and its sequence, which follows the one before; no
-// digest of its own is built (decided after the study of S11, point 6).
+// digest of its own is built.
 //
 // Applied (FrameKindEnum.Applied), from a child, carries the sequence up to which it has applied all it
 // has received (UInt64).
@@ -31,10 +33,6 @@ internal static class TransactionFormat
     // The kind and the length of the root at the start of a Write.
     public const int WriteEnvelopeSize = 1 + sizeof(ulong);
 
-    // The type id and the last mutation sequence at the start of the root of a Write, as at the start of
-    // a root of a load.
-    public const int RootEnvelopeSize = sizeof(uint) + sizeof(ulong);
-
     // The kind and the type id at the start of a Delete.
     public const int DeleteEnvelopeSize = 1 + sizeof(uint);
 
@@ -45,6 +43,51 @@ internal static class TransactionFormat
     {
         BinaryPrimitives.WriteUInt64LittleEndian(bytes, sequence);
         BinaryPrimitives.WriteUInt64LittleEndian(bytes[sizeof(ulong)..], (ulong)effectsLength);
+    }
+
+    // Reads the envelope of the next effect from the effects of the transaction of the sequence and returns
+    // its kind: for a Write the root, whose type id and last mutation are read, with the effects advanced
+    // past it; for a Delete its type id, with the effects left at its key; for an Unchanged nothing more.
+    // ValidationFailed for a Write whose bytes do not hold the root it announces, a Delete that ends before
+    // its type id, and a kind that is none.
+    public static EffectKindEnum ReadEffect(ref SequenceReader<byte> effects, ulong sequence, out uint typeId, out ulong lastMutation, out SequenceReader<byte> root)
+    {
+        typeId = 0;
+        lastMutation = 0;
+        root = default;
+
+        effects.TryRead(out var kind);
+
+        switch ((EffectKindEnum)kind)
+        {
+            case EffectKindEnum.Write:
+                if (!effects.TryReadLittleEndian(out long rootLength) || rootLength < RootAssembler.EnvelopeSize || rootLength > effects.Remaining)
+                {
+                    throw Protocol.Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
+                }
+
+                root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, rootLength));
+                effects.Advance(rootLength);
+                RootEnvelope.TryRead(ref root, out typeId, out lastMutation);
+
+                return EffectKindEnum.Write;
+
+            case EffectKindEnum.Delete:
+                if (!effects.TryReadLittleEndian(out int deletedId))
+                {
+                    throw Protocol.Invalid($"A Delete of the transaction {sequence} ends before its type id.");
+                }
+
+                typeId = (uint)deletedId;
+
+                return EffectKindEnum.Delete;
+
+            case EffectKindEnum.Unchanged:
+                return EffectKindEnum.Unchanged;
+
+            default:
+                throw Protocol.Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
+        }
     }
 
     public static void WriteApplied(Span<byte> payload, ulong sequence) => BinaryPrimitives.WriteUInt64LittleEndian(payload, sequence);

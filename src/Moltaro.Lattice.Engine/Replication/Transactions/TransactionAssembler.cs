@@ -4,15 +4,14 @@ using Moltaro.Lattice.Replication.Load;
 
 namespace Moltaro.Lattice.Replication.Transactions;
 
-// Puts the transactions a child receives together from their Transaction frames (TransactionFormat; the
-// planner's decision of 17 November 2026 after the study of S11, point 6), one at a time, and hands out
-// each whole: its sequence and its effects. Whether the sequence follows the one before, and what the
-// effects hold, is the applier's (Engine.Following).
+// Puts the transactions a child receives together from their Transaction frames (TransactionFormat), one
+// at a time, and hands out each whole: its sequence and its effects. Whether the sequence follows the one
+// before, and what the effects hold, is the applier's (Engine.Following).
 //
 // What it checks of a frame, before any of it is used:
 // - While no transaction is in progress, the frame begins one: its sequence and the length of its
 //   effects, at least one byte, then the first bytes of its effects, no more than the length announces.
-//   The frame carries Protocol.EndsARoot exactly when it holds all of them.
+//   The frame carries Protocol.EndsABody exactly when it holds all of them.
 // - While one is in progress, the frame holds only its next bytes: no more than it still announces, and
 //   the flag exactly when they complete it.
 // Each failure is a LatticeException with ValidationFailed. A transaction announced larger than the
@@ -22,7 +21,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // A transaction of one frame is handed out where it lies, in the payload of its frame, so it is valid only
 // until the next frame is received. One of several frames is collected in a TransferBuffer, which takes
 // the pieces it needs as its bytes arrive and keeps them for the next large one: a child holds one
-// transaction at a time outside its arena (brief of S11, the planner's block of 15 November 2026).
+// transaction at a time outside its arena.
 internal sealed class TransactionAssembler
 {
     private readonly TransferBuffer _large = new();
@@ -58,7 +57,7 @@ internal sealed class TransactionAssembler
 
         if (payload.Length < TransactionFormat.HeaderSize)
         {
-            throw Invalid($"A Transaction frame of {payload.Length} bytes is shorter than the start of a transaction.");
+            throw Protocol.Invalid($"A Transaction frame of {payload.Length} bytes is shorter than the start of a transaction.");
         }
 
         sequence = BinaryPrimitives.ReadUInt64LittleEndian(payload.Span);
@@ -68,7 +67,7 @@ internal sealed class TransactionAssembler
 
         if (announced == 0)
         {
-            throw Invalid($"The transaction {sequence} announces no effect.");
+            throw Protocol.Invalid($"The transaction {sequence} announces no effect.");
         }
 
         if (announced > (ulong)_largest)
@@ -78,12 +77,12 @@ internal sealed class TransactionAssembler
 
         if (held > announced)
         {
-            throw Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
+            throw Protocol.Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
         }
 
-        if ((held == announced) != frame.EndsARoot)
+        if ((held == announced) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"The transaction {sequence} announces {announced} bytes of effects, and its last frame ends after {held}."
                 : $"The transaction {sequence} is complete in its first frame, which is not marked as its end.");
         }
@@ -112,8 +111,6 @@ internal sealed class TransactionAssembler
         _remaining = 0;
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // The next bytes of the transaction in progress.
     private bool Continue(in ReceivedFrame frame, out ulong sequence, out ReadOnlySequence<byte> effects)
     {
@@ -123,15 +120,15 @@ internal sealed class TransactionAssembler
 
         if ((ulong)payload.Length > _remaining)
         {
-            throw Invalid($"A Transaction frame holds {payload.Length} bytes of the transaction {_sequence}, which announces {_remaining} more.");
+            throw Protocol.Invalid($"A Transaction frame holds {payload.Length} bytes of the transaction {_sequence}, which announces {_remaining} more.");
         }
 
         _large.Write(payload);
         _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsARoot)
+        if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A Transaction frame is marked as the end of the transaction {_sequence}, which announces {_remaining} more bytes."
                 : $"A Transaction frame completes the transaction {_sequence} and is not marked as its end.");
         }

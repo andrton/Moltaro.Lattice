@@ -13,58 +13,57 @@ using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
+// What a write does to the engine: its preparation and its publication, for the write coordinator,
+// which decides when each runs and calls every member of this class under the lock of the writes
+// (WriteCoordinator). Insert, replace, upsert and delete, with or without an expected revision
+// (docs/decisions/mutation-commands.md).
+//
 // The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted
 // from crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
 // crossbeam-utils/src/atomic/seq_lock.rs at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea; the
 // project offers the MIT licence or Apache-2.0, and this file takes it under MIT, Copyright (c) 2019
 // The Crossbeam Project Developers (see THIRD-PARTY-NOTICES.md). Entities.EntityTable, whose reads
-// they pair with, says what is taken and what differs. The rest of the type is the engine's own.
-//
-// What a write does to the engine: its preparation and its publication, for the write coordinator,
-// which decides when each runs and calls every member of this class under the lock of the writes,
-// except WakePositions and WaitForReads, which it calls outside every lock (WriteCoordinator). Insert,
-// replace, upsert and delete, with or without an expected revision (decision on mutation commands,
-// Q13).
+// they pair with, describes the protocol, and docs/design/arena-protocol.md, "The stamp of a root
+// entry", says what differs from the source. The rest of the type is the engine's own.
 //
 // The arena, the table of root entries, the primary indexes, the position clock and the retired list
 // take no lock and have one changing thread at a time: the holder of the lock of the writes. Reads
 // take no lock: they are protected by epochs, and what a read could still reach is retired, not freed
 // (Protection).
 //
-// A preparation (TryPrepare), in its order, in the hold of the lock that checks its condition (brief
-// of S09, part 2, "The path, decided after the study"; milestone contract, "Write coordinator and
-// revision semantics"). Before it the set has checked the arguments and the core has validated the
-// entity against the schema (Q25), text that is not well-formed (Q41) and the bound of one value
-// included.
+// A preparation (TryPrepare), in its order, in the hold of the lock that checks its condition
+// (docs/design/milestone-1-engine-contract.md, "Write coordinator and revision semantics"). Before it the set
+// has checked the arguments and the core has validated the entity against the schema, text that is not
+// well-formed and the bound of one value included.
 // 1. It looks the key up. Only the holder of the lock changes an index and the roots of its entries,
-//    so it reads them without the protection of reads, as S08 did. It checks the condition against
+//    so it reads them without the protection of reads. It checks the condition against
 //    what it finds: an expected revision, then that an insert finds no entity and a replace finds one.
 //    What it finds is the state every earlier write of the entity left: no write of that entity is
 //    prepared and unpublished when a write of it is prepared (WriteCoordinator). A failed condition
 //    changes nothing. A replace through another spelling of a key compared without case keeps the
 //    stored one.
-// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into
-//    prepared blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is
-//    the encoded size of the write; an insert reserves room in the index, which may grow it, and a
-//    replace or a delete a place in the retired list, beside what the writes prepared before it and not
-//    published yet reserved. A failure frees all of it, so nothing of a failed write is left in any
-//    counter (the planner's answer to Q30). An entity has no size limit of its own; only the memory of
-//    the arena, the memory budget of the database, refuses one (decision O19): then TryPrepare returns
-//    false with everything freed, and the coordinator decides what the write waits for before it tries
-//    again (WriteCoordinator, "The refusal").
+// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
+//    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
+//    size of the write; an insert reserves room in the index, which may grow it, and a replace or a delete a
+//    place in the retired list, beside what the writes prepared before it and not published yet reserved. A
+//    failure frees all of it, so nothing of a failed write is left in any counter. An entity has no size
+//    limit of its own; only the memory of the arena, the memory budget of the database, refuses one
+//    (docs/decisions/write-admission.md, "Configurable root-object size limit"): then TryPrepare returns
+//    false with everything freed, and the coordinator decides what the write waits for before it tries again
+//    (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
-// A write a child forwarded (brief of Epic 1, sprint S12, the planner's decision after the study, point 1)
-// brings the root the child wrote, in the load format, instead of values (ForwardedOrigin). Its
-// preparation places that root as a child places a root of its load (Replication.Load.BlockImport), for
-// the lifetime it goes to; the receiver checked it as a child checks one, and that the key in it is the key
-// of the request (Children.ChildConnection), so the check that placing repeats cannot fail. Its last
-// mutation is the sequence the write is published at, as for every write. One case writes the root again
-// from its values: a replace through another spelling of a String key compared without case, which keeps
-// the spelling the entity was created with, as KeepStoredKey does for a write of values.
+// A write a child forwarded brings the root the child wrote, in the load format, instead of values
+// (ForwardedOrigin). Its preparation places that root as a child places a root of its load
+// (Replication.Load.BlockImport), for the lifetime it goes to; the receiver checked it as a child checks one,
+// and that the key in it is the key of the request (Children.ChildConnection), so the check that placing
+// repeats cannot fail. Its last mutation is the sequence the write is published at, as for every write. One
+// case writes the root again from its values: a replace through another spelling of a String key compared
+// without case, which keeps the spelling the entity was created with, as KeepStoredKey does for a write of
+// values.
 //
 // A publication (Publish), of the writes of a group in its order, after the storage step: it only
-// installs what was prepared: the stores of S08 in their order, the position, the retirement of what
+// installs what was prepared: the stores below in their order, the position, the retirement of what
 // was replaced. It obtains no native memory, grows no index, adds no root entry, does no I/O and runs no
 // code of the application. Each store has release semantics (Volatile.Write), so a read that sees one,
 // by a load with acquire semantics, sees every store before it, the blocks the preparation wrote
@@ -81,29 +80,28 @@ namespace Moltaro.Lattice.Engine.Writes;
 // - A delete of an absent key publishes only its sequence.
 // Then RetiredMemory frees what no read can reach any more, once enough was retired since its last
 // look, a write that retired nothing counting as one thing from a look that left something behind
-// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a test armed, for a
-// defect, or when the managed heap cannot hold a block of the tail of the children (below); the
-// write that failed and those after it stay unpublished, and the coordinator faults the database.
+// until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a fault point a
+// test armed, for a defect, or when the managed heap cannot hold a block of the tail of the children
+// (below); the write that failed and those after it stay unpublished, and the coordinator faults the
+// database.
 //
-// The children (brief of Epic 1, sprint S11; the planner's decision of 17 November 2026 after the study,
-// point 5). While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
+// The children. While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
 // encoded for the children before its stores, from what it publishes — the root it prepared, the key it
-// deletes, or only its position — and appended to the tail after them, in the order of the sequences;
-// the senders of the children are woken once the lock is released (WakeDelivery). The copy is written
-// into the blocks of the tail, under the lock, which allocates only when the tail takes a block it has
-// no spare for. With no child and no capture nothing is encoded.
+// deletes, or only its position — and appended to the tail after them, in the order of the sequences; the
+// senders of the children are woken once the lock is released (DeliveryTail.Wake). The copy is written into
+// the blocks of the tail, under the lock, which allocates only when the tail takes a block it has no spare
+// for. With no child and no capture nothing is encoded.
 //
 // A child (Loading.ReceivedChanges) publishes what it received from its master through the members
-// InstallReceived, Mark…Received, PublishPosition and Stamp…Received: the stores of the writes of a
+// Install, MarkReplace, MarkDelete, StampReplace and StampDelete: the stores of the writes of a
 // master, split where a master publishes its position, so that a transaction of several effects marks or
 // installs every entity it changes, publishes its position once, then stores the stamps. With the
 // sequence of the master as the stamp, and with no fault point: a test arms one on a master.
 //
-// Every write that passes its condition and its preparation and is committed is published at a
-// position of its own, also a delete of an absent key, which changes no entity (the owner's answer to
-// Q39). A revision is the history and the root entry's LastMutationSequence: every position changes
-// at most one entity, so the revision of one entity never satisfies a condition on another, and a
-// recreated entity has a new one (brief of S06, "Position and revision").
+// Every write that passes its condition and its preparation and is committed is published at a position of
+// its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
+// entry's LastMutationSequence: every position changes at most one entity, so the revision of one entity
+// never satisfies a condition on another, and a recreated entity has a new one.
 internal sealed class WriteExecutor
 {
     private readonly Arena _arena;
@@ -216,7 +214,7 @@ internal sealed class WriteExecutor
     // Publishes the writes of the group in its order, the first at the sequence given and each next at
     // the next one (see the class), and returns how many were published: all of them, or those before
     // the one whose publication failed, with the failure. The caller wakes the waits for a position
-    // once it has released the lock (WakePositions).
+    // once it has released the lock (PositionClock.Wake).
     public int Publish(CommitGroup group, ulong firstSequence, out Exception? failure)
     {
         var writes = group.Writes;
@@ -253,11 +251,8 @@ internal sealed class WriteExecutor
         return published;
     }
 
-    // Outside every lock, after a publication: a wait for a position continues on a thread of its own.
-    public void WakePositions() => _clock.Wake();
-
     // Under the lock, after a publication: whether it gave the senders of the children something to look
-    // at, which they are woken for after the lock (WakeDelivery); false again afterwards.
+    // at, which they are woken for after the lock (DeliveryTail.Wake); false again afterwards.
     public bool TakeDelivered()
     {
         var delivered = _delivered;
@@ -267,12 +262,6 @@ internal sealed class WriteExecutor
         return delivered;
     }
 
-    // Outside every lock, after a publication that appended to the tail: the senders of the children go on.
-    public void WakeDelivery() => _delivery.Wake();
-
-    // For a write the arena refused: frees what no read in progress can reach.
-    public void DrainRetired() => _retired.Drain();
-
     // For a write the arena refused: whether anything of the arena is retired, and the epoch below
     // which the reads still inside could reach it, or 0 when none can (RetiredMemory.ReadsToWaitFor).
     public long ReadsToWaitFor(out bool retired)
@@ -281,12 +270,6 @@ internal sealed class WriteExecutor
 
         return _retired.ReadsToWaitFor();
     }
-
-    // Waits, outside every lock, until no read that entered with an epoch below this one is inside. The
-    // wait is finite: a read inside the protection waits for nothing and runs no code of the
-    // application, so it leaves within one step (exception X6). The token cancels it.
-    public void WaitForReads(long epoch, CancellationToken cancellationToken) =>
-        _epochs.WaitForReadsBefore(epoch, cancellationToken);
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): the given number of
     // passes go through it, and the next one throws.
@@ -600,48 +583,6 @@ internal sealed class WriteExecutor
         }
     }
 
-    // For a child (Loading.ReceivedChanges), under the lock of the writes, step 1 of the publication of what
-    // it received: installs a root placed in prepared blocks for the new lifetime the handle names
-    // (Replication.Load.BlockImport), as an insert of a master does before its position, with the sequence
-    // of its last mutation on the master as its stamp; the caller has reserved room in the index.
-    public void InstallReceived(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong lastMutation) =>
-        Install(table, key, handle, root, lastMutation);
-
-    // For a child, step 1: the first stores of a replace of a master, the mark and then the root placed
-    // for the lifetime of the entity; returns the root it replaces, for step 3. A read of the entity backs
-    // off until step 3 stores the stamp.
-    public ArenaAddress MarkReceivedReplace(EntityTable table, RootHandle handle, ArenaAddress root) =>
-        MarkReplace(table.Layout!, handle, root);
-
-    // For a child, step 1: the first stores of a delete of a master, the mark and then the state Deleted.
-    public void MarkReceivedDelete(RootHandle handle) => MarkDelete(handle);
-
-    // For a child, step 3, after the position: the last stores of a replace, the stamp and the retirement of
-    // the root it replaced; the caller has reserved its place in the retired list.
-    public void StampReceivedReplace(EntityTable table, RootHandle handle, ArenaAddress replaced, ulong lastMutation) =>
-        StampReplace(table.Layout!, handle, replaced, lastMutation);
-
-    // For a child, step 3: the last stores of a delete, the stamp, the removal of the entry of the index and
-    // the retirement of the root and its entry; the caller has reserved the place in the retired list.
-    public void StampReceivedDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence) =>
-        StampDelete(table, key, handle, sequence);
-
-    // For a child, under the lock of the writes, step 2: the sequence of the master becomes the sequence of
-    // the child: S at the end of its load, then the sequence of each transaction it applies.
-    public void PublishPosition(ulong sequence) => _clock.Publish(sequence);
-
-    // For a child, under the lock of the writes, after what it received is published, a transaction or a
-    // root of its load, which counts as one write that retired nothing when retiredNothing is true: what
-    // was retired is freed as after a write (RetiredMemory.AfterWrite), by the applying thread.
-    public void AfterReceived(bool retiredNothing) => _retired.AfterWrite(retiredNothing ? 1 : 0);
-
-    // For a child, under the lock of the writes: a place in the retired list for the root a received change
-    // will replace or delete, so that its publication allocates nothing; given back when the change is
-    // abandoned (ReleaseRetirement).
-    public void ReserveRetirement() => _retired.Reserve();
-
-    public void ReleaseRetirement() => _retired.Release();
-
     private void PublishInsert(EntityTable table, in EntityKey key, PreparedWrite prepared, ulong sequence)
     {
         Install(table, key, prepared.Handle, prepared.Root, sequence);
@@ -652,9 +593,17 @@ internal sealed class WriteExecutor
         _clock.Publish(sequence);
     }
 
+    // The stores of the publication of a write, which a master makes here (PublishOne) and a child for what
+    // it received from its master (Loading.ReceivedChanges), under the lock of the writes, each with the
+    // sequence of its write as the stamp: Install, MarkReplace and MarkDelete before the position of the
+    // write, StampReplace and StampDelete after it (see the class). The caller reserved what they use:
+    // room in the index for an insert, a place in the retired list for a replace and a delete. A child,
+    // whose transaction may change several entities, makes the stores before the position for each of
+    // them, publishes its position once, and then makes the stores after it.
+    //
     // The stores of an insert before its position: the root becomes live, then the entry, its state last,
     // then the entry of the index, which publishes both to a read by key.
-    private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
+    public void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
     {
         RootStorage.Publish(_arena, table.Layout!, root);
 
@@ -663,7 +612,7 @@ internal sealed class WriteExecutor
         // slot (Children.Capture), and takes more of it only once it loads the state Live with acquire
         // semantics, so that state is stored last, with release semantics: a capture that sees it sees
         // the root and the sequence of this lifetime, never those of an earlier one of the slot
-        // (EntityTable.TryTakeLive; review of S10, carried to S11). x64 keeps stores in their order and
+        // (EntityTable.TryTakeLive). x64 keeps stores in their order and
         // hides the difference; hardware that orders stores weakly does not.
         ref var entry = ref _roots.Entry(handle);
 
@@ -700,7 +649,7 @@ internal sealed class WriteExecutor
     // The stores of a replace before the position (see the head of the file), each with release semantics:
     // the mark first; the release of the root's store keeps the mark before the root, as the release fence
     // after the source's swap keeps it before the data. Returns the root replaced.
-    private ArenaAddress MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
+    public ArenaAddress MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
     {
         RootStorage.Publish(_arena, layout, root);
 
@@ -716,7 +665,7 @@ internal sealed class WriteExecutor
     // The stores of a replace after the position: the new stamp, whose release keeps the root before it,
     // so a read that loads it sees the new root. Reads that took the old root before go on copying it; it
     // is freed once they have left.
-    private void StampReplace(RootLayout layout, RootHandle handle, ArenaAddress replaced, ulong sequence)
+    public void StampReplace(RootLayout layout, RootHandle handle, ArenaAddress replaced, ulong sequence)
     {
         _roots.Entry(handle).ReleaseLastMutation(sequence);
         _retired.RetireRoot(layout, replaced);
@@ -724,7 +673,7 @@ internal sealed class WriteExecutor
 
     // The stores of a delete before the position: the mark, then the state where a replace has the root.
     // The entry keeps the address of its root, which is retired, not freed.
-    private void MarkDelete(RootHandle handle)
+    public void MarkDelete(RootHandle handle)
     {
         ref var entry = ref _roots.Entry(handle);
 
@@ -735,7 +684,7 @@ internal sealed class WriteExecutor
     // The stores of a delete after the position: the stamp, then the entry of the index is removed, so a
     // read that misses the key reads the position of the delete or a later one; the root and its entry are
     // retired.
-    private void StampDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
+    public void StampDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
     {
         ref var entry = ref _roots.Entry(handle);
 

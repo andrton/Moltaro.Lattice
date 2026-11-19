@@ -4,12 +4,11 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Replication;
 
-// Writes and reads whole frames of the replication transport, and the bodies of the handshake (brief of
-// Epic 1, sprint S10, "Types and members of S10"; the planner's decision of 17 November 2026 after the
-// study, point 1). A frame is the header of Protocol.HeaderSize bytes (FrameHeader), the payload, and the
-// check of Protocol.CheckSize bytes, the CRC32C of the header and of the payload (FrameCheck). The body
-// length of the header counts the payload and the check, so a frame takes the header and its body
-// length. Write takes the payload, TryRead returns it; neither hands out the check.
+// Writes and reads whole frames of the replication transport, and the bodies of the handshake. A frame
+// is the header of Protocol.HeaderSize bytes (FrameHeader), the payload, and the check of
+// Protocol.CheckSize bytes, the CRC32C of the header and of the payload (FrameCheck). The body length of
+// the header counts the payload and the check, so a frame takes the header and its body length. Write
+// takes the payload, TryRead returns it; neither hands out the check.
 //
 // Every number of the header, of the check and of the bodies written here is little-endian, so that the
 // bytes are the same on every machine and a node of the other byte order can still read a Hello and be
@@ -18,7 +17,7 @@ namespace Moltaro.Lattice.Replication;
 // What TryRead checks, and when. From the header alone, as soon as its 32 bytes are there: the magic, the
 // protocol version, the kind, the body length against the largest body of the kind
 // (Protocol.MaxBodyOf), so that a frame that announces more is refused before anything is read or
-// allocated for its body, and that no flag but Protocol.EndsARoot is set. Then, once the whole frame is
+// allocated for its body, and that no flag but Protocol.EndsABody is set. Then, once the whole frame is
 // there, the check. Each failure is a
 // LatticeException with ValidationFailed: the bytes are not a frame of this protocol, and nothing of
 // them may be used. The order of the frames, their stream sequence, is checked by the connection that
@@ -99,7 +98,7 @@ internal static class FrameCodec
 
         if (FrameCheck.Of(frame.Slice(0, length - Protocol.CheckSize)) != BinaryPrimitives.ReadUInt32LittleEndian(check))
         {
-            throw Invalid($"The check of a {header.Kind} frame does not match its bytes.");
+            throw Protocol.Invalid($"The check of a {header.Kind} frame does not match its bytes.");
         }
 
         body = frame.Slice(Protocol.HeaderSize, header.BodyLength - Protocol.CheckSize);
@@ -134,7 +133,7 @@ internal static class FrameCodec
     {
         if (body.Length != Protocol.HelloPayloadSize)
         {
-            throw Invalid($"The payload of a Hello has {Protocol.HelloPayloadSize} bytes, not {body.Length}.");
+            throw Protocol.Invalid($"The payload of a Hello has {Protocol.HelloPayloadSize} bytes, not {body.Length}.");
         }
 
         Span<byte> span = stackalloc byte[Protocol.HelloPayloadSize];
@@ -165,7 +164,7 @@ internal static class FrameCodec
     {
         if (body.Length != Protocol.RefusePayloadSize)
         {
-            throw Invalid($"The payload of a Refuse has {Protocol.RefusePayloadSize} bytes, not {body.Length}.");
+            throw Protocol.Invalid($"The payload of a Refuse has {Protocol.RefusePayloadSize} bytes, not {body.Length}.");
         }
 
         Span<byte> span = stackalloc byte[Protocol.RefusePayloadSize];
@@ -174,7 +173,7 @@ internal static class FrameCodec
 
         var reason = (RefuseReasonEnum)BinaryPrimitives.ReadUInt16LittleEndian(span);
 
-        return Enum.IsDefined(reason) ? reason : throw Invalid($"A Refuse names the reason {(ushort)reason}, which is none.");
+        return Enum.IsDefined(reason) ? reason : throw Protocol.Invalid($"A Refuse names the reason {(ushort)reason}, which is none.");
     }
 
     // The fields of a header, checked as the class says.
@@ -193,33 +192,31 @@ internal static class FrameCodec
 
         if (header.Magic != Protocol.Magic)
         {
-            throw Invalid($"A frame begins with 0x{header.Magic:X8}, not with the magic of the protocol.");
+            throw Protocol.Invalid($"A frame begins with 0x{header.Magic:X8}, not with the magic of the protocol.");
         }
 
         if (header.ProtocolVersion != Protocol.Version)
         {
-            throw Invalid($"A frame has the protocol version {header.ProtocolVersion}, not {Protocol.Version}.");
+            throw Protocol.Invalid($"A frame has the protocol version {header.ProtocolVersion}, not {Protocol.Version}.");
         }
 
         var maxBody = Protocol.MaxBodyOf(header.Kind);
 
         if (maxBody == 0)
         {
-            throw Invalid($"A frame has the kind {(ushort)header.Kind}, which is none.");
+            throw Protocol.Invalid($"A frame has the kind {(ushort)header.Kind}, which is none.");
         }
 
         if (header.BodyLength < Protocol.CheckSize || header.BodyLength > maxBody)
         {
-            throw Invalid($"A {header.Kind} frame announces a body of {header.BodyLength} bytes; it has {Protocol.CheckSize} to {maxBody}.");
+            throw Protocol.Invalid($"A {header.Kind} frame announces a body of {header.BodyLength} bytes; it has {Protocol.CheckSize} to {maxBody}.");
         }
 
-        if ((header.Flags & ~Protocol.EndsARoot) != 0)
+        if ((header.Flags & ~Protocol.EndsABody) != 0)
         {
-            throw Invalid($"A {header.Kind} frame has the flags 0x{header.Flags:X8}; only bit 0 is defined.");
+            throw Protocol.Invalid($"A {header.Kind} frame has the flags 0x{header.Flags:X8}; only bit 0 is defined.");
         }
 
         return header;
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

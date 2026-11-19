@@ -113,7 +113,7 @@ internal static class ChildUnderWritesScenario
                 var carried = report.Applied + report.Skipped;
                 var share = carried == 0 ? "none" : $"{(100.0 * report.Skipped / carried).ToString("F1", CultureInfo.InvariantCulture)} %";
 
-                lines.Add($"child {index + 1} Ready in {Milliseconds(times[index].Result)} ms; S {report.Start}, R {report.End}, {report.Roots} roots, {report.End - report.Start} transactions in (S, R], LoadEnd to Ready {Milliseconds(report.Duration)} ms, states applied {report.Applied}, skipped {report.Skipped} ({share})");
+                lines.Add($"child {index + 1} Ready in {Milliseconds(times[index].Result)} ms; S {report.CaptureStart}, R {report.Readiness}, {report.Roots} roots, {report.Readiness - report.CaptureStart} transactions in (S, R], LoadEnd to Ready {Milliseconds(report.Duration)} ms, states applied {report.Applied}, skipped {report.Skipped} ({share})");
             }
 
             lines.Add($"master during the load: {read}; peak PendingDeliveryBytes {ReadSeries.Number(peak)}");

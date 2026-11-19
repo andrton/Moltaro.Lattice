@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // - A request travels as its announced length, the length of its body (UInt64), followed by its body; a
 //   reply the same way. These bytes are cut into frames in their order, each payload at most
 //   Protocol.MaxDataPayload, the first beginning with the announced length; bit 0 of the flags
-//   (Protocol.EndsARoot) is set on the last frame and on no other. A sender may cut the bytes shorter;
+//   (Protocol.EndsABody) is set on the last frame and on no other. A sender may cut the bytes shorter;
 //   the receiver takes any cut. The frames of one request are not interleaved with those of another
 //   request, and Applied frames may pass between them; a reply may come anywhere in the stream of the
 //   master, also between the frames of a transaction.
@@ -33,7 +33,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 //   and its correlation id is 0. Every request of the connection not answered before it was not executed.
 //
 // The body of a request.
-// - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Storage.WriteKindEnum.
+// - Its kind (one byte): 0 Insert, 1 Replace, 2 Upsert, 3 Delete, the values of Access.WriteKindEnum.
 // - The type id of its entity type (UInt32).
 // - The expected revision: 0, or 1 and the two UInt64 of LatticeRevision in the order it holds them.
 // - The minimum position: 0, or 1, its history (UInt64) and its sequence (UInt64).
@@ -173,7 +173,7 @@ internal static class ForwardPayload
             var part = bytes.AsSpan(offset, Math.Min(framePayload, bytes.Length - offset));
             var last = offset + part.Length == bytes.Length;
 
-            frames.Add(WireFrame.Make(kind, last ? Protocol.EndsARoot : 0, correlationId, firstStreamSequence + (ulong)frames.Count, part));
+            frames.Add(WireFrame.Make(kind, last ? Protocol.EndsABody : 0, correlationId, firstStreamSequence + (ulong)frames.Count, part));
         }
 
         return frames;
@@ -187,8 +187,8 @@ internal static class ForwardPayload
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(bytes);
 
         Assert.Equal((ulong)bytes.Length - sizeof(ulong), announced);
-        Assert.All(frames.SkipLast(1), frame => Assert.False(frame.EndsARoot));
-        Assert.True(frames[^1].EndsARoot);
+        Assert.All(frames.SkipLast(1), frame => Assert.False(frame.EndsABody));
+        Assert.True(frames[^1].EndsABody);
 
         return bytes[sizeof(ulong)..];
     }

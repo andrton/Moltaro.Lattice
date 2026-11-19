@@ -2,17 +2,16 @@ using System.Buffers.Binary;
 
 namespace Moltaro.Lattice.Replication.Load;
 
-// The payload of LoadEnd (the planner's decisions of 17 November 2026 after the studies of S10, point 3,
-// and of S11, point 4): the start position S of the capture, its end position R, read after the last root
-// was copied, and the number of roots the master sent, each a UInt64, little-endian. The transactions
-// after S follow LoadEnd on the same connection, and the child is Ready once it has applied R. A child
-// whose count of roots differs fails its open.
-internal readonly record struct LoadEndBody(ulong Start, ulong End, ulong Roots)
+// The payload of LoadEnd: the capture start S, its readiness position R, read after the last root was
+// copied, and the number of roots the master sent, each a UInt64, little-endian. The transactions after
+// S follow LoadEnd on the same connection, and the child is Ready once it has applied R. A child whose
+// count of roots differs fails its open.
+internal readonly record struct LoadEndBody(ulong CaptureStart, ulong Readiness, ulong Roots)
 {
     public void WriteTo(Span<byte> payload)
     {
-        BinaryPrimitives.WriteUInt64LittleEndian(payload, Start);
-        BinaryPrimitives.WriteUInt64LittleEndian(payload[sizeof(ulong)..], End);
+        BinaryPrimitives.WriteUInt64LittleEndian(payload, CaptureStart);
+        BinaryPrimitives.WriteUInt64LittleEndian(payload[sizeof(ulong)..], Readiness);
         BinaryPrimitives.WriteUInt64LittleEndian(payload[(2 * sizeof(ulong))..], Roots);
     }
 
@@ -30,9 +29,9 @@ internal readonly record struct LoadEndBody(ulong Start, ulong End, ulong Roots)
             BinaryPrimitives.ReadUInt64LittleEndian(payload[sizeof(ulong)..]),
             BinaryPrimitives.ReadUInt64LittleEndian(payload[(2 * sizeof(ulong))..]));
 
-        if (end.End < end.Start)
+        if (end.Readiness < end.CaptureStart)
         {
-            throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"A LoadEnd announces the end position {end.End}, before its start position {end.Start}.");
+            throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"A LoadEnd announces the end position {end.Readiness}, before its start position {end.CaptureStart}.");
         }
 
         return end;

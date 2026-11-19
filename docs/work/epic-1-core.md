@@ -1061,6 +1061,8 @@ Why this order:
 | S12 | Writes through a child, sessions; the placeholder is removed | Full | Done |
 | S13 | Text entries and Dictionary strings | Full | Done |
 | After S13 | The fixes after the outside review | Full | Done |
+| S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
+| S13R, part 2 | Refactoring that owes a figure: waits for a quiet machine | Full | Not started |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -5586,6 +5588,16 @@ effect, which is quadratic in the effects of one transaction, and both lists kee
 capacity of the largest transaction. One effect for a transaction today; a batch needs a
 set.
 
+**Decided by the planner on 18 November 2026, on a question of the architect's review.** A
+batch is one member of a commit group: one pending write, one position, several changes.
+"Consecutive positions from the first sequence" of the storage step stays true, and a
+position never falls inside a batch. The master does not get a loop of its own for the
+three steps of a publication: it uses the shared type of entry D1 of the
+[refactoring backlog](refactoring.md), which takes the changes of one publication as a
+span for this reason. A batch is one publication for the drain of retired memory, and it
+retired something if any of its changes did. The envelopes of the effects of a
+transaction move beside the code that reads them in this sprint (entry D5).
+
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
@@ -6207,6 +6219,11 @@ stated otherwise here.
   the master's read p99 while 1, 5 and 10 children load together.
 - **Out of scope.** What the evicted or reconnecting child does next (S34). PostgreSQL
   as a source for a child's catch-up, excluded by decision.
+
+**Carried from the fixes after S13.** The test of an acknowledgment for a transaction
+that was not wholly sent relies on 16 MiB being more than the buffers of the loopback
+hold. The bound of the tail built here gives the observable; the test states its premise
+by it then, and no switch is added to the sender for it before.
 
 #### S34 · Reconnect, reload and a restarted master
 

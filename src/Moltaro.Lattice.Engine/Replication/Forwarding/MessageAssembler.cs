@@ -3,10 +3,10 @@ using System.Buffers.Binary;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
-// Puts forwarded writes or replies together from their frames, one message at a time (brief of Epic 1,
-// sprint S12, the planner's decision after the study, points 3, 6 and 13): the frames of one message
-// come one after another, the first beginning with the announced length of its body (OutgoingMessage),
-// every frame of it with the same correlation id, the last one marked (Protocol.EndsARoot) and no other.
+// Puts forwarded writes or replies together from their frames, one message at a time: the frames of one
+// message come one after another, the first beginning with the announced length of its body
+// (OutgoingMessage), every frame of it with the same correlation id, the last one marked
+// (Protocol.EndsABody) and no other.
 //
 // What it checks of a frame, before any of it is used:
 // - While no message is in progress, the frame begins one: at least the announced length, then no more
@@ -19,9 +19,9 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // Memory. The body is copied out of the receive buffer frame by frame, a piece for each, so that the
 // memory it takes grows with the bytes received and never with the length a frame announces. A body
 // announced above the largest the caller takes is not taken at all: Accept says so at its first frame,
-// and the frames after it are checked and dropped, so that the connection goes on (point 13). Every whole
-// body is made of pieces of its own and stays valid after the next message begins: the caller hands it to
-// a write that may wait (Engine.Children).
+// and the frames after it are checked and dropped, so that the connection goes on. Every whole body is
+// made of pieces of its own and stays valid after the next message begins: the caller hands it to a write
+// that may wait (Engine.Children).
 //
 // One thread at a time uses an assembler: the task that receives on the connection.
 internal sealed class MessageAssembler
@@ -63,7 +63,7 @@ internal sealed class MessageAssembler
 
         if (payload.Length < sizeof(ulong))
         {
-            throw Invalid($"The first {frame.Kind} frame of a message has {payload.Length} bytes, fewer than its announced length takes.");
+            throw Protocol.Invalid($"The first {frame.Kind} frame of a message has {payload.Length} bytes, fewer than its announced length takes.");
         }
 
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(payload);
@@ -71,14 +71,14 @@ internal sealed class MessageAssembler
 
         if ((ulong)held.Length > announced)
         {
-            throw Invalid($"The first {frame.Kind} frame of a message holds {held.Length} bytes of its body, more than the {announced} it announces.");
+            throw Protocol.Invalid($"The first {frame.Kind} frame of a message holds {held.Length} bytes of its body, more than the {announced} it announces.");
         }
 
         var complete = (ulong)held.Length == announced;
 
-        if (complete != frame.EndsARoot)
+        if (complete != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A {frame.Kind} message announces {announced} bytes, and its last frame ends after {held.Length}."
                 : $"A {frame.Kind} message is complete in its first frame, which is not marked as its end.");
         }
@@ -120,8 +120,6 @@ internal sealed class MessageAssembler
         _held = 0;
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // The next bytes of the message in progress.
     private MessageStepEnum Continue(in ReceivedFrame frame, ReadOnlySpan<byte> payload, out ReadOnlySequence<byte> body)
     {
@@ -129,19 +127,19 @@ internal sealed class MessageAssembler
 
         if (frame.CorrelationId != _correlationId)
         {
-            throw Invalid($"A {frame.Kind} frame of the message {frame.CorrelationId} arrived in the middle of the message {_correlationId}.");
+            throw Protocol.Invalid($"A {frame.Kind} frame of the message {frame.CorrelationId} arrived in the middle of the message {_correlationId}.");
         }
 
         if ((ulong)payload.Length > _remaining)
         {
-            throw Invalid($"A {frame.Kind} frame holds {payload.Length} bytes of the message {_correlationId}, which announces {_remaining} more.");
+            throw Protocol.Invalid($"A {frame.Kind} frame holds {payload.Length} bytes of the message {_correlationId}, which announces {_remaining} more.");
         }
 
         _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsARoot)
+        if ((_remaining == 0) != frame.EndsABody)
         {
-            throw Invalid(frame.EndsARoot
+            throw Protocol.Invalid(frame.EndsABody
                 ? $"A {frame.Kind} frame is marked as the end of the message {_correlationId}, which announces {_remaining} more bytes."
                 : $"A {frame.Kind} frame completes the message {_correlationId} and is not marked as its end.");
         }

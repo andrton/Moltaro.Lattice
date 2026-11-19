@@ -4,10 +4,11 @@ using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Storage.Values;
 
-// Text as a root stores it, in the encoding of the database (Q04.1): how many bytes it takes and the
-// string it reads back as. Whether it equals a given text is the comparison of the schema's
-// (Engine.Comparison.ValueComparer), which reads it through StoredTextReader. Only well-formed text is
-// stored, in both encodings, and nothing is ever replaced (Q04.5; RootWriter checks it with the check
+// Text as a root stores it, in the encoding of the database (docs/decisions/strings.md): how many
+// bytes it takes and the string it reads back as. Whether it equals a given text is the comparison of
+// the schema's (Engine.Comparison.ValueComparer), which reads it through StoredTextReader. Only
+// well-formed text is stored, in both encodings, and nothing is ever replaced
+// (docs/decisions/strings.md, "Input validity and preservation"; RootWriter checks it with the check
 // of the core, WellFormedText), so decoding stored text needs no check of its own and finds no
 // malformed sequence. That holds on the assumption the nodes of one database make of each other
 // (docs/decisions/replication-and-hosting.md, "Trust between the nodes of one database"): the text a

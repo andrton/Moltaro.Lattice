@@ -82,11 +82,11 @@ public sealed class ReplyBeforeTransactionTests
                     transactionAt[TransactionPayload.SequenceOf(frame)] = at;
                 }
 
-                inTransaction = !frame.EndsARoot;
+                inTransaction = !frame.EndsABody;
             }
             else if (frame.Kind == ForwardPayload.WriteReply)
             {
-                Assert.True(frame.EndsARoot, "A reply of a small write has more than one frame.");
+                Assert.True(frame.EndsABody, "A reply of a small write has more than one frame.");
                 replies.Add((at, PositionSequence.Of(ForwardPayload.ReplyOf(ForwardPayload.BodyOf([frame])).Position!.Value)));
             }
         }
