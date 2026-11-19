@@ -408,24 +408,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
     // retired memory and before it waits (Loading.ReceivedChanges.Apply). When hold returns the write or
     // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
-    // switch: no other write and no read pays anything for it (ReadEpochs.RunWaitHold). Unavailable
+    // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitHold). Unavailable
     // before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        // Through the barrier, so that the switch is armed before the close lets go of it, or not at all.
-        _barrier.Enter();
-
-        try
-        {
-            _epochs.HoldNextWait(hold);
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
+        Part(_retired).HoldNextWait(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
@@ -634,8 +624,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     //    inside the protection and leave it once their connections end.
     // 9. Under the lock of the writes the last drain frees what is retired, and the arena is freed: no
     //    read and no write can reach it any more.
-    // 10. The parts of the database are let go of, and the switch of the tests for a refused write with
-    //     them, so that an instance kept alive holds none of them.
+    // 10. The parts of the database are let go of, so that an instance kept alive holds none of them.
     // 11. The close completes, with the first failure of a step when one failed: every step runs
     //     whatever became of the one before.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
@@ -793,10 +782,6 @@ internal sealed class EngineDatabase : ILatticeDatabase
             _follower = null;
             _following = null;
         }
-
-        // The switch of the tests for a refused write is kept beside the reads, which outlive the close;
-        // no write and no transaction runs any more, so it is let go of with the parts.
-        _epochs.HoldNextWait(null);
 
         if (failure is null)
         {

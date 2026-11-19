@@ -106,6 +106,15 @@ internal sealed class RetiredMemory
     // (Writes.WriteCoordinator).
     private int _reserved;
 
+    // What the next write the arena refused runs at the first wait of its resolution, and on a child what
+    // the next transaction its arena refused twice runs before its applier waits for the reads, for the
+    // tests of the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it, and only
+    // a refused write or transaction loads it. The one field of this class written and read outside the
+    // lock of the writes: a test arms it from its own thread and the waiter takes it before it waits,
+    // outside every lock, so it is written with release semantics and taken by an interlocked exchange,
+    // which runs it once.
+    private Action? _waitHold;
+
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
         _epochs = epochs;
@@ -214,6 +223,22 @@ internal sealed class RetiredMemory
 
         // A read that enters from now on announces an epoch after the newest tag.
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
+    }
+
+    // Arms the switch of the tests for a refused write (_waitHold): the next one runs hold once, at the
+    // first wait of its resolution.
+    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
+
+    // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
+    // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
+    // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
+    // before it waits (Loading.ReceivedChanges.Apply).
+    public void RunWaitHold()
+    {
+        if (_waitHold is not null)
+        {
+            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+        }
     }
 
     // After the close, once no read and no write is in progress: forgets everything retired. The arena

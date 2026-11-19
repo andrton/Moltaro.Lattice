@@ -237,7 +237,7 @@ internal sealed class ReceivedChanges
 
             if (epoch != 0)
             {
-                _epochs.RunWaitHold();
+                _retired.RunWaitHold();
                 _epochs.WaitForReadsBefore(epoch, cancellationToken);
 
                 lock (_writes)

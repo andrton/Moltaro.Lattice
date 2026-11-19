@@ -1499,7 +1499,7 @@ internal sealed class WriteCoordinator
     }
 
     // The switch of the tests, at the first wait of the resolution of a write, outside every lock
-    // (ReadEpochs.RunWaitHold).
+    // (Protection.RetiredMemory.RunWaitHold).
     private void OfferWaitHold(PendingWrite write)
     {
         if (write.Waited)
@@ -1508,7 +1508,7 @@ internal sealed class WriteCoordinator
         }
 
         write.Waited = true;
-        _epochs.RunWaitHold();
+        _retired.RunWaitHold();
     }
 
     // What one hold of the lock of the writes decided, to be carried out after it (Finish), and the
