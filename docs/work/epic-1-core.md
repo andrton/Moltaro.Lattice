@@ -5754,40 +5754,120 @@ measurement scenarios.
 
 #### S14, part 2 · The cost of index upkeep and of a search
 
-**Track:** full · **Needs:** S14 · **Decided by:** the planner, 19 November 2026, on the
-figures of S14 ("What is weak" in its record). It comes before S14R and S15 and is
-planned for the copy-on-write tree.
+**Track:** full, a critical sprint · **Needs:** S14 · **Decided by:** the planner, 19
+November 2026, on the figures of S14 ("What is weak" in its record). It comes before S14R
+and S15 and is planned for the copy-on-write tree.
+
+**The brief, as passed by the planner on 19 November 2026 after the study.** The study is
+the record that follows this brief; its figures, its traps and its numbered proposals are
+not repeated here, and where it proposes, this brief decides. E1 to E4 and E8 are entries
+of the architect's review after S14 in the [refactoring backlog](refactoring.md).
 
 - **Goal.** The upkeep of the indexes of a write and a search by a full key cost what
   their work needs, measured against the same type without indexes and against the bare
   tree of the prototype.
-- **Step 1, a short study, for (d) only:** how LMDB and LeanStore avoid work for each
-  comparison.
-- **Acceptance, measured** with the scenarios `index-writes`, `index-search`,
-  `index-read-by-key` and `index-build` on the rented machine, once, at the end, by a plan
-  written before the start:
-  - (a) a replace that keeps every indexed key costs what it costs for the same type
-    without indexes, within the gauge (today −20 % with one index, −62 % with six);
-  - (b) the upkeep of one index for a write that changes its key costs at most 1.5 times
+- **Review.** A critical sprint: one reviewer, and beside it a breaker, a second agent
+  that writes probe tests against the guarantees this brief states and reports only what
+  fails ([development process](process.md#review)).
+- **Acceptance.**
+  - (a) A replace that keeps every indexed key costs what it costs for the same type
+    without indexes, within the gauge (today −20 % with one index, −62 % with six). The
+    rule for skipping the upkeep of an index is the byte equality of its two entries, the
+    one the replaced root contributes and the one the new root contributes, decided once
+    in the preparation after the new root is written. Equality under the
+    comparison of the index is not the rule, because an entry copies stored bytes, and a
+    change of case only, the scale of a Decimal, +0 and −0 or the bits of a NaN change
+    those bytes while the values compare equal. The decision is recorded with the
+    prepared change, one for each index, and the reservation, the release, the
+    installation and the removal read it (E2).
+  - (b) The upkeep of one index for a write that changes its key costs at most 1.5 times
     the bare tree's work measured by the prototype on the same machine (today 3 to 3.5
-    times): each entry built once for a write, and a standing reserve of nodes instead of
-    topping up and trimming on every write;
-  - (c) a search for one entity allocates what its result needs, and no copy of the key on
-    the heap;
-  - (d) a search by an Int64 key and by a text key: first a listing and a profile that say
-    what the difference between the bare tree (2.1 M a second) and the engine (450 k; a
-    text key of 8 bytes 163 k) is made of, and a target after that. Named candidates:
-    `CompareText` zeroing its stack buffers and decoding UTF-8 on every comparison, and a
-    hint that misses and descends again;
-  - (e) decided in it by measurement: the size of a node, 1 KiB against 2 KiB, with
-    readers beside a writer on ARM64 as the deciding scenario; a prefix beside a shared
-    key; `Find(in IndexKey)`; text references for a node against for an entry; the cost of
-    `Arena.Payload` at every level.
-- **Tests first.** For (a): tests that the index is exactly right after replaces that
-  keep, change and swap keys, among them a replace whose key changes only in case under a
-  comparison without case, and a replace from null to null.
+    times). Its base comes first: the reservation as one closed formula (E1), with a test
+    of the engine that holds the closed form against the loop. Then a standing reserve of
+    nodes instead of topping up and trimming on every write, on three conditions: it is
+    counted where prepared memory is reported and against the memory limit, like any
+    other bytes; it is given back at close; and a database with many indexes and a small
+    limit still opens — when the reserve alone cannot be taken, that is the refusal for
+    memory of the first write, not a failure of the open. Each entry is built once for a
+    write.
+  - (c) One object holds a search, with the key in it once; a search for one entity
+    allocates that object and its result. The allocation test pins this to a number of
+    bytes, so that one more object fails it. This answers the study's question on (c): a
+    lazy `Find` holds its key between two steps, and holds it once. With it, a defect of
+    consistency, fixed test first (E8): `FindAsync` delivers its failures by the rule of
+    every asynchronous member. A caller's mistake — an argument, a default key, a disposed
+    instance — is thrown when the method is called; what the database decides — a
+    `LatticeException` of any code, also one met on a path that needs no wait — comes
+    through the returned task. `ReadAsync` already does this. The test author checks every
+    other asynchronous member that has a fast path written by hand against the same rule
+    and lists what it finds. The form of `SearchKey` changes with it (E4).
+  - (d) Targets on rented-arm64-1, one thread, `index-search`: a search by an Int64 key
+    at least 700 k a second (today 450 k), by a text key of 8 bytes at least 450 k
+    (163 k), by one of 100 bytes at least 200 k (119 k). A target that is missed is
+    reported with the breakdown of what is left; it is not hidden, and it is not by itself
+    a reason to change the layout. The means, from the study, in this order: (1) the
+    comparison chosen once for an index; (2) the end of a run seen in the step that finds
+    the entry — it touches what the fix of the end position in S14 protects (73ad394):
+    those tests stay as they are, and the breaker takes it as its first target; (3) a leaf
+    copied as a block; (4) text: no zeroing of unused stack, no unused buffers, and for
+    Ordinal a comparison of bytes. What the Ordinal order is, the decision on queries says
+    in [String ordering and query overrides](../decisions/queries.md#string-ordering-and-query-overrides):
+    "Use explicit .NET StringComparer.Ordinal or StringComparer.OrdinalIgnoreCase
+    semantics, as selected by the field, for ordering and supported range predicates." The
+    same paragraph adds: "UTF-8 and UTF-16 storage produce the same logical order; physical
+    byte ordering is not the contract." So an oracle test comes first, with the existing
+    `CompareText` as the oracle: exhaustive over the code points around the surrogate range
+    and U+E000 to U+FFFF, and over strings that differ first at such a place, for both
+    storage encodings. For text stored as UTF-16 a comparison of little-endian bytes is not
+    the order of the code units, so the implementation states what the fast path is there,
+    or that there is none. Ordinal only: a comparison without case stays on the decoded
+    form. `SecondaryIndex.HasKey` becomes "the order is zero" (E3).
+  - (e) Answered by the study: `Find(in IndexKey)` saves 2 to 3 ns, and the contract does
+    not change; `Arena.Payload` at every level costs 17 ns a descent, about 2 % of a
+    search, and stays as it is. Left for the machine: the size of a node, 1 KiB against
+    2 KiB, with readers beside a writer on ARM64 deciding; a prefix beside a shared key;
+    text references for a node against for an entry. A prefix for each node with heads of
+    4 bytes in a slot array changes the layout: it is not in this sprint, and it is put to
+    the owner, with the figures, only if the text targets of (d) are missed after the
+    comparison of bytes.
+- **Tests first,** the first commits of the sprint, by the test author, in this order and
+  before any implementation:
+  1. The refusals the tests of S14 do not cover (point 7 of its record), which must pass
+     on `main` as it is; a failure is reported to the planner at once, not skipped: a
+     refused replace and a refused delete of an indexed type; a refusal at a later index,
+     which releases the indexes already reserved; a throw after the indexes are reserved;
+     a refused forwarded write; a refused change of a child.
+  2. The closed form of the reservation against the loop. Then, in a commit of its own,
+     the figures of the reservation tests of S14 restated from the new formula, on the
+     planner's word: the formula reserves fewer nodes.
+  3. The tests of (a), each asserting the content of the index through the test member
+     (`EngineDatabase.IndexNodes`) and the result of a search: a replace that keeps,
+     changes and swaps keys; a change of case only under a comparison without case; the
+     scale of a Decimal; +0 and −0; NaN with different bits; null to null, where the bytes
+     under a null are arbitrary and the null bit decides; a Plain descriptor is never
+     compared as bytes; a long shared key replaced by an equal text, which is the same
+     entry, so the upkeep is skipped and the references of the text count exactly as after
+     a full upkeep; a replace that swaps the keys of two entities in two writes.
+  4. The delivery rule of `FindAsync`, and the allocation of a search pinned to bytes.
+  5. The oracle test of the comparison of bytes.
+- **Before the plan of the machine is used:** B2 of the
+  [refactoring backlog](refactoring.md), with its proof.
+- **The machine.** One start, at the end, by a plan written here before it: the series,
+  their order, the expected length and what each decides. The coordinator fills in the
+  lengths. The rules for a start of a rented machine in [Acceptance](#acceptance) apply:
+  one queue on the machine, at most N/2 readers judged, and a fall called only after a
+  series of three builds rotating.
+
+  | # | Series | Expected length | Decides |
+  | --- | --- | --- | --- |
+  | 1 | The harness of B2, the old and the new on the same engine, only if the workstation could not give it (see B2) | to be estimated from the start of 19 November | that the new harness measures what the old one did |
+  | 2 | The gauge: two builds of `main` against each other | to be estimated from the start of 19 November | the spread against which the series below are judged |
+  | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head | to be estimated from the start of 19 November | (a), (b), (d) |
+  | 4 | The size of a node, 1 KiB against 2 KiB, 8 readers beside a writer, on the prototype or in the engine, as the implementer provides | to be estimated from the start of 19 November | (e) |
+  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | to be estimated from the start of 19 November | that a type without indexes loses nothing |
+
 - **After it.** S14R holds structure only ([refactoring backlog](refactoring.md)); what the
-  reviews of S14 found as cost is this sprint's. S15 starts after S14R.
+  reviews of S14 found as cost is this sprint's. Then S15.
 
 **The study of S14, part 2, 19 November 2026: where the cost of upkeep and of a search goes;
 nothing is decided.** The figures are of the workstation (x64, i9-13900H, .NET 10.0.15,
@@ -6080,6 +6160,16 @@ three ways named above, chosen here with its figure. The test of three entities 
 one key, the first deleted and inserted again during a paused search, exists in the form
 that asserts exactly the three and is skipped until this sprint.
 
+**Carried from the architect's review after S14 (19 November 2026).** The walk of this
+sprint would land in `EntityTable`, which already has 772 lines. The read limits become one
+small type that `EntityPass` and `IndexSearch` both hold, and `OrderedTree` gets one
+descent of a reader that yields the leaf, the place and the fence in either direction;
+today `TryFindFirst` returns only an identity and descends twice (entry E6 of the
+[refactoring backlog](refactoring.md), joined to this sprint). The comparison of one part
+of an entry — null, text, fixed — is written three times, twice in `IndexOrder` and once in
+`SecondaryIndex.HasKey`; S14, part 2 makes `HasKey` "the order is zero", and S14R writes
+the comparison once under the loops before this sprint starts (entry E3).
+
 #### S16 · Unique indexes
 
 **Carried from S09, part 2:** a write whose unique value is held by a prepared,
@@ -6161,7 +6251,10 @@ at most linearly with the number of changes prepared before a publication. As S1
 it, it grows quadratically with the changes prepared and not yet published: 600 waiting
 writes 16 to 18 MiB with one index and 205 to 280 MiB with seven; 2,000 waiting writes on
 seven indexes 2.0 to 3.05 GiB; 43,780 nodes reserved against 28,747 used. Candidates
-include a linear bound, with its proof first.
+include a linear bound, with its proof first. A batch reserves for each index once, for the
+counts of the whole batch; today `ChangePublisher.TryReserve` takes one change and
+`PreparedWrite` holds one change inline, so a batch would top up each index once for each
+change. The linear reserve and this are one design.
 
 ### Stage 5. The full type model and access
 
