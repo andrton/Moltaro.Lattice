@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
@@ -42,10 +43,11 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // What a write of an entity of 32 MiB costs the other writers is the scenario large-writes
 // (LargeWritesScenario).
 //
-// A series starts its threads, lets them work for a warm-up, then counts in a window of a fixed length.
-// The threads are not pinned to processors; with 16 readers and 16 callers there are more threads than
-// the logical processors of the development machine, and each line says how many there were. A figure
-// is the result of one window, and the program is run three times for a figure to be compared.
+// A series is a window (StepWindow): it starts its threads, lets them work for a warm-up, then counts
+// in a window of a fixed length. The threads are not pinned to processors; with 16 readers and 16
+// callers there are more threads than the logical processors of the development machine, and each line
+// says how many there were. A figure is the result of one window, and the program is run three times
+// for a figure to be compared.
 //
 // A run takes about a minute on the development machine.
 internal static class WriteCallersScenario
@@ -65,16 +67,6 @@ internal static class WriteCallersScenario
 
     private static readonly int[] Callers = [1, 4, 16];
 
-    private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
-
-    private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
-
-    private const int WarmingUp = 0;
-
-    private const int Counting = 1;
-
-    private const int Stopped = 2;
-
     public static IReadOnlyList<string> Run()
     {
         using var users = UserDatabase.Load();
@@ -92,7 +84,7 @@ internal static class WriteCallersScenario
             users.Fixture,
             users.Loaded,
             $"The other database, which readers of the control read: {others.Loaded}",
-            $"Series: a warm-up of {Seconds(WarmUp)} s, then a window of {Seconds(Window)} s; callers that each await every write before the next, on entities of their own; {Readers} readers through the class of keys drawn from 1 to {ReadSeries.Number(users.Count)} with seed {ReadByKeyScenario.KeySeed}, every {TimedEvery}th read timed",
+            $"Series: a warm-up of {Seconds(StepWindow.WarmUp)} s, then a window of {Seconds(StepWindow.Length)} s; callers that each await every write before the next, on entities of their own; {Readers} readers through the class of keys drawn from 1 to {ReadSeries.Number(users.Count)} with seed {ReadByKeyScenario.KeySeed}, every {TimedEvery}th read timed",
             "",
         ];
 
@@ -160,56 +152,25 @@ internal static class WriteCallersScenario
     // through a warm-up and a window; for following-children as well, whose children follow the writes.
     internal static string Series(UserDatabase users, UserDatabase reading, long[] keys, int readers, int callers, Func<int, int, Func<int>>? writer)
     {
-        var phase = WarmingUp;
-        var reads = new long[readers];
+        var window = new StepWindow();
         var readTimes = new long[readers][];
-        var writes = new long[callers];
         var writeTimes = new long[callers][];
-
-        using var start = new Barrier(readers + callers + 1);
-
-        var threads = new List<Thread>();
 
         for (var reader = 0; reader < readers; reader++)
         {
-            var index = reader;
-
-            readTimes[index] = new long[MostTicks + 1];
-            threads.Add(new Thread(() =>
-            {
-                start.SignalAndWait();
-                reads[index] = Read(reading, keys, index * (keys.Length / readers), readTimes[index], ref phase);
-            })
-            {
-                IsBackground = true,
-                Name = $"Reader {index}",
-            });
+            readTimes[reader] = new long[MostTicks + 1];
+            window.Add($"Reader {reader}", new Reader(reading, keys, reader * (keys.Length / readers), readTimes[reader]));
         }
 
         for (var caller = 0; caller < callers; caller++)
         {
-            var index = caller;
-            var write = writer!(index, callers);
+            var write = writer!(caller, callers);
 
-            writeTimes[index] = new long[MostTicks + 1];
-            threads.Add(new Thread(() =>
-            {
-                start.SignalAndWait();
-                writes[index] = Write(write, writeTimes[index], ref phase);
-            })
-            {
-                IsBackground = true,
-                Name = $"Caller {index}",
-            });
+            writeTimes[caller] = new long[MostTicks + 1];
+            window.Add($"Caller {caller}", new Caller(write, writeTimes[caller]));
         }
 
-        foreach (var thread in threads)
-        {
-            thread.Start();
-        }
-
-        start.SignalAndWait();
-        Thread.Sleep(WarmUp);
+        window.Start();
 
         var gen0 = GC.CollectionCount(0);
         var gen1 = GC.CollectionCount(1);
@@ -221,13 +182,7 @@ internal static class WriteCallersScenario
 
         CollectorEvents.Instance.Start();
 
-        var started = Stopwatch.GetTimestamp();
-
-        Volatile.Write(ref phase, Counting);
-        Thread.Sleep(Window);
-        Volatile.Write(ref phase, Stopped);
-
-        var elapsed = Stopwatch.GetElapsedTime(started);
+        var elapsed = window.Count();
 
         machine = MachineProcessors.BusyTicks() - machine;
         processor = Process.GetCurrentProcess().TotalProcessorTime - processor;
@@ -239,11 +194,9 @@ internal static class WriteCallersScenario
 
         var promoted = CollectorEvents.Instance.Promoted();
 
-        foreach (var thread in threads)
-        {
-            thread.Join();
-        }
+        window.Join();
 
+        var reads = window.Counted.Take(readers).Sum();
         var parts = new List<string>
         {
             $"{readers + callers} threads on {Environment.ProcessorCount} logical processors",
@@ -251,7 +204,7 @@ internal static class WriteCallersScenario
 
         if (callers > 0)
         {
-            var written = writes.Sum();
+            var written = window.Counted.Skip(readers).Sum();
             var times = Merged(writeTimes);
             var perWrite = readers == 0 && written > 0 ? $", {ReadSeries.Number(allocated / written)} bytes allocated per write" : "";
 
@@ -262,91 +215,13 @@ internal static class WriteCallersScenario
         {
             var times = Merged(readTimes);
 
-            parts.Add($"{PerSecond(reads.Sum(), elapsed)} reads/s, {PerSecond(reads.Sum() / readers, elapsed)} per reader, read p50 {Microseconds(Percentile(times, 0.50))}, p99 {Microseconds(Percentile(times, 0.99))}");
+            parts.Add($"{PerSecond(reads, elapsed)} reads/s, {PerSecond(reads / readers, elapsed)} per reader, read p50 {Microseconds(Percentile(times, 0.50))}, p99 {Microseconds(Percentile(times, 0.99))}");
         }
 
         parts.Add($"collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}, paused {Milliseconds(paused)} ms, promoted from gen0 {ReadSeries.Number(promoted.FromGen0 / 1024)} KiB, from gen1 {ReadSeries.Number(promoted.FromGen1 / 1024)} KiB");
         parts.Add($"processors busy: the process {Processors(processor.Ticks, elapsed)}, the machine {(machine is { } ticks ? Processors(ticks, elapsed) : "not read")}");
 
         return string.Join("; ", parts);
-    }
-
-    // Reads keys from the place on until the phase is Stopped, and returns how many it read while the
-    // phase was Counting, timing every TimedEvery-th of them into times.
-    private static long Read(UserDatabase users, long[] keys, int place, long[] times, ref int phase)
-    {
-        var counted = 0L;
-        var counting = false;
-        var index = place;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return counted;
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-            }
-
-            var timed = counting && counted % TimedEvery == 0;
-            var before = timed ? Stopwatch.GetTimestamp() : 0;
-
-            if (users.ByClass.Get(keys[index]) is null)
-            {
-                throw new InvalidOperationException($"The user {keys[index]} was not found.");
-            }
-
-            if (timed)
-            {
-                times[Math.Min(Stopwatch.GetTimestamp() - before, MostTicks)]++;
-            }
-
-            counted++;
-            index = index + 1 == keys.Length ? 0 : index + 1;
-        }
-    }
-
-    // Writes until the phase is Stopped, and returns how many writes it completed while the phase was
-    // Counting, timing each call of write into times then; a call of write may make two writes.
-    private static long Write(Func<int> write, long[] times, ref int phase)
-    {
-        var counted = 0L;
-        var counting = false;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return counted;
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-            }
-
-            var before = Stopwatch.GetTimestamp();
-            var made = write();
-
-            if (counting)
-            {
-                var took = Stopwatch.GetTimestamp() - before;
-
-                // Each write of the call is taken at its share of the time of the call.
-                times[Math.Min(took / made, MostTicks)] += made;
-
-                counted += made;
-            }
-        }
     }
 
     // The histograms of the threads of a series, added up.
@@ -397,4 +272,70 @@ internal static class WriteCallersScenario
 
     private static string Microseconds(long ticks) =>
         $"{(ticks * 1_000_000.0 / Stopwatch.Frequency).ToString("F2", CultureInfo.InvariantCulture)} µs";
+
+    // A reader of users by key through the class, from its place in the keys on, timing every
+    // TimedEvery-th of its reads in the window into its histogram.
+    private struct Reader : IWindowStep
+    {
+        private readonly UserDatabase _users;
+
+        private readonly long[] _keys;
+
+        private readonly long[] _times;
+
+        private int _index;
+
+        public Reader(UserDatabase users, long[] keys, int place, long[] times)
+        {
+            _users = users;
+            _keys = keys;
+            _times = times;
+            _index = place;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var timed = counting && counted % TimedEvery == 0;
+            var before = timed ? Stopwatch.GetTimestamp() : 0;
+
+            if (_users.ByClass.Get(_keys[_index]) is null)
+            {
+                NotFound(_keys[_index]);
+            }
+
+            if (timed)
+            {
+                _times[Math.Min(Stopwatch.GetTimestamp() - before, MostTicks)]++;
+            }
+
+            _index = _index + 1 == _keys.Length ? 0 : _index + 1;
+
+            return 1;
+        }
+
+        private static void NotFound(long key) => throw new InvalidOperationException($"The user {key} was not found.");
+    }
+
+    // A caller that writes, awaits the write and writes again, timing each call of write in the window
+    // into its histogram; a call of write may make two writes.
+    private readonly struct Caller(Func<int> write, long[] times) : IWindowStep
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var before = Stopwatch.GetTimestamp();
+            var made = write();
+
+            if (counting)
+            {
+                var took = Stopwatch.GetTimestamp() - before;
+
+                // Each write of the call is taken at its share of the time of the call.
+                times[Math.Min(took / made, MostTicks)] += made;
+            }
+
+            return made;
+        }
+    }
 }
