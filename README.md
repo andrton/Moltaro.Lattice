@@ -159,7 +159,9 @@ Both ways work on the same data and follow the same rules.
 
 **Finding by index.** *The search by the full key of an index works; a search by its
 leading fields, with a range, in reverse or with `Offset` or `Limit` is in the contract
-and not implemented yet, and is refused with `NotSupportedException`.* An entity type
+and not implemented yet, and is refused with `NotSupportedException`. An entity that is
+deleted and created again while a search runs may be returned twice; returning every
+entity at most once is not implemented yet.* An entity type
 declares its secondary indexes in the schema, each with a name and the fields it covers,
 in order:
 

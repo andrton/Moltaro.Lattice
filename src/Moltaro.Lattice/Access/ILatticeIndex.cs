@@ -48,10 +48,16 @@ public interface ILatticeIndex<TEntity>
     /// The matches are produced as they are enumerated.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// An entity that is deleted and created again while the enumeration runs may be returned
+    /// twice; returning every entity at most once is not implemented yet.
+    /// </para>
+    /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
     /// such as an owned value, a collection, a reference or a unique index, the search finds
     /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
     /// type holds no entity.
+    /// </para>
     /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <exception cref="ArgumentException">
@@ -73,8 +79,14 @@ public interface ILatticeIndex<TEntity>
     /// session, in the index order or its reverse, all of them or a part.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// An entity that is deleted and created again while the search runs may be in the result
+    /// twice; returning every entity at most once is not implemented yet.
+    /// </para>
+    /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
     /// the result has no item, as a read by key finds nothing: such a type holds no entity.
+    /// </para>
     /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <param name="options">Consistency, direction and paging of the search.</param>

@@ -256,7 +256,8 @@ found. The entries of a write are installed in the hold of the lock that publish
 root, each by its own stores, in this order: insert the new entries, publish the root,
 remove the old entries; the check against the root covers the moments between. A key
 that compares equal under other bytes (another case, another scale of a Decimal)
-rewrites its entry in place. Fixed values are copied into keys as their root stores
+rewrites its entry at its place in the order, by a copy of its leaf as every change of a
+node is. Fixed values are copied into keys as their root stores
 them; the stored form of a fixed value is written, and read, in one place, which the root
 writer, the search key and the order of an index use. A text key of 64 bytes or less is
 copied into the entry, whatever the storage mode of its field; a longer one references
@@ -657,7 +658,11 @@ accumulates and takes a transaction that exceeds it alone, and none refuses a tr
 for its own size. What a transaction needs is reserved in the instance budget before it is
 committed, the copy for delivery to children included (from S24/S33; until then that copy
 is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
-hold is refused before it has any effect.
+hold is refused before it has any effect: it leaves no entry, no reference and no native byte
+behind. Only managed capacity kept for later writes may stay; of what the counters report, that is
+the bucket table of the text table, which a new text entry may have grown before the arena refused
+the entry, and which keeps that room for the next one and is not given back. It is reported, and
+not charged to the budget.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.
