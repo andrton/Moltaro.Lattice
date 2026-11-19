@@ -11,8 +11,8 @@ namespace Moltaro.Lattice.Tests.Indexes;
 //   whether it is inclusive is refused, as reading any member of a value that was never made, and a range
 //   with it is refused.
 // - The default of IndexKey is no key: a search with it is refused, and IndexKey.All is the one key that
-//   asks for every entry of an index. Reading what a default key holds is refused as reading the value of
-//   a default bound is; IndexKey has no public member that reads it, so that sentence has no test here.
+//   asks for every entry of an index. Its one member, Range, is refused as reading a member of a default
+//   bound is, while a key that All made takes a range.
 public sealed class IndexKeyArgumentTests
 {
     public static IEnumerable<TheoryDataRow<string>> WrongValues =>
@@ -101,6 +101,18 @@ public sealed class IndexKeyArgumentTests
 
             Assert.False(whole is ArgumentException, $"IndexKey.All was refused as the default key is: {whole}");
         }
+    }
+
+    [Fact]
+    public void Default_key_cannot_be_narrowed_by_a_range_and_IndexKey_All_can()
+    {
+        var none = default(IndexKey);
+
+        Assert.Throws<InvalidOperationException>(() => none.Range(IndexBound.Inclusive(1), null));
+        Assert.Throws<InvalidOperationException>(() => none.Range(null, IndexBound.Exclusive("n")));
+        Assert.Throws<InvalidOperationException>(() => none.Range(null, null));
+
+        _ = IndexKey.All.Range(IndexBound.Inclusive(1), null);
     }
 
     // The key is refused with ArgumentException through a class and by name, by Find and by FindAsync,
