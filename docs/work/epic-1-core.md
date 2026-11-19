@@ -1034,6 +1034,13 @@ Why this order:
   is not enabled". That is a missing prerequisite, not a hidden failure: CI always
   enables both lanes, and the coordinator verifies a sprint with the PostgreSQL lane enabled from S27 on, and
   with the cluster lane as well from S35 on.
+- The default lane runs in three jobs: `build` on Linux x64, `windows` on Windows x64 and
+  `arm64` on Linux ARM64, a runner of four processors. The third was added on the
+  owner's decision of 19 November 2026: reads take no lock and a write is published by
+  one store, and the memory ordering of x64 hides a class of faults that ARM64 does
+  not. A failure on ARM64 that the other jobs do not show is a finding about the engine
+  first: it is reported with the name of the test before anyone changes the test.
+  Longer race runs on a machine with many ARM cores are a later step.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
