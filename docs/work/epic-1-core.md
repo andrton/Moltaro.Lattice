@@ -1103,6 +1103,31 @@ Why this order:
   retried, in the engine or in a test), and one failure of `AnnouncedLengthTests` in the
   handshake, which has no short wait. The output of every repeat is kept, so that the
   next one has a name and a message.
+- **Open work from it, to be taken up at once (owner, 19 November 2026).** Two failures
+  are not explained, and each has a next step:
+  - *A handshake that failed once.* `AnnouncedLengthTests.Request_whose_frames_hold_more_than_it_announced…`
+    failed in the handshake in one run of the engine tests in Debug on 19 November 2026,
+    while two other agents built and ran suites on the workstation, and passed three of
+    three alone; its message was not kept. Ruled out: a short wait in the test (it has
+    none: bounds of one minute, timeouts of 30 s). Next step: a soak that can catch it —
+    the replication tests of the engine in a loop under load, the output of every run
+    kept, until it appears with its message or 500 runs pass; on the workstation at a time
+    when it disturbs no measurement, otherwise as an item of the plan of the next start of
+    the rented machine. When it appears: the engine is examined first and the test second,
+    and it is reported to the planner before any test is changed.
+  - *A master that could not listen.* `ClosedFrameTests.Closed_that_is_not_valid_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome`
+    failed once in ten repeats in Release on the same day under the same load: the bind
+    of the listening socket reported that the system lacked sufficient buffer space or a
+    queue was full. Ruled out: a leak of the tests (about 28 listeners at the peak of the
+    suite, none left behind a passing test) and the range of ports (510 connections
+    against about 14,000 ports under the heaviest load). Suspected and not shown: a
+    shortage of the system as a whole (the commit charge stood at 59 of 72 GB under
+    load). Next step: a small capture in the failure path of the test helper that opens
+    a master — the commit charge, the handles of the process and the count of sockets
+    when a bind fails — for diagnosis only; nothing is retried, so that the next
+    occurrence explains itself.
+  - Known and left: `SilentPeerTests` asserts only that the master does not give up
+    before its timeout; its upper limit is the bound of one minute.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
