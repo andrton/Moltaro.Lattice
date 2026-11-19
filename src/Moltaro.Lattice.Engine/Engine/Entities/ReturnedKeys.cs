@@ -89,7 +89,8 @@ internal sealed class ReturnedKeys
 
     private const int MostChunk = 32 * 1024;
 
-    // The primary keys of the entity type, which know how a key is stored and hashed.
+    // The primary keys of the entity type, which know how a key is stored and hashed: a copy made once,
+    // which is the same keys (PrimaryKeys).
     private readonly PrimaryKeys _keys;
 
     private readonly KeyKindEnum _kind;
@@ -130,7 +131,7 @@ internal sealed class ReturnedKeys
 
     private int _length;
 
-    public ReturnedKeys(PrimaryKeys keys)
+    public ReturnedKeys(in PrimaryKeys keys)
     {
         _keys = keys;
         _kind = keys.KeyKind;

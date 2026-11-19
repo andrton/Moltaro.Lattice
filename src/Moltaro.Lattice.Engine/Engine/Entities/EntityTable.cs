@@ -138,8 +138,11 @@ internal sealed class EntityTable
     // The index of the entity type, when the engine stores it.
     private readonly PrimaryIndex? _index;
 
-    // The keys of the entity type, which the reads and the index of this table use as Keys does.
-    private readonly PrimaryKeys _keys;
+    // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
+    // root stores and their form in the replication stream. Held by value, so that its fields lie in the
+    // table and a read by key loads them as the table's own; every caller uses it where it lies, without a
+    // copy (PrimaryKeys).
+    public readonly PrimaryKeys Keys;
 
     private EntityTable(
         LatticeEntityType entityType,
@@ -155,7 +158,7 @@ internal sealed class EntityTable
         EntityType = entityType;
         Layout = layout;
         Refusal = refusal;
-        _keys = keys;
+        Keys = keys;
         _arena = arena;
         _roots = roots;
         _epochs = epochs;
@@ -171,10 +174,6 @@ internal sealed class EntityTable
     // Why the engine does not store the entity type yet, for the NotSupportedException of a write;
     // null when it stores it.
     public string? Refusal { get; }
-
-    // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
-    // root stores and their form in the replication stream.
-    public PrimaryKeys Keys => _keys;
 
     // What the primary index holds, in bytes, and what it is building while it grows. For the writer
     // and the counters.
@@ -234,7 +233,7 @@ internal sealed class EntityTable
     // finds stays the state of its key until the write is published or withdrawn.
     public bool TryFind(in EntityKey key, out RootHandle handle)
     {
-        if (TryFindSlot(key, _keys.HashOf(key), out var slot))
+        if (TryFindSlot(key, Keys.HashOf(key), out var slot))
         {
             handle = new RootHandle(_roots.EntryOfSlot(slot).Generation, slot);
 
@@ -249,16 +248,16 @@ internal sealed class EntityTable
     // Makes room in the index for one more key before an insert is published, beside the inserts
     // prepared before it and not published yet, so that no publication allocates; the index grows
     // while reads go on (Indexes.PrimaryIndex). Under the lock of the writes.
-    public void Reserve(in EntityKey key) => _index!.Reserve(_keys.HashOf(key));
+    public void Reserve(in EntityKey key) => _index!.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
     public void ReleaseReservation() => _index!.Release();
 
     // Maps an absent key to the root entry of its new root, after Reserve.
-    public void Add(in EntityKey key, RootHandle handle) => _index!.Add(_keys.HashOf(key), handle.Slot);
+    public void Add(in EntityKey key, RootHandle handle) => _index!.Add(Keys.HashOf(key), handle.Slot);
 
     // Removes the key of the root entry from the index.
-    public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(_keys.HashOf(key), handle.Slot);
+    public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(Keys.HashOf(key), handle.Slot);
 
     // Arms the switch of the tests on the primary index of an entity type the engine stores
     // (EngineDatabase.HoldNextGrowth).
@@ -310,7 +309,7 @@ internal sealed class EntityTable
                 return false;
             }
 
-            var hash = _keys.HashOf(key);
+            var hash = Keys.HashOf(key);
             var found = TryFindSlot(key, hash, out var slot);
 
             // A key it finds needs the sequence of the database once, in TryCopy. An absent key needs
@@ -348,7 +347,7 @@ internal sealed class EntityTable
     // A new enumeration of the entity type under the read limits of the options, standing before its
     // first step.
     public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
-        new(EntityType.Name, new ReturnedKeys(_keys), memoryLimit, timeLimit);
+        new(EntityType.Name, new ReturnedKeys(Keys), memoryLimit, timeLimit);
 
     // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
     // says: true when there is one, which the caller builds and then commits to the pass; false at the
@@ -507,9 +506,22 @@ internal sealed class EntityTable
 
     // Whether the root of the entry in the slot stores the key, under the comparison of its field for
     // a String. The root is read once; any root the entry names while the caller is inside the
-    // protection, or that the writer reads, holds the key of the lifetime (see the class).
-    private bool KeyEquals(uint slot, in EntityKey key) =>
-        _keys.StoredKeyEquals(new RootReader(_arena, Layout!, _roots.EntryOfSlot(slot).AcquireRoot()), key);
+    // protection, or that the writer reads, holds the key of the lifetime (see the class). The comparison
+    // is written here, in the read, with what the keys give, so that the JIT inlines it into a read by key
+    // at every tier: as a member of the keys of its own, tiered compilation leaves it out of line, behind
+    // the read of the root it inlines first.
+    private bool KeyEquals(uint slot, in EntityKey key)
+    {
+        var stored = new RootReader(_arena, Layout!, _roots.EntryOfSlot(slot).AcquireRoot());
+        var field = Keys.Field;
+
+        return Keys.KeyKind switch
+        {
+            KeyKindEnum.Integer => Keys.StoredInteger(stored) == key.Integer,
+            KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
+            _ => ValueComparer.TextEquals(stored, field, key.Text),
+        };
+    }
 
     // Steps 2 and 3 of a read, inside the protection: takes the state, the root and the sequence of
     // the last mutation of the entry as one state, by the stamp of the entry (see the head of the

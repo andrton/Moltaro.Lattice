@@ -19,14 +19,18 @@ namespace Moltaro.Lattice.Engine.Entities;
 // then names the entry of its text in the text table, and the comparison reads the text there, as a read
 // reads it.
 //
-// Made once with the table of its entity type (EntityTable.Open) and never changed: it holds no state that
-// changes, so any thread calls it, a read inside the protection of reads as well as the holder of the lock
-// of the writes. Its users are the index and the reads of the table, the keys an enumeration returned
-// (ReturnedKeys), the order of the writes of one entity (Writes.PendingWrite), the conversion of a key a
-// caller gives (Sets.KeyArgument), the loader of a child and the encoding of a Delete. An index whose
-// entries name entities, such as one unique by its index key and the identity of the entity, takes the
-// hash and the equality of that identity here: HashOf, KeysEqual, StoredKey and StoredKeyEquals.
-internal sealed class PrimaryKeys
+// Made once with the table of its entity type (EntityTable.Open) and never changed: it holds a reference
+// to the entity type and three scalars, none of which changes, so any thread calls it, a read inside the
+// protection of reads as well as the holder of the lock of the writes, and a copy is the same keys. A
+// value held by the table in a readonly field (EntityTable.Keys), so that its fields lie in the table and a
+// read by key loads them as it loads the table's own, with no second object to reach; its members are
+// called on that field where it lies, without a copy. Its users are the index and the reads of the table,
+// the keys an enumeration returned (ReturnedKeys, which holds a copy), the order of the writes of one
+// entity (Writes.PendingWrite), the conversion of a key a caller gives (Sets.KeyArgument), the loader of a
+// child and the encoding of a Delete. An index whose entries name entities, such as one unique by its
+// index key and the identity of the entity, takes the hash and the equality of that identity here:
+// HashOf, KeysEqual and StoredKey.
+internal readonly struct PrimaryKeys
 {
     // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
     // surrogates.
@@ -205,23 +209,6 @@ internal sealed class PrimaryKeys
         KeyKindEnum.Guid => left.Guid == right.Guid,
         _ => _entityType.Key.Declaration.TextComparison!.Equals(left.Text, right.Text),
     };
-
-    // Whether the root stores the key, under the comparison of its field for a String. The root is read
-    // once; any root the entry of a key names while the caller is inside the protection, or that the writer
-    // reads, holds the key of the lifetime (EntityTable). Inlined into the read of a key by the table
-    // (EntityTable.KeyEquals), so that a read by key makes no call for it.
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool StoredKeyEquals(in RootReader stored, in EntityKey key)
-    {
-        var field = _entityType.Key;
-
-        return KeyKind switch
-        {
-            KeyKindEnum.Integer => StoredInteger(stored) == key.Integer,
-            KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
-            _ => ValueComparer.TextEquals(stored, field, key.Text),
-        };
-    }
 
     // The integer key a root stores, as EntityKey.Integer holds it: read as the unsigned type it is
     // stored as when the key type is unsigned.
