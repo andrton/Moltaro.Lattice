@@ -10,7 +10,12 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // checks that
 // - every entity it returns has the searched key, in a state the writer wrote: its fields agree with one
 //   another as that state set them;
-// - it returns no entity twice;
+// - it returns no entity twice, unless the entity was deleted and created again while the search ran: a
+//   recreated entity has a new root entry, so a new identity, which can lie after the one the search
+//   returned (docs/design/ordered-index.md, "The search by a full key"; that no entity comes back twice
+//   also then is chosen where ranges are walked). The writer stamps each recreation, once before the
+//   delete and once after the insert, and a reader takes the stamps before and after its search: an
+//   entity may come twice only if a recreation of it was under way or happened between the two;
 // - every entity the writer never changes, whose key is the searched one for the whole search, is
 //   returned.
 // The readers run on threads of their own until the writer has made its writes; nothing sleeps.
@@ -26,11 +31,12 @@ public sealed class SearchUnderChurnTests
 
     private static int Readers => Math.Clamp(Environment.ProcessorCount - 2, 2, 6);
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_beside_a_writer_that_moves_keys_returns_only_entities_with_the_key_and_every_entity_that_kept_it()
     {
         await using var database = await MemberSchema.OpenAsync();
         var members = database.Set<Member>();
+        var recreations = new long[Recreated];
 
         for (var id = 1L; id <= Stable; id++)
         {
@@ -47,7 +53,7 @@ public sealed class SearchUnderChurnTests
             await members.InsertAsync(RecreatedState(id, 0));
         }
 
-        await ReadersAndWriter.RunAsync(Readers, reader => ReaderOf(database, reader), () => OwnThread.Run(() => Write(members)));
+        await ReadersAndWriter.RunAsync(Readers, reader => ReaderOf(database, reader, recreations), () => OwnThread.Run(() => Write(members, recreations)));
 
         // After the writes, a search finds each entity under the key of its last state.
         Assert.Equal(Stable + Recreated + MovingIn(1), members.Index("ByGroup").Find(IndexKey.Equal(1)).Count());
@@ -55,7 +61,7 @@ public sealed class SearchUnderChurnTests
     }
 
     // The searches of one reader: through a class or by name, in turn of the two keys.
-    private static Action ReaderOf(ILatticeDatabase database, int reader)
+    private static Action ReaderOf(ILatticeDatabase database, int reader, long[] recreations)
     {
         var byClass = database.Set<Member>().Index("ByGroup");
         var byName = database.Set("Member").Index("ByGroup");
@@ -65,13 +71,23 @@ public sealed class SearchUnderChurnTests
         return () =>
         {
             var group = (int)((reader + search++) % 2) + 1;
+            var before = StampsOf(recreations);
             var found = reader % 2 == 0
                 ? byClass.Find(IndexKey.Equal(group)).ToList()
                 : byName.Find(IndexKey.Equal(group)).Select(MemberOf).ToList();
+            var after = StampsOf(recreations);
 
             Assert.All(found, member => Assert.Equal(group, member.Group));
             Assert.All(found, ExpectWritten);
-            Assert.Equal(found.Count, found.Select(member => member.Id).Distinct().Count());
+
+            foreach (var twice in found.GroupBy(member => member.Id).Where(same => same.Count() > 1).Select(same => same.Key))
+            {
+                var recreated = twice - 201;
+
+                Assert.True(
+                    recreated is >= 0 and < Recreated && (before[recreated] % 2 == 1 || before[recreated] != after[recreated]),
+                    $"The search returned {twice} twice, and it was not deleted and created again while the search ran.");
+            }
 
             if (group == 1)
             {
@@ -88,8 +104,9 @@ public sealed class SearchUnderChurnTests
     }
 
     // The writer: moves a member to its next state at every write, and every tenth write deletes a
-    // member of the third kind and inserts it again under a new login.
-    private static void Write(ILatticeSet<Member> members)
+    // member of the third kind and inserts it again under a new login, its stamp counted up before the
+    // delete and again after the insert, so that it is odd while the member is being recreated.
+    private static void Write(ILatticeSet<Member> members, long[] recreations)
     {
         for (var write = 1; write <= Writes; write++)
         {
@@ -101,11 +118,16 @@ public sealed class SearchUnderChurnTests
             {
                 var recreated = 201 + ((write / 10) % Recreated);
 
+                Interlocked.Increment(ref recreations[recreated - 201]);
                 OwnThread.Wait(members.DeleteAsync((long)recreated));
                 OwnThread.Wait(members.InsertAsync(RecreatedState(recreated, write)));
+                Interlocked.Increment(ref recreations[recreated - 201]);
             }
         }
     }
+
+    // The stamps of the recreations at this moment.
+    private static long[] StampsOf(long[] recreations) => [.. Enumerable.Range(0, recreations.Length).Select(index => Volatile.Read(ref recreations[index]))];
 
     // The state number of a moving member after the given write: how many writes have moved it.
     private static long NumberOf(long id, int write) => ((write - 1) / Moving) + (((write - 1) % Moving) >= id - 101 ? 1 : 0);
