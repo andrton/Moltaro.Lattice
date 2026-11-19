@@ -5467,6 +5467,23 @@ the fields it names: nothing stored outlives a process yet, so there is no migra
 now, and the sprint that persists roots takes the note. The trap of `LiesInChunks` for
 S18 is unaffected.
 
+**The public change of the stage, approved by the owner on 19 November 2026, as the
+planner relays.** `IndexKey` and `IndexBound` are structs that hold their values without
+a box, with the names and factories they had; a search allocated four to six objects
+for its key before and allocates none now (counted by reading; the allocation test of
+this sprint states it). The key is about 230 bytes and is passed by value. A default
+key is an error: passed to a search it is an `ArgumentException`, by class and by name;
+"every entry of the index" is said only by `IndexKey.All`, which is distinguishable
+from the default; reading a property of a default key or bound is an
+`InvalidOperationException`. Confirmed by the planner as rules of the schema language
+and of the contract: an index whose four widest entries cannot fit a node of 64 KiB
+fails the open with `InvalidSchema`; an index node holds one reference for each shared
+key it contains, as the rule of counts says, and the write of an index of long keys is
+measured before that rule is questioned. What only a timing decides, each built with
+its default: a prefix beside a shared key (none), `Find(in IndexKey)` (by value),
+references for a node or for an entry (for a node), the size of a node (1 KiB), the
+checks of an address at every level of a descent (as they are).
+
 **The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
 case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy
 with other work before a case (two cases at 44 and 51 %): differences below about a
