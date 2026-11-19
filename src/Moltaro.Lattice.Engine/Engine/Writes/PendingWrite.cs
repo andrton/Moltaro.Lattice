@@ -180,7 +180,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public PreparedWrite PrepareNothingToDelete()
     {
         _record ??= new PreparedWrite(this);
-        _record.Clear();
+        _record.SetNoChange();
 
         return _record;
     }

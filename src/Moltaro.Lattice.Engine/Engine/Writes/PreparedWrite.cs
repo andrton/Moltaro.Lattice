@@ -49,10 +49,11 @@ internal sealed class PreparedWrite
         EncodedSize = encodedSize;
     }
 
-    // No change: what the preparation of a delete of a key that is absent made.
-    public void Clear()
+    // No change: what the preparation of a delete of a key that is absent made. The change itself is left
+    // as it is: nothing reads it while ChangesEntity is false, and the record holds no reference of an
+    // earlier write in it, being new or let go of after its last write (LetGo).
+    public void SetNoChange()
     {
-        _change = default;
         ChangesEntity = false;
         EncodedSize = 0;
     }
@@ -60,7 +61,7 @@ internal sealed class PreparedWrite
     // After the outcome of its write, for a record kept for the next write: no change any more, and what
     // the change references, its table and its key, let go of, so that the record keeps nothing of the
     // caller alive. Its scalars stay as they were: nothing reads them while ChangesEntity is false, and
-    // the next preparation sets the record (Set, Clear).
+    // the next preparation sets the record (Set, SetNoChange).
     public void LetGo()
     {
         ChangesEntity = false;
