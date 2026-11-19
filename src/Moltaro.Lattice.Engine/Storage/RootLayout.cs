@@ -196,10 +196,18 @@ internal sealed class RootLayout
     // the descriptors, as the comment of the class adds them up. At most Arena.MaxBlockSize.
     public int FixedSize { get; }
 
-    // The version of this layout, which the header of every block of a root written with it carries
-    // (BlockHeader.LayoutVersion). It is 1 for every layout of S05; how a changed layout is numbered
-    // belongs to S37.
-    public uint LayoutVersion => 1;
+    // The layout version: the form of the bytes of a root as every node compiles it from the schema, one
+    // version for the node and so for every layout. The header of every block of a root carries it
+    // (BlockHeader.LayoutVersion), as does the envelope of every root sent to a child, and both are checked
+    // on receipt; the handshake carries it in the low 16 bits of the layout format
+    // (Replication.Protocol.LayoutFormat), so that two builds that store roots in other forms refuse each
+    // other. It is raised when the same schema would compile to bytes an earlier build would read
+    // otherwise: 2 since a field that is part of an index stores a value longer than 64 bytes as a text
+    // entry.
+    public const uint Version = 2;
+
+    // The version of this layout, Version, as every layout of the node has it.
+    public uint LayoutVersion => Version;
 
     // The most encoded bytes of a value stored inline, in the root block.
     public const int InlineLimit = 64;

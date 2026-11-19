@@ -1,4 +1,5 @@
 using System.Text;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Replication;
 
@@ -67,11 +68,12 @@ internal static class Protocol
     // Decodes received UTF-8 and refuses what is not well-formed, rather than replacing it.
     public static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    // The format of the bytes of a root as the sender stores them: the version of the root layout
-    // (Storage.RootLayout.LayoutVersion) in the low 16 bits, and BigEndianLayout when the machine stores
-    // numbers big-endian. A root travels as the bytes of the arena, so a node of the other byte order
-    // has another layout format and is refused with Format; no conversion is built.
-    public static int LayoutFormat => BitConverter.IsLittleEndian ? 1 : 1 | BigEndianLayout;
+    // The format of the bytes of a root as the sender stores them: the layout version
+    // (Storage.RootLayout.Version) in the low 16 bits, and BigEndianLayout when the machine stores
+    // numbers big-endian. A root travels as the bytes of the arena, so a node of another layout version
+    // or of the other byte order has another layout format and is refused with Format; no conversion is
+    // built.
+    public static int LayoutFormat => BitConverter.IsLittleEndian ? (int)RootLayout.Version : (int)RootLayout.Version | BigEndianLayout;
 
     // The largest body of a frame of the kind, its check included; 0 for a value that is no kind. A
     // frame whose header announces more is refused from the header alone, before its body is read.

@@ -386,7 +386,11 @@ Durable logical values use explicit little-endian numeric encoding, .NET
 Decimal's four UInt32 components, Guid's documented RFC byte order, UTC ticks for
 DateTimeOffset, day number for DateOnly and ticks for TimeOnly/TimeSpan. The replication
 stream carries stored bytes in the layout and byte order the Hello has checked (decided
-after the studies of S10 and S11). Validate declared ranges and Unicode. The format header carries magic, format version, schema
+after the studies of S10 and S11). The layout is one version for the node, carried in
+every block header and root envelope and in the low 16 bits of the Hello's layout format,
+and raised when the same schema would compile to bytes an earlier build reads otherwise:
+2 since a field that is part of an index stores a value longer than 64 bytes as a text
+entry, so builds of the two forms refuse each other at the handshake. Validate declared ranges and Unicode. The format header carries magic, format version, schema
 version, payload length and checksum. No CLR object image, package node or native
 segment address is a durable format. Fixed layout offsets derive deterministically
 from the compiled schema; unit/chunk placement is internal.
