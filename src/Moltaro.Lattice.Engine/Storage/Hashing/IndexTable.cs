@@ -75,7 +75,7 @@ namespace Moltaro.Lattice.Storage.Hashing;
 //   TableAndVersion); its version is written by the constructor, before that store, and never
 //   changes;
 // - an entry: Add writes it by a store with release semantics after the insert wrote the root entry
-//   and published the root (Engine.Writes.WriteExecutor), into the main table and into an overflow bucket
+//   and published the root (Engine.Entities.ChangePublisher), into the main table and into an overflow bucket
 //   alike, and ReadMain and ReadOverflow load it with acquire semantics, so a reader that sees an
 //   entry sees the root entry and the root it names;
 // - an overflow bucket by key: the link to it, stored with release semantics after the bucket's first

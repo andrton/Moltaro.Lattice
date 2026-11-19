@@ -1,14 +1,7 @@
-using System.Buffers;
-using System.Buffers.Binary;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Unicode;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
@@ -22,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // says how reads read them while it does. A write being prepared looks its key up under that lock
 // (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
 //
-// The stamp of a root entry, read here (TakeEntry) and written by Writes.WriteExecutor. A read takes
+// The stamp of a root entry, read here (TakeEntry) and written by ChangePublisher. A read takes
 // the state, the root and the sequence of the last mutation of an entry as one state, without a lock,
 // while the one thread that holds the lock of the writes changes the entry:
 // - The stamp is the sequence of the last mutation of the entry. MutationInProgress, 0, which no
@@ -44,11 +37,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // Whether the engine stores the entity type is decided once, when the database opens: an entity
 // type the engine cannot store yet gets no layout, every write of it is refused with
-// NotSupportedException, a read of it by key finds nothing and an enumeration of it is empty. Every key
-// type of the catalog is stored; a String key is equal to another, and hashed, under the comparison its
-// field declares, by the comparison of the schema (Comparison.ValueComparer). A String key may have
-// Dictionary storage, as any String field may: the root then names the entry of its text in the text
-// table, and the comparison reads the text there, as a read reads it.
+// NotSupportedException, a read of it by key finds nothing and an enumeration of it is empty. How its keys
+// are hashed and compared, and read from a root, is the business of its primary keys (PrimaryKeys).
 //
 // A read by key, in its order. It enters the protection of reads, takes no lock and writes nothing
 // but its slot of the protection:
@@ -78,7 +68,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // delete. For an absent key: the sequence of the database read before the lookup, when the lookup
 // ended with the sequence unchanged; otherwise the read looks up again. An insert publishes its entry
 // in the index before the sequence of the database and a delete the sequence before it removes the
-// entry (Writes.WriteExecutor), so an absence seen at an unchanged sequence holds at that sequence.
+// entry (ChangePublisher), so an absence seen at an unchanged sequence holds at that sequence.
 //
 // An enumeration, a step at a time (TryReadNext). Between two steps nothing is held but what its pass
 // holds (EntityPass), managed memory of the enumeration. A step is made of rounds, each inside the
@@ -137,10 +127,6 @@ internal sealed class EntityTable
     // index does not grow, takes one round.
     private const int WordsPerRound = 256;
 
-    // The most bytes of UTF-8 one character takes: a supplementary character, written from a pair of
-    // surrogates.
-    private const int MostBytesOfACharacter = 4;
-
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -152,36 +138,32 @@ internal sealed class EntityTable
     // The index of the entity type, when the engine stores it.
     private readonly PrimaryIndex? _index;
 
-    // Whether an integer key is of an unsigned type, which the root stores as such.
-    private readonly bool _unsignedKey;
-
-    // The seed of the hashes of the primary index, the one of the instance (HashOf). Kept here alone,
-    // never stored, sent or shown.
-    private readonly ulong _seed;
+    // The primary keys of the entity type: their kind, their hash in the index, their equality, the key a
+    // root stores and their form in the replication stream. Held by value, so that its fields lie in the
+    // table and a read by key loads them as the table's own; every caller uses it where it lies, without a
+    // copy (PrimaryKeys).
+    public readonly PrimaryKeys Keys;
 
     private EntityTable(
         LatticeEntityType entityType,
         RootLayout? layout,
         string? refusal,
+        PrimaryKeys keys,
         Arena arena,
         RootTable roots,
         ReadEpochs epochs,
         RetiredMemory retired,
-        PositionClock clock,
-        ulong seed)
+        PositionClock clock)
     {
         EntityType = entityType;
         Layout = layout;
         Refusal = refusal;
-        KeyKind = KeyKindOf(entityType.Key);
+        Keys = keys;
         _arena = arena;
         _roots = roots;
         _epochs = epochs;
         _clock = clock;
         _index = layout is null ? null : new PrimaryIndex(retired);
-        _unsignedKey = entityType.Key.Declaration.Type
-            is LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.UInt16 or LatticeFieldTypeEnum.UInt32 or LatticeFieldTypeEnum.UInt64;
-        _seed = seed;
     }
 
     public LatticeEntityType EntityType { get; }
@@ -192,8 +174,6 @@ internal sealed class EntityTable
     // Why the engine does not store the entity type yet, for the NotSupportedException of a write;
     // null when it stores it.
     public string? Refusal { get; }
-
-    public KeyKindEnum KeyKind { get; }
 
     // What the primary index holds, in bytes, and what it is building while it grows. For the writer
     // and the counters.
@@ -209,28 +189,6 @@ internal sealed class EntityTable
     // for the count of roots the master announced (Indexes.PrimaryIndex.Presize). Under the lock of the
     // writes.
     public void Presize(long count) => _index!.Presize(count);
-
-    // The key a root stores, in the form the index takes it, hashed under the seed of this instance: for
-    // the loader of a child, which builds its index from the keys it receives. The root is one the caller
-    // placed and holds under the lock of the writes.
-    public EntityKey StoredKey(in RootReader stored)
-    {
-        var field = EntityType.Key;
-
-        switch (KeyKind)
-        {
-            case KeyKindEnum.Integer:
-                return EntityKey.OfInteger(field.Declaration.Type, StoredInteger(stored));
-
-            case KeyKindEnum.Guid:
-                return EntityKey.OfGuid(stored.GetGuid(field));
-
-            default:
-                var text = stored.GetString(field);
-
-                return EntityKey.OfText(text, TextHash(text));
-        }
-    }
 
     // The table of an entity type of the schema, when the database opens, whose primary index hashes
     // with the seed of the instance. The root layout is compiled here, before any data is admitted;
@@ -263,7 +221,9 @@ internal sealed class EntityTable
             }
         }
 
-        return new EntityTable(entityType, layout, refusal, arena, roots, epochs, retired, clock, seed);
+        var keys = new PrimaryKeys(entityType, schema.StringEncoding, seed);
+
+        return new EntityTable(entityType, layout, refusal, keys, arena, roots, epochs, retired, clock);
     }
 
     // For a write being prepared, under the lock of the writes, whose holder is the only thread that
@@ -273,7 +233,7 @@ internal sealed class EntityTable
     // finds stays the state of its key until the write is published or withdrawn.
     public bool TryFind(in EntityKey key, out RootHandle handle)
     {
-        if (TryFindSlot(key, HashOf(key), out var slot))
+        if (TryFindSlot(key, Keys.HashOf(key), out var slot))
         {
             handle = new RootHandle(_roots.EntryOfSlot(slot).Generation, slot);
 
@@ -285,140 +245,19 @@ internal sealed class EntityTable
         return false;
     }
 
-    // A key of the String key type from its text, hashed under the seed of this instance: for the loader
-    // of a child, which reads the text from a root it received before it places it
-    // (Loading.ReceivedChanges).
-    public EntityKey KeyOfText(string text) => EntityKey.OfText(text, TextHash(text));
-
-    // The bytes a key of this entity type takes in a Delete of the replication stream
-    // (Replication.Transactions.TransactionFormat), in the form WriteKey writes and ReadKey reads: an
-    // integer key as the 64 bits of EntityKey.Integer, a Guid key as its 16 bytes in the order of
-    // Guid.TryWriteBytes, a String key as the length of its UTF-8 (UInt32) and that UTF-8; numbers
-    // little-endian. The text of a key is well-formed, as the core checked it, so it has its UTF-8.
-    public int KeyLength(in EntityKey key) => KeyKind switch
-    {
-        KeyKindEnum.Integer => sizeof(long),
-        KeyKindEnum.Guid => 16,
-        _ => sizeof(uint) + Encoding.UTF8.GetByteCount(key.Text!),
-    };
-
-    // Writes the key into the output, KeyLength bytes (see KeyLength). The text of a String key may be as
-    // long as a String value may be, longer than one span of the output holds (the tail a master delivers
-    // from, Delivery.DeliveryTail, gives spans of at most one block), so it is encoded into the spans as the
-    // output gives them, each asked for room for one whole character; an integer, a Guid and the length of
-    // a text fit the span asked for.
-    public void WriteKey(in EntityKey key, IBufferWriter<byte> output)
-    {
-        switch (KeyKind)
-        {
-            case KeyKindEnum.Integer:
-                BinaryPrimitives.WriteInt64LittleEndian(output.GetSpan(sizeof(long)), key.Integer);
-                output.Advance(sizeof(long));
-                break;
-
-            case KeyKindEnum.Guid:
-                key.Guid.TryWriteBytes(output.GetSpan(16));
-                output.Advance(16);
-                break;
-
-            default:
-                var text = key.Text!.AsSpan();
-
-                BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), (uint)Encoding.UTF8.GetByteCount(text));
-                output.Advance(sizeof(uint));
-
-                while (!text.IsEmpty)
-                {
-                    Utf8.FromUtf16(text, output.GetSpan(MostBytesOfACharacter), out var read, out var written);
-                    output.Advance(written);
-                    text = text[read..];
-                }
-
-                break;
-        }
-    }
-
-    // Reads a key that WriteKey wrote from the input, hashed under the seed of this instance, with the
-    // input advanced past it. ValidationFailed for bytes that are not a key of this entity type: too few
-    // of them, an integer outside the key type, text that is not well-formed UTF-8.
-    public EntityKey ReadKey(ref SequenceReader<byte> input)
-    {
-        switch (KeyKind)
-        {
-            case KeyKindEnum.Integer:
-                if (!input.TryReadLittleEndian(out long integer))
-                {
-                    throw InvalidKey($"{input.Remaining} bytes are fewer than an integer key takes.");
-                }
-
-                var type = EntityType.Key.Declaration.Type;
-
-                if (!IsInRange(type, integer))
-                {
-                    throw InvalidKey($"the integer {integer} is not a value of the key type {type}.");
-                }
-
-                return EntityKey.OfInteger(type, integer);
-
-            case KeyKindEnum.Guid:
-                Span<byte> guid = stackalloc byte[16];
-
-                if (!input.TryCopyTo(guid))
-                {
-                    throw InvalidKey($"{input.Remaining} bytes are fewer than a Guid key takes.");
-                }
-
-                input.Advance(guid.Length);
-
-                return EntityKey.OfGuid(new Guid(guid));
-
-            default:
-                if (!input.TryReadLittleEndian(out int length) || length < 0 || length > input.Remaining)
-                {
-                    throw InvalidKey("the bytes do not hold the text they announce.");
-                }
-
-                string text;
-
-                try
-                {
-                    text = Protocol.StrictUtf8.GetString(input.UnreadSequence.Slice(0, length));
-                }
-                catch (DecoderFallbackException exception)
-                {
-                    throw InvalidKey($"its text is not well-formed UTF-8 ({exception.Message})");
-                }
-
-                input.Advance(length);
-
-                return KeyOfText(text);
-        }
-    }
-
     // Makes room in the index for one more key before an insert is published, beside the inserts
     // prepared before it and not published yet, so that no publication allocates; the index grows
     // while reads go on (Indexes.PrimaryIndex). Under the lock of the writes.
-    public void Reserve(in EntityKey key) => _index!.Reserve(HashOf(key));
+    public void Reserve(in EntityKey key) => _index!.Reserve(Keys.HashOf(key));
 
     // Gives back the room an insert reserved, when it is withdrawn. Under the lock of the writes.
     public void ReleaseReservation() => _index!.Release();
 
     // Maps an absent key to the root entry of its new root, after Reserve.
-    public void Add(in EntityKey key, RootHandle handle) => _index!.Add(HashOf(key), handle.Slot);
-
-    // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
-    // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
-    // so that two spellings of a key compared without case are one entity for the order of the writes
-    // (Writes.PendingWrite.IsOfSameEntity).
-    public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
-    {
-        KeyKindEnum.Integer => left.Integer == right.Integer,
-        KeyKindEnum.Guid => left.Guid == right.Guid,
-        _ => EntityType.Key.Declaration.TextComparison!.Equals(left.Text, right.Text),
-    };
+    public void Add(in EntityKey key, RootHandle handle) => _index!.Add(Keys.HashOf(key), handle.Slot);
 
     // Removes the key of the root entry from the index.
-    public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(HashOf(key), handle.Slot);
+    public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(Keys.HashOf(key), handle.Slot);
 
     // Arms the switch of the tests on the primary index of an entity type the engine stores
     // (EngineDatabase.HoldNextGrowth).
@@ -470,7 +309,7 @@ internal sealed class EntityTable
                 return false;
             }
 
-            var hash = HashOf(key);
+            var hash = Keys.HashOf(key);
             var found = TryFindSlot(key, hash, out var slot);
 
             // A key it finds needs the sequence of the database once, in TryCopy. An absent key needs
@@ -508,7 +347,7 @@ internal sealed class EntityTable
     // A new enumeration of the entity type under the read limits of the options, standing before its
     // first step.
     public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
-        new(EntityType.Name, new ReturnedKeys(this), memoryLimit, timeLimit);
+        new(EntityType.Name, new ReturnedKeys(Keys), memoryLimit, timeLimit);
 
     // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
     // says: true when there is one, which the caller builds and then commits to the pass; false at the
@@ -633,62 +472,6 @@ internal sealed class EntityTable
         }
     }
 
-    // The integer key a root stores, as EntityKey.Integer holds it: read as the unsigned type it is
-    // stored as when the key type is unsigned.
-    public long StoredInteger(in RootReader stored) =>
-        _unsignedKey ? unchecked((long)stored.GetUnsigned(EntityType.Key)) : stored.GetInteger(EntityType.Key);
-
-    // The code units the text of a String key that a root stores takes at most: its bytes in a UTF-8
-    // database, where every byte is at most one code unit, and half its bytes in a UTF-16 one; at least
-    // 2 for a text that is not empty, the room a read of stored text needs for a surrogate pair
-    // (StoredTextReader.Read).
-    public int TextBound(in RootReader stored)
-    {
-        var bytes = stored.GetLength(EntityType.Key);
-
-        if (bytes == 0)
-        {
-            return 0;
-        }
-
-        return Math.Max(2, Layout!.StringEncoding == LatticeStringEncodingEnum.Utf16 ? bytes / 2 : bytes);
-    }
-
-    // The hash of an integer key in the index, of its 64 bits as EntityKey.Integer holds them (HashOf).
-    public uint IntegerHash(long integer) => (uint)Mix((ulong)integer ^ _seed);
-
-    // The hash of a Guid key in the index, of its two halves (HashOf).
-    public uint GuidHash(long low, long high) => (uint)Mix((ulong)low ^ Mix((ulong)high ^ _seed));
-
-    // The hash of a String key in the index, of the text a caller gave (HashOf); for Sets.KeyArgument,
-    // which computes it before the read enters the protection of reads.
-    public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(EntityType.Key, text, _seed);
-
-    // Whether an integer, held as EntityKey.Integer holds it, is a value of the key type.
-    private static bool IsInRange(LatticeFieldTypeEnum type, long integer) => type switch
-    {
-        LatticeFieldTypeEnum.Int8 => integer is >= sbyte.MinValue and <= sbyte.MaxValue,
-        LatticeFieldTypeEnum.UInt8 => integer is >= 0 and <= byte.MaxValue,
-        LatticeFieldTypeEnum.Int16 => integer is >= short.MinValue and <= short.MaxValue,
-        LatticeFieldTypeEnum.UInt16 => integer is >= 0 and <= ushort.MaxValue,
-        LatticeFieldTypeEnum.Int32 => integer is >= int.MinValue and <= int.MaxValue,
-        LatticeFieldTypeEnum.UInt32 => integer is >= 0 and <= uint.MaxValue,
-        _ => true,
-    };
-
-    private LatticeException InvalidKey(string reason) =>
-        new(LatticeErrorEnum.ValidationFailed, $"A key of {EntityType.Name} received from the master is not valid: {reason}");
-
-    // The kind of key a key field needs: the schema allows the eight integers, String and Guid.
-    private static KeyKindEnum KeyKindOf(LatticeField key) => key.Declaration.Type switch
-    {
-        LatticeFieldTypeEnum.Int8 or LatticeFieldTypeEnum.UInt8 or LatticeFieldTypeEnum.Int16 or LatticeFieldTypeEnum.UInt16
-            or LatticeFieldTypeEnum.Int32 or LatticeFieldTypeEnum.UInt32 or LatticeFieldTypeEnum.Int64 or LatticeFieldTypeEnum.UInt64 => KeyKindEnum.Integer,
-        LatticeFieldTypeEnum.Guid => KeyKindEnum.Guid,
-        LatticeFieldTypeEnum.String => KeyKindEnum.Text,
-        _ => throw new UnreachableException($"The schema declares the key {key.Name} of {key.Declaration.Type}, which no primary key is."),
-    };
-
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
     // itself; null when nothing of this list applies. The root layout refuses an owned value, a
     // collection and a reference.
@@ -703,49 +486,6 @@ internal sealed class EntityTable
         }
 
         return null;
-    }
-
-    // The hash of a key in the index, under the seed the instance drew when it opened, so that nobody who
-    // does not know the seed can choose keys that share a hash and lengthen one chain of the index, and the
-    // index depends on nothing a process sets. For a String, the seeded hash of the comparison its field
-    // declares (Comparison.ValueComparer.TextHash), computed with the key. For an integer, held as a long,
-    // and for a Guid, all its bits mixed by the finalizer of MurmurHash3 (Mix), the seed mixed in by an
-    // exclusive or before the finalizer, into the integer and into the second half of the Guid:
-    // Int64.GetHashCode and Guid.GetHashCode are the exclusive or of the halves or the quarters of the value,
-    // which keys of a structure share systematically, such as (shard << 32) | id or (i << 32) | i, all of
-    // hash 0. Under the seed 0 a key enters the finalizer unchanged. Keys that are one key (KeysEqual) have
-    // one hash, so the coordinator of the writes compares the entities of two writes by it before it compares
-    // their keys (Writes.PendingWrite.IsOfSameEntity).
-    public uint HashOf(in EntityKey key)
-    {
-        if (KeyKind == KeyKindEnum.Text)
-        {
-            return key.TextHash;
-        }
-
-        if (KeyKind == KeyKindEnum.Integer)
-        {
-            return IntegerHash(key.Integer);
-        }
-
-        var guid = key.Guid;
-        ref var halves = ref Unsafe.As<Guid, long>(ref guid);
-
-        return GuidHash(halves, Unsafe.Add(ref halves, 1));
-    }
-
-    // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
-    // domain: every bit of the value changes every bit of the result with a probability near one half,
-    // by its published constants. Two multiplications, a few nanoseconds.
-    private static ulong Mix(ulong value)
-    {
-        value ^= value >> 33;
-        value *= 0xFF51AFD7ED558CCD;
-        value ^= value >> 33;
-        value *= 0xC4CEB9FE1A85EC53;
-        value ^= value >> 33;
-
-        return value;
     }
 
     // The slot of the root entry of the key: the first entry of its hash whose root stores the key.
@@ -766,15 +506,18 @@ internal sealed class EntityTable
 
     // Whether the root of the entry in the slot stores the key, under the comparison of its field for
     // a String. The root is read once; any root the entry names while the caller is inside the
-    // protection, or that the writer reads, holds the key of the lifetime (see the class).
+    // protection, or that the writer reads, holds the key of the lifetime (see the class). The comparison
+    // is written here, in the read, with what the keys give, so that the JIT inlines it into a read by key
+    // at every tier: as a member of the keys of its own, tiered compilation leaves it out of line, behind
+    // the read of the root it inlines first.
     private bool KeyEquals(uint slot, in EntityKey key)
     {
         var stored = new RootReader(_arena, Layout!, _roots.EntryOfSlot(slot).AcquireRoot());
-        var field = EntityType.Key;
+        var field = Keys.Field;
 
-        return KeyKind switch
+        return Keys.KeyKind switch
         {
-            KeyKindEnum.Integer => StoredInteger(stored) == key.Integer,
+            KeyKindEnum.Integer => Keys.StoredInteger(stored) == key.Integer,
             KeyKindEnum.Guid => stored.GetGuid(field) == key.Guid,
             _ => ValueComparer.TextEquals(stored, field, key.Text),
         };
@@ -785,7 +528,7 @@ internal sealed class EntityTable
     // file), and copies a live root. False, with the sequence of its delete, for a deleted root.
     //
     // Why the triple is never torn. Every load here has acquire semantics and every store of the
-    // writer release semantics (Writes.WriteExecutor), so a load that reads what a store wrote sees
+    // writer release semantics (ChangePublisher), so a load that reads what a store wrote sees
     // everything stored before that store, by the writes before it as well, which the lock of the
     // writes orders. Suppose both loads of the stamp give S.
     // - A state or a root older than those S was stored with: they were stored before S, and the
@@ -828,7 +571,7 @@ internal sealed class EntityTable
     //
     // Why the state Live is enough to take the rest, on hardware that orders stores weakly as well. An
     // insert writes the root and the sequence of a new entry and only then stores the state Live, by a
-    // store with release semantics (Writes.WriteExecutor.Install); the state is loaded here with acquire
+    // store with release semantics (ChangePublisher.Install); the state is loaded here with acquire
     // semantics, so a capture that loads Live sees the root, the sequence and the type id of the lifetime
     // that store published, and the blocks of the root; it never pairs Live with the root or the sequence
     // of an earlier lifetime of the slot, a root that may have been freed. That earlier lifetime cannot be

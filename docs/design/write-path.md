@@ -84,6 +84,44 @@ When storage takes no time this happens only while a write refused for lack of m
 being settled: otherwise a write is published in the same hold of
 the lock that prepared it.
 
+## How a publication is made
+
+A publication installs what the preparation made, and nothing else: it obtains no
+memory, grows no index, adds no root entry and runs no code of the application, because
+the preparation took and reserved everything it uses. One part makes it, on a master for
+a write and on a child for what it receives from its master
+(`Engine/Entities/ChangePublisher.cs`). A master publishes the one change of a write; a
+child publishes every change of a transaction at once, or one root of its load. A
+publication at the sequence s has three steps:
+
+1. **The stores before the position.** An insert installs its root, then its root
+   entry, whose state Live is stored last, then its entry of the index, which publishes
+   both to a read by key. A replace stores the mark of a write in progress in the root
+   entry, then the new root. A delete stores the mark, then the state Deleted.
+2. **The position.** The position of the database becomes s. A root of a load has no
+   position of its own: the end of the load sets it.
+3. **The stores after the position.** A replace and a delete store the stamp s in the
+   root entry; then a delete removes its entry of the index. What they replaced or
+   deleted is retired, and freed once no read can reach it.
+
+Each store is a release, so a read that sees one sees every store before it, the values
+the preparation wrote included. The position is s − 1 until step 2, so a read never
+returns a state at a position at which the master did not have it:
+
+- A read that finds an inserted key reads its stamp s, at s; one that misses it read
+  s − 1 before its lookup.
+- A read of a replaced or deleted key returns its old state only if the mark was not
+  stored yet when it loaded the stamp the second time; the mark comes before the
+  position, so that read saw the position s − 1 or earlier.
+- A read that finds the mark backs off until step 3; one that loads the stamp s reads
+  the new root, or the state Deleted at s, with the position s or later.
+- A read that misses a deleted key does so after step 3, at s or later.
+
+A delete of a key that is absent changes no entity and publishes only its position. Once
+step 1 has begun nothing can fail but a defect, or the fault point a test of the engine
+arms between steps 1 and 2; either faults the database, and a read that backs off on a
+mark then gives up instead of waiting for a stamp that will never come.
+
 ## What an application can rely on
 
 - **Order for one entity.** Writes to one entity are executed in the order their calls

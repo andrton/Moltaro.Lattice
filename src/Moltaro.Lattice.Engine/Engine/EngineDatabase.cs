@@ -406,16 +406,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
     // that the write has to make. On a child, which admits no write, the switch runs for the next
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Following.Follower). When hold returns the write or the
-    // transaction waits as it would have. Only a write or a transaction the arena refused loads the
-    // switch: no other write and no read pays anything for it. Unavailable before the open,
-    // ObjectDisposedException after the close.
+    // retired memory and before it waits (Loading.ReceivedChanges.Apply). When hold returns the write or
+    // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
+    // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitHold). Unavailable
+    // before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        Part(_coordinator).HoldNextWait(hold);
+        Part(_retired).HoldNextWait(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
@@ -825,7 +825,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 // told it in the handshake.
                 var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
                 var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, _tables!, hello, SchemaTransfer.Saved(schema));
-                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!, schema);
+                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!);
                 var listener = Listen(listenUri, capture, forwarded);
 
                 lock (_stateLock)
@@ -929,7 +929,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, _executor!, schema, tables, _writes!, _barrier, _coordinator!, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, tables, _writes!, _barrier, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 
@@ -1062,10 +1062,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this);
             var delivery = new DeliveryTail();
-            var executor = new WriteExecutor(arena, roots, retired, clock, _epochs, delivery, schema);
+            var changes = new ChangePublisher(arena, roots, retired, clock);
+            var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
                 executor,
+                changes,
                 retired,
                 _epochs,
                 delivery,

@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // A request: its kind (one byte, the value of Access.WriteKindEnum), the type id of its entity type
 // (UInt32), the expected revision (0, or 1 and the two UInt64 of the token in the order it holds them;
 // always 0 for an insert), the minimum position (0, or 1, its history and its sequence, each a UInt64),
-// then the key, in the form of the key of a Delete of the stream (Engine.Entities.EntityTable.WriteKey);
+// then the key, in the form of the key of a Delete of the stream (Engine.Entities.PrimaryKeys.WriteKey);
 // a Delete ends there. An insert, a replace and an upsert go on with the length of the root (UInt64) and
 // the root in the load format, as a Blocks frame carries it: type id (UInt32), last mutation sequence
 // (UInt64), which the child writes as 0 and the master stamps when it prepares the write, then what

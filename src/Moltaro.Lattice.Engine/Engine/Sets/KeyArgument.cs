@@ -26,7 +26,7 @@ internal static class KeyArgument
     public static EntityKey Of<TKey>(EntityTable table, TKey key)
         where TKey : notnull
     {
-        switch (table.KeyKind)
+        switch (table.Keys.KeyKind)
         {
             case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
                 return Integer(table, value);
@@ -52,7 +52,7 @@ internal static class KeyArgument
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        switch (table.KeyKind)
+        switch (table.Keys.KeyKind)
         {
             case KeyKindEnum.Integer when IntegerOf(key) is { } value && Fits(table, value):
                 return Integer(table, value);
@@ -77,11 +77,11 @@ internal static class KeyArgument
     {
         var key = values[table.EntityType.Key.Ordinal]!;
 
-        return table.KeyKind switch
+        return table.Keys.KeyKind switch
         {
             KeyKindEnum.Integer => Integer(table, IntegerOf(key)!.Value),
             KeyKindEnum.Guid => EntityKey.OfGuid((Guid)key),
-            _ => EntityKey.OfText((string)key, table.TextHash((string)key)),
+            _ => EntityKey.OfText((string)key, table.Keys.TextHash((string)key)),
         };
     }
 
@@ -168,6 +168,6 @@ internal static class KeyArgument
         ArgumentNullException.ThrowIfNull(text, "key");
         FieldValues.ThrowIfNotWellFormed(table.EntityType.Key, text, "key");
 
-        return EntityKey.OfText(text, table.TextHash(text));
+        return EntityKey.OfText(text, table.Keys.TextHash(text));
     }
 }

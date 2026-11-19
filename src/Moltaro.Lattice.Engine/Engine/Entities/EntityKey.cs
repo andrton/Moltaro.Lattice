@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // - a Guid key holds the Guid;
 // - a String key holds the text and its hash in the primary index, under the comparison the key field
 //   declares and the seed of the instance, computed when the key is made, before the read enters the
-//   protection of reads (EntityTable.TextHash).
+//   protection of reads (PrimaryKeys.TextHash).
 // The members of the other kinds are empty.
 internal readonly struct EntityKey
 {

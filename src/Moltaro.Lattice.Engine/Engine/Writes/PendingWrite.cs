@@ -1,7 +1,6 @@
 using System.Threading.Tasks.Sources;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -17,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // ResetAfterItsCall clears what that write set, and Begin sets the inputs of the next. Every other
 // record is left to the collector once its write has its outcome, since its task, its registration or
 // another thread may still read it. It owns its PreparedWrite, which serves each write it holds in the
-// same way (Prepare).
+// same way (Record; PreparedWrite.WriteChange and Set).
 //
 // Who touches what. The inputs are set by Begin and not changed until the write has its outcome.
 // Every other field is written and read under the lock of the writes, except Outcome and Failure,
@@ -149,12 +148,12 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Admission = admission;
     }
 
-    // The hash of its key, as its entity type hashes keys (EntityTable.HashOf), computed once.
+    // The hash of its key, as its entity type hashes keys (Entities.PrimaryKeys.HashOf), computed once.
     public uint HashOf()
     {
         if (!_hashed)
         {
-            _hash = Table.HashOf(Key);
+            _hash = Table.Keys.HashOf(Key);
             _hashed = true;
         }
 
@@ -163,24 +162,33 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     // Whether the other write is of the same entity: of the same entity type and with a key that the
     // schema compares equal to this one, so that two spellings of a String key compared without case
-    // are one entity (EntityTable.KeysEqual).
+    // are one entity (Entities.PrimaryKeys.KeysEqual).
     public bool IsOfSameEntity(PendingWrite other) =>
-        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.KeysEqual(Key, other.Key);
+        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.Keys.KeysEqual(Key, other.Key);
 
-    // The prepared state of the write, set from what its preparation made (WriteExecutor).
-    public PreparedWrite Prepare(PublicationKindEnum kind, RootHandle handle, ArenaAddress root, long encodedSize)
+    // The record of the prepared state of the write, made once for the record and set by each preparation
+    // (WriteExecutor): the change of a write is written into it where it lies (PreparedWrite.WriteChange).
+    public PreparedWrite Record => _record ?? NewRecord();
+
+    // The record of a write that has none yet: apart from Record, so that what every preparation calls stays
+    // small enough to be inlined.
+    private PreparedWrite NewRecord() => _record = new PreparedWrite(this);
+
+    // The prepared state of a delete of a key that is absent, which changes no entity.
+    public PreparedWrite PrepareNothingToDelete()
     {
-        _record ??= new PreparedWrite(this);
-        _record.Set(kind, handle, root, encodedSize);
+        var record = Record;
 
-        return _record;
+        record.SetNoChange();
+
+        return record;
     }
 
     // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
-    // go of the inputs, so that the record keeps nothing of the caller alive, and clears its state, its
-    // prepared state, its outcome and the hash of its key; no list, chain, registration or task was
-    // ever given it, so its links are null and its value source was never read (WriteCoordinator, "What
-    // a write allocates").
+    // go of the inputs and of the change of its prepared state, which names the table and the key, so that
+    // the record keeps nothing of the caller alive, and clears its state, its prepared state, its outcome
+    // and the hash of its key; no list, chain, registration or task was ever given it, so its links are
+    // null and its value source was never read (WriteCoordinator, "What a write allocates").
     public void ResetAfterItsCall()
     {
         Table = null!;
@@ -192,6 +200,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         ExpectedRevision = null;
         State = default;
         Prepared = null;
+        _record?.LetGo();
         Failure = null;
         _hashed = false;
     }

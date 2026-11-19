@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Storage;
 //
 // Reads inside the protection of reads read Root, LastMutationSequence and State while the writer
 // changes them, through the members Acquire… and Release…, which read with acquire and write with
-// release semantics, each field as one aligned word; Engine.Writes.WriteExecutor says in which order
+// release semantics, each field as one aligned word; Engine.Entities.ChangePublisher says in which order
 // the writer writes them and Engine.Entities.EntityTable how a read takes them as one state. The other
 // fields do not change while a read can reach the lifetime of the entry; the capture of a load, which
 // reaches every slot by its number, reads them only once it has taken the state Live of a lifetime
