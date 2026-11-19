@@ -745,8 +745,9 @@ threshold. The owner confirmed both judging rules on 14 November 2026; the condi
 of a gate run are in the [performance requirements](performance-requirements.md#accepted-measurement-conditions).
 
 The managed reference uses compact preallocated managed rows, bounded collections,
-the same declared indexes/comparers and explicit dictionary-string sharing. Reuse
-the selected Arc containers where appropriate so an intentionally wasteful baseline
+the same declared indexes/comparers and explicit dictionary-string sharing. Use
+compact managed containers of the same kind as the engine's structures — a hash table
+and an ordered tree — so an intentionally wasteful baseline
 cannot manufacture the 25% result. Include reserved capacities and all retained
 index/control/text structures on both sides. Collect runtime/process/peak metrics
 separately. Record hardware, .NET/PostgreSQL versions, CPU quotas, memory limits and

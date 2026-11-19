@@ -68,8 +68,9 @@ changes, without reopening the already accepted behavior.
   short protected read-only views provide the separately specified no-copy path.
 - Native segments, stable managed root-control entries, bounded allocation and incremental
   compaction, safe text sharing/reclamation and explicit memory-pressure outcomes.
-- Arc UnorderedMapSlim for primary indexing and Arc OrderedMultiMap for secondary
-  indexing. Declare indexes explicitly and select them explicitly in the facade.
+- Index structures of the engine's own: a hash table for primary indexing and a
+  copy-on-write B+tree for secondary indexing
+  ([index structures](../decisions/index-structures.md), the notes of 18 and 19 November 2026). Declare indexes explicitly and select them explicitly in the facade.
   Named-index lookup never silently falls back to enumeration.
 - Explicit single/composite `Unique` indexes. Validate the final operation/batch state
   at the master before effects commit; any-null keys are exempt. A conflict rejects
