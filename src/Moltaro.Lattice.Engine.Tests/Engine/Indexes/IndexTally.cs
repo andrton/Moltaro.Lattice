@@ -22,8 +22,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   bytes.
 // - Memory. The live bytes and the class slack are those of the live roots — the fixed part, the Login of
 //   64 bytes or less and the Note of 64 bytes or less in the root block, a longer Note in a block of its
-//   own —, of one entry for each text referred to, and of one slot of 1 KiB for each live node of every
-//   index; nothing is prepared and nothing retired.
+//   own —, of one entry for each text a live root or a live node refers to, a node by a key longer than 64
+//   bytes among its entries and separators, which may outlive the entity it was copied from, and of one
+//   slot of 1 KiB for each live node of every index; nothing is prepared and nothing retired.
 internal sealed class IndexTally(string encoding)
 {
     private readonly Dictionary<long, IndexSchema.Ranked> _live = [];
@@ -129,6 +130,17 @@ internal sealed class IndexTally(string encoding)
             }
 
             held += StoredBytes.Of(IndexSchema.RankedFixedSize, [.. inRoot]);
+        }
+
+        foreach (var index in new[] { "ByLogin", "ByRegion" })
+        {
+            foreach (var key in IndexContents.Of(database, "Ranked", index).KeysInNodes)
+            {
+                if (BytesOf((string)key[0]!) > IndexSchema.TextCopyLimit)
+                {
+                    texts.Add((string)key[0]!);
+                }
+            }
         }
 
         foreach (var text in texts)

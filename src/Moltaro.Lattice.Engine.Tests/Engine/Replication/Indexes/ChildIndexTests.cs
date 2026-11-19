@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // test waits for the child through the position of the master.
 public sealed class ChildIndexTests
 {
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(IndexSchema.Encodings), MemberType = typeof(IndexSchema))]
     public async Task Child_holds_the_entries_of_its_master_after_its_load_and_after_following_mixed_writes(string encoding)
     {

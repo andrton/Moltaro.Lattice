@@ -21,7 +21,7 @@ public sealed class EntryTallyTests
 {
     private const int Checkpoint = 500;
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(IndexSchema.Encodings), MemberType = typeof(IndexSchema))]
     public async Task Entries_references_and_memory_equal_the_tally_through_a_churn_of_every_kind_of_write(string encoding)
     {

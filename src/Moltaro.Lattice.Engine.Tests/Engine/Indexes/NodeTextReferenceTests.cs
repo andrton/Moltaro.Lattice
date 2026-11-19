@@ -66,7 +66,7 @@ public sealed class NodeTextReferenceTests
         tally.ExpectHeldBy(database);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(IndexSchema.Encodings), MemberType = typeof(IndexSchema))]
     public async Task References_follow_the_rule_of_a_node_through_splits_merges_and_the_freeing_of_retired_nodes(string encoding)
     {
