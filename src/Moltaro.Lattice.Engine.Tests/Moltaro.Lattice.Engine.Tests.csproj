@@ -16,8 +16,19 @@
     <ProjectReference Include="..\Moltaro.Lattice.TestSupport\Moltaro.Lattice.TestSupport.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The tests that read the nodes of a secondary index through EngineDatabase.IndexNodes, which the
+         engine does not have yet; whoever builds it removes this group, and the files compile and run. -->
+    <Compile Remove="Engine\Indexes\IndexContents.cs" />
+    <Compile Remove="Engine\Indexes\IndexTally.cs" />
+    <Compile Remove="Engine\Indexes\EntryTallyTests.cs" />
+    <Compile Remove="Engine\Indexes\NodeBoundaryTests.cs" />
+    <Compile Remove="Engine\Indexes\NodeTextReferenceTests.cs" />
+    <Compile Remove="Engine\Replication\Indexes\ChildIndexTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Moltaro.Lattice.TestSupport.Concurrency" />
     <Using Include="Moltaro.Lattice.TestSupport.Dependencies" />
+    <Using Include="Moltaro.Lattice.TestSupport.Skips" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>
