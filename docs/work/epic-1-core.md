@@ -5437,6 +5437,13 @@ are named in its README.
   then follows; if it follows the code of LMDB closely, the notices gain the OpenLDAP
   licence. The prototype ports no code.
 
+**Chosen by the owner on 19 November 2026, as the planner relays:** the copy-on-write
+B+tree. He was shown the two trees side by side, the price of this one — a write beside
+sixteen readers about twice as dear, one retired node for every write to an index — and
+that every figure is one run of 5 s. The decision is recorded in
+[index structures](../decisions/index-structures.md); the contract step of this sprint
+writes the internal types for this tree. The form of a text key is his next question.
+
 **The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
 case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy
 with other work before a case (two cases at 44 and 51 %): differences below about a

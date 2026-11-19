@@ -205,7 +205,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </tr>
 <tr>
 <td>Declared secondary index</td>
-<td>An ordered structure of the engine's own, chosen in the sprint that builds it after a study; single or composite keys; not built yet</td>
+<td>A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock (<a href="../decisions/index-structures.md">index structures</a>); single or composite keys; not built yet</td>
 </tr>
 <tr>
 <td>Application-defined traversal</td>

@@ -184,11 +184,21 @@ bytes-per-entry target or ordered-secondary-tree choice follows from the primary
 
 ## Secondary index: Arc OrderedMultiMap
 
-**Superseded on 18 November 2026 (owner).** The engine depends on no package; its
-structures are its own. `Arc.Collections` is removed from the product, and the structure
-of the ordered secondary index is chosen after a study of established implementations,
-with figures. The text below is kept as the record of the earlier selection and of its
-measurements; it no longer selects anything.
+**Superseded on 19 November 2026 (owner).** The ordered secondary index is a B+tree of
+the engine's own whose published nodes never change: a write copies the node it changes
+and publishes the copy by one store of its address into the live parent; a reader takes
+no lock, checks no version and never retries. It follows LMDB's copy-on-write B+tree,
+the one-store publication of ROWEX and LeanStore's walk from leaf to leaf by a new
+descent at the fence key. It was chosen over a B+tree changed in place (cheaper writes —
+15 to 30% alone, about half beside sixteen readers — but readers validate and restart,
+and an entry that names text cannot be followed safely before validation), a skip list
+and `Arc.Collections` behind a lock (three to five times slower on a search, ten times
+on a range). The accepted price: a write copies one node per index and retires the old
+one, so retired memory grows by about one node per index write while a read is held.
+The figures are those of the prototype, one run of five seconds a case; the structure
+is measured again in the engine against the same scenarios. `Arc.Collections` is not
+part of the product. The text below is kept as the record of the earlier selection and
+of its measurements; it no longer selects anything.
 
 **Accepted on 13 November 2026:** use
 `Arc.Collections` 2.2.0 `OrderedMultiMap<SearchKey, RootLocator>` for the first ordered

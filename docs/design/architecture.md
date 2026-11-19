@@ -104,7 +104,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 | Access path | Selected mechanism |
 | --- | --- |
 | Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
-| Declared secondary index | An ordered structure of the engine's own, chosen in the sprint that builds it after a study; single or composite keys; not built yet |
+| Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md)); single or composite keys; not built yet |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
 The caller names the index. Equality, leading-key/range access and Limit/Offset are
