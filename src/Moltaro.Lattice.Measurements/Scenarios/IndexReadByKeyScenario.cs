@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
 // What the secondary indexes of an entity type cost a read by its primary key: the reads by key a second,
@@ -9,8 +11,8 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // allocated for each read, and a series with the writer also the writes a second of the writer.
 //
 // Every reader is a thread of its own reading the ids of places drawn with one seed, from a place of its
-// own in them; every read checks that it found its item. The window is the one of index-search
-// (IndexSearchScenario.Window).
+// own in them; every read checks that it found its item. The series are those of index-search
+// (IndexSearchScenario.Series).
 //
 // A run takes about twenty-five seconds on the development machine.
 internal static class IndexReadByKeyScenario
@@ -48,31 +50,45 @@ internal static class IndexReadByKeyScenario
             {
                 var threads = IndexSearchScenario.Threads(readers);
 
-                lines.Add($"{label}, {threads}, alone: {IndexSearchScenario.Series(readers, start => Reader(items, places, start), writer: null)}");
-                lines.Add($"{label}, {threads}, beside a writer that replaces changing every key: {IndexSearchScenario.Series(readers, start => Reader(items, places, start), items.Replacer(caller: 0, callers: 1, changeKeys: true))}");
+                lines.Add($"{label}, {threads}, alone: {IndexSearchScenario.Series(readers, start => new Reader(items, places, start), writer: null)}");
+                lines.Add($"{label}, {threads}, beside a writer that replaces changing every key: {IndexSearchScenario.Series(readers, start => new Reader(items, places, start), items.Replacer(caller: 0, callers: 1, changeKeys: true))}");
             }
         }
 
         return lines;
     }
 
-    // A reader that reads the item of each place in turn from the start on, one read a call.
-    private static Func<int> Reader(IndexedItems items, int[] places, int start)
+    // A reader that reads the item of each place in turn from its start on, one read a step.
+    private struct Reader : IWindowStep
     {
-        var next = start;
+        private readonly IndexedItems _items;
 
-        return () =>
+        private readonly int[] _places;
+
+        private int _next;
+
+        public Reader(IndexedItems items, int[] places, int start)
         {
-            var id = places[next] + 1L;
+            _items = items;
+            _places = places;
+            _next = start;
+        }
 
-            next = next + 1 == places.Length ? 0 : next + 1;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var id = _places[_next] + 1L;
 
-            if (items.ByClass.Get(id) is null)
+            _next = _next + 1 == _places.Length ? 0 : _next + 1;
+
+            if (_items.ByClass.Get(id) is null)
             {
-                throw new InvalidOperationException($"The item {id} was not found.");
+                NotFound(id);
             }
 
             return 1;
-        };
+        }
+
+        private static void NotFound(long id) => throw new InvalidOperationException($"The item {id} was not found.");
     }
 }

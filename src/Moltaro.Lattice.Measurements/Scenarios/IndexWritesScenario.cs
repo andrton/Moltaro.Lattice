@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //
 // The four types run in rounds, a database loaded for each type in each round, their order rotated from
 // one round to the next, so that a ratio of k indexes over 0 indexes is taken inside a round. The window
-// is the one of index-search (IndexSearchScenario.Window).
+// is measured as in index-search (IndexSearchScenario.Measure).
 //
 // A run takes about two and a quarter minutes on the development machine.
 internal static class IndexWritesScenario
@@ -100,11 +100,17 @@ internal static class IndexWritesScenario
     // bytes for each write.
     private static string Series(int callers, Func<int, int, Func<int>> writer)
     {
-        var steps = Enumerable.Range(0, callers).Select(caller => ($"Caller {caller}", writer(caller, callers))).ToList();
-        var window = IndexSearchScenario.Window(steps);
+        var window = new StepWindow();
+
+        for (var caller = 0; caller < callers; caller++)
+        {
+            window.Add($"Caller {caller}", new WriterStep(writer(caller, callers)));
+        }
+
+        var (processAllocated, seconds) = IndexSearchScenario.Measure(window);
         var writes = window.Counted.Sum();
 
-        return $"{ReadWindow.PerSecond(writes / window.Seconds)} writes/s; {IndexSearchScenario.PerOne(window.ProcessAllocated, writes)} bytes allocated per write";
+        return $"{StepWindow.PerSecond(writes / seconds)} writes/s; {IndexSearchScenario.PerOne(processAllocated, writes)} bytes allocated per write";
     }
 
     private static string IndexesOf(int indexes) => $"{indexes} {(indexes == 1 ? "index" : "indexes")}";
