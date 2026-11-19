@@ -5618,6 +5618,15 @@ either direction, and reaches the next leaf by a new descent at the fence. Offse
 linear in the entries passed over; nulls last in both directions is a rule of the walk.
 The tree needs an order from the comparison service, beside its equality.
 
+**Required of this sprint, decided by the planner on 19 November 2026.** As S14 is
+built, the identity in an entry of an index is the handle of the root, so an entity that
+is deleted and created again while a search runs may be returned twice; S14 states only
+what it guarantees, and its documentation says so once. This sprint ends with: a search
+returns an entity at most once, also across a delete and a re-creation — by one of the
+three ways named above, chosen here with its figure. The test of three entities under
+one key, the first deleted and inserted again during a paused search, exists in the form
+that asserts exactly the three and is skipped until this sprint.
+
 #### S16 · Unique indexes
 
 **Carried from S09, part 2:** a write whose unique value is held by a prepared,
