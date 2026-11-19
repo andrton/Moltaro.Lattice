@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   Plain value of the same length in no index is no text entry.
 public sealed class NodeTextReferenceTests
 {
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(IndexSchema.Encodings), MemberType = typeof(IndexSchema))]
     public async Task Key_of_64_bytes_takes_no_reference_and_one_of_the_next_length_takes_one_for_each_entry_that_holds_it(string encoding)
     {
@@ -142,7 +142,7 @@ public sealed class NodeTextReferenceTests
         tally.ExpectHeldBy(database);
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(IndexSchema.Encodings), MemberType = typeof(IndexSchema))]
     public async Task Indexed_Plain_value_longer_than_64_bytes_is_one_text_entry_and_a_Plain_value_in_no_index_is_none(string encoding)
     {

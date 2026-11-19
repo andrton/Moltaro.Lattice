@@ -12,7 +12,7 @@ public sealed class NodeBoundaryTests
 {
     private const int FullLeaf = 61;
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Leaf_holds_61_Int64_entries_and_the_62nd_appended_after_them_starts_a_new_leaf_under_a_new_root()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -37,7 +37,7 @@ public sealed class NodeBoundaryTests
         ExpectSeparated(split);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Entry_that_falls_inside_a_full_leaf_splits_it_in_the_middle()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -58,7 +58,7 @@ public sealed class NodeBoundaryTests
         ExpectSeparated(split);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Leaf_holds_four_of_the_widest_entries_of_three_copied_texts_and_five_of_three_shared_ones()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);

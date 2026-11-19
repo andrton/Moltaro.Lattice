@@ -85,7 +85,7 @@ public sealed class EntryTallyTests
         new("one key"),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Orders))]
     public async Task Index_filled_in_every_order_and_under_one_key_and_emptied_by_runs_holds_and_finds_every_entry_at_every_step(string order)
     {

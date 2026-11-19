@@ -21,6 +21,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Ordered;
 
 namespace Moltaro.Lattice.Engine;
 
@@ -328,6 +329,75 @@ internal sealed class EngineDatabase : ILatticeDatabase
             lock (_writes!)
             {
                 return _arena!.Texts.References();
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
+    // For the tests of the layout invariants of the secondary indexes (exception X3, docs/work/exceptions.md):
+    // every live node of the tree of the index of the entity type, in the order of a walk from the root, a
+    // node before its children and the children of an inner node in their order, with its level, 0 for a
+    // leaf, and its items: the entries of a leaf, each with the values of its parts as a record of the entity
+    // type holds them and the primary key of the entity its identity names, and the separators of an inner
+    // node, with no entity. An index of an entity type the engine does not store has no node. Taken as
+    // TextReferences is, under the lock of the writes between two changes of the engine, on a master and on
+    // a child; it does not drain. ArgumentException for an index the entity type does not declare;
+    // Unavailable before the open and once Faulted, ObjectDisposedException after the close.
+    public List<(int Level, List<(object?[] Key, object? Entity)> Items)> IndexNodes(LatticeEntityType entityType, string indexName)
+    {
+        ArgumentNullException.ThrowIfNull(entityType);
+        ThrowIfNotReady();
+
+        if (!entityType.TryGetIndex(indexName, out var definition))
+        {
+            throw new ArgumentException($"The entity type {entityType.Name} declares no index '{indexName}'.", nameof(indexName));
+        }
+
+        _barrier.Enter();
+
+        try
+        {
+            lock (_writes!)
+            {
+                var table = Part(_operations)[entityType].Table;
+                var nodes = new List<(int Level, List<(object?[] Key, object? Entity)> Items)>();
+
+                if (table.IndexOf(definition) is not { } index)
+                {
+                    return nodes;
+                }
+
+                var values = new object?[entityType.FieldsByOrdinal.Length];
+
+                foreach (var (level, entries) in index.Tree.Nodes())
+                {
+                    var items = new List<(object?[] Key, object? Entity)>(entries.Count);
+
+                    foreach (var entry in entries)
+                    {
+                        var key = new object?[definition.Parts.Count];
+                        object? entity = null;
+
+                        index.Layout.ReadValues(_arena!, entry, key);
+
+                        if (level == 0)
+                        {
+                            var root = _roots!.Entry(IndexLayout.IdentityOf(entry)).Root;
+
+                            RootValues.Read(new RootReader(_arena!, table.Layout!, root), entityType, values);
+                            entity = values[entityType.Key.Ordinal];
+                        }
+
+                        items.Add((key, entity));
+                    }
+
+                    nodes.Add((level, items));
+                }
+
+                return nodes;
             }
         }
         finally
