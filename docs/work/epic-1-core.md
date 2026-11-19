@@ -1089,6 +1089,20 @@ Why this order:
   not. A failure on ARM64 that the other jobs do not show is a finding about the engine
   first: it is reported with the name of the test before anyone changes the test.
   Longer race runs on a machine with many ARM cores are a later step.
+- **Tests that depended on the load of the machine (19 November 2026).** Ten repeats of
+  the suite in Release beside three other builds and suites on the workstation had three
+  failures in replication tests, and twelve repeats on a quiet workstation none. Three
+  tests raced one second of wall time and were given a hold the test controls or a wait
+  of 5 s: `OpenTimeoutTests.Load_that_takes_longer_than_the_OpenTimeout_while_its_parts_keep_arriving_becomes_ready`,
+  `IdleMasterTests` and `SilentPeerTests`; each then passed 50 of 50 under a loaded
+  machine. The evidence is the margin of each wait, about 0.5 s before and at least 4.5 s
+  now: the load of the author did not break the old tests either, so no failure was
+  reproduced and then cured. Two failures stay unexplained, with what was ruled out: a
+  master that could not listen, "the system lacked sufficient buffer space" (the suite
+  holds about 28 listeners at its peak and leaves none behind a passing test; nothing is
+  retried, in the engine or in a test), and one failure of `AnnouncedLengthTests` in the
+  handshake, which has no short wait. The output of every repeat is kept, so that the
+  next one has a name and a message.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
@@ -6545,6 +6559,9 @@ writes; the note only forbids a design that loses that list or that moment.
 same child by up to 214 to 349 ms and an Applied by up to 98 ms, because a child has one
 connection; judged here with the hold of 30 ms of S11 and Q52. The constant of 5 s of a
 master's close (X6) becomes the option that bounds a send to a child that does not read.
+`ConnectionEndTests` asserts that wait as a range of 4.5 s to 9 s around the constant and
+so depends on the load of the machine; with the option it is given a short one and becomes
+deterministic (planner, 19 November 2026).
 A call withdrawn by its token stays in the queue of the child's sender, with its encoded
 request, until the sender takes it out; judged here with the allocation of a forwarded
 write. Not tested, because nothing can fault the publication of a child: a faulted child ends a
