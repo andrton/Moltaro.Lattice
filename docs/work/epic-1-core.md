@@ -5789,6 +5789,203 @@ planned for the copy-on-write tree.
 - **After it.** S14R holds structure only ([refactoring backlog](refactoring.md)); what the
   reviews of S14 found as cost is this sprint's. S15 starts after S14R.
 
+**The study of S14, part 2, 19 November 2026: where the cost of upkeep and of a search goes;
+nothing is decided.** The figures are of the workstation (x64, i9-13900H, .NET 10.0.15,
+Release, the process held to logical processors 0 to 7 as `development-5` says), for the
+breakdown only, never compared with the rows of the rented machine. No sampling profiler is
+installed (`dotnet-trace` and `dotnet-counters` are not), so they come from a stopwatch
+harness outside the repository that calls internal members of the engine at 53b404c, and
+from listings of the JIT (`DOTNET_JitDisasm`). A figure is the minimum of 11 rounds, the cases
+of a group run in turn in every round; medians lie 5 to 20 % above. Other agents kept the
+machine 13 to 53 % busy before the runs: differences under about a tenth decide nothing.
+
+- **Read for (d):** LMDB, `libraries/liblmdb/mdb.c` and `lmdb.h` at
+  `74dd6c3ec648c31857fe0a100f11c2a34619e2d7` (OpenLDAP Public License 2.8); LeanStore,
+  `backend/leanstore/storage/btree/core/BTreeNode.hpp`, `BTreeNode.cpp`, `BTreeGeneric.hpp`,
+  `BTreeGenericIterator.hpp`, `backend/leanstore/Config.cpp` and `frontend/shared/Types.hpp`
+  at `fcb64bf39cf69c435173f76e062cbb305a9a998f` (MIT); RFC 3629 for the order of UTF-8. No
+  code is ported.
+  - LMDB chooses the comparison once for a database: `mdb_default_cmp`, called from
+    `mdb_dbi_open`, stores `mdb_cmp_memn` (memcmp over the shorter length, then the lengths),
+    `mdb_cmp_memnr` for `MDB_REVERSEKEY` or `mdb_cmp_cint` for `MDB_INTEGERKEY` (native
+    unsigned integers of one size) in `md_cmp`. `mdb_node_search` is a binary search over the
+    16-bit offsets of a page, one call of `md_cmp` a probe; on a branch page it starts at 1,
+    the first key being empty, and for integer keys switches to the aligned `mdb_cmp_int` or
+    `mdb_cmp_long`; the last probe's result gives the exact match, nothing is compared again.
+    `mdb_cursor_set` compares the key with the first and the last key of the leaf the cursor
+    is on and searches that leaf alone when the key lies between them. No prefix, no
+    normalisation, no heads: keys are compared as stored.
+  - LeanStore compares byte strings only (`cmpKeys`: memcmp, then the lengths); a typed key is
+    folded by the caller into bytes in its order (`fold`, an integer byte-swapped with its
+    sign bit flipped). A node stores both fences and `prefix_length`, their common prefix,
+    removed from every key; a slot holds the offset, the lengths and a `head`, the first
+    4 bytes after the prefix byte-swapped so that an unsigned compare gives memcmp's order.
+    `lowerBound` compares the key with the prefix once a node, then searches comparing heads
+    as integers and reads the rest of a key only on equal heads; above 32 slots a hint array
+    of 16 sampled heads narrows the range first (`searchHint`). A seek tests the key against
+    the current leaf's fences before it descends (`compareKeyWithBoundaries`).
+  - What fits a tree whose published nodes never change, with entries (values…, identity):
+    (1) a comparison chosen once for an index when its layout is compiled, after `md_cmp`: a
+    descent written for the common shapes — one integer part never null, fixed parts, a text
+    part — instead of a loop over the parts with a call by type at every probe; the order is
+    the same and the layout unchanged. (2) For a copied text compared Ordinal, a comparison of
+    bytes that is the existing order: UTF-8 bytes sort as code points (RFC 3629), which is the
+    order of UTF-16 code units except where, at the first byte that differs, one side has a
+    lead byte 0xEE or 0xEF (U+E000 to U+FFFF) and the other 0xF0 or above (a supplementary
+    character): there the order turns around. A UTF-16 copy compares as its code units.
+    Without case, bytes compare directly while both sides are ASCII (the case table maps ASCII
+    by `Ascii.ToUpper`); at a non-ASCII character the present path takes over, since one may
+    map to ASCII (ı to I). (3) A prefix for each node and heads in a slot array suit nodes
+    written whole and never updated better than LeanStore's nodes changed in place — computed
+    once when the node is written — but they change the layout (question 1). (4) A hint across
+    steps does not fit, since a search holds no node between steps; inside a step the leaf it
+    holds already tells whether the run of the key ends (proposal 2).
+- **A search by a full Int64 key** (100,000 items, one index, distinct keys, as `index-search`;
+  height 4: 1, 3, 78 and 1,640 nodes, 61 entries a leaf, 18.3 comparisons a descent). The
+  scenario here: 649 k a second on one thread, 1.54 µs; a read by key in the harness 0.57 µs.
+  Each part measured alone, with the root cold:
+
+  | Part | ns | Made of |
+  | --- | --- | --- |
+  | Find and GetEnumerator | 297 to 325 | the key checked and bound, three objects; Find alone 260 here and 80 in a loop over a database of 1,000 items, not separated further |
+  | Step 1: search key, protection | 22 + 9 to 14 | |
+  | Step 1: descent | 512 | 18.3 comparisons of 18 ns; 4 `Arena.Payload` of 4.1 to 4.6 ns; the rest the cache lines of the leaves |
+  | Step 1: entry by its stamp, `HasKey` | 8 + 120 | mostly the first load of the root, which the copy needs anyway |
+  | Step 1: copy, Build, Return | 243 to 252 | what a read by key does |
+  | Step 1 as a whole, `TrySearch` | 1,100 | |
+  | Step 2: a second descent from the root, which finds the next entry has another key | 564 to 620 | |
+  | The whole search | 1,717 to 1,853 | |
+
+  - The comparison, `IndexOrder.Compare` inlined into `ChildOf` (listing at tier 1, 1,391
+    bytes): at every probe it loads the layout and its parts again, slices with checks of
+    bounds, spills, and calls `ValueComparer.CompareStored`, a switch over eleven types, with
+    both spans on the stack. A descent written for one Int64 part — the long, then the
+    identity, addresses translated without checks — takes 184 ns on the same tree, against
+    512, and agrees with `TryFindFirst` on every key but the 1.6 % that need the fence.
+  - `Arena.Payload`: 4.1 to 4.6 ns against 0.6 to 0.7 ns for the same span without the checks
+    of the address; 4 a descent, about 2 % of a search today and about 8 % of a descent
+    written for its key.
+  - The second step: in 98.4 % of these searches the next entry lies in the leaf the first
+    step held; otherwise the fence the first step passed shows it when its key differs.
+  - The named candidate "a hint that misses and descends again": a first step descends twice
+    when its entry is the first of its leaf, 1.6 % here, about 8 ns on average; an entry passed
+    over because its root no longer has the key costs a whole descent, only in the moments of
+    a publication.
+  - Allocation: IndexMatches 288 bytes, the enumerator 64, IndexSearch 280, the Item 88 = 720.
+    IndexMatches and IndexSearch each hold the bound key, 232 bytes. Three objects of those
+    sizes cost 68 to 71 ns; a copy of the key 2 to 3 ns. By reading, the key is copied about
+    eight times a search: into Find by value, the bound key, IndexMatches, IndexSearch, each
+    SearchKey, the copy of the probe, each `After`.
+  - The code of a search through the class is shared generic code
+    (`SetIndex<ClassCopy<__Canon>, __Canon>` in the listing), as a read by key's is.
+  - The wait for the stamp and the position: 8 ns alone. Beside a writer the scenario loses
+    14 % (556 k); the clock's line and the copied nodes, not separated (read only).
+- **A text key, Plain, Ordinal** (height 4, 19 comparisons a descent). At 8 and at 100 bytes:
+  the whole search 4.03 and 6.13 µs (scenario 260 k and 205 k a second); a descent 1.66 and
+  2.85 µs; the second step 1.36 and 1.99 µs. A comparison through the order 69 and 83 ns;
+  `CompareText` alone 51 and 73 ns; the same without zeroing its stack 23 and 38 ns; the UTF-8
+  bytes of a copied key against the key's 6 ns. `CompareText` of a stored and a given text
+  zeroes three buffers of 512 bytes — the piece, and two for the mapping without case that
+  Ordinal never uses — and of two stored texts four; the engine has no `SkipLocalsInit`. It
+  decodes the whole stored text into a piece of 256 code units, though these keys differ in
+  their first 7 characters. A search calls it 38 times (two descents) and `TextEquals` once:
+  57 KiB of stack zeroed and 39 decodes. At 100 bytes the key is shared: the descent's 1.2 µs
+  more are the decode of 100 bytes (about 0.4 µs) and the loads of the text entries (about
+  0.8 µs).
+- **A write with one Int64 index** (100,000 items loaded ascending, one caller, as
+  `index-writes`; height 4). Added by the index: a replace that changes the key 3,245 ns (the
+  type without index writes in 0.75 µs), an insert or a delete 1,225 ns, a replace that keeps
+  the key 257 ns.
+
+  | Part of a replace that changes the key | ns | Made of |
+  | --- | --- | --- |
+  | The reservation | 466 | 15 blocks taken, 2 used, 13 given back by the trims, as many places in the retired list; a block 27 ns. At height h: (3h + 3) for a change of key, (2h + 1) for an insert (9 here, 242 ns), (h + 1) for a delete (5, 136 ns) |
+  | Entries built | 440 | 6: `ChangeOf` in `TryReserve`, `InstallNew` and `RemoveOld`, two entries each; one entry 60 ns |
+  | Two descents | about 980 | of the insert and of the remove, as a reader's |
+  | Two copies of a leaf of 61 entries | about 900 | each `BytesOf` twice (69 ns) over `EditedLeaf.At` and 61 `NodeWriter.Add` (275 ns); the leaf copied as one block 9 ns |
+  | The rest | about 460 | two retired leaves, the trims, the stores, the searches inside the leaves, misses; not separated |
+
+  A rewrite alone (reservation of an insert, descent, leaf copy, publication, retire, trim)
+  1,774 ns. An insert or a delete is one descent, one leaf copy, three entries built.
+- **A replace that keeps every key** touches no node: each index builds both entries and
+  compares their bytes three times, six entries an index (`ChangeOf` to None 129 ns alone):
+  the 257 ns are that; with six indexes 36 entries a write. The earliest point at which "no
+  indexed value changed" is known exactly is in the hold that prepares the write, once the new
+  root is written, where `ChangePublisher.TryReserve` runs. "Changed" must mean: the entry the
+  new root contributes is not byte for byte the old root's. Not "unequal under the comparison":
+  equal under it in other bytes is a rewrite, never a skip — a text changed only in case under
+  IgnoreCase, a Decimal of another scale, −0.0 against +0.0, NaNs of other bits; an entry holds
+  the bytes of its own root. Traps for a cheaper test on the stored fields: a null field may
+  hold any bytes, so nulls are compared first (null to null is no change, null to "" is one); an
+  inline Plain text compares by its bytes, never by its descriptor, whose offset depends on
+  the root; a Dictionary text or a shared long text may compare by the address of its text
+  entry, which the text table finds by the bytes; a DateTimeOffset stores its UTC ticks, so an
+  offset changed alone changes no entry.
+- **Proposals, by expected gain** (estimates from the figures above):
+  1. (b, d) The comparison chosen once for an index, when its layout is compiled: a descent
+     and a leaf search for one integer part never null, one for fixed parts at offsets resolved
+     once, and the text path; the order unchanged. A descent 512 → about 190 ns: a search −0.6
+     µs (two descents), a replace that changes the key −0.6 µs, an insert or a delete −0.3 µs.
+  2. (d) The step that returns an entity also looks, inside the protection, at the next entry
+     of its leaf, or at the fence when the leaf ends there; another key, with the sequence of
+     the database unchanged over the step, ends the search at that sequence, as the second
+     step would, without its descent. No guarantee changes: it is the end step's own
+     condition. A lazy Find then ends at the sequence of its last step, not of a later
+     MoveNext. −0.55 of 1.7 µs (Int64), −1.4 of 4.0 and −2.0 of 6.1 µs (text).
+  3. (b) A leaf copied as blocks: with fixed parts its bytes are its count times the width and
+     a copy is at most two block moves around the changed entry; with text parts the entries
+     move as one block and the offsets shift by one constant. About −0.4 µs a leaf copy, −0.8
+     µs a replace that changes the key, −0.4 µs an insert or a delete.
+  4. (d) Text: `[SkipLocalsInit]` on the comparisons, the buffers of the mapping only for a
+     comparison without case, a piece no longer than the decision needs, and for a copied
+     Ordinal key the comparison of bytes with its one turn (what fits, point 2), with tests of
+     surrogate pairs against U+E000 to U+FFFF. A comparison 69 → about 10 ns; with 2, a search by 8 bytes 4.0 → about 1.1 µs.
+  5. (a, b) The change of each index decided once, in the preparation, and kept with the
+     prepared change (a bit an index); the publication builds only the entries it inserts or
+     removes: 6 → 2 entries a change of key (−0.25 µs), and nothing in the publication for a
+     replace that keeps the key: 257 → about 90 ns an index, about 10 with the test on the
+     stored fields above. (a) needs the latter: within the gauge with six indexes is about
+     10 ns an index on 1.23 µs.
+  6. (b) A standing reserve: the pool of each index is kept at the bound of one change of key
+     and not trimmed below it; a write takes what it uses, 2 nodes for a change of key, and the
+     next preparation adds that many. −0.4 of 0.47 µs; about 15 KiB stay prepared for each
+     index at height 4, counted in the budget.
+  7. (c) Find returns one object that is the enumerable and its first enumerator, with the
+     state of the search and the bound key once: 720 → about 380 bytes, about −40 ns. FindAsync
+     runs its search on the stack: the list, its array, the result and the entities.
+  8. Smaller: SearchKey refers to the bound key instead of copying it (about 20 ns); the last
+     probe of the leaf decides the match without `SameKey` (one comparison of 19).
+  Together, by the estimates on this machine: an Int64 search 1.7 to 1.85 → about 1.1 µs, a
+  search by 8 bytes of text 4.0 → about 1.1 µs, the upkeep of a change of key 3.25 → about 1.2
+  µs, which on ARM64 would be about 1.15 times the bare tree's 1.14 µs.
+- **A target for (d)** that the breakdown supports without a change of layout, on
+  rented-arm64-1, one thread, `index-search`: an Int64 key 700 k a second or more (today 450 k);
+  a text key of 8 bytes 450 k or more (163 k); of 100 bytes 200 k or more (119 k), without a
+  prefix.
+- **The questions of (e):**
+  - The size of a node: not answered. A descent compares about log₂ n times whatever the
+    size; a larger node saves a level (a `Payload` and a miss) and doubles the copy of a leaf,
+    which proposal 3 makes 9 ns a KiB. Measured after 3, on ARM64, readers beside a writer.
+  - A prefix beside a shared key: at 100 bytes a descent spends about 0.8 µs loading text
+    entries; a prefix decides random heads, not common ones. Measured in the engine on random
+    and common heads after 1, 2 and 4, which change the ratio; LeanStore's head after the
+    node's prefix serves both, at a change of layout (question 1).
+  - `Find(in IndexKey)`: answered: it saves one copy of 232 bytes, 2 to 3 ns of 1.7 µs.
+  - Text references for a node or for an entry: not measured (the write measured has no text
+    key). By reading, a copy of a leaf with 28 shared keys takes 28 references and its free
+    releases 28; to be measured on `index-writes` with keys of 100 bytes.
+  - `Arena.Payload` at every level: 4 a descent, 17 ns of a descent's 512 today, about 8 % of
+    one after proposal 1; its checks are the validation of an address read from a node, left
+    by the owner to this timing.
+- **Questions.** For the owner: (1) a node layout with a common prefix for each node and a
+  head of 4 bytes for each entry in a slot array, after LeanStore, for indexes with text parts:
+  a change of layout and of the order's code; not for fixed parts, whose entries already are
+  the array of the key. For the planner: (c) "no copy of the key on the heap" cannot hold for
+  Find, which is lazy and holds the key between two steps; proposal 7 holds it once.
+- **Not done.** No sampling profile; no figure on ARM64; the 16 keys, by name and beside a
+  writer only through the scenario; nothing of nodes of 2 KiB, text references or writes of
+  text keys measured.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
