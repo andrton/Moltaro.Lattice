@@ -70,9 +70,10 @@ layout for the first milestone.
   Unicode; malformed input is rejected before commit.
 - **Plain by default.** Fields explicitly marked Dictionary share equal original text
   through one dictionary per database. There is no automatic policy switching.
-- **Stable text references.** Indexes share protected text instead of copying it.
-  An entry has one count of the blocks that refer to it; it is freed when the last of
-  them is freed, after the readers that could reach it have left.
+- **Stable text references.** An index copies a text key of 64 bytes or less and
+  shares the text entry of a longer one instead of copying it. An entry has one count of
+  the blocks that refer to it; it is freed when the last of them is freed, after the
+  readers that could reach it have left.
 - **Schema-owned comparison.** Ordinal is the default; individual fields may use
   OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.
 
@@ -104,7 +105,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 | Access path | Selected mechanism |
 | --- | --- |
 | Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
-| Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md)); single or composite keys; not built yet |
+| Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md), [how it works](ordered-index.md)); single or composite keys; not built yet |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
 The caller names the index. Equality, leading-key/range access and Limit/Offset are

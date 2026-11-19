@@ -167,9 +167,10 @@ layout for the first milestone.</p>
 Unicode; malformed input is rejected before commit.</li>
 <li><strong>Plain by default.</strong> Fields explicitly marked Dictionary share equal original text
 through one dictionary per database. There is no automatic policy switching.</li>
-<li><strong>Stable text references.</strong> Indexes share protected text instead of copying it.
-An entry has one count of the blocks that refer to it; it is freed when the last of
-them is freed, after the readers that could reach it have left.</li>
+<li><strong>Stable text references.</strong> An index copies a text key of 64 bytes or less and
+shares the text entry of a longer one instead of copying it. An entry has one count of
+the blocks that refer to it; it is freed when the last of them is freed, after the
+readers that could reach it have left.</li>
 <li><strong>Schema-owned comparison.</strong> Ordinal is the default; individual fields may use
 OrdinalIgnoreCase. Case-insensitive lookup still preserves the original spelling.</li>
 </ul>
@@ -205,7 +206,7 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </tr>
 <tr>
 <td>Declared secondary index</td>
-<td>A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock (<a href="../decisions/index-structures.md">index structures</a>); single or composite keys; not built yet</td>
+<td>A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock (<a href="../decisions/index-structures.md">index structures</a>, <a href="ordered-index.md">how it works</a>); single or composite keys; not built yet</td>
 </tr>
 <tr>
 <td>Application-defined traversal</td>

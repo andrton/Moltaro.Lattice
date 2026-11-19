@@ -78,12 +78,13 @@ indexes, comparison rules, coherent publication or durability.
   UnorderedMapSlim was selected for the first implementation, with engine-owned key
   views, capacity reservation and publication protection. Full lifetime integration
   and target-environment performance remain engineering work. See [index structures](../decisions/index-structures.md).
-- Ordered secondary indexes use Arc.Collections 2.2.0 OrderedMultiMap in v1. Its
-  public node reuse supports preparation before commit; higher retained index memory
-  than the measured Kaos alternative is accepted. Index keys copy fixed-size values
-  and share stored immutable text through protected stable references, preserving
-  Plain/Dictionary policy. Exact descriptors, synchronization and traversal still
-  require engine integration and verification.
+- Ordered secondary indexes. Since 19 November 2026 they are a B+tree of the engine's
+  own whose published nodes never change, read without locks while a write publishes a
+  copy of what it changes (the owner's decision; see index structures and the
+  [ordered index](ordered-index.md)). An entry copies fixed-size values and text keys of
+  64 bytes or less, and shares the stored text entry of a longer one. Before that,
+  Arc.Collections 2.2.0 OrderedMultiMap was accepted for v1, for its public node reuse
+  before commit and at a higher retained memory than the measured Kaos alternative.
 - [Float32/Float64 special values](../decisions/queries.md#floating-point-special-values)
   use one typed Equals/CompareTo contract across OQL, indexes, Map and Set. Hashes
   must agree for all equivalent NaNs and for both zero signs. Native keys and scans
