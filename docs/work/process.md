@@ -163,6 +163,10 @@ edit, and the reviewers check that nothing else was changed under this rule.
 diff. Not the implementer's explanation and not the coordinator's opinion: a reviewer that
 is handed a conclusion confirms it.
 
+On a sprint that changes concurrency, storage, the lifetime of memory, replication or
+durability, a second agent works beside the reviewer as a breaker: it writes probe tests
+against the guarantees the sprint states and reports only what fails.
+
 **What is checked:**
 
 - The behavior against the brief and the decision records it names.
