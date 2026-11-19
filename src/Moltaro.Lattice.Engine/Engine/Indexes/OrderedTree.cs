@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
@@ -36,7 +37,11 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // ceil((k - 1) / LeastSeparators) levels above h, and a remove at most ceil(p / LeastSeparators): Hi and
 // Hr bound the height at the publications that wait (ordered-index.md, "The reservation"). A preparation
 // tops the pool up to the bound; a withdrawal and a publication give back to the arena what is above the
-// bound of the writes still waiting, and allocate nothing.
+// bound of the writes still waiting, and allocate nothing. What makes that enough, and what a Debug build
+// asserts after each of them (Need): the pool and the places hold at least what the writes still waiting
+// can take from the tree as it is now, where the k-th insert finds the height now plus the levels the
+// k - 1 inserts before it can add, given the inserts the root takes before it can split, and each remove
+// the height after every insert.
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;
@@ -250,6 +255,7 @@ internal sealed class OrderedTree
 
         _inserts = waitingInserts;
         _removes = waitingRemoves;
+        AssertReserved();
 
         return true;
     }
@@ -467,7 +473,48 @@ internal sealed class OrderedTree
             _retired.Release(_places - (int)bound);
             _places = (int)bound;
         }
+
+        AssertReserved();
     }
+
+    // For a Debug build, after a reservation, a publication and a withdrawal: the invariant of the
+    // reservation (see the class).
+    [Conditional("DEBUG")]
+    private void AssertReserved()
+    {
+        var need = Need();
+
+        Debug.Assert(_pool.Count >= need, $"The index {_layout.Index.Name} holds {_pool.Count} nodes for writes that can take {need}.");
+        Debug.Assert(_places >= need, $"The index {_layout.Index.Name} holds {_places} places in the retired list for writes that can use {need}.");
+    }
+
+    // The most nodes the writes still waiting can take from the tree as it is now, and the most places
+    // in the retired list they can use: the k-th insert at the height now and the levels the k - 1 inserts
+    // before it can add, 2 H + 1 at height H, and each remove, H + 1, at the height after every insert. A
+    // remove never makes the tree higher, nor its root fuller without making it lower by a level, so the
+    // order of the writes does not matter. Bound counts every insert at the height of the last, and every
+    // growth from the first insert on, so it is never below this.
+    private long Need()
+    {
+        var room = Room();
+        long need = 0;
+
+        for (var before = 0; before < _inserts; before++)
+        {
+            need += (2L * (_height + Growth(before, room))) + 1;
+        }
+
+        return need + (_removes * (_height + Growth(_inserts, room) + 1L));
+    }
+
+    // The inserts the root takes before it can split: a node with fewer than LeastSeparators separators,
+    // or entries, fits one more. 0 for an empty tree, whose first insert makes a root.
+    private int Room() => _root == 0 ? 0 : Math.Max(0, _layout.LeastSeparators - NodeAt(LoadRoot()).Count);
+
+    // The most levels the inserts given can add to the tree: the first growth after room of them, and each
+    // further one after LeastSeparators more, since the root a growth makes holds one separator or entry.
+    private long Growth(int inserts, int room) =>
+        inserts <= room ? 0 : 1 + ((inserts - 1 - room) / _layout.LeastSeparators);
 
     private void TakeInsert()
     {

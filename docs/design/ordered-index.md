@@ -52,8 +52,9 @@ gains the order beside its equality.
 
 Two keys can be equal and not the same bytes: a text under another case, a Decimal of
 another scale. They are one key with one place in the tree; an entry holds the bytes of
-its own root's value, and a write that changes only the bytes rewrites the entry in
-place.
+its own root's value, and a write that changes only the bytes rewrites the entry at its
+place in the order: its leaf is copied with the new bytes, or split when they do not fit,
+as every change of a node is (see "Writes"); no published node is written.
 
 **An entry is a hint.** A search reads the root entry each entry of its run names and
 returns the entity only if the current state of its root has the searched key. So a
@@ -280,14 +281,33 @@ cannot grow, and removes alone are counted at the height it has. Why it is enoug
 - A preparation tops the pool up to the bound for all writes that wait, with its own
   counted; a publication consumes at most its share and gives back to the arena what is
   above the bound of the writes still waiting; a withdrawal does the same. Neither ever
-  takes a node: after an insert that grew the tree the bound of the writes still waiting,
-  counted at the new height, can lie above what is left, and what is left is enough,
-  since it was reserved for every order of those writes from the old height.
+  takes a node. After an insert that grew the tree, the bound of the writes still
+  waiting, counted at the new height, can lie above what is left; what is left is enough
+  by an invariant, which a Debug build asserts after every preparation, publication and
+  withdrawal. The pool and the places hold at least the *need* of the writes still
+  waiting, from the tree as it is now: the *k*-th insert counted at *h* plus the levels
+  the *k* − 1 inserts before it can add, and every remove at the height after all
+  inserts, where the root takes *I* minus its separators or entries, at least none,
+  inserts before it can split, since a node with fewer than *I* fits one more, and every
+  further split *I* inserts more. The bound is never below the need. A publication takes
+  at most the first share of the need and leaves the need of the rest no larger than what
+  is left: a split makes a root of one separator, which counts its growth from there, and
+  a remove that lets a fuller child take the place of the root lowers the tree by a
+  level. A withdrawal only lowers the need.
 
 For one insert into an index of height 3, with nothing else waiting, the bound is 7 nodes,
 7 KiB, while a publication takes about one, and the pool is empty again after it. The
 bound first written here counted *h* + 1 + ⌊(*p* − 1) / *I*⌋, the height after the last
 insert, for every insert: two nodes more for each insert than it can take.
+
+What it costs when many changes wait: every insert is counted at the height the last can
+find, so the pool grows with the square of the inserts prepared and not published.
+Measured with a storage step that a test held, 600 waiting writes reserved 16 to 18 MiB
+with one index and 205 to 280 MiB with seven. No mode built today lets more than one
+change wait: the storage step of MemoryOnly completes in the hold that prepares the
+write, write batches are not built, and a child prepares one root of its load, or one
+transaction of its stream, at a time. A write batch, or a transaction of many changes,
+prepared whole before its publication, will reserve by the same bound.
 
 ### The retired node
 
