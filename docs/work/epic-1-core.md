@@ -290,6 +290,24 @@ Rules for every measurement:
 - A manifest is not changed after a result was seen. A new one needs a new approval, and
   the results under the old one stay in the table.
 
+**Added by the planner on 19 November 2026,** after the first start of a rented machine,
+which grew from four planned hours to more than seven by additions:
+
+- Everything for one start of a rented machine is one queue that runs on the machine
+  itself; nothing waits for a session on the workstation.
+- A start has a plan written before it: the series, their order, the expected length and
+  what each decides. A series added during a start needs a reason the planner agrees to.
+- On a machine of N cores the judged case of many readers uses at most N/2 readers.
+- A suspected fall is confirmed only by a series with at least three builds rotating; the
+  lines of one run are not independent evidence. A fall of 5 to 7 % reported from two
+  builds and three rounds did not exist.
+- Figures from a rented machine are a new series and are never compared in absolute
+  terms with those of the workstation.
+- Nothing about the machine goes into the repository beyond "a rented ARM64 machine, 16
+  cores".
+- The output of every repeat of the test suite is kept, so that a failure is never
+  without a name.
+
 ### Measured results
 
 Filled by the coordinator when a sprint closes. S42 moves the table into the product
@@ -355,6 +373,12 @@ documentation before this document is removed.
 | After S13R, part 1 | Writes, write-callers, 8c66279 against 40f6a8c, three rounds | medians of the paired ratios: 1, 4 and 16 callers that replace 1.01, 0.99, 0.99 (1.44 to 1.46 M/s for one caller); that insert and delete 1.05, 1.03, 1.03; allocation for a write unchanged, 160 and 124 bytes. Writers beside 16 readers of the written database 0.96, 1.15, 1.11 (replace) and 1.09, 1.01, 1.13 (insert and delete); those readers 1.03, 1.00, 0.97 and 1.02, 0.955, 1.03. No fall | development-5 | 19 November 2026 |
 | After S13R, part 1 | A child, the commit before part 1 (645fa43) against 40f6a8c, three rounds | following-children, writes a second: one child following 0.98, 1.05, 1.07 for 1 caller, 16 callers, 16 callers beside 16 readers; two children 1.03, 1.05, 0.98; with the children in processes of their own 1.01 to 1.07 in two rounds, the third disturbed (0.63 to 0.76 in four lines of one run). child-under-writes at the full rate of one caller: a child applied 1.24 to 1.33 M transactions a second against 1.21 to 1.27 M. child-load: single loads take 36 to 334 ms in both builds, three runs decide nothing; measured again with the case above | development-5 | 19 November 2026 |
 | S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. Left open by this series; answered by the series of 19 November 2026 below | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
+| S13R, part 2 | The spread of the method on a rented ARM64 machine, 16 cores: two builds of one commit against each other. The figures of this machine are a new series and are never compared in absolute terms with the rows of the workstation | one thread within ±5 % (one case +8 to 10 %); 8 threads ±10 %; 16 threads ±16 %, the machine saturated; writes ±6 % | rented-arm64-1 | 19 November 2026 |
+| S13R, part 2 | Read by key of the reference fixture, the cases left open above: case 2 of S13, and one reader beside a writer | closed: 12 rounds, the median of the ratio head over base 0.98 to 1.00 | rented-arm64-1 | 19 November 2026 |
+| S13R, part 2 | The load of a child, child-load | no difference between the builds | rented-arm64-1 | 19 November 2026 |
+| S13R, part 2 | Read by key of text after A6 | a first series of two builds and three rounds showed 5 to 7 % slower; a series of four builds did not reproduce it: ratios about 1.00 for A6 as committed, A6 as fixed and main. Not measurable on this scenario, ±10 % a pair | rented-arm64-1 | 19 November 2026 |
+| S13R, part 2 | Writes after D1, write-callers, eight rounds with the builds rotating; the median of the ratio to main (40f6a8c) for one caller and for 16 that replace, one caller and 16 that insert and delete | the first cut, 670617c: 0.967, 0.981, 0.967, 0.960; the head before the attempts, 0151c9f: 0.979, 0.985, 0.987, 0.968; 70fcc30: 0.999, 0.992, 0.974, 0.967; babd343: 0.979, 0.976, 0.974, 0.965. A second series of the same form with 0d63331: 670617c 0.996, 0.970, 0.984, 0.974; babd343 0.983, 0.974, 0.991, 0.981; 0d63331 1.014, 1.000, 1.011, 1.001; beside 16 readers the writes of 0d63331 0.99 to 1.03 and the reads 1.00 to 1.04. The first cut cost 2 to 3 % on a write; written where it lies, the change costs nothing measurable. The rows of 4 callers scatter 0.85 to 1.13 a round and are not judged | rented-arm64-1 | 19 November 2026 |
+| S13R, part 2 | Writes with children following, following-children, four rounds, five builds rotating (main, 670617c, 42b6317, 0151c9f, babd343), the children in processes of their own started through the executable | 16 callers that replace, over main for 670617c, 42b6317, 0151c9f and babd343: no child 0.969, 0.934, 0.953, 0.945; one child 0.988, 0.950, 0.978, 0.966; two children 0.946, 0.969, 0.947, 0.951; one child in its own process 0.958, 0.944, 0.971, 0.957; two in their own processes 0.958, 0.948, 0.972, 0.966; reads beside the writers 0.97 to 1.01. An earlier series of two builds and three rounds had shown 0.94 and 0.91 with a child following. No fall belongs to a child: the rows with a child lose what the rows without lose, the cost of the first cut of D1, which 0d63331 removes | rented-arm64-1 | 19 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1073,7 +1097,7 @@ Why this order:
 | S13 | Text entries and Dictionary strings | Full | Done |
 | After S13 | The fixes after the outside review | Full | Done |
 | S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
-| S13R, part 2 | Refactoring that owes a figure: waits for a quiet machine | Full | Not started |
+| S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -4925,9 +4949,11 @@ keeps a generation.
    lie in the entry: a read reads nothing a write changes. An empty text stays inline
    with length 0 and has no entry. A Dictionary text may be as long as a value may be.
 3. **The text table** is used by writes only, in managed memory, and no read touches it:
-   slots (address, references as Int64, hash, a flag or the link of the free list; as
-   built also the length of the text, so that a lookup passes over texts of another length
-   without touching the arena: 32 bytes a slot) and a
+   slots (address, references as Int64, hash, and the length of the text, so that a
+   lookup passes over texts of another length without touching the arena; a free slot
+   keeps the link of the free list where an entry keeps its length: as built since part 2
+   of S13R, 24 bytes a slot and no state, because the arena says whether the block of an
+   entry is prepared) and a
    bucket table from hash to slot. The bucket table is the `IndexTable` of the primary
    index, which moves with its companions to a folder below both users; it is not
    written a second time. The hash is the engine's seeded hash over the stored bytes
@@ -5248,6 +5274,50 @@ Where a sentence above says otherwise, these replace it.
     commit before S13 and the base against itself (S13); the read by key and the write
     before and after item 13; writes beside 16 readers and the read by key on 16 threads
     beside a writer for item 6.
+
+#### S13R, part 2 · Refactoring that owes a measured figure
+
+**Carried out and reviewed on 19 November 2026.** The entries of the
+[refactoring backlog](refactoring.md) that owed a figure, each commit with its figure,
+measured on a rented machine (see the measured results). Each step was reviewed by one
+independent reviewer with one question, "is the behavior what it was"; no review found a
+P1.
+
+1. **D1, with A2 in its wider cut** (670617c): one struct for a prepared change,
+   `PreparedChange` with `ChangeKindEnum`, and the sealed `ChangePublisher`, which
+   reserves, releases and publishes the changes of one publication over a span. The
+   first cut cost 2 to 3 % on a write; 70fcc30, babd343, 0d63331 and f4ae9f3 removed
+   that cost: the change is written straight into the record of the write, not built
+   aside and copied. The review of the third step of D1 named three findings of P3 and
+   P4, fixed in f4ae9f3.
+2. **D4** (42b6317): the retired memory notes whether anything was retired since the
+   previous publication, and `AfterWrite` takes no argument.
+3. **D2** (55b48a7): one shape for a write refused for memory on a child, and both
+   callers ask the retired memory. A P2 of its review: the switch of the tests, moved to
+   `ReadEpochs` as the entry proposed, kept a reference there that hollowed the
+   weak-reference probe of "a closed database retains nothing"; it lives in
+   `RetiredMemory` (4b784ef).
+4. **D3** (5a88dd4): the check of a received layout is removed. The reviewer showed its
+   condition by reading: the layout that reaches the check is always taken from the
+   node's own schema, never selected by received bytes.
+5. **A6** (37071e5, 0151c9f): the primary keys of a type leave `EntityTable`. A P2 of its
+   review: a sealed class for the keys added dependent loads to a read by key; they are a
+   readonly struct `PrimaryKeys` of 24 bytes held by value in the table, and the
+   comparison stays in `EntityTable.KeyEquals`.
+6. **T1 with B3** (808b619): `TextSlot` is 24 bytes and keeps no state; the arena says
+   whether the block of an entry is prepared (`Arena.IsPrepared`).
+   `ValueBlocks.TryStoreText` takes the slot as a number and writes the header of the
+   block; `ValueBlocks.TextSlotOf` beside it reads it.
+
+**Checked by the coordinator on f4ae9f3:** the build with 0 warnings, the format clean,
+2,492 tests with 2,336 passed, 156 skipped and 0 failed, the samples in Debug and in
+Release, 20 repeats of the suite in Release, all clean. One failure is not explained:
+in the tenth of ten repeats in Release on 0d63331 one test failed, and the run did not
+keep its name. It did not appear again in 40 more repeats with their output kept, 20 on
+0d63331 and 20 on f4ae9f3. At the time the workstation also ran a build and the full
+suite of two agents. From now on the output of every repeat is kept.
+
+**Not done:** A9 and B2, taken into S14R; B2 before the scenarios of S15 are written.
 
 #### S14 · Secondary indexes and exact search
 
