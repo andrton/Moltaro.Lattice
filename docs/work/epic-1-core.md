@@ -350,7 +350,11 @@ documentation before this document is removed.
 | S13 | A child that loads 100,000 such users | the bytes on the wire are those of Plain (15,410,268); the child holds 16 entries; Ready about 0.12 µs later for each Dictionary value | development-5 | 18 November 2026 |
 | S13 | Bytes the arena holds while one text of 1 MiB is replaced 100 times with no read in progress | 101 MiB as Dictionary against 4.0 MiB as Plain before the fix of the review; after it the test holds Dictionary to at most twice Plain | development-5 | 18 November 2026 |
 | After S13 | Moves of the epoch for each 10,000 writes, counted by a probe, before the fixes and after | replaces 78 and 78, with a read held or not; deletes of an absent key beside a held read 0 and 78, one look for a window; 99 inserts to 1 replace, pure inserts, nothing retired: 0 and 0. No time was measured | — | 18 November 2026 |
-| S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. **Open: to be measured again on a quiet machine, with the base against itself** | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
+| After S13R, part 1 | The spread of the method, measured for the first time: two builds of one commit (8c66279) against each other, read-by-key-threads, four rounds with the order of the builds rotated, 13 to 28 % of the machine busy with other work before a run. Later judgements of a paired ratio refer to it | the second build over the first, by pairs: 1 thread alone 1.00, 0.97, 1.32, 1.05; 1 thread beside a writer that replaces 1.05, 0.97, 1.06, 0.98; 16 threads alone 0.96, 1.05, 1.00, 1.02; 16 threads beside the writer 0.96, 1.06, 1.00, 1.01. Medians within 2.5 %, pairs within about 6 %, one outlier | development-5 | 19 November 2026 |
+| After S13R, part 1 | Read by key of the reference fixture, the commit before S13 (8c66279) against main after part 1 of S13R (40f6a8c), in the same four rounds: closes the read of S13, of the immutable schema and of the second trigger of the drain (the fixes after S13) and of part 1 | head over each of the two builds of the base, medians: 16 threads alone 1.035 and 1.040 (9.13 and 9.16 against 9.51 M/s), every pair at or above 1.00; 16 threads beside the writer 1.026 and 1.025 (8.48 and 8.54 against 8.83 M/s); 1 thread alone 1.05 and 0.95 (2.47 and 2.63 against 2.50 M/s: the head lies between the two builds of the base); 1 thread beside the writer 0.96 and 0.98 (2.37 and 2.39 against 2.25 M/s), pairs 0.83 to 1.08. No fall; the case of 1 thread beside a writer is inside the spread of four rounds and is measured again with eight | development-5 | 19 November 2026 |
+| After S13R, part 1 | Writes, write-callers, 8c66279 against 40f6a8c, three rounds | medians of the paired ratios: 1, 4 and 16 callers that replace 1.01, 0.99, 0.99 (1.44 to 1.46 M/s for one caller); that insert and delete 1.05, 1.03, 1.03; allocation for a write unchanged, 160 and 124 bytes. Writers beside 16 readers of the written database 0.96, 1.15, 1.11 (replace) and 1.09, 1.01, 1.13 (insert and delete); those readers 1.03, 1.00, 0.97 and 1.02, 0.955, 1.03. No fall | development-5 | 19 November 2026 |
+| After S13R, part 1 | A child, the commit before part 1 (645fa43) against 40f6a8c, three rounds | following-children, writes a second: one child following 0.98, 1.05, 1.07 for 1 caller, 16 callers, 16 callers beside 16 readers; two children 1.03, 1.05, 0.98; with the children in processes of their own 1.01 to 1.07 in two rounds, the third disturbed (0.63 to 0.76 in four lines of one run). child-under-writes at the full rate of one caller: a child applied 1.24 to 1.33 M transactions a second against 1.21 to 1.27 M. child-load: single loads take 36 to 334 ms in both builds, three runs decide nothing; measured again with the case above | development-5 | 19 November 2026 |
+| S13 | Read by key of the reference fixture, no Dictionary field, the commit before the implementation (8c66279) against the head, 8 rounds in the order base head, head base, each on 8 processors, the machine 19 to 77 % busy with other work. Left open by this series; answered by the series of 19 November 2026 below | head over base, by pairs: 1 thread 1.38, 0.65, 1.17, 0.69, 0.87, 1.33, 0.79, 1.03, median 0.95; 16 threads median 1.09 (0.78 to 1.34, and one pair whose base run was disturbed). Medians of the eight runs: 1 thread 1.72 M/s base and 1.49 M/s head; 16 threads 6.69 and 7.56 M/s. The pairs swing by more than the difference looked for, so the series decides nothing; on a Plain read the code differs from the base in one place, the test of the length where the base tested the kind, one comparison as before | development-5 | 18 November 2026 |
 
 The figures of S09 come from the scenario `write-callers`. Writes fell against S08: by
 a third to a half for one caller, and several callers write about half of what one writes
@@ -1030,6 +1034,13 @@ Why this order:
   is not enabled". That is a missing prerequisite, not a hidden failure: CI always
   enables both lanes, and the coordinator verifies a sprint with the PostgreSQL lane enabled from S27 on, and
   with the cluster lane as well from S35 on.
+- The default lane runs in three jobs: `build` on Linux x64, `windows` on Windows x64 and
+  `arm64` on Linux ARM64, a runner of four processors. The third was added on the
+  owner's decision of 19 November 2026: reads take no lock and a write is published by
+  one store, and the memory ordering of x64 hides a class of faults that ARM64 does
+  not. A failure on ARM64 that the other jobs do not show is a finding about the engine
+  first: it is reported with the name of the test before anyone changes the test.
+  Longer race runs on a machine with many ARM cores are a later step.
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
@@ -5379,6 +5390,25 @@ index through the read-only view of the schema, two interface calls for a part; 
 search becomes a read path it takes a span over the private array, as the fields do, if
 its measurement asks for it.
 
+**After S14, on the light track: the samples as a learning path** (asked by the owner on
+19 November 2026, as the planner relays; the form decided by the planner). The samples
+project is a flat list of seventeen files today. It gets folders by topic, each a
+namespace and one responsibility, not numbered steps — a number in a folder is a number
+in a namespace, and inserting a sample would renumber folders: `Basics` (BasicCrud,
+KeyTypes, ClosedProperties, NestedValues), `Schema` (Schema, SchemaDeclarations,
+DictionaryStrings, DynamicAccess, with `directory.schema.json`), `Indexes` (Index,
+UniqueIndex), `Writes` (WriteBatch, MemoryLimit, ReadLimits), `Replication`
+(MasterAndChild), `Hosting` (DependencyInjection, Identity); `User.cs` and `Program.cs`
+stay in the root; the grouping follows the content of a sample where it says otherwise.
+The order lives in two places that cannot drift apart: `Program.cs` runs the samples in
+the learning order and prints "Sample 3 of 17: …" before each, and a `README.md` of the
+samples project lists the same order from simple to complex — for each sample one line
+on what it teaches, what to read before it, and whether it runs to the end today or
+reports where it stops. The README of the repository points to it in one sentence. No
+behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
+runs to the end. It starts right after S14 is merged, because S14 changes `IndexSample`
+and two agents must not edit the project at once.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -6385,6 +6415,12 @@ within the timeout.
   GUI: all excluded by decision.
 
 ### Stage 9. Release gates
+
+**Carried from the planning of observability (Epic 3, R4), 19 November 2026.** A
+measurement must not put a shared write on the read path: what a read contributes is
+either read from state the engine keeps anyway when a collector asks, or kept per thread
+and summed on request. An instrument that needs a counter incremented by every read on
+one cache line is not built.
 
 #### S40 · Ordinary-load gates
 
