@@ -58,7 +58,7 @@ public sealed class IndexLayoutTests
         new("null text", 10),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Entries))]
     public void Entry_takes_its_identity_its_null_bitmap_and_its_part_as_the_design_lays_them_out(string part, int expected)
     {
@@ -70,7 +70,7 @@ public sealed class IndexLayoutTests
         var field = item.Field("Part");
 
         writer.SetInteger(item.Field("Id"), 1);
-        value(writer, field);
+        value(ref writer, field);
         var root = writer.Complete();
         var entry = new byte[layout.WidestEntryBytes + IndexLayout.SharedTextBytes];
         var bytes = layout.WriteEntry(item.Reader(root), RootArena.Handle, entry);
@@ -139,25 +139,29 @@ public sealed class IndexLayoutTests
         }
     }
 
+    // Writes the value of a row into the writer of the root: by reference, since a writer is a value that
+    // collects what it is given, and a copy would collect it in vain.
+    private delegate void ValueWriter(ref RootWriter writer, LatticeField field);
+
     // The declaration of the field Part of a row, and how its value is written.
-    private static (string Declaration, Action<RootWriter, LatticeField> Value) PartOf(string part) => part switch
+    private static (string Declaration, ValueWriter Value) PartOf(string part) => part switch
     {
-        "Int32" => ("'Type': 'Int32'", (writer, field) => writer.SetInteger(field, -5)),
-        "DateOnly" => ("'Type': 'DateOnly'", (writer, field) => writer.SetDateOnly(field, new DateOnly(2026, 11, 19))),
-        "Int64" => ("'Type': 'Int64'", (writer, field) => writer.SetInteger(field, long.MinValue)),
-        "Float64" => ("'Type': 'Float64'", (writer, field) => writer.SetFloat64(field, -0d)),
-        "DateTimeOffset" => ("'Type': 'DateTimeOffset'", (writer, field) => writer.SetDateTimeOffset(field, DateTimeOffset.UnixEpoch)),
-        "Guid" => ("'Type': 'Guid'", (writer, field) => writer.SetGuid(field, Guid.NewGuid())),
-        "Decimal" => ("'Type': 'Decimal'", (writer, field) => writer.SetDecimal(field, 1.00m)),
-        "nullable Int64" => ("'Type': 'Int64', 'Nullable': true", (writer, field) => writer.SetInteger(field, 7)),
-        "text of 0 bytes" => ("'Type': 'String'", (writer, field) => writer.SetString(field, "")),
-        "text of 8 bytes" => ("'Type': 'String'", (writer, field) => writer.SetString(field, "abcdefgh")),
-        "text of 64 bytes" => ("'Type': 'String'", (writer, field) => writer.SetString(field, new string('a', 64))),
-        "text of 65 bytes" => ("'Type': 'String'", (writer, field) => writer.SetString(field, new string('a', 65))),
-        "text of 1,000 bytes" => ("'Type': 'String'", (writer, field) => writer.SetString(field, new string('a', 1_000))),
-        "Dictionary text of 64 bytes" => ("'Type': 'String', 'StringStorage': 'Dictionary'", (writer, field) => writer.SetString(field, new string('d', 64))),
-        "Dictionary text of 65 bytes" => ("'Type': 'String', 'StringStorage': 'Dictionary'", (writer, field) => writer.SetString(field, new string('d', 65))),
-        _ => ("'Type': 'String', 'Nullable': true", (writer, field) => writer.SetNull(field)),
+        "Int32" => ("'Type': 'Int32'", (ref RootWriter writer, LatticeField field) => writer.SetInteger(field, -5)),
+        "DateOnly" => ("'Type': 'DateOnly'", (ref RootWriter writer, LatticeField field) => writer.SetDateOnly(field, new DateOnly(2026, 11, 19))),
+        "Int64" => ("'Type': 'Int64'", (ref RootWriter writer, LatticeField field) => writer.SetInteger(field, long.MinValue)),
+        "Float64" => ("'Type': 'Float64'", (ref RootWriter writer, LatticeField field) => writer.SetFloat64(field, -0d)),
+        "DateTimeOffset" => ("'Type': 'DateTimeOffset'", (ref RootWriter writer, LatticeField field) => writer.SetDateTimeOffset(field, DateTimeOffset.UnixEpoch)),
+        "Guid" => ("'Type': 'Guid'", (ref RootWriter writer, LatticeField field) => writer.SetGuid(field, Guid.NewGuid())),
+        "Decimal" => ("'Type': 'Decimal'", (ref RootWriter writer, LatticeField field) => writer.SetDecimal(field, 1.00m)),
+        "nullable Int64" => ("'Type': 'Int64', 'Nullable': true", (ref RootWriter writer, LatticeField field) => writer.SetInteger(field, 7)),
+        "text of 0 bytes" => ("'Type': 'String'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, "")),
+        "text of 8 bytes" => ("'Type': 'String'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, "abcdefgh")),
+        "text of 64 bytes" => ("'Type': 'String'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, new string('a', 64))),
+        "text of 65 bytes" => ("'Type': 'String'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, new string('a', 65))),
+        "text of 1,000 bytes" => ("'Type': 'String'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, new string('a', 1_000))),
+        "Dictionary text of 64 bytes" => ("'Type': 'String', 'StringStorage': 'Dictionary'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, new string('d', 64))),
+        "Dictionary text of 65 bytes" => ("'Type': 'String', 'StringStorage': 'Dictionary'", (ref RootWriter writer, LatticeField field) => writer.SetString(field, new string('d', 65))),
+        _ => ("'Type': 'String', 'Nullable': true", (ref RootWriter writer, LatticeField field) => writer.SetNull(field)),
     };
 
     private static LatticeIndex Index(RootArena item)
