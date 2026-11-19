@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -38,15 +40,34 @@ internal sealed class PreparedWrite
     public ref readonly PreparedChange Change => ref _change;
 
     // What the publication of the write installs, as the publisher takes it: its one change, or none. A
-    // span over the field of this record, so that it is passed without a copy and without an allocation.
-    public Span<PreparedChange> Changes => ChangesEntity ? new Span<PreparedChange>(ref _change) : default;
+    // span over the field of this record, so that it is passed without a copy and without an allocation;
+    // its length is the flag, without a branch, so that the accessor is inlined where it is read.
+    public Span<PreparedChange> Changes => MemoryMarshal.CreateSpan(ref _change, ChangesEntity ? 1 : 0);
 
-    // What the preparation of a write that changes an entity made.
-    public void Set(in PreparedChange change, long encodedSize)
+    // For a write being prepared: writes its change into the record where it lies, so that the reservation
+    // of what its publication uses reads it there (Entities.ChangePublisher.Reserve). It is the write's
+    // change only once the preparation has made that reservation (Set).
+    public ref readonly PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
     {
-        _change = change;
+        // One field at a time, so that the change is written where it lies, not built aside and copied.
+        _change.Kind = kind;
+        _change.Table = table;
+        _change.Key = key;
+        _change.Handle = handle;
+        _change.Root = root;
+        _change.Replaced = default;
+
+        return ref _change;
+    }
+
+    // What the preparation of a write that changes an entity made: the change it wrote (WriteChange) and
+    // reserved, with the bytes it encoded.
+    public PreparedWrite Set(long encodedSize)
+    {
         ChangesEntity = true;
         EncodedSize = encodedSize;
+
+        return this;
     }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left

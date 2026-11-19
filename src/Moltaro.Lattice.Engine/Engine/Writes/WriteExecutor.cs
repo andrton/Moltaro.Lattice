@@ -207,13 +207,15 @@ internal sealed class WriteExecutor
     private LatticeRevision RevisionOf(RootHandle handle) =>
         new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
+    // The change of each preparation is written into the record of the write where it lies (WriteChange),
+    // reserved from there, and is the write's once reserved (Set).
     private PreparedWrite PrepareDelete(PendingWrite write, RootHandle handle)
     {
-        var change = new PreparedChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default);
+        var record = write.Record;
 
-        _changes.Reserve(change);
+        _changes.Reserve(record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default));
 
-        return write.Prepare(change, 0);
+        return record.Set(0);
     }
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
@@ -243,11 +245,11 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        var change = new PreparedChange(ChangeKindEnum.Replace, table, write.Key, handle, root);
+        var record = write.Record;
 
         try
         {
-            _changes.Reserve(change);
+            _changes.Reserve(record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
         }
         catch
         {
@@ -255,7 +257,7 @@ internal sealed class WriteExecutor
             throw;
         }
 
-        prepared = write.Prepare(change, size);
+        prepared = record.Set(size);
 
         return true;
     }
@@ -285,10 +287,10 @@ internal sealed class WriteExecutor
                 return false;
             }
 
-            var change = new PreparedChange(ChangeKindEnum.Insert, table, write.Key, handle, root);
+            var record = write.Record;
 
-            _changes.Reserve(change);
-            prepared = write.Prepare(change, size);
+            _changes.Reserve(record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root));
+            prepared = record.Set(size);
 
             return true;
         }
