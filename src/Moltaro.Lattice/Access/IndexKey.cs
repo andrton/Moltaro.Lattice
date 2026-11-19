@@ -37,8 +37,18 @@ namespace Moltaro.Lattice.Access;
 /// <see cref="string"/>: the values are kept in the key as they were given, and a value given as
 /// an <see cref="object"/> is unboxed, not boxed again. A value of any other type is kept as an
 /// object, to be refused when the key is used. A key can be kept and used for any number of
-/// searches, from any thread; a copy of a key is the same key. The default value of
-/// <see cref="IndexKey"/> is <see cref="All"/>.
+/// searches, from any thread; a copy of a key is the same key.
+/// </para>
+/// <para>
+/// A key is made by <see cref="All"/>, an <c>Equal</c> or <see cref="Range"/>. The default value
+/// of <see cref="IndexKey"/>, which none of them makes, is no key, and is an error wherever it is
+/// used, as the default of <see cref="IndexBound"/> is: given to a search, <c>Find</c> or
+/// <c>FindAsync</c> of <see cref="ILatticeIndex{TEntity}"/>, it is an
+/// <see cref="ArgumentException"/>; its one member, <see cref="Range"/>, is an
+/// <see cref="InvalidOperationException"/>. <see cref="All"/> is the key of every entry of an
+/// index, and is not the default. What every struct inherits from <see cref="object"/>,
+/// <c>Equals</c>, <c>GetHashCode</c> and <c>ToString</c>, does not read the key and refuses
+/// nothing.
 /// </para>
 /// </remarks>
 public readonly struct IndexKey
@@ -48,6 +58,9 @@ public readonly struct IndexKey
 
     // How many of the values below the key has: one for each leading field, at most MostValues.
     private readonly int _count;
+
+    // Whether a factory made the key; false only for the default value, which is no key.
+    private readonly bool _made;
 
     private readonly IndexValue _value1;
 
@@ -60,6 +73,7 @@ public readonly struct IndexKey
     internal IndexKey(int count, IndexValue value1, IndexValue value2, IndexValue value3, IndexValue value4, IndexBound? from, IndexBound? to)
     {
         _count = count;
+        _made = true;
         _value1 = value1;
         _value2 = value2;
         _value3 = value3;
@@ -68,8 +82,14 @@ public readonly struct IndexKey
         To = to;
     }
 
-    /// <summary>The whole index, in its order. The default value of <see cref="IndexKey"/> is this key.</summary>
-    public static IndexKey All => default;
+    /// <summary>
+    /// The whole index, in its order: the key of every entry. It is not the default value of
+    /// <see cref="IndexKey"/>, which is no key.
+    /// </summary>
+    public static IndexKey All => new(0, default, default, default, default, null, null);
+
+    // Whether this is the default value, which no factory makes and which is no key.
+    internal bool IsDefault => !_made;
 
     // The values of the leading index fields that must be equal: as many as the key has.
     internal int Count => _count;
@@ -125,10 +145,17 @@ public readonly struct IndexKey
     /// </remarks>
     /// <param name="from">Where the range starts; <see langword="null"/> for no lower end.</param>
     /// <param name="to">Where the range ends; <see langword="null"/> for no upper end.</param>
+    /// <exception cref="InvalidOperationException">
+    /// The key already has a range, or it is the default of <see cref="IndexKey"/>, which is no key.
+    /// </exception>
     /// <exception cref="ArgumentException">Both ends are <see langword="null"/>.</exception>
-    /// <exception cref="InvalidOperationException">The key already has a range.</exception>
     public IndexKey Range(IndexBound? from, IndexBound? to)
     {
+        if (!_made)
+        {
+            throw new InvalidOperationException("The key is the default of IndexKey, which is no key: make one with IndexKey.All or IndexKey.Equal.");
+        }
+
         if (from is null && to is null)
         {
             throw new ArgumentException("A range needs at least one end.");

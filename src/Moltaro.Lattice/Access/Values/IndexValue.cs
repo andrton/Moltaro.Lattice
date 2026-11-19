@@ -11,9 +11,11 @@ namespace Moltaro.Lattice.Access.Values;
 // A value of one of the .NET types of the scalar field types, or a Nullable of one, is taken apart by
 // its type in Of, and boxes nothing: the generic method is compiled for each value type it is called
 // with, and its tests of typeof(T) are decided when it is compiled, as for a primary key given to a set
-// (Engine.Sets.KeyArgument). A value given as an object is unboxed, not boxed again. A value of any other
-// type is kept as the object it is, boxed if it is a value type: the cost of a value that is about to be
-// refused, since no part of an index has its type.
+// (Engine.Sets.KeyArgument); a value of a value type is reached only through Unsafe.As, never tested
+// against null as an object, so a build whose code the JIT does not optimize boxes nothing either. A
+// value given as an object is unboxed, not boxed again. A value of any other type is kept as the object
+// it is, boxed if it is a value type: the cost of a value that is about to be refused, since no part of
+// an index has its type.
 //
 // The bits are the .NET value as it lies in memory, written into the 16 bytes from _low on in the byte
 // order of the machine: one to eight bytes of a Boolean, an integer, a floating-point value, a DateOnly,
@@ -78,21 +80,23 @@ internal readonly struct IndexValue
     // one (see the struct).
     public static IndexValue Of<T>(T value)
     {
-        // A Nullable without a value, and a null reference.
-        if (value is null)
+        // A null reference; a Nullable without a value is null in Is. A value type is not tested here,
+        // where an unoptimized build would box it.
+        if (!typeof(T).IsValueType && value is null)
         {
             return default;
         }
 
         if (typeof(T) == typeof(string))
         {
-            // A reference type: the conversion through object is no box.
-            return new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
+            // A reference type, not null here: the conversion through object is no box.
+            return new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value!);
         }
 
-        // A value of a scalar field type or a Nullable of one that has a value; otherwise an object,
-        // which is not boxed again, or a value of a type no scalar field has, which is. The tests take
-        // the value by reference and do not change it, so it is still not null for OfObject.
+        // A value of a scalar field type or a Nullable of one; otherwise an object, which is not boxed
+        // again, or a value of a type no scalar field has, which is. A reference that is null was taken
+        // above, and the tests take the value by reference without changing it, so it is not null for
+        // OfObject.
         return Is<T, bool>(ref value, LatticeFieldTypeEnum.Boolean, out var result)
             || Is<T, sbyte>(ref value, LatticeFieldTypeEnum.Int8, out result)
             || Is<T, byte>(ref value, LatticeFieldTypeEnum.UInt8, out result)
@@ -176,9 +180,9 @@ internal readonly struct IndexValue
         _ => As<TimeSpan>(),
     };
 
-    // Whether T is TValue or a Nullable of it, with the value, of the field type given, when it is. The
-    // value is not null. Decided when the method is compiled for T and TValue, so a test that fails
-    // costs nothing for a value type T.
+    // Whether T is TValue or a Nullable of it, with the value, of the field type given, when it is, and
+    // null for a Nullable without a value. Decided when the method is compiled for T and TValue, so a
+    // test that fails costs nothing for a value type T.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Is<T, TValue>(ref T value, LatticeFieldTypeEnum type, out IndexValue result)
         where TValue : unmanaged
@@ -192,7 +196,7 @@ internal readonly struct IndexValue
 
         if (typeof(T) == typeof(TValue?))
         {
-            result = Fixed(type, Unsafe.As<T, TValue?>(ref value).GetValueOrDefault());
+            result = Unsafe.As<T, TValue?>(ref value) is { } held ? Fixed(type, held) : default;
 
             return true;
         }

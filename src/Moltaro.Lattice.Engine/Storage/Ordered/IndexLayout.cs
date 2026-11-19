@@ -120,7 +120,8 @@ internal sealed class IndexLayout
     // come from the root layout: the stored type, width and place of each field. An index whose
     // LeastEntriesPerNode widest entries do not fit the largest block, Arena.MaxBlockSize, is refused with
     // LatticeException, InvalidSchema, naming the index, before any data is admitted, as RootLayout refuses
-    // a fixed part beyond one block; about 250 String parts reach it.
+    // a fixed part beyond one block: a rule of the schema language, which LatticeIndex states with the
+    // widths, the same on every node. 251 String parts that are never null fit; 252 do not.
     public static IndexLayout Compile(LatticeIndex index, RootLayout root) =>
         throw new NotSupportedException("Secondary indexes are not implemented yet.");
 
@@ -135,15 +136,18 @@ internal sealed class IndexLayout
 
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from
-    // the root as it is stored; a String part of TextCopyLimit bytes or less is copied from wherever its
-    // value lies, the root or the text entry of a Dictionary field, and a longer one references the text
-    // entry the root's descriptor names. Allocates nothing. For the writer under the lock of the writes,
-    // and for a reader inside the protection of reads that checks a root against a key.
+    // the root as its bytes lie, not written again from its value: the stored form of a value is written
+    // in one place, Values.StoredScalars, which the root writer uses. A String part of TextCopyLimit bytes
+    // or less is copied from wherever its value lies, the root or the text entry of a Dictionary field,
+    // and a longer one references the text entry the root's descriptor names. Allocates nothing. For the
+    // writer under the lock of the writes, and for a reader inside the protection of reads that checks a
+    // root against a key.
     public int WriteEntry(in RootReader root, RootHandle identity, Span<byte> destination) =>
         throw new NotSupportedException("Secondary indexes are not implemented yet.");
 
     // The text entries the String parts of an entry reference, into the span, which has a place for each
-    // String part, and how many there are: for the counts of a node, which holds one reference for each
+    // String part, and how many there are: for the count of a node, which holds one reference for each
+    // shared key among its entries or separators from the moment it is written until it is freed
     // (Text.TextTable; ordered-index.md, "Text references").
     public int SharedTexts(ReadOnlySpan<byte> entry, Span<ArenaAddress> texts) =>
         throw new NotSupportedException("Secondary indexes are not implemented yet.");

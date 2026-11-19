@@ -80,7 +80,7 @@ public sealed class IndexKeyArgumentTests
         await ExpectRefusedAsync(database, "ByAgeAndName", IndexKey.All.Range(none, IndexBound.Exclusive(40)));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Default_key_is_refused_in_both_forms_and_IndexKey_All_is_not_the_default()
     {
         await using var database = await TestData.OpenMasterAsync();

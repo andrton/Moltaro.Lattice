@@ -10,10 +10,11 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // (docs/design/ordered-index.md, "The search by a full key").
 //
 // It is made once for each step of a search, outside the protection of reads, and allocates nothing: the
-// values of the fixed-width parts are written into scratch the caller gives on its stack, in the bytes
-// the root stores for them (IndexLayout), after the null bitmap, so that such a part compares with the
-// part of an entry as two stored values; a String part stays the text of the key, which the comparison
-// reads against the stored text a piece at a time. A key has at most four values (IndexKey.Equal), so
+// values of the fixed-width parts are written into scratch the caller gives on its stack, after the null
+// bitmap, by the one writer of the stored form of a value, the one the root writer uses
+// (Storage.Values.StoredScalars.Write), so that such a part compares with the part of an entry as two
+// stored values; a String part stays the text of the key, which the comparison reads against the
+// stored text a piece at a time. A key has at most four values (IndexKey.Equal), so
 // ScratchBytes always holds them.
 //
 // A readonly ref struct: it refers to the scratch, and lives on the stack of the step.

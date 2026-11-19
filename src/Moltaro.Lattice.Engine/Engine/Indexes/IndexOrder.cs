@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   Float64 by its CompareTo, NaN first and the two zeros equal (decision on queries, Q07.3.6,
 //   "Floating-point special values"); a Decimal by its value, so 1.0 and 1.00 are equal; a Guid by its
 //   CompareTo; a DateTimeOffset, a TimeOnly and a TimeSpan by their ticks and a DateOnly by its day number,
-//   as the root stores them;
+//   each read from its stored bytes by the one reader of that form (Storage.Values.StoredScalars);
 // - a String by the comparison its field declares, in the same order in a UTF-8 and in a UTF-16
 //   database (Q07.3.6, "String ordering and query overrides"): Ordinal by the UTF-16 code units, and
 //   OrdinalIgnoreCase by the code units of the texts each scalar value of which is replaced by its

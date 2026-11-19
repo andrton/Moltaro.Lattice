@@ -44,19 +44,35 @@ public interface ILatticeIndex<TEntity>
     /// Finds the entities that match the key in what this node has now, in the index order.
     /// The matches are produced as they are enumerated.
     /// </summary>
+    /// <remarks>
+    /// Of an entity type whose writes are refused until a feature of its schema is implemented,
+    /// such as an owned value, a collection, a reference or a unique index, the search finds
+    /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
+    /// type holds no entity.
+    /// </remarks>
     /// <param name="key">What to look for.</param>
-    /// <exception cref="ArgumentException">The index cannot serve the key.</exception>
+    /// <exception cref="ArgumentException">
+    /// The index cannot serve the key, or the key is the default of <see cref="IndexKey"/>, which
+    /// is no key.
+    /// </exception>
     IEnumerable<TEntity> Find(IndexKey key);
 
     /// <summary>
     /// Finds the entities that match the key, as the options say: after the position of a
     /// session, in the index order or its reverse, all of them or a part.
     /// </summary>
+    /// <remarks>
+    /// Of an entity type whose writes are refused until a feature of its schema is implemented,
+    /// the result has no item, as a read by key finds nothing: such a type holds no entity.
+    /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <param name="options">Consistency, direction and paging of the search.</param>
     /// <param name="cancellationToken">Cancels the wait for the session's position.</param>
     /// <returns>The matches and the position of the answer.</returns>
-    /// <exception cref="ArgumentException">The index cannot serve the key.</exception>
+    /// <exception cref="ArgumentException">
+    /// The index cannot serve the key, or the key is the default of <see cref="IndexKey"/>, which
+    /// is no key.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
     /// position of the session in time; nothing was searched.

@@ -24,12 +24,14 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // The reservation. Nothing grows inside a publication. While p inserts, rewrites included, and q removes
 // are prepared and not published, the tree holds
 //
-//   p * (2H + 1) + q * (H + 1) nodes, with H = h + 1 + (p - 1) / LeastSeparators,
+//   p * (2H + 1) + q * (H + 1) nodes, with H = h when p is 0,
+//   and H = h + 1 + (p - 1) / LeastSeparators when p is 1 or more,
 //
-// as prepared blocks no reader can reach, and as many places in the retired list; h is the height now.
-// That is a bound of the height at each of those publications and of the nodes each takes
-// (ordered-index.md, "The reservation", says why). A preparation tops the pool up to it; a withdrawal
-// and a publication give back to the arena what is above it.
+// as prepared blocks no reader can reach, and as many places in the retired list; h is the height now,
+// and the division is that of integers. That is a bound of the height at each of those publications and
+// of the nodes each takes; with no insert waiting the tree cannot grow (ordered-index.md, "The
+// reservation", says why). A preparation tops the pool up to it; a withdrawal and a publication give
+// back to the arena what is above it.
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;

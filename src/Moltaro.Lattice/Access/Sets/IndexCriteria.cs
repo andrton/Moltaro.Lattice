@@ -8,12 +8,18 @@ namespace Moltaro.Lattice.Access.Sets;
 // the place Count of the key. This is what an index search works from. The key it returns is the key it
 // was given with every value bound to its field (IndexValue.Bind), so a key that is accepted is
 // checked without allocating and without a box; a refusal is an ArgumentException for the parameter
-// "key", with the message of the check that refuses it.
+// "key", with the message of the check that refuses it. The default of IndexKey, which is no key, is
+// refused first.
 internal static class IndexCriteria
 {
     // Checks that the index can serve the key and brings its values to the field types.
     public static IndexKey Prepare(LatticeIndex index, in IndexKey key)
     {
+        if (key.IsDefault)
+        {
+            throw new ArgumentException($"Index '{index.Name}' was given the default of IndexKey, which is no key; IndexKey.All asks for every entry of an index.", nameof(key));
+        }
+
         var parts = index.Parts;
 
         if (key.Count > parts.Count)

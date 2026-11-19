@@ -64,9 +64,10 @@ internal sealed class SecondaryIndex
     // Its tree, which a search descends inside the protection of reads.
     public OrderedTree Tree { get; }
 
-    // The index of the declaration for the entity type whose roots have the layout given, empty, its
-    // nodes in the arena given, its replaced nodes retired into the list given; when the database opens.
-    // An index the layout refuses fails the open with the LatticeException of IndexLayout.Compile.
+    // The index of the declaration for the entity type whose roots have the layout given, empty and so
+    // without a node, its nodes in the arena given, its replaced nodes retired into the list given; when
+    // the database opens. An index the layout refuses fails the open with the LatticeException of
+    // IndexLayout.Compile.
     public static SecondaryIndex Open(LatticeIndex definition, RootLayout roots, Arena arena, RetiredMemory retired) =>
         throw new NotSupportedException("Secondary indexes are not implemented yet.");
 

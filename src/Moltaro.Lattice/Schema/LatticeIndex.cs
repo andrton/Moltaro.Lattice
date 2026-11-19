@@ -20,11 +20,26 @@ namespace Moltaro.Lattice.Schema;
 /// compared: any number of entities may have it.
 /// </para>
 /// <para>
+/// How wide an index may be is a rule of the schema language, the same on every node. A node
+/// of an index, at most 64 KiB, holds at least four of its widest entries. An entry takes 8
+/// bytes, one byte for every eight parts that can be null, each part of a fixed-width type at
+/// its width (a Boolean 1 byte; an integer, and an Enum by its underlying type, its width; a
+/// Float32 and a DateOnly 4; a Float64, a DateTimeOffset, a TimeOnly and a TimeSpan 8; a
+/// Decimal and a Guid 16; a Reference as the key of its target), and each String part 65 bytes
+/// at the most. The widest entry of an index that has a String part may take 16,362 bytes, of
+/// one that has none 16,364: a database whose schema declares a wider index does not open, and
+/// the open fails with <see cref="LatticeErrorEnum.InvalidSchema"/>, with the index named, as
+/// it does for an entity type whose fixed part does not fit one block. 251 String parts that
+/// are never null fit; 252 do not.
+/// </para>
+/// <para>
 /// <b>Not implemented yet.</b> An index is declared, compiled, saved and loaded, but finding
 /// entities through it is not implemented, as <c>ILatticeIndex&lt;TEntity&gt;</c> states, and
 /// neither is keeping a unique index, as <see cref="IsUnique"/> states. What this
 /// documentation and that of <see cref="LatticeIndexPart"/> say of a search and of the
-/// comparison of a unique index describes how they will work.
+/// comparison of a unique index describes how they will work. The indexes of an entity type
+/// whose writes are refused until a feature of its schema is implemented are not checked for
+/// their width, as its fixed part is not, until it can be written.
 /// </para>
 /// </remarks>
 public sealed class LatticeIndex
