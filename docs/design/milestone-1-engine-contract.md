@@ -132,8 +132,12 @@ when a field's search policy ignores case. No automatic Plain/Dictionary switchi
 An index entry holds a copy of a text key of 64 bytes or less, whatever the storage
 mode of the field; a longer key is shared, the index entry referencing the text entry
 the root already references, and an indexed value is never moved out of the root
-because it is indexed ([index structures](../decisions/index-structures.md), the note of
-19 November 2026). A text entry has one
+because it is indexed. A field that is part of an index therefore stores a value longer
+than 64 bytes as a text entry, whatever its storage mode — for a Plain field a rule of
+the layout compiled from the schema — and such an entry is found by its bytes, so equal
+long values of an indexed Plain field are stored once
+([index structures](../decisions/index-structures.md), the note of 19 November 2026). A
+text entry has one
 count: a block holds one reference for each Text descriptor it contains, from the moment
 it is written until it is freed, and the count changes only under the lock of the writes. An entry is freed only when the last block that refers
 to it is freed, which is after the last protected reader that could reach it has left;

@@ -5457,6 +5457,15 @@ is settled in this sprint by a measurement in the engine on keys with random and
 common heads. For the plan: long keys need "one more reference at this address", a
 release by address and the retired item of a leaf, so T1 with B3 of the
 [refactoring backlog](refactoring.md) comes before the implementation of this sprint.
+A field that is part of an index stores a value longer than 64 bytes as a text entry,
+whatever its storage mode; it goes through the text table, the mechanism that exists —
+a counted entry outside the table would be a second lifetime to prove. Its known cost,
+about 330 ns for a new value and about 50 bytes of table for each distinct value, is
+reported with the figure of this sprint for a load of long distinct indexed values and
+is not solved in advance. Adding or dropping an index therefore changes the layout of
+the fields it names: nothing stored outlives a process yet, so there is no migration
+now, and the sprint that persists roots takes the note. The trap of `LiesInChunks` for
+S18 is unaffected.
 
 **The timing of the prototype, 19 November 2026.** Every figure is ONE run of 5 s for a
 case, without repeats, on 20 processors not pinned, with 7 to 20 % of the machine busy

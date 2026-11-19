@@ -290,7 +290,12 @@ pause bound. The original package comparison above remains historical evidence.
 **Changed on 19 November 2026 (owner) for text of 64 bytes or less.** An index entry
 holds a copy of a text key of 64 bytes or less, whatever the storage mode of the field.
 A longer key is shared: the index entry references the text entry the root already
-references. An indexed value is never moved out of the root because it is indexed.
+references. For that, a field that is part of an index stores a value longer than 64
+bytes as a text entry, whatever its storage mode: for a Plain field this is a rule of
+the layout compiled from the schema, the same on every node. Such an entry is found by
+its bytes like any other, so equal long values of an indexed Plain field are stored
+once; Plain promises no sharing and forbids none. A Plain field that is in no index is
+stored as before. An indexed value is never moved out of the root because it is indexed.
 Measured on the prototype, one run of five seconds a case: a search by a copied key is
 three to five times faster than through a shared entry at 8 and 32 bytes; sharing short
 values costs a read by the primary key 14 to 25% at 8 bytes; a copy takes 92 bytes per
