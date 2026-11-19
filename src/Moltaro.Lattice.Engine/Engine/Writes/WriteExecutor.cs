@@ -213,12 +213,15 @@ internal sealed class WriteExecutor
     private LatticeRevision RevisionOf(RootHandle handle) =>
         new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
+    // The change of each preparation is written into the record of the write where it lies (WriteChange),
+    // reserved from there, and is the write's once reserved (Set).
+    //
     // False, with the refusal, when the arena cannot hold the nodes the indexes need for the delete.
     private bool TryPrepareDelete(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
-        var change = new PreparedChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default);
+        var record = write.Record;
 
-        if (!_changes.TryReserve(change))
+        if (!_changes.TryReserve(record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default)))
         {
             prepared = null;
             refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
@@ -226,7 +229,7 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        prepared = write.Prepare(change, 0);
+        prepared = record.Set(0);
         refusal = null;
 
         return true;
@@ -259,12 +262,13 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        var change = new PreparedChange(ChangeKindEnum.Replace, table, write.Key, handle, root);
+        PreparedWrite record;
         bool reserved;
 
         try
         {
-            reserved = _changes.TryReserve(change);
+            record = write.Record;
+            reserved = _changes.TryReserve(record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
         }
         catch
         {
@@ -281,7 +285,7 @@ internal sealed class WriteExecutor
             return false;
         }
 
-        prepared = write.Prepare(change, size);
+        prepared = record.Set(size);
 
         return true;
     }
@@ -311,16 +315,16 @@ internal sealed class WriteExecutor
                 return false;
             }
 
-            var change = new PreparedChange(ChangeKindEnum.Insert, table, write.Key, handle, root);
+            var record = write.Record;
 
-            if (!_changes.TryReserve(change))
+            if (!_changes.TryReserve(record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root)))
             {
                 refusal = RootWriter.RefusalForMemory(layout);
 
                 return false;
             }
 
-            prepared = write.Prepare(change, size);
+            prepared = record.Set(size);
 
             return true;
         }
