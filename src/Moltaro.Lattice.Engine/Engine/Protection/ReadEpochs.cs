@@ -88,6 +88,12 @@ internal sealed class ReadEpochs
     // the engine (EngineDatabase.HoldNextRead); null when no test armed it, which is all a read pays.
     private Action<RootHandle>? _hold;
 
+    // What the next write the arena refused runs at the first wait of its resolution, and on a child what
+    // the next transaction its arena refused twice runs before its applier waits for the reads, for the
+    // tests of the engine (EngineDatabase.HoldNextRefusedWriteWait). Null when no test armed it; only a
+    // refused write or transaction loads it.
+    private Action? _waitHold;
+
     public ReadEpochs(object owner)
     {
         _owner = owner;
@@ -245,6 +251,23 @@ internal sealed class ReadEpochs
     }
 
     private void RunHold(RootHandle handle) => Interlocked.Exchange(ref _hold, null)?.Invoke(handle);
+
+    // Arms the switch of the tests for a refused write: the next one runs hold once, at the first wait of
+    // its resolution; null disarms it, as the close does, so that a closed instance keeps no delegate a
+    // test gave it.
+    public void HoldNextWait(Action? hold) => Volatile.Write(ref _waitHold, hold);
+
+    // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
+    // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
+    // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
+    // before it waits (Loading.ReceivedChanges.Apply).
+    public void RunWaitHold()
+    {
+        if (_waitHold is not null)
+        {
+            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+        }
+    }
 
     // The oldest epoch a slot holds, or the given one when no slot holds an older one.
     private long OldestHeld(long epoch)

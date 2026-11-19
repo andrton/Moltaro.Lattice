@@ -248,12 +248,6 @@ internal sealed class WriteCoordinator
     // The record for the next write (see the class, "What a write allocates"); null when none is kept.
     private PendingWrite? _spare;
 
-    // What the next write the arena refused runs at the first wait of its resolution, for the tests of
-    // the engine (EngineDatabase.HoldNextRefusedWriteWait); on a child, what the next transaction its arena
-    // refused twice runs before its applier waits for the reads (RunWaitHold). Null when no test armed it.
-    // Only a refused write or transaction loads it.
-    private Action? _waitHold;
-
     // The coordinator of a master. A child has one as well, which admits no write: its writes are
     // forwarded to its master (Forwarding.Forwarder).
     public WriteCoordinator(
@@ -354,22 +348,6 @@ internal sealed class WriteCoordinator
         }
 
         _ = Admit(table, kind, key, values: null, forwarded, expectedRevision, session, CancellationToken.None);
-    }
-
-    // Arms the switch of the tests: the next write the arena refused runs hold once, at the first wait of
-    // its resolution (EngineDatabase.HoldNextRefusedWriteWait).
-    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
-
-    // Runs the switch of the tests once, when one is armed, outside every lock: for a write at the first
-    // wait of its resolution (OfferWaitHold), and on a child, whose coordinator admits no write, for a
-    // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Following.Follower).
-    public void RunWaitHold()
-    {
-        if (_waitHold is not null)
-        {
-            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
-        }
     }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
@@ -1033,15 +1011,14 @@ internal sealed class WriteCoordinator
     {
         var pass = default(Pass);
         long epoch;
-        bool retired;
         Exception? cancelled = null;
 
         lock (_writes)
         {
-            epoch = _executor.ReadsToWaitFor(out retired);
+            epoch = _retired.ReadsToWaitFor();
         }
 
-        if (retired && epoch != 0)
+        if (epoch != 0)
         {
             OfferWaitHold(write);
 
@@ -1521,7 +1498,8 @@ internal sealed class WriteCoordinator
         _barrier.Exit();
     }
 
-    // The switch of the tests, at the first wait of the resolution of a write, outside every lock.
+    // The switch of the tests, at the first wait of the resolution of a write, outside every lock
+    // (ReadEpochs.RunWaitHold).
     private void OfferWaitHold(PendingWrite write)
     {
         if (write.Waited)
@@ -1530,7 +1508,7 @@ internal sealed class WriteCoordinator
         }
 
         write.Waited = true;
-        RunWaitHold();
+        _epochs.RunWaitHold();
     }
 
     // What one hold of the lock of the writes decided, to be carried out after it (Finish), and the

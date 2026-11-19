@@ -200,15 +200,6 @@ internal sealed class WriteExecutor
         return delivered;
     }
 
-    // For a write the arena refused: whether anything of the arena is retired, and the epoch below
-    // which the reads still inside could reach it, or 0 when none can (RetiredMemory.ReadsToWaitFor).
-    public long ReadsToWaitFor(out bool retired)
-    {
-        retired = _arena.Counters.RetiredBytes > 0;
-
-        return _retired.ReadsToWaitFor();
-    }
-
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): the given number of
     // passes go through it, and the next one throws.
     public void Arm(EngineFaultPointEnum point, int skippedPasses)

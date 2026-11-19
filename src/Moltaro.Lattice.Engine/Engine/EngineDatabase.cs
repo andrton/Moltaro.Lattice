@@ -406,16 +406,26 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
     // that the write has to make. On a child, which admits no write, the switch runs for the next
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Following.Follower). When hold returns the write or the
-    // transaction waits as it would have. Only a write or a transaction the arena refused loads the
-    // switch: no other write and no read pays anything for it. Unavailable before the open,
-    // ObjectDisposedException after the close.
+    // retired memory and before it waits (Loading.ReceivedChanges.Apply). When hold returns the write or
+    // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
+    // switch: no other write and no read pays anything for it (ReadEpochs.RunWaitHold). Unavailable
+    // before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        Part(_coordinator).HoldNextWait(hold);
+        // Through the barrier, so that the switch is armed before the close lets go of it, or not at all.
+        _barrier.Enter();
+
+        try
+        {
+            _epochs.HoldNextWait(hold);
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
@@ -624,7 +634,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
     //    inside the protection and leave it once their connections end.
     // 9. Under the lock of the writes the last drain frees what is retired, and the arena is freed: no
     //    read and no write can reach it any more.
-    // 10. The parts of the database are let go of, so that an instance kept alive holds none of them.
+    // 10. The parts of the database are let go of, and the switch of the tests for a refused write with
+    //     them, so that an instance kept alive holds none of them.
     // 11. The close completes, with the first failure of a step when one failed: every step runs
     //     whatever became of the one before.
     public ValueTask CloseAsync(CancellationToken cancellationToken = default)
@@ -783,6 +794,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
             _following = null;
         }
 
+        // The switch of the tests for a refused write is kept beside the reads, which outlive the close;
+        // no write and no transaction runs any more, so it is let go of with the parts.
+        _epochs.HoldNextWait(null);
+
         if (failure is null)
         {
             closed.SetResult();
@@ -929,7 +944,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             Build(schema, master.Master.History, child: true);
 
             var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, schema, tables, _writes!, _barrier, _coordinator!, Fault);
+            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, schema, tables, _writes!, _barrier, Fault);
 
             PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
 

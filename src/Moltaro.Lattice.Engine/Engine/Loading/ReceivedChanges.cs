@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
@@ -66,7 +65,11 @@ namespace Moltaro.Lattice.Engine.Loading;
 // of the locks).
 //
 // Memory. A root or a transaction the arena refuses follows the rule of a write refused for memory: what
-// is retired is freed and it is tried once more. For a root of the load that is all: before the
+// is retired is freed and it is tried once more, each try and each drain in a hold of the lock of its own
+// (TryPlace, TryApply), and the wait for the reads outside it. Between those holds nothing takes memory of
+// the arena: during the load no other thread takes the lock, since the members that take it refuse a
+// child that is not Ready and the close takes it only after the barrier, and later only a drain or a count
+// of the counters can. For a root of the load that is all: before the
 // child is Ready no read can hold retired memory, so there is nothing else to wait for, and a root refused
 // again cannot be held: the open of the child ends with Unavailable and the reason. A transaction refused
 // again waits for the reads that hold retired memory, what they held is freed, and it is tried once more;
@@ -92,10 +95,6 @@ internal sealed class ReceivedChanges
     private readonly Lock _writes;
 
     private readonly CloseBarrier _barrier;
-
-    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
-    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
-    private readonly WriteCoordinator _coordinator;
 
     private readonly BlockImport _import;
 
@@ -131,7 +130,6 @@ internal sealed class ReceivedChanges
         EntityTables tables,
         Lock writes,
         CloseBarrier barrier,
-        WriteCoordinator coordinator,
         Action fault)
     {
         _arena = arena;
@@ -143,29 +141,42 @@ internal sealed class ReceivedChanges
         _tables = tables;
         _writes = writes;
         _barrier = barrier;
-        _coordinator = coordinator;
         _fault = fault;
         _import = new BlockImport(arena, schema);
     }
 
     // Places and publishes a root of the load of the entity type of the table, whose last mutation is given
-    // and whose rest the input holds, from its layout version on (RootPlacement), under the lock of the
-    // writes and by the rule of a write refused for memory (see the class). The roots received before it
-    // are counted for the reason of a root that cannot be held.
+    // and whose rest the input holds, from its layout version on (RootPlacement), by the rule of a write
+    // refused for memory (see the class). The roots received before it are counted for the reason of a root
+    // that cannot be held.
     public void Place(EntityTable table, ulong lastMutation, SequenceReader<byte> rest, ulong received)
     {
         _barrier.Enter();
 
         try
         {
+            if (TryPlace(table, lastMutation, rest))
+            {
+                return;
+            }
+
             lock (_writes)
             {
-                PlaceUnderTheLock(rest, table, lastMutation, received);
+                _retired.Drain();
             }
+
+            if (TryPlace(table, lastMutation, rest))
+            {
+                return;
+            }
+
+            throw new LatticeException(
+                LatticeErrorEnum.Unavailable,
+                $"The memory limit of this child cannot hold the database of its master: a root of {table.EntityType.Name} of {rest.Remaining} bytes does not fit beside the {received} roots received before it.");
         }
         catch
         {
-            // After the lock: the reads were marked faulted under it.
+            // After the lock, which TryPlace takes and leaves: the reads were marked faulted under it.
             if (_publicationFailed)
             {
                 _fault();
@@ -210,7 +221,6 @@ internal sealed class ReceivedChanges
             }
 
             long epoch;
-            bool retired;
 
             lock (_writes)
             {
@@ -224,13 +234,12 @@ internal sealed class ReceivedChanges
 
             lock (_writes)
             {
-                retired = _arena.Counters.RetiredBytes > 0;
                 epoch = _retired.ReadsToWaitFor();
             }
 
-            if (retired && epoch != 0)
+            if (epoch != 0)
             {
-                _coordinator.RunWaitHold();
+                _epochs.RunWaitHold();
                 _epochs.WaitForReadsBefore(epoch, cancellationToken);
 
                 lock (_writes)
@@ -262,31 +271,22 @@ internal sealed class ReceivedChanges
         }
     }
 
-    // The root placed by the rule of a write refused for memory (see the class).
-    private void PlaceUnderTheLock(SequenceReader<byte> start, EntityTable table, ulong lastMutation, ulong received)
+    // Under the lock of the writes, which it takes: places the root and publishes it, or skips it by the
+    // rule. False when the arena refused it, with nothing of it left. The reader is a copy, so that every
+    // try reads the root from its start.
+    private bool TryPlace(EntityTable table, ulong lastMutation, SequenceReader<byte> rest)
     {
-        var reader = start;
-
-        if (TryPrepareWrite(table, lastMutation, ref reader))
+        lock (_writes)
         {
+            if (!TryPrepareWrite(table, lastMutation, ref rest))
+            {
+                return false;
+            }
+
             Publish(lastMutation, publishesPosition: false);
 
-            return;
+            return true;
         }
-
-        _retired.Drain();
-        reader = start;
-
-        if (TryPrepareWrite(table, lastMutation, ref reader))
-        {
-            Publish(lastMutation, publishesPosition: false);
-
-            return;
-        }
-
-        throw new LatticeException(
-            LatticeErrorEnum.Unavailable,
-            $"The memory limit of this child cannot hold the database of its master: a root of {table.EntityType.Name} of {start.Remaining} bytes does not fit beside the {received} roots received before it.");
     }
 
     // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
