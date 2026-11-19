@@ -36,7 +36,7 @@ public sealed class SearchAllocationTests
         from bytes in new[] { 8, 64, 100 }
         select new TheoryDataRow<string, string, int>(encoding, comparison, bytes);
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_by_an_Int64_key_that_returns_one_entity_allocates_as_much_in_a_deep_index_as_in_an_index_of_that_entity_alone()
     {
         await using var alone = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -56,7 +56,7 @@ public sealed class SearchAllocationTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(TextCases))]
     public async Task Search_by_a_String_key_that_returns_one_entity_allocates_as_much_in_a_deep_index_as_in_an_index_of_that_entity_alone(string encoding, string comparison, int bytes)
     {
@@ -84,7 +84,7 @@ public sealed class SearchAllocationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public void Making_a_key_or_a_bound_of_any_scalar_value_allocates_nothing()
     {
         var text = "ada@example.org";

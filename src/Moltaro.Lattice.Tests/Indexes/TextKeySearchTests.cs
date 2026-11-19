@@ -35,7 +35,7 @@ public sealed class TextKeySearchTests
         from storage in new[] { "Plain", "Dictionary" }
         select new TheoryDataRow<string, string>(encoding, storage);
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public async Task Text_key_of_every_length_is_found_by_its_full_key_through_a_class_and_by_name(string encoding, string comparison, string storage)
     {
@@ -74,7 +74,7 @@ public sealed class TextKeySearchTests
         Assert.Empty(records.Index("ByTitle").Find(IndexKey.Equal(titles[^1] + "x")));
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(FormsWithoutCase))]
     public async Task Replace_that_keeps_an_equal_key_under_another_spelling_is_found_and_returns_the_new_spelling(string encoding, string storage)
     {
@@ -103,7 +103,7 @@ public sealed class TextKeySearchTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Forms))]
     public async Task Replace_that_changes_a_text_key_is_found_under_the_new_key_and_a_delete_takes_it_away(string encoding, string comparison, string storage)
     {

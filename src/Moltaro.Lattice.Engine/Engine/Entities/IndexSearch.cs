@@ -32,19 +32,34 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // A step allocates nothing but what the copy makes; the search, made once, is part of its result. A
 // search by the leading fields of an index, with a range, in reverse, or with Offset or Limit is the walk
-// of ranges, which is not built.
+// of ranges, which is not built. The step runs in the table, where the read protocol of its entities is
+// (EntityTable.TrySearch); the search holds what lies between two steps, as the pass of an enumeration
+// does (EntityPass).
+//
+// An entity that is deleted and created again during a search has a new root entry, and so a new
+// identity, which the search can meet after the identity it returned before: such an entity can be
+// returned twice. That every identity is returned once, also then, is a rule of the walk of ranges, which
+// chooses how (docs/design/ordered-index.md, "How a range will be walked").
 internal sealed class IndexSearch
 {
     private readonly EntityTable _table;
 
-    private readonly SecondaryIndex _index;
+    // Null for an entity type the engine does not store, which holds no entity.
+    private readonly SecondaryIndex? _index;
 
     // The key, bound to the fields of the index.
     private readonly IndexKey _key;
 
+    // The identity the next step starts from: after the last entity returned, default before the first.
+    private RootHandle _from;
+
+    // The identity after the entity of the last step, which the caller commits once it has built it.
+    private RootHandle _staged;
+
     // A search of the table through the index, for the key given, which IndexCriteria bound to the index
-    // and which gives a value to every field of it; standing before its first step.
-    public IndexSearch(EntityTable table, SecondaryIndex index, in IndexKey bound)
+    // and which gives a value to every field of it; standing before its first step. The index is null for
+    // an entity type the engine does not store: such a search finds nothing, as a read by key does.
+    public IndexSearch(EntityTable table, SecondaryIndex? index, in IndexKey bound)
     {
         _table = table;
         _index = index;
@@ -52,12 +67,20 @@ internal sealed class IndexSearch
     }
 
     // Reads the next entity of the search into the copy (see the class): true when there is one, which the
-    // caller builds; false at the end, with the sequence under which the index showed no more entity of
-    // the key, taken as an enumeration takes the sequence of its end. ObjectDisposedException after the
+    // caller builds and then commits (Commit), so that an entity whose build fails is read again by the
+    // next step; false at the end, with the sequence under which the index showed no more entity of the
+    // key, taken as an enumeration takes the sequence of its end. ObjectDisposedException after the
     // close. The token of an asynchronous search ends the wait for a slot of the protection, with
     // OperationCanceledException (Protection.ReadEpochs.Enter).
     public bool TryReadNext<TCopy, TResult>(ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
-        where TResult : class =>
-        throw new NotSupportedException("Searching an index is not implemented yet.");
+        where TResult : class
+    {
+        _staged = _from;
+
+        return _table.TrySearch<TCopy, TResult>(_index, _key, ref _staged, ref copy, out sequence, cancellationToken);
+    }
+
+    // The entity of the last step was built: the next step starts after it.
+    public void Commit() => _from = _staged;
 }

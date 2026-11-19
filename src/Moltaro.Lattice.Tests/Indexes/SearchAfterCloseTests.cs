@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // everything. What it returned before stays as it was.
 public sealed class SearchAfterCloseTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_through_an_index_kept_from_before_the_close_is_ObjectDisposedException_in_both_forms()
     {
         var database = await OpenWithMembersAsync();
@@ -23,7 +23,7 @@ public sealed class SearchAfterCloseTests
         await Assert.ThrowsAsync<ObjectDisposedException>(async () => await byName.FindAsync(IndexKey.Equal(1), new LatticeFindOptions()));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Every_step_of_a_search_after_the_close_is_ObjectDisposedException_and_never_its_end()
     {
         var database = await OpenWithMembersAsync();

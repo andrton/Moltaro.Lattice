@@ -107,7 +107,7 @@ public sealed class IndexPathTests
         Descriptor.ExpectRefused(ValueSchema.Json, "'Fields': [ [2, 1] ] }", $"'Fields': {fields} }}");
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_key_may_give_null_for_a_part_that_can_be_null()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());
@@ -144,7 +144,7 @@ public sealed class IndexPathTests
         Assert.Throws<ArgumentException>(() => byRecord.Find(IndexKey.Equal(42)).ToList());
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_key_gives_a_value_of_the_field_at_the_end_of_the_path()
     {
         await using var database = await TestData.OpenMasterAsync(schema: SearchSchema());

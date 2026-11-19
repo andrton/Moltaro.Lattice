@@ -80,7 +80,7 @@ public sealed class IndexKeyArgumentTests
         await ExpectRefusedAsync(database, "ByAgeAndName", IndexKey.All.Range(none, IndexBound.Exclusive(40)));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public void Default_bound_does_not_tell_whether_it_is_inclusive()
     {
         Assert.Throws<InvalidOperationException>(() => default(IndexBound).IsInclusive);

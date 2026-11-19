@@ -132,7 +132,7 @@ public sealed class IndexCloseTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Closed_instance_that_is_kept_alive_holds_neither_the_index_objects_it_gave_out_nor_a_search_through_them()
     {
         var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);

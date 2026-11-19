@@ -16,7 +16,7 @@ public sealed class PausedSearchTests
 {
     private const int Entities = 50;
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_paused_between_two_steps_holds_back_nothing_that_writes_retire_and_resumes_with_the_entities_that_kept_the_key()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -63,7 +63,7 @@ public sealed class PausedSearchTests
         Assert.All(Enumerable.Range((2 * Entities) + 1, 10).Select(id => (long)id).Where(id => id != first), id => Assert.Contains(id, rest));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_abandoned_between_two_steps_is_held_by_nothing_of_the_database()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);

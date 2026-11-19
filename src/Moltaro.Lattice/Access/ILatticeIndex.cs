@@ -29,8 +29,11 @@ namespace Moltaro.Lattice.Access;
 /// The object is safe to keep and to share between threads.
 /// </para>
 /// <para>
-/// <b>Not implemented yet.</b> An index is resolved and a key is checked against it, but
-/// <see cref="Find"/> and <see cref="FindAsync"/> then throw <see cref="NotSupportedException"/>.
+/// <b>Not implemented yet:</b> a search by the leading fields of an index, with a range, in
+/// reverse, or with <see cref="LatticeFindOptions.Offset"/> or <see cref="LatticeFindOptions.Limit"/>.
+/// Such a key or such options are checked against the index as any are, and then refused with
+/// <see cref="NotSupportedException"/>. A search gives a value to every field of its index and
+/// returns every entity with that key.
 /// </para>
 /// </remarks>
 /// <typeparam name="TEntity">The entity class, or <see cref="LatticeRecord"/>.</typeparam>
@@ -54,6 +57,14 @@ public interface ILatticeIndex<TEntity>
     /// <exception cref="ArgumentException">
     /// The index cannot serve the key, or the key is the default of <see cref="IndexKey"/>, which
     /// is no key.
+    /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// The key gives values to the leading fields only, or has a range, which is not implemented
+    /// yet.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database was closed: thrown by the step of the enumeration that meets the close, and by
+    /// every step after it.
     /// </exception>
     IEnumerable<TEntity> Find(IndexKey key);
 
@@ -79,5 +90,10 @@ public interface ILatticeIndex<TEntity>
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/>: the session belongs to another
     /// database history.
     /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// The key gives values to the leading fields only or has a range, or the options ask for the
+    /// reverse order, an offset or a limit, which are not implemented yet.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The database was closed.</exception>
     ValueTask<LatticeFindResult<TEntity>> FindAsync(IndexKey key, LatticeFindOptions options, CancellationToken cancellationToken = default);
 }

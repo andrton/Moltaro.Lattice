@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // The members are written by name and by class; MemberSchema says what is indexed.
 public sealed class ExactSearchTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Index_on_one_field_returns_exactly_the_entities_with_the_value_through_a_class_and_by_name()
     {
         await using var database = await OpenWithMembersAsync(30);
@@ -38,7 +38,7 @@ public sealed class ExactSearchTests
         Assert.Empty((await byClass.FindAsync(IndexKey.Equal(int.MaxValue), new LatticeFindOptions())).Items);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Composite_index_returns_the_entities_whose_every_field_has_its_value_of_the_key()
     {
         await using var database = await OpenWithMembersAsync(30);
@@ -59,7 +59,7 @@ public sealed class ExactSearchTests
         Assert.Empty(byAllFour.Find(IndexKey.Equal<int, string, Guid?, DateOnly?>(3, "login 8", null, JoinedOf(8))));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Every_entity_with_the_searched_key_is_returned_once_also_three_thousand_of_them()
     {
         await using var database = await MemberSchema.OpenAsync();
@@ -83,7 +83,7 @@ public sealed class ExactSearchTests
         Assert.Equal(100, members.Index("ByGroup").Find(IndexKey.Equal(8)).Count());
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Null_part_finds_the_entities_without_a_value_there_in_a_field_of_its_own_and_in_a_composite_key()
     {
         await using var database = await OpenWithMembersAsync(30);
@@ -103,7 +103,7 @@ public sealed class ExactSearchTests
         Assert.Equal(6L, Assert.Single(users.Set("User").Index("ByAgeAndName").Find(IndexKey.Equal(41, "Edsger")))["Id"]);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task One_key_serves_any_number_of_searches_from_any_thread_and_a_copy_of_it_is_the_same_key()
     {
         await using var database = await OpenWithMembersAsync(30);
@@ -128,7 +128,7 @@ public sealed class ExactSearchTests
         Assert.Equal(7, Assert.Single(byGroupAndLogin.Find(copy)).Id);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Items_of_a_result_are_the_callers_own_and_changing_them_changes_no_other_result_and_nothing_stored()
     {
         await using var database = await OpenWithMembersAsync(30);

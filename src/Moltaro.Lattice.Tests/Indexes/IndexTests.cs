@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // then such a search is refused with NotSupportedException, as RefusedSearchTests states.
 public sealed class IndexTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Index_on_one_field_finds_by_its_value()
     {
         await using var database = await OpenWithUsersAsync();
@@ -112,7 +112,7 @@ public sealed class IndexTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new LatticeFindOptions { Offset = -1 });
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Index_follows_every_write()
     {
         await using var database = await OpenWithUsersAsync();
@@ -133,7 +133,7 @@ public sealed class IndexTests
         Assert.Empty(byEmail.Find(IndexKey.Equal("tim@example.org")));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Found_entities_are_owned_copies()
     {
         await using var database = await OpenWithUsersAsync();
@@ -196,7 +196,7 @@ public sealed class IndexTests
         Assert.Equal("Ada", Assert.Single(database.Set("User").Index("ByEmail").Find(IndexKey.Equal("ada@example.org")))["Name"]);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_with_a_session_waits_until_the_child_has_caught_up()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -224,7 +224,7 @@ public sealed class IndexTests
         Assert.Equal(result.Position, session.MinPosition);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_result_has_a_position_even_when_nothing_is_found()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -238,7 +238,7 @@ public sealed class IndexTests
         Assert.Equal(database.Position, session.MinPosition);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_that_cannot_catch_up_in_time_fails_instead_of_using_an_old_index()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -279,7 +279,7 @@ public sealed class IndexTests
         Assert.True(child.WaitForPositionAsync(child.Position).IsCompletedSuccessfully);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Waiting_for_a_position_once_makes_the_following_index_searches_current()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);

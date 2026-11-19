@@ -35,7 +35,7 @@ public sealed class IndexPreparationTests
         new(5, 3),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Waiting))]
     public async Task Prepared_unpublished_writes_hold_whole_nodes_within_the_bound_no_search_reaches_and_their_publication_obtains_nothing(int inserts, int deletes)
     {
@@ -103,7 +103,7 @@ public sealed class IndexPreparationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Write_withdrawn_while_it_waits_gives_back_every_node_it_reserved_and_leaves_nothing()
     {
         var storage = new HeldCommitStorage(holding: false);
@@ -155,7 +155,7 @@ public sealed class IndexPreparationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Write_cancelled_while_it_is_being_prepared_gives_back_every_node_and_text_it_took()
     {
         var allocator = new CountingNativeAllocator();

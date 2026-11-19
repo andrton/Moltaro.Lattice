@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // - a delete takes it away from every index, and an insert of the same key brings it back.
 public sealed class SearchAfterWritesTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Insert_is_found_under_its_key_in_every_index_of_its_entity_type()
     {
         await using var database = await MemberSchema.OpenAsync();
@@ -32,7 +32,7 @@ public sealed class SearchAfterWritesTests
         Assert.Equal([2L], MemberSchema.IdsOf(members.Index("ByCode").Find(IndexKey.Equal<Guid?>(null))));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Replace_that_changes_one_part_of_a_composite_key_moves_the_entity_to_the_new_key()
     {
         await using var database = await MemberSchema.OpenAsync();
@@ -67,7 +67,7 @@ public sealed class SearchAfterWritesTests
         Assert.Equal(1, Assert.Single(members.Index("ByCode").Find(IndexKey.Equal(code))).Id);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Replace_of_a_field_in_no_index_leaves_the_entity_under_its_key_and_the_search_returns_the_new_state()
     {
         await using var database = await MemberSchema.OpenAsync();
@@ -80,7 +80,7 @@ public sealed class SearchAfterWritesTests
         Assert.Equal("second", Assert.Single(database.Set("Member").Index("ByGroupAndLogin").Find(IndexKey.Equal(4, "ada")))["Note"]);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Upsert_is_found_as_an_insert_or_a_replace_is()
     {
         await using var database = await MemberSchema.OpenAsync();
@@ -95,7 +95,7 @@ public sealed class SearchAfterWritesTests
         Assert.Equal(1L, Assert.Single(records.Index("ByGroup").Find(IndexKey.Equal(7)))["Id"]);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Delete_takes_the_entity_away_from_every_index_and_an_insert_of_its_key_brings_it_back()
     {
         await using var database = await MemberSchema.OpenAsync();

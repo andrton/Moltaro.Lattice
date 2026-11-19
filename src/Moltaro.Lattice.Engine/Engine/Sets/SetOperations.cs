@@ -7,9 +7,9 @@ using Moltaro.Lattice.Engine.Writes;
 namespace Moltaro.Lattice.Engine.Sets;
 
 // What the set of a class and the set by name of one entity type do alike, for either copy: read
-// with a session, enumerate with and without one, and submit a write: on a master to its write
-// coordinator, on a child to its master (Forwarding.Forwarder). One of these for each entity type of
-// an open database, shared by its sets.
+// with a session, enumerate with and without one, take the steps of a search through an index, and
+// submit a write: on a master to its write coordinator, on a child to its master
+// (Forwarding.Forwarder). One of these for each entity type of an open database, shared by its sets.
 internal sealed class SetOperations
 {
     private readonly WriteCoordinator _writes;
@@ -114,6 +114,33 @@ internal sealed class SetOperations
             var result = copy.Build();
 
             pass.Commit();
+
+            return result;
+        }
+        finally
+        {
+            copy.Return();
+        }
+    }
+
+    // The next entity of a search through an index, as Next takes the next of an enumeration: built from
+    // its copy outside the protection of reads and only then committed to the search, so that an entity
+    // whose build throws is read again by the next step; null at the end, with the sequence of the end
+    // (Entities.IndexSearch).
+    public TResult? Next<TCopy, TResult>(IndexSearch search, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
+        where TCopy : struct, IRootCopy<TResult>
+        where TResult : class
+    {
+        try
+        {
+            if (!search.TryReadNext<TCopy, TResult>(ref copy, out sequence, cancellationToken))
+            {
+                return null;
+            }
+
+            var result = copy.Build();
+
+            search.Commit();
 
             return result;
         }

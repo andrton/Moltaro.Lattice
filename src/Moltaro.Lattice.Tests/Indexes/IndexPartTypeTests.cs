@@ -46,7 +46,7 @@ public sealed class IndexPartTypeTests
         Assert.Contains(field, exception.Message);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_key_gives_a_reference_as_the_key_of_its_target()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());
@@ -64,7 +64,7 @@ public sealed class IndexPartTypeTests
         ExpectAccepted(database.Set("Person").Index("ByWorkOwner"), IndexKey.Equal(7L));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_key_gives_an_Enum_part_as_its_underlying_integer()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());
@@ -73,7 +73,7 @@ public sealed class IndexPartTypeTests
         ExpectAccepted(database.Set("Person").Index("ByWorkRank"), IndexKey.Equal(1));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Part_of_a_search_key_accepts_an_integer_of_another_width_when_it_fits()
     {
         await using var database = await TestData.OpenMasterAsync(schema: PartSchema());

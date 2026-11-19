@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
@@ -100,6 +101,13 @@ namespace Moltaro.Lattice.Engine.Entities;
 //    round walked its words without finding an entity, the next round goes on from the position.
 // The pass counts the time of every step, its rounds and what lies between them included, and fails
 // the round that would exceed a limit.
+//
+// A search through a secondary index, a step at a time (TrySearch; IndexSearch says what a step does
+// and why it is right): it enters the protection of reads, descends the tree of the index to the first
+// entry of the key from an identity on, takes the root entry the entry names as a read by key takes it,
+// and copies the root only when it is live and has the key; otherwise it passes over the entry. At the
+// end of the run the sequence of the database read when the step began is the position of the end when
+// it is unchanged after the walk, as for an absent key; otherwise the step walks again.
 // Why every entity that nobody changes during the pass is returned once: its entry is in the index
 // throughout the pass, an entry does not move within a table, so a walk of a table meets it at its
 // word, and a walk of a grown table from its start meets it too; the key it stores is the same in
@@ -497,6 +505,65 @@ internal sealed class EntityTable
         }
     }
 
+    // One step of a search of the entities of the key through the index, from the identity given on
+    // (IndexSearch; see the class): true when there is an entity, copied into the copy, with the identity
+    // the next step starts from and the sequence of the answer, as a read by key gives it; false at the
+    // end, with the sequence under which the index showed no more entity of the key. The key is bound to
+    // the fields of the index and gives a value to each. A search of an entity type the engine does not
+    // store, which has no index, finds nothing, as a read by key does. ObjectDisposedException after the
+    // close; the token ends the wait for a slot of the protection, with OperationCanceledException.
+    // Allocates nothing but what the copy makes.
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref RootHandle from, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+        where TCopy : struct, IRootCopy<TResult>
+        where TResult : class
+    {
+        // The key is written on the stack outside the protection, once for the step.
+        Span<byte> scratch = stackalloc byte[SearchKey.ScratchBytes];
+        var start = index is null ? default : new SearchKey(index.Layout, key, from, scratch);
+        var protection = _epochs.Enter(cancellationToken);
+
+        try
+        {
+            if (index is null)
+            {
+                sequence = _clock.Sequence;
+
+                return false;
+            }
+
+            while (true)
+            {
+                var before = _clock.Sequence;
+                var probe = start;
+
+                while (index.Tree.TryFindFirst(probe, out var identity))
+                {
+                    // The entry is a hint: its root entry is not released while the step is inside,
+                    // since the entries of a delete leave the tree before the entry is retired.
+                    if (TryCopyFound<TCopy, TResult>(ref _roots.EntryOfSlot(identity.Slot), index, probe, ref copy, out sequence))
+                    {
+                        from = probe.After(identity).From;
+
+                        return true;
+                    }
+
+                    probe = probe.After(identity);
+                }
+
+                if (_clock.Sequence == before)
+                {
+                    sequence = before;
+
+                    return false;
+                }
+            }
+        }
+        finally
+        {
+            _epochs.Exit(protection);
+        }
+    }
+
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
     // itself; null when nothing of this list applies. The root layout refuses an owned value, a
     // collection and a reference.
@@ -580,6 +647,35 @@ internal sealed class EntityTable
 
         copy.Copy(new RootReader(_arena, Layout!, root));
         revision = new LatticeRevision(_clock.History, stamp);
+        sequence = Math.Max(at, stamp);
+
+        return true;
+    }
+
+    // Steps 2 to 4 of a step of a search (IndexSearch), inside the protection: an entry that is not live is
+    // passed over, since the entry of an insert is installed before its root is published and the
+    // entries of a delete leave after its position; a live one is taken by its stamp, as a read takes it,
+    // and its root is copied only when it has the key of the search. False when it is passed over.
+    private bool TryCopyFound<TCopy, TResult>(ref RootEntry entry, SecondaryIndex index, scoped in SearchKey key, ref TCopy copy, out ulong sequence)
+        where TCopy : struct, IRootCopy<TResult>
+        where TResult : class
+    {
+        sequence = 0;
+
+        if (entry.AcquireState() != RootStateEnum.Live)
+        {
+            return false;
+        }
+
+        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
+        var reader = new RootReader(_arena, Layout!, root);
+
+        if (state != RootStateEnum.Live || !index.HasKey(reader, key))
+        {
+            return false;
+        }
+
+        copy.Copy(reader);
         sequence = Math.Max(at, stamp);
 
         return true;

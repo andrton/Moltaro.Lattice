@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // (EngineDatabase.SuspendApplying), and wait through positions; nothing sleeps.
 public sealed class SearchThroughAChildTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_on_a_child_right_after_its_open_finds_what_the_master_finds()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, MemberSchema.Schema);
@@ -40,7 +40,7 @@ public sealed class SearchThroughAChildTests
         ExpectSame(master, child, "ByCode", IndexKey.Equal(members.Get(1L)!.Code));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_on_a_child_finds_what_the_master_finds_after_its_writes_and_an_old_key_nothing()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, MemberSchema.Schema);
@@ -82,7 +82,7 @@ public sealed class SearchThroughAChildTests
         Assert.Equal(40, child.Set("Member").Index("ByGroup").Find(IndexKey.Equal(8)).Count());
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_with_a_session_on_a_child_does_not_complete_before_the_child_has_applied_the_position_of_the_session()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, MemberSchema.Schema);
@@ -116,7 +116,7 @@ public sealed class SearchThroughAChildTests
         Assert.Equal(session.MinPosition, byClassResult.Position);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14)]
+    [Fact]
     public async Task Search_with_a_session_on_a_child_ends_its_wait_when_its_token_is_cancelled_and_refuses_a_session_of_another_history()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, MemberSchema.Schema);

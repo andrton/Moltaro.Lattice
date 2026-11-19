@@ -23,7 +23,7 @@ public sealed class IndexPartValueTests
         new("DateTimeOffset"), new("DateOnly"), new("TimeOnly"), new("TimeSpan"), new("Level"),
     ];
 
-    [Theory(Skip = SkipReason.BeforeSprint14)]
+    [Theory]
     [MemberData(nameof(Types))]
     public async Task Part_of_each_scalar_type_and_an_Enum_is_found_by_its_value_and_by_null_through_a_class_and_by_name(string type)
     {

@@ -10,15 +10,19 @@ namespace Moltaro.Lattice.Access;
 /// A bound is a small value, made by <see cref="Inclusive{T}"/> or <see cref="Exclusive{T}"/>.
 /// Making one allocates nothing and boxes nothing when its value has the .NET type of a scalar
 /// field type, or is a <see cref="string"/>, as a value of an <see cref="IndexKey"/> is kept. The
-/// default value of <see cref="IndexBound"/>, which neither makes, has no value: a range with it
-/// is an <see cref="ArgumentException"/> when the key is used.
+/// default value of <see cref="IndexBound"/>, which neither makes, has no value and tells
+/// nothing: a range with it is an <see cref="ArgumentException"/> when the key is used, and
+/// reading its <see cref="Value"/> or whether it <see cref="IsInclusive"/> is an
+/// <see cref="InvalidOperationException"/>.
 /// </remarks>
 public readonly struct IndexBound
 {
+    private readonly bool _isInclusive;
+
     internal IndexBound(IndexValue held, bool isInclusive)
     {
         Held = held;
-        IsInclusive = isInclusive;
+        _isInclusive = isInclusive;
     }
 
     /// <summary>The boundary value, as it was given.</summary>
@@ -33,7 +37,13 @@ public readonly struct IndexBound
         Held.ToObject() ?? throw new InvalidOperationException("The bound has no value: it is the default of IndexBound, which Inclusive and Exclusive never make.");
 
     /// <summary>Whether the boundary value itself belongs to the range.</summary>
-    public bool IsInclusive { get; }
+    /// <exception cref="InvalidOperationException">
+    /// The bound is the default of <see cref="IndexBound"/>, which tells nothing.
+    /// </exception>
+    public bool IsInclusive =>
+        Held.IsNull
+            ? throw new InvalidOperationException("The bound tells nothing: it is the default of IndexBound, which Inclusive and Exclusive never make.")
+            : _isInclusive;
 
     // The value the bound holds, without a box.
     internal IndexValue Held { get; }
