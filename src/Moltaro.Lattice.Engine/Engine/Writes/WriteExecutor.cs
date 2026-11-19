@@ -58,12 +58,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // installs what was prepared. The change of each write is published at the sequence of the write, with
 // the stores before the position, the position and the stores after it (Entities.ChangePublisher;
 // docs/design/write-path.md, "How a publication is made"); a delete of an absent key changes no entity and
-// publishes only its sequence. Then RetiredMemory frees what no read can reach any more, once enough was
-// retired since its last look, a write that retired nothing counting as one thing from a look that left
-// something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails only at a
-// fault point a test armed (Pass, FaultAt), for a defect, or when the managed heap cannot hold a block of
-// the tail of the children (below); the write that failed and those after it stay unpublished, and the
-// coordinator faults the database.
+// publishes only its sequence. After each write RetiredMemory frees what no read can reach any more, once
+// enough was retired since its last look, a write that retired nothing counting as one thing from a look
+// that left something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails
+// only at a fault point a test armed (Pass, FaultAt), for a defect, or when the managed heap cannot hold a
+// block of the tail of the children (below); the write that failed and those after it stay unpublished,
+// and the coordinator faults the database.
 //
 // The children. While a child or a capture is registered (Delivery.DeliveryTail.Retains), each write is
 // encoded for the children before its stores, from what it publishes — the root it prepared, the key it
@@ -168,28 +168,18 @@ internal sealed class WriteExecutor
         var writes = group.Writes;
         var published = 0;
 
-        // The writes whose publication retires nothing: an insert and a delete of an absent key. An
-        // insert that grew the index retired the old table when it was prepared and is counted here as
-        // well, which only brings a look earlier.
-        var retiredNothing = 0;
-
         failure = null;
 
         try
         {
-            for (; published < writes.Count; published++)
+            // Each write is the publication of one position, after which the retired memory looks when
+            // enough was retired (RetiredMemory.AfterWrite).
+            while (published < writes.Count)
             {
-                var prepared = writes[published];
-
-                PublishOne(prepared, firstSequence + (ulong)published);
-
-                if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Insert)
-                {
-                    retiredNothing++;
-                }
+                PublishOne(writes[published], firstSequence + (ulong)published);
+                published++;
+                _retired.AfterWrite();
             }
-
-            _retired.AfterWrite(retiredNothing);
         }
         catch (Exception exception)
         {

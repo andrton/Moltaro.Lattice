@@ -476,19 +476,9 @@ internal sealed class ReceivedChanges
     // (see the class). Then what is retired is freed as after a write, by this thread.
     private void Publish(ulong stamp, bool publishesPosition)
     {
-        var changes = CollectionsMarshal.AsSpan(_prepared);
-
-        // Whether a replace or a delete retires what it replaced or deleted.
-        var retires = false;
-
-        foreach (ref readonly var change in changes)
-        {
-            retires |= change.Kind != ChangeKindEnum.Insert;
-        }
-
         try
         {
-            _publisher.Publish(changes, stamp, publishesPosition, armedFault: null);
+            _publisher.Publish(CollectionsMarshal.AsSpan(_prepared), stamp, publishesPosition, armedFault: null);
         }
         catch
         {
@@ -501,7 +491,7 @@ internal sealed class ReceivedChanges
         SkippedStates += _skipped.Count;
         _skipped.Clear();
         _prepared.Clear();
-        _retired.AfterWrite(retiredNothing: retires ? 0 : 1);
+        _retired.AfterWrite();
     }
 
     // Under the lock of the writes: gives back everything the changes prepared since the last Publish
