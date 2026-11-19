@@ -5390,6 +5390,25 @@ index through the read-only view of the schema, two interface calls for a part; 
 search becomes a read path it takes a span over the private array, as the fields do, if
 its measurement asks for it.
 
+**After S14, on the light track: the samples as a learning path** (asked by the owner on
+19 November 2026, as the planner relays; the form decided by the planner). The samples
+project is a flat list of seventeen files today. It gets folders by topic, each a
+namespace and one responsibility, not numbered steps — a number in a folder is a number
+in a namespace, and inserting a sample would renumber folders: `Basics` (BasicCrud,
+KeyTypes, ClosedProperties, NestedValues), `Schema` (Schema, SchemaDeclarations,
+DictionaryStrings, DynamicAccess, with `directory.schema.json`), `Indexes` (Index,
+UniqueIndex), `Writes` (WriteBatch, MemoryLimit, ReadLimits), `Replication`
+(MasterAndChild), `Hosting` (DependencyInjection, Identity); `User.cs` and `Program.cs`
+stay in the root; the grouping follows the content of a sample where it says otherwise.
+The order lives in two places that cannot drift apart: `Program.cs` runs the samples in
+the learning order and prints "Sample 3 of 17: …" before each, and a `README.md` of the
+samples project lists the same order from simple to complex — for each sample one line
+on what it teaches, what to read before it, and whether it runs to the end today or
+reports where it stops. The README of the repository points to it in one sentence. No
+behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
+runs to the end. It starts right after S14 is merged, because S14 changes `IndexSample`
+and two agents must not edit the project at once.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -6396,6 +6415,12 @@ within the timeout.
   GUI: all excluded by decision.
 
 ### Stage 9. Release gates
+
+**Carried from the planning of observability (Epic 3, R4), 19 November 2026.** A
+measurement must not put a shared write on the read path: what a read contributes is
+either read from state the engine keeps anyway when a collector asks, or kept per thread
+and summed on request. An instrument that needs a counter incremented by every read on
+one cache line is not built.
 
 #### S40 · Ordinary-load gates
 
