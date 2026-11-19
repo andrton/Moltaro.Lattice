@@ -96,5 +96,5 @@ internal sealed class LoadedPeer : IDisposable
         NothingRegistered.ExpectAsync(master, async () => await master.Set("Marked").UpsertAsync(MarkedRoot.RecordOf(master.Set("Marked").EntityType, "filler")));
 
     private static bool IsLastOfReply(WireFrame frame, ulong correlationId) =>
-        frame.Kind == ForwardPayload.WriteReply && frame.CorrelationId == correlationId && frame.EndsARoot;
+        frame.Kind == ForwardPayload.WriteReply && frame.CorrelationId == correlationId && frame.EndsABody;
 }

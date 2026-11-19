@@ -10,10 +10,9 @@ namespace Moltaro.Lattice.Storage.Hashing;
 //
 // The overflow buckets of one table of a primary index (IndexTable), apart from its main table, so that
 // they grow by themselves: the main table grows by the number of entries it holds, and the entries
-// of one hash that do not fit their bucket lengthen its chain of overflow buckets and nothing else
-// (review round 1 of S08, part 1). Keys of one hash cannot be told apart by a larger main table, so a
-// main table that doubled until its overflow held every chain took 139 bytes an entry for composite
-// keys whose hashes collided.
+// of one hash that do not fit their bucket lengthen its chain of overflow buckets and nothing else.
+// Keys of one hash cannot be told apart by a larger main table, so a main table that doubled until its
+// overflow held every chain took 139 bytes an entry for composite keys whose hashes collided.
 //
 // What is taken from MallocFixedPageSize: buckets in pages of a fixed number, a page being a pinned
 // array whose first record starts on a line; an address of a bucket that is its page and its place in
@@ -61,7 +60,8 @@ internal sealed class OverflowBuckets
     private long _taken;
 
     // Overflow buckets of pages of 2^pageBits buckets, with the first page allocated, so that a table
-    // has as much overflow when it is made as before review round 1.
+    // has one page of overflow buckets, a sixteenth of its main buckets and at least one, from the
+    // moment it is made.
     public OverflowBuckets(int pageBits)
     {
         _pageBits = pageBits;

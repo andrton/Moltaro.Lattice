@@ -5,12 +5,11 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Replication.Load;
 
 // The first part of a load: the schema of the master and the number of roots of each of its entity
-// types (brief of Epic 1, sprint S10; the planner's decision of 17 November 2026 after the study, points
-// 3 and 6). The bytes are the compiled schema as LatticeSchema.Save writes it, with its own digest, and
-// then one UInt64 for each entity type, in the order of LatticeSchema.EntityTypes, little-endian: the
-// count a child sizes the primary index of the type from; LoadEnd still verifies the roots it received.
-// They are cut into Schema frames by the rule of a root: every frame full but the last, which carries
-// Protocol.EndsARoot.
+// types. The bytes are the compiled schema as LatticeSchema.Save writes it, with its own digest, and then
+// one UInt64 for each entity type, in the order of LatticeSchema.EntityTypes, little-endian: the count a
+// child sizes the primary index of the type from; LoadEnd still verifies the roots it received. They are
+// cut into Schema frames by the rule of a root: every frame full but the last, which carries
+// Protocol.EndsABody.
 internal static class SchemaTransfer
 {
     // The schema in its compiled form, once for every child of a master.
@@ -42,7 +41,7 @@ internal static class SchemaTransfer
             var part = Math.Min(unsent.Length, Protocol.MaxDataPayload);
 
             unsent = unsent[part..];
-            connection.Add(FrameKindEnum.Schema, unsent.IsEmpty ? Protocol.EndsARoot : 0, bytes.AsSpan(bytes.Length - unsent.Length - part, part));
+            connection.Add(FrameKindEnum.Schema, unsent.IsEmpty ? Protocol.EndsABody : 0, bytes.AsSpan(bytes.Length - unsent.Length - part, part));
         }
         while (!unsent.IsEmpty);
     }
@@ -60,7 +59,7 @@ internal static class SchemaTransfer
 
         if (rest != (long)types * sizeof(ulong))
         {
-            throw Invalid($"The schema of the master is followed by {rest} bytes, not by a count for each of its {types} entity types.");
+            throw Protocol.Invalid($"The schema of the master is followed by {rest} bytes, not by a count for each of its {types} entity types.");
         }
 
         var counts = new long[types];
@@ -74,7 +73,7 @@ internal static class SchemaTransfer
 
             if (value > int.MaxValue)
             {
-                throw Invalid($"The master announces {value} roots of {schema.EntityTypes[index].Name}, more than a database holds.");
+                throw Protocol.Invalid($"The master announces {value} roots of {schema.EntityTypes[index].Name}, more than a database holds.");
             }
 
             counts[index] = (long)value;
@@ -82,6 +81,4 @@ internal static class SchemaTransfer
 
         return (schema, counts);
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

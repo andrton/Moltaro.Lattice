@@ -7,7 +7,7 @@ internal readonly record struct ReceivedFrame(FrameHeader Header, ReadOnlyMemory
 {
     public FrameKindEnum Kind => Header.Kind;
 
-    public bool EndsARoot => (Header.Flags & Protocol.EndsARoot) != 0;
+    public bool EndsABody => (Header.Flags & Protocol.EndsABody) != 0;
 
     public ulong CorrelationId => Header.CorrelationId;
 }

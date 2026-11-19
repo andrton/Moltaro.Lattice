@@ -4,8 +4,7 @@ using Moltaro.Lattice.Replication.Forwarding;
 namespace Moltaro.Lattice.Engine.Forwarding;
 
 // The writes a child has begun to send to its master and that have no reply yet, by their correlation id,
-// for one connection (brief of Epic 1, sprint S12, the planner's decision after the study, point 3), and
-// the receipt of their replies.
+// for one connection, and the receipt of their replies.
 //
 // A call enters when the sender takes it (ChildSender), before its first frame, so that a reply finds it
 // however soon it comes; it leaves when its reply arrives, or when the connection ends. A reply is checked
@@ -80,7 +79,7 @@ internal sealed class PendingRequests
 
         if (correlationId == 0)
         {
-            throw Invalid("The master sent a reply with the correlation id 0, which no request has.");
+            throw Protocol.Invalid("The master sent a reply with the correlation id 0, which no request has.");
         }
 
         var reply = ForwardEncoding.ReadReply(body);
@@ -89,12 +88,12 @@ internal sealed class PendingRequests
         {
             if (result.Position.History != _history)
             {
-                throw Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
+                throw Protocol.Invalid($"The master replied with the position {result.Position}, of another history than this child's.");
             }
 
             if (result.Position.Sequence <= applied)
             {
-                throw Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
+                throw Protocol.Invalid($"The master replied with the position {result.Position}, which is not above the sequence {applied} this child has applied: the reply of a write comes before its transaction.");
             }
         }
 
@@ -107,7 +106,7 @@ internal sealed class PendingRequests
 
         if (call is null)
         {
-            throw Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
+            throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
         call.Answer(reply);
@@ -145,6 +144,4 @@ internal sealed class PendingRequests
             call.Fail(failure());
         }
     }
-
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
 }

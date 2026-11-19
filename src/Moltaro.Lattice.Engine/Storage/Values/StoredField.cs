@@ -46,7 +46,6 @@ internal readonly struct StoredField
     public bool IsVariable => Type is StoredTypeEnum.String or StoredTypeEnum.Binary;
 
     // A String field with Dictionary storage: a text that is not empty lies in an entry of the text table,
-    // which its descriptor of kind Text names, never inline (brief of Epic 1, sprint S13, the planner's
-    // decision after the study, points 1 and 2).
+    // which its descriptor of kind Text names, never inline.
     public bool IsShared { get; }
 }

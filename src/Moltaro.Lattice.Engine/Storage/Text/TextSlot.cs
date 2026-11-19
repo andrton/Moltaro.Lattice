@@ -3,10 +3,9 @@ using System.Runtime.InteropServices;
 namespace Moltaro.Lattice.Storage.Text;
 
 // One slot of the text table (TextTable): what the table keeps of one text entry, in managed memory
-// that only the writes use (brief of Epic 1, sprint S13, the planner's decision after the study, point
-// 3). The entry itself is immutable memory of the arena that holds the stored bytes and nothing else;
-// what changes with the writes — the count — lies here, so that no read ever reads a line a write
-// writes for a text it shares.
+// that only the writes use. The entry itself is immutable memory of the arena that holds the stored
+// bytes and nothing else; what changes with the writes — the count — lies here, so that no read ever
+// reads a line a write writes for a text it shares.
 //
 // Sequential layout: the two 8-byte fields first, then the three of 4 bytes; 32 bytes with the padding
 // that keeps the next slot aligned.
@@ -25,8 +24,8 @@ internal struct TextSlot
     public ArenaAddress Address;
 
     // The references to the entry: one for each Text descriptor naming it in any block of the arena that
-    // is not freed, prepared, live or retired (point 4 of the decision). At least 1 while the slot holds
-    // an entry; an entry whose count reaches 0 leaves the table and is freed at once.
+    // is not freed, prepared, live or retired (TextTable, "One count for each entry"). At least 1 while
+    // the slot holds an entry; an entry whose count reaches 0 leaves the table and is freed at once.
     public long References;
 
     // The seeded hash of the stored bytes, under which the bucket table holds the slot.

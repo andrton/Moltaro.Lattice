@@ -3,7 +3,6 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Sets;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
@@ -11,11 +10,12 @@ namespace Moltaro.Lattice.Engine.Sets;
 // contract of ILatticeSet<TEntity> says, as the set of the core does; it is the engine's own so that
 // a read by key converts its key without boxing it and copies the root into the object through
 // pooled scratch, without boxing a value: a read allocates the returned object, with what is
-// reachable from it, and nothing else (brief of S06, "The allocation of a read"). The constructor and
-// the set accessors of the class run after the read left the protection of reads (ClassCopier). A write takes
-// the values of the object through the binding of the core, which checks them against the schema at
-// every depth and takes a byte array of a field as the object holds it: the engine copies it once,
-// into its own memory, while the write runs (EntityBinding.Capture; the planner's answer to Q43).
+// reachable from it, and nothing else. The constructor and the set accessors of the class run after the
+// read left the protection of reads (ClassCopier). A write takes the values of the object through the
+// binding of the core, which checks them against the schema at every depth and takes a byte array of a
+// field as the object holds it: the engine copies it once, into its own memory, while the write runs
+// (EntityBinding.Capture), since the application keeps the input of a write unchanged until the write
+// completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     where TEntity : class
 {
@@ -122,7 +122,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     }
 
     // The arguments are checked first and the entity validated against the schema, before anything
-    // else can refuse the write (Q25).
+    // else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, TEntity entity, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entity);

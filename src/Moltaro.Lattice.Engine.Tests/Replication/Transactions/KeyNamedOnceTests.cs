@@ -90,7 +90,7 @@ public sealed class KeyNamedOnceTests
                     var end = LoadEndPayload.Of(frame);
                     var written = WriteOf(root!);
                     var effects = then == "a Write of it" ? [.. written, .. written] : written.Concat(DeleteOf("code")).ToArray();
-                    var transaction = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsARoot, correlationId: 0, passed.StreamSequence + 1, TransactionPayload.Make(end.End, effects));
+                    var transaction = WireFrame.Make(FrameKindEnum.Transaction, Protocol.EndsABody, correlationId: 0, passed.StreamSequence + 1, TransactionPayload.Make(end.End, effects));
 
                     added = 1;
 

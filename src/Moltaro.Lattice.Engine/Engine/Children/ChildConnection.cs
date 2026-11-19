@@ -8,11 +8,10 @@ using Moltaro.Lattice.Replication.Transactions;
 namespace Moltaro.Lattice.Engine.Children;
 
 // One connection that a master accepted, and the node at its other end, from its Hello to the end of the
-// connection (brief of Epic 1, sprints S10, S11 and S12; the planner's blocks of 15 and 17 November 2026 and
-// his decisions after the studies of S10, S11 and S12). In its order:
-// 1. The Hello. The peer has the OpenTimeout of the master to send a valid one (decision after the study
-//    of S10, point 5); a peer that sends nothing, a frame that is not valid or not a Hello is
-//    disconnected, and nothing is sent to it.
+// connection (docs/design/milestone-1-engine-contract.md, "Replication transport and initial loading"). In
+// its order:
+// 1. The Hello. The peer has the OpenTimeout of the master to send a valid one; a peer that sends nothing,
+//    a frame that is not valid or not a Hello is disconnected, and nothing is sent to it.
 // 2. The check (Replication.HelloCheck). A peer the master does not accept is sent a Refuse with the
 //    reason and nothing else, and the connection is closed. Nothing has been registered for it.
 // 3. The registration of its capture (Capture.Register), under the lock of the writes: its start S, its
@@ -23,7 +22,7 @@ namespace Moltaro.Lattice.Engine.Children;
 //    protection; no lock and no slot of the epoch table is held while bytes are sent.
 // 5. The stream, as long as the child is connected (DeliverAsync): every transaction of the tail after S,
 //    in their order, the first ones those the child applies before it is Ready, cut into Transaction
-//    frames, and the replies to the writes the child forwards (S12); and, beside it, what the child sends
+//    frames, and the replies to the writes the child forwards; and, beside it, what the child sends
 //    (ReceiveAsync): what it has applied, which lets the tail release what every child has applied, and the
 //    writes it forwards, which the receiver submits to the write path (RequestReceiver). The two run as two
 //    tasks, one sending and one receiving on the connection; the end of either ends both, but for the
@@ -32,19 +31,17 @@ namespace Moltaro.Lattice.Engine.Children;
 // child closed or vanished, a send or a receive failed, a frame was not valid, the child acknowledged what
 // it cannot have applied or forwarded a write that is not valid, or the master closes.
 //
-// Replies (S12, the planner's decision after the study, point 2). The sender sends every reply recorded
-// for the connection (Delivery.RecordedReplies) before it frames its next transaction, and between the
-// frames of a transaction, since a reply has priority there; a refusal as soon as it is recorded. A reply
-// of a forwarded write is recorded before its transaction is appended to the tail, so the child never
-// receives the transaction of a write it forwarded before that write's reply. A reply is sent whole: the
-// frames of one reply are not interleaved with those of another.
+// Replies. The sender sends every reply recorded for the connection before it frames its next transaction,
+// and between the frames of a transaction, since a reply has priority there; a refusal as soon as it is
+// recorded. So the child never receives the transaction of a write it forwarded before that write's reply
+// (Delivery.RecordedReplies, "The order that matters"). A reply is sent whole: the frames of one reply are
+// not interleaved with those of another.
 //
-// The close of the master (point 4, as the planner widened it with the tests, and decided at the review
-// of S12, point 2). The listener tells each connection to finish (Finish) once its barrier has closed and
-// the admitted writes have ended, each with its reply recorded (Writes.WriteCoordinator, "Forwarded
-// writes"). A connection in its stream has its sender do its ordinary work to the end — the replies
-// recorded, then what the tail holds for the child, which no write changes any more — and then add one
-// frame Closed: the master closed in order, and every request of the connection not answered before it
+// The close of the master. The listener tells each connection to finish (Finish) once its barrier has
+// closed and the admitted writes have ended, each with its reply recorded (Writes.WriteCoordinator,
+// "Forwarded writes"). A connection in its stream has its sender do its ordinary work to the end — the
+// replies recorded, then what the tail holds for the child, which no write changes any more — and then add
+// one frame Closed: the master closed in order, and every request of the connection not answered before it
 // was not executed and will not be. Then it ends its sending side in order, which the child reads as the
 // end of the stream; the receiver goes on until the child ends its side, and from Closed on it reads every
 // frame of a request and drops it, with no reply. A connection before its stream ends at once. The
@@ -61,13 +58,13 @@ namespace Moltaro.Lattice.Engine.Children;
 // refuses every write after it before it is executed, so it sends Closed as well.
 //
 // The waits, and how each ends. The Hello: within OpenTimeout, or the close of the master. A send: until
-// the child has taken the bytes, which a child that does not read never does; it has no deadline until
-// S33, and the close of the master ends it (exception X6). The next transaction of the tail or reply: until
+// the child has taken the bytes, which a child that does not read never does; it has no deadline yet, and
+// the close of the master ends it (exception X6). The next transaction of the tail or reply: until
 // a write of the master is published or a forwarded one refused, which may never be; the close of the
 // master, the end of the other task of the connection end it. The next frame of the child: until the
 // child sends one, closes or vanishes, which a child that applies and forwards nothing or is idle may take
 // any time; the close of the master and the end of the other task end it. A connection whose child stopped
-// reading thus holds the tail for it until S33 bounds it.
+// reading thus holds the tail for it: a deadline of a send to a slow child is not built yet.
 //
 // How the connection ends. In order, when the master refuses the peer, when the child ended it, and at the
 // close of the master when the child ended its side within the time the listener gives: what was sent
@@ -203,6 +200,8 @@ internal sealed class ChildConnection
     // Step 5 of the class, until the connection ends: true when the child ended it in order.
     private async Task<bool> StreamAsync(DeliveryCursor cursor, ulong readiness)
     {
+        // Ending stops both tasks. The wait of the sender for more ends with it and with the close of the
+        // master (_finishing), which does not stop the sender: it then finishes what it owes the child.
         using var ending = new CancellationTokenSource();
         using var waitEnds = CancellationTokenSource.CreateLinkedTokenSource(ending.Token, _finishing.Token);
         var sending = DeliverAsync(cursor, waitEnds.Token, ending.Token);
@@ -211,7 +210,9 @@ internal sealed class ChildConnection
 
         // The sender of a closing master sends Closed, ends its side in order and leaves the receiver to
         // wait for the child's end; any other end of either task ends the other.
-        if (!ReferenceEquals(first, sending) || !sending.IsCompletedSuccessfully)
+        var senderFinished = ReferenceEquals(first, sending) && sending.IsCompletedSuccessfully;
+
+        if (!senderFinished)
         {
             await ending.CancelAsync().ConfigureAwait(false);
         }
@@ -226,8 +227,12 @@ internal sealed class ChildConnection
             // the connection is read from the receiver.
         }
 
-        // The child closed: its end is what the receiving task met.
-        return receiving.Exception?.InnerException is IOException;
+        // The connection reports the end of the stream as an IOException (FrameConnection.ReceiveAsync): the
+        // child ended its side in order. Every other end of the receiver is a reset, a failure, a frame that
+        // is not valid or the cancellation.
+        var childEndedInOrder = receiving.Exception?.InnerException is IOException;
+
+        return childEndedInOrder;
     }
 
     // Sends the child every transaction of the tail after its start, as they come, and the replies owed to
@@ -248,8 +253,7 @@ internal sealed class ChildConnection
 
             if (reader.HasBytes())
             {
-                // The transaction is there, so every reply recorded before it was appended is seen now, and
-                // goes before it (see the class).
+                // The replies before the transaction (Delivery.RecordedReplies, "The order that matters").
                 await AddRepliesAsync(cancellationToken).ConfigureAwait(false);
 
                 var (sequence, length) = reader.Transaction();
@@ -343,7 +347,7 @@ internal sealed class ChildConnection
     {
         var part = reader.Take(Math.Min(remaining, Protocol.MaxDataPayload));
 
-        _connection.Add(FrameKindEnum.Transaction, part.Length == remaining ? Protocol.EndsARoot : 0, part);
+        _connection.Add(FrameKindEnum.Transaction, part.Length == remaining ? Protocol.EndsABody : 0, part);
 
         return part.Length;
     }
@@ -366,7 +370,7 @@ internal sealed class ChildConnection
 
                 for (var index = 0; index < body.FrameCount; index++)
                 {
-                    _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsARoot : 0, reply.CorrelationId, body.Frame(index));
+                    _connection.Add(FrameKindEnum.WriteReply, index == body.FrameCount - 1 ? Protocol.EndsABody : 0, reply.CorrelationId, body.Frame(index));
 
                     if (_connection.PendingBytes >= Protocol.MaxFrame)
                     {
@@ -383,7 +387,7 @@ internal sealed class ChildConnection
         Span<byte> payload = stackalloc byte[sizeof(ulong) + ForwardEncoding.ResultLength];
 
         ForwardEncoding.WriteReply(payload, reply.Result);
-        _connection.Add(FrameKindEnum.WriteReply, Protocol.EndsARoot, reply.CorrelationId, payload);
+        _connection.Add(FrameKindEnum.WriteReply, Protocol.EndsABody, reply.CorrelationId, payload);
     }
 
     // Sends what is waiting.

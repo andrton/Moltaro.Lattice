@@ -1,21 +1,18 @@
 using System.Buffers;
 using System.Diagnostics;
-using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Loading;
-using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 
 namespace Moltaro.Lattice.Engine.Following;
 
-// How a child follows its master after its load (brief of Epic 1, sprint S11; the planner's decision of
-// 17 November 2026 after the study, points 6 to 8, and the coordinator's reading with the tests): it
-// receives the transactions the master sends after LoadEnd, puts each together whole
-// (Replication.Transactions.TransactionAssembler), applies it under its own lock of the writes by the one
-// rule of ReceivedChanges, and tells the master what it has applied.
+// How a child follows its master after its load: it receives the transactions the master sends after LoadEnd,
+// puts each together whole (Replication.Transactions.TransactionAssembler), applies it under its own lock of
+// the writes by the one rule of ReceivedChanges, and tells the master what it has applied
+// (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").
 //
 // Before Ready (CatchUpAsync). The transactions of (S, R] are applied in their order, each received within
 // OpenTimeout, as every part of a load is: the open of the child waits for them. Only then is the child
@@ -27,52 +24,49 @@ namespace Moltaro.Lattice.Engine.Following;
 // it applied (Applied(sequence), once for each burst it received, within a transaction of several frames
 // as well; ApplyNextAsync). It does not send the Applied itself: one task sends on the connection, the
 // sender of the child (Forwarding.ChildSender), which also sends the writes the child forwards; the
-// follower publishes its applied sequence to it and wakes it, and the sender sends the newest one (brief
-// of Epic 1, sprint S12, the planner's decision after the study, point 3, which rewords the rule of S11
-// and keeps its guarantee). Reads go on meanwhile: they are protected by epochs, as on a master, and never
-// wait for an application. Retired memory is freed by the applying thread (ReceivedChanges.Publish).
+// follower publishes its applied sequence to it and wakes it, and the sender sends the newest one. Reads
+// go on meanwhile: they are protected by epochs, as on a master, and never wait for an application.
+// Retired memory is freed by the applying thread (ReceivedChanges.Publish).
 //
-// Replies (S12). The master answers a write the child forwarded with a WriteReply, which may come anywhere
-// in its stream, also between the frames of a transaction; the follower hands each frame of one to the
-// table of the pending requests (Forwarding.PendingRequests), which completes the call once the reply is
-// whole, and goes on. A reply that is not valid is a frame of the master that is not valid.
+// Replies. The master answers a write the child forwarded with a WriteReply, which may come anywhere in its
+// stream, also between the frames of a transaction; the follower hands each frame of one to the table of the
+// pending requests (Forwarding.PendingRequests), which completes the call once the reply is whole, and goes
+// on. A reply that is not valid is a frame of the master that is not valid.
 //
 // What a transaction has to be. Its sequence follows the one before; it is checked by its frames and its
-// announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity
-// type the engine stores, and the root of a Write carries the sequence of its transaction as its last
-// mutation (the coordinator's decision of 17 November 2026), which, with consecutive sequences, keeps an
-// effect not later than the state held from arriving after R. A transaction that is not so is refused
-// whole: nothing of it is applied. Before Ready that fails the open, with ValidationFailed, which the open
-// reports as Unavailable; after Ready the child stops following.
+// announced length (TransactionAssembler); each effect is a Write, a Delete or an Unchanged of an entity type
+// the engine stores, and the root of a Write carries the sequence of its transaction as its last mutation,
+// which, with consecutive sequences, keeps an effect not later than the state held from arriving after R. A
+// transaction that is not so is refused whole: nothing of it is applied. Before Ready that fails the open,
+// with ValidationFailed, which the open reports as Unavailable; after Ready the child stops following.
 //
 // Memory. A transaction the arena of the child cannot hold is applied by the rule of a write refused for
 // memory: what is retired is freed and the transaction is tried again; refused again, the reads that hold
-// retired memory are waited for, what they held is freed, and it is tried once more (the planner's block of
-// 17 November 2026, point 5). Refused then, it cannot be held: before Ready the open fails with
-// Unavailable; after it the child stops following. So does a transaction announced larger than the memory
+// retired memory are waited for, what they held is freed, and it is tried once more
+// (ReceivedChanges.Apply). Refused then, it cannot be held: before Ready the open fails with Unavailable;
+// after it the child stops following. So does a transaction announced larger than the memory
 // limit of the child, before anything is taken for it.
 //
 // Stopping. A child that stops following — a transaction it refused or cannot hold, a frame that is not
-// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender
-// that failed, the close of the child — ends its connection and keeps serving its reads at the position it
-// has, Ready; it does not resume by itself (reconnection is S34). Nothing of a transaction it was putting
-// together is applied. In this order (S12): it marks itself without a master
-// (Forwarding.Forwarder.LoseMaster), so that a write through it is Unavailable and a wait for a position
-// it has not reached ends at once; it ends its side of the connection, and with it the sender; and once
-// the sender has ended, every write it had sent whole and that has no reply ends in IndeterminateOutcome
-// (PendingRequests.Close): the master may have executed it. So the close of a master, which waits until
-// its children have ended their side, finds each child that reads marked.
+// valid, a connection that ended, the end of the master's stream, the frame Closed, a send of the sender that
+// failed, the close of the child — ends its connection and keeps serving its reads at the position it has,
+// Ready; it does not resume by itself (reconnection is not built yet). Nothing of a transaction it was
+// putting together is applied. It marks itself without a master (Forwarding.Forwarder.LoseMaster), so that a
+// write through it is Unavailable and a wait for a position it has not reached ends at once; it ends its side
+// of the connection and the sender; and every write it had sent whole and that has no reply ends in
+// IndeterminateOutcome (PendingRequests.Close): the master may have executed it. FollowAsync says at its
+// lines why they come in this order.
 //
-// The frame Closed (decided at the review of S12, point 2). A master that closes in order sends it after
-// every reply it owes and every transaction of its tail: every request not answered before it was not
-// executed and will not be (Children.ChildConnection). The child marks itself without a master, ends every
-// write it sent and has no reply for in Unavailable, not executed (PendingRequests.EndNotExecuted), and
-// stops following as above; it reads nothing after it, so a frame after Closed changes nothing. A Closed
-// with a correlation id is a frame that is not valid, and one with a body the codec refuses
-// (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or a reply is being put
-// together, since a master sends it only after whole ones: the child stops following without it, and its
-// writes sent whole stay IndeterminateOutcome. So does every other end of the connection: an end of the stream in order alone is
-// no statement about what the master executed. A Closed before Ready fails the open.
+// The frame Closed. A master that closes in order sends it after every reply it owes and every transaction of
+// its tail: every request not answered before it was not executed and will not be (Children.ChildConnection).
+// The child marks itself without a master, ends every write it sent and has no reply for in Unavailable, not
+// executed (PendingRequests.EndNotExecuted), and stops following as above; it reads nothing after it, so a
+// frame after Closed changes nothing. A Closed with a correlation id is a frame that is not valid, and one
+// with a body the codec refuses (Replication.Protocol.MaxBodyOf), and one that arrives while a transaction or
+// a reply is being put together, since a master sends it only after whole ones: the child stops following
+// without it, and its writes sent whole stay IndeterminateOutcome. So does every other end of the connection:
+// an end of the stream in order alone is no statement about what the master executed. A Closed before Ready
+// fails the open.
 //
 // Suspension. A test holds back the application with Suspend (EngineDatabase.SuspendApplying): a
 // transaction that is complete waits, before it is applied, until no suspension is left. The lock that
@@ -84,7 +78,7 @@ namespace Moltaro.Lattice.Engine.Following;
 // for the reads that hold retired memory, which leave within a step, and the close of the child ends it; at
 // the end, the end of the sender, which the end of the connection brings at once. The sends are the
 // sender's (Forwarding.ChildSender). Every
-// application passes the barrier of the close, so that a close frees the arena only once no application is
+// application passes the barrier of the close (ReceivedChanges.Apply), so that a close frees the arena only once no application is
 // in progress; one after the close is refused, and the child stops.
 internal sealed class Follower
 {
@@ -96,27 +90,13 @@ internal sealed class Follower
 
     private readonly Forwarder _forwarder;
 
-    private readonly Lock _writes;
-
-    private readonly WriteExecutor _executor;
-
-    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
-    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
-    private readonly WriteCoordinator _coordinator;
-
-    private readonly CloseBarrier _barrier;
+    private readonly PositionClock _clock;
 
     private readonly ReceivedChanges _changes;
-
-    // Faults the instance, after the lock, when a publication failed between its stores.
-    private readonly Action _fault;
 
     private readonly TransactionAssembler _assembler;
 
     private readonly TimeSpan _openTimeout;
-
-    // The tables of the entity types of the schema, by the identity of their entity type.
-    private readonly Dictionary<uint, EntityTable> _byTypeId;
 
     // Guards the count of the suspensions and the task their end completes.
     private readonly Lock _suspensions = new();
@@ -129,21 +109,16 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, ulong history, Lock writes, WriteExecutor executor, WriteCoordinator coordinator, CloseBarrier barrier, ReceivedChanges changes, Action fault, IEnumerable<EntityTable> tables, long memoryLimit, TimeSpan openTimeout)
+    public Follower(MasterLink link, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
-        _pending = new PendingRequests(history);
+        _pending = new PendingRequests(clock.History);
         _sender = new ChildSender(link, _pending);
-        _writes = writes;
-        _executor = executor;
-        _coordinator = coordinator;
-        _barrier = barrier;
+        _clock = clock;
         _changes = changes;
-        _fault = fault;
         _assembler = new TransactionAssembler(memoryLimit);
         _openTimeout = openTimeout;
-        _byTypeId = tables.ToDictionary(table => (uint)table.EntityType.Id);
     }
 
     // Applies the transactions after S up to R, which LoadEnd announced (see the class), and reports what
@@ -154,9 +129,9 @@ internal sealed class Follower
         var applied = _changes.AppliedStates;
         var skipped = _changes.SkippedStates;
 
-        _applied = end.Start;
+        _applied = end.CaptureStart;
 
-        while (_applied < end.End)
+        while (_applied < end.Readiness)
         {
             if (!await ApplyNextAsync(_openTimeout, acknowledges: false, cancellationToken).ConfigureAwait(false))
             {
@@ -169,7 +144,7 @@ internal sealed class Follower
         // that task begins with the sender (FollowAsync).
         _forwarder.Attach(_sender);
 
-        return new CatchUpReport(end.Start, end.End, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
+        return new CatchUpReport(end.CaptureStart, end.Readiness, end.Roots, Stopwatch.GetElapsedTime(started), _changes.AppliedStates - applied, _changes.SkippedStates - skipped);
     }
 
     // Follows the master once the child is Ready, and forwards the writes of the child through its sender,
@@ -192,20 +167,29 @@ internal sealed class Follower
                 following = await ApplyNextAsync(timeout: null, acknowledges: true, ending.Token).ConfigureAwait(false);
             }
 
-            // The master closed in order (see the class, "The frame Closed").
+            // The master closed in order (see the class, "The frame Closed"). The child is marked without a
+            // master first, so that no write is queued once the writes it sent are ended as not executed.
             _forwarder.LoseMaster();
             _pending.EndNotExecuted();
         }
         catch (Exception)
         {
-            // The child stops following, whatever ended it (see the class): it keeps what it applied.
+            // The child stops following, whatever ended it (see the class, "Stopping"): it keeps what it
+            // applied.
         }
         finally
         {
             _assembler.Reset();
+
+            // For every end; after the frame Closed it changes nothing more. The child is marked before it
+            // ends its side of the connection, so that a master, whose close waits for that end, finds it
+            // marked.
             _forwarder.LoseMaster();
             await ending.CancelAsync().ConfigureAwait(false);
             _link.Dispose();
+
+            // Only once the sender has ended does nothing more go out: every call left was sent whole and
+            // has no reply.
             await sending.ConfigureAwait(false);
             _pending.Close();
         }
@@ -243,8 +227,6 @@ internal sealed class Follower
         resumed?.TrySetResult();
     }
 
-    private static LatticeException Invalid(string message) => new(LatticeErrorEnum.ValidationFailed, message);
-
     // Receives the next transaction whole and applies it; false, with nothing applied, when the master sent
     // Closed (see the class). After Ready it acknowledges what it has applied whenever no more of the
     // stream waits and the next frame has to be read from the socket, within a transaction as well as
@@ -280,12 +262,12 @@ internal sealed class Follower
             {
                 if (frame.CorrelationId != 0)
                 {
-                    throw Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
+                    throw Protocol.Invalid($"The master sent a Closed frame with the correlation id {frame.CorrelationId}; it has none.");
                 }
 
                 if (_assembler.InProgress || _pending.ReplyInProgress)
                 {
-                    throw Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
+                    throw Protocol.Invalid("The master sent a Closed frame in the middle of a transaction or a reply; it sends it only after whole ones.");
                 }
 
                 return false;
@@ -293,7 +275,7 @@ internal sealed class Follower
 
             if (frame.Kind != FrameKindEnum.Transaction)
             {
-                throw Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
+                throw Protocol.Invalid($"The master sent a {frame.Kind} frame where the stream of its transactions comes.");
             }
 
             if (_assembler.Accept(frame, out sequence, out effects))
@@ -304,15 +286,15 @@ internal sealed class Follower
 
         if (sequence != _applied + 1)
         {
-            throw Invalid($"The master sent the transaction {sequence} after {_applied}: a transaction is missing or repeated.");
+            throw Protocol.Invalid($"The master sent the transaction {sequence} after {_applied}: a transaction is missing or repeated.");
         }
 
         // The effects stay where they were received: no frame is received while the suspension lasts.
         await WhileSuspendedAsync(cancellationToken).ConfigureAwait(false);
-        Apply(sequence, effects, cancellationToken);
+        _changes.Apply(sequence, effects, cancellationToken);
 
         _applied = sequence;
-        _executor.WakePositions();
+        _clock.Wake();
 
         return true;
     }
@@ -333,154 +315,4 @@ internal sealed class Follower
     // Tells the sender what the child has applied; the sender tells the master unless it has told it
     // already.
     private void Acknowledge() => _sender.Acknowledge(_applied);
-
-    // Applies one transaction whole, by the rule of a write refused for memory (see the class).
-    private void Apply(ulong sequence, ReadOnlySequence<byte> effects, CancellationToken cancellationToken)
-    {
-        _barrier.Enter();
-
-        try
-        {
-            if (TryApply(sequence, effects))
-            {
-                return;
-            }
-
-            long epoch;
-            bool retired;
-
-            lock (_writes)
-            {
-                _executor.DrainRetired();
-            }
-
-            if (TryApply(sequence, effects))
-            {
-                return;
-            }
-
-            lock (_writes)
-            {
-                epoch = _executor.ReadsToWaitFor(out retired);
-            }
-
-            if (retired && epoch != 0)
-            {
-                _coordinator.RunWaitHold();
-                _executor.WaitForReads(epoch, cancellationToken);
-
-                lock (_writes)
-                {
-                    _executor.DrainRetired();
-                }
-
-                if (TryApply(sequence, effects))
-                {
-                    return;
-                }
-            }
-
-            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The memory limit of this child cannot hold the transaction {sequence} of its master.");
-        }
-        catch
-        {
-            // After the lock, which TryApply takes and leaves: the reads were marked faulted under it
-            // (ReceivedChanges).
-            if (_changes.PublicationFailed)
-            {
-                _fault();
-            }
-
-            throw;
-        }
-        finally
-        {
-            _barrier.Exit();
-        }
-    }
-
-    // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
-    // them. False when the arena refused one, with nothing of the transaction left.
-    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects)
-    {
-        lock (_writes)
-        {
-            var reader = new SequenceReader<byte>(effects);
-
-            try
-            {
-                while (!reader.End)
-                {
-                    if (!TryPrepareEffect(ref reader, sequence))
-                    {
-                        return false;
-                    }
-                }
-            }
-            catch
-            {
-                _changes.Abandon();
-                throw;
-            }
-
-            _changes.Publish(sequence);
-
-            return true;
-        }
-    }
-
-    // Prepares the next effect of the transaction (see the class): false when the arena refused it.
-    private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence)
-    {
-        reader.TryRead(out var kind);
-
-        switch ((EffectKindEnum)kind)
-        {
-            case EffectKindEnum.Write:
-                if (!reader.TryReadLittleEndian(out long rootLength) || rootLength < RootAssembler.EnvelopeSize || rootLength > reader.Remaining)
-                {
-                    throw Invalid($"A Write of the transaction {sequence} announces a root its bytes do not hold.");
-                }
-
-                var root = new SequenceReader<byte>(reader.UnreadSequence.Slice(0, rootLength));
-
-                reader.Advance(rootLength);
-                root.TryReadLittleEndian(out int typeId);
-                root.TryReadLittleEndian(out long lastMutation);
-
-                var written = TableOf((uint)typeId, sequence);
-
-                if ((ulong)lastMutation != sequence)
-                {
-                    throw Invalid($"A Write of the transaction {sequence} carries a root of {written.EntityType.Name} whose last mutation is {(ulong)lastMutation}.");
-                }
-
-                return _changes.TryPrepareWrite(written, sequence, ref root);
-
-            case EffectKindEnum.Delete:
-                if (!reader.TryReadLittleEndian(out int deletedId))
-                {
-                    throw Invalid($"A Delete of the transaction {sequence} ends before its type id.");
-                }
-
-                var deleted = TableOf((uint)deletedId, sequence);
-                var key = deleted.ReadKey(ref reader);
-
-                _changes.PrepareDelete(deleted, key, sequence);
-
-                return true;
-
-            case EffectKindEnum.Unchanged:
-                return true;
-
-            default:
-                throw Invalid($"The transaction {sequence} holds an effect of the kind {kind}, which is none.");
-        }
-    }
-
-    // The table of an entity type the engine stores.
-    private EntityTable TableOf(uint typeId, ulong sequence) =>
-        _byTypeId.TryGetValue(typeId, out var table) && table.Layout is not null
-            ? table
-            : throw Invalid($"The transaction {sequence} names the entity type {typeId}, which the schema of the child does not store.");
 }

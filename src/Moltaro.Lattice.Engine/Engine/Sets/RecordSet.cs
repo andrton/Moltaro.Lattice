@@ -2,16 +2,16 @@ using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Sets;
 using Moltaro.Lattice.Schema;
-using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Sets;
 
 // The entities of one entity type by name, as records, on the engine. It behaves as the contract of
 // ILatticeSet says, member for member as ClassSet does; a read allocates the returned record, with
 // what it holds, and nothing else. A key given to a read or a delete is converted as ClassSet
-// converts it, without a box (KeyArgument; Q51 of the open questions). A write takes the
-// byte arrays of the fields of a record as the record holds them, and the engine copies each once,
-// into its own memory, while the write runs (LatticeRecord.Capture; the planner's answer to Q43).
+// converts it, without a box (KeyArgument). A write takes the byte arrays of the fields of a record
+// as the record holds them, and the engine copies each once, into its own memory, while the write runs
+// (LatticeRecord.Capture), since the application keeps the input of a write unchanged until the write
+// completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
 internal sealed class RecordSet : ILatticeSet
 {
     private readonly SetOperations _operations;
@@ -110,7 +110,7 @@ internal sealed class RecordSet : ILatticeSet
     }
 
     // The arguments are checked first and the record validated against the schema, before anything
-    // else can refuse the write (Q25).
+    // else can refuse the write.
     private ValueTask<LatticeWriteResult> Save(WriteKindEnum kind, LatticeRecord record, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(record);

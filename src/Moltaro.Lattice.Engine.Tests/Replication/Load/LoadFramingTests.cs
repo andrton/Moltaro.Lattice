@@ -35,8 +35,8 @@ public sealed class LoadFramingTests
 
         Assert.True(blocks.Count >= 1024 * 1024 / Protocol.MaxDataBody, $"A root of 1 MiB arrived in {blocks.Count} Blocks frames.");
         Assert.All(relay.FromMaster, frame => Assert.True(frame.BodyLength <= Protocol.MaxDataBody, $"A {frame.Kind} frame has a body of {frame.BodyLength} bytes."));
-        Assert.All(blocks[..^1], frame => Assert.False(frame.EndsARoot, "A frame before the last of a root is marked as its end."));
-        Assert.True(blocks[^1].EndsARoot, "The last frame of a root is not marked as its end.");
+        Assert.All(blocks[..^1], frame => Assert.False(frame.EndsABody, "A frame before the last of a root is marked as its end."));
+        Assert.True(blocks[^1].EndsABody, "The last frame of a root is not marked as its end.");
     }
 
     [Fact]
@@ -68,8 +68,8 @@ public sealed class LoadFramingTests
 
         Assert.True(frames.Count >= 2, $"A schema of more than one frame arrived in {frames.Count} Schema frames.");
         Assert.All(frames, frame => Assert.True(frame.BodyLength <= Protocol.MaxDataBody, $"A Schema frame has a body of {frame.BodyLength} bytes."));
-        Assert.All(frames[..^1], frame => Assert.False(frame.EndsARoot, "A frame before the last of the schema is marked as its end."));
-        Assert.True(frames[^1].EndsARoot, "The last frame of the schema is not marked as its end.");
+        Assert.All(frames[..^1], frame => Assert.False(frame.EndsABody, "A frame before the last of the schema is marked as its end."));
+        Assert.True(frames[^1].EndsABody, "The last frame of the schema is not marked as its end.");
     }
 
     // One entity type of 2,000 nullable Int64 fields with long names: its descriptor alone is several

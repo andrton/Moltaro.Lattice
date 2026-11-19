@@ -34,7 +34,7 @@ public sealed class AcknowledgmentDuringARequestTests
 
         var frames = link.FromChild.ToList();
         var first = frames.FindIndex(frame => frame.Kind == ForwardPayload.WriteRequest);
-        var last = frames.FindIndex(frame => frame.Kind == ForwardPayload.WriteRequest && frame.EndsARoot);
+        var last = frames.FindIndex(frame => frame.Kind == ForwardPayload.WriteRequest && frame.EndsABody);
         var between = frames.Skip(first).Take(last - first).Where(frame => frame.Kind == FrameKindEnum.Applied).Select(TransactionPayload.AppliedOf).ToList();
 
         Assert.Contains(PositionSequence.Of(meanwhile.Position), between);

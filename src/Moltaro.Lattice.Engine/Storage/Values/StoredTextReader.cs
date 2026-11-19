@@ -17,8 +17,8 @@ namespace Moltaro.Lattice.Storage.Values;
 // whether the pair lies in one place or across a chunk boundary, and in UTF-8 a character whose bytes
 // a chunk boundary splits is put together from the end of one chunk and the start of the next. So a
 // comparison that is made piece by piece sees every character whole. Stored text is well-formed
-// (Q04.5; RootWriter refuses anything else), so a high surrogate is always followed by its low one and
-// decoding meets no malformed sequence.
+// (docs/decisions/strings.md, "Input validity and preservation"; RootWriter refuses anything else),
+// so a high surrogate is always followed by its low one and decoding meets no malformed sequence.
 //
 // Made by RootReader.ReadText, and valid only while the caller holds the protection of the root, as
 // the reader is: it holds spans over the blocks of the value.

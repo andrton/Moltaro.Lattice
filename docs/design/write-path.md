@@ -115,7 +115,18 @@ the lock that prepared it.
   32 MiB one after another, a caller of small writes completed 1,500 to 4,300 a second
   where alone it completes about two million, and a single small write waited up to
   about 110 ms. A write that large gives its processor up once after it releases the
-  lock; that helps and bounds nothing.
+  lock; that helps and bounds nothing. Measured with and without that yield alternated, on
+  a machine with other load, beside a caller that writes entities of 32 MiB one after
+  another: the p99 of the small writes of another caller was 98 to 115 ms in 12 of 14
+  rounds without it and a few µs in the other two, and with it below 18 ms in 10 of 15
+  rounds and 24 to 59 ms in the others; the maximum stayed at 110 to 125 ms either way.
+  It bounds nothing because a yield gives the processor only to a thread ready on the
+  same one, and the lock of .NET lets arriving callers pass a waiting one until that one
+  has waited 100 ms. Ordinary writes pay one comparison of their size for it. A gate that
+  hands the lock over first in first out was measured and is not used: it bounded the
+  wait of a small write behind large ones to one large write, but small writes then went
+  no faster than the large ones, and with more threads than processors, 16 writing callers
+  beside 16 readers, the writes all but stopped.
 - **Measured in memory only**, on the development machine: one calling thread replaces
   about 1.6 million entities a second, 16 threads about 1.0 million in total; reads by
   key on 16 threads beside them stay at about 15 million a second.
