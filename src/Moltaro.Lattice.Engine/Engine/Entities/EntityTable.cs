@@ -652,25 +652,32 @@ internal sealed class EntityTable
         return true;
     }
 
-    // Steps 2 to 4 of a step of a search (IndexSearch), inside the protection: an entry that is not live is
-    // passed over, since the entry of an insert is installed before its root is published and the
-    // entries of a delete leave after its position; a live one is taken by its stamp, as a read takes it,
-    // and its root is copied only when it has the key of the search. False when it is passed over.
+    // Steps 2 to 4 of a step of a search (IndexSearch), inside the protection: takes the entry by its
+    // stamp, as a read takes it, and copies its root only when it is live and has the key of the search.
+    // False when the step passes over it.
+    // Every entry the step meets is taken by its stamp, whatever its state, so that a write between its
+    // mark and its stamp is waited for, as a read waits for it, and a step never ends at a position
+    // before a delete or a replace it passed over (IndexSearch, step 2, says why no entry it meets keeps
+    // the mark).
     private bool TryCopyFound<TCopy, TResult>(ref RootEntry entry, SecondaryIndex index, scoped in SearchKey key, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         sequence = 0;
 
-        if (entry.AcquireState() != RootStateEnum.Live)
+        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
+
+        // The root is read only once the state is loaded Live: an insert stores its root before the
+        // state Live, which it stores with release semantics (ChangePublisher.Install), so the root
+        // loaded with another state may be that of an earlier lifetime of the slot.
+        if (state != RootStateEnum.Live)
         {
             return false;
         }
 
-        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
         var reader = new RootReader(_arena, Layout!, root);
 
-        if (state != RootStateEnum.Live || !index.HasKey(reader, key))
+        if (!index.HasKey(reader, key))
         {
             return false;
         }

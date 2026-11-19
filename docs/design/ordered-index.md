@@ -308,9 +308,13 @@ between two steps only the key and the identity of the last entity it returned:
    last identity returned. If the leaf ends before such an entry, it descends once more
    at the fence of the leaf, the separator above it, at or after which every entry of the
    next leaf lies. No entry of the key: the search ends.
-2. It reads the root entry the identity names. One that is not live is passed over: the
-   entry of an insert is installed before its root is published, and the entries of a
-   delete are removed after its position.
+2. It takes the root entry the identity names by its stamp, whatever its state, as a read
+   by key does, so that it waits through the mark of a replace or a delete in flight and
+   ends at its position or a later one, never before it. No entry the tree names keeps the
+   mark for good: the entries of an insert enter the tree in the publication that stores
+   its root entry right after them, and those of a delete leave before its root entry is
+   retired. An entry that is not live, a delete or an insert not yet published, is passed
+   over.
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is

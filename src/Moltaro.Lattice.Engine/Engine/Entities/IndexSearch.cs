@@ -15,10 +15,15 @@ namespace Moltaro.Lattice.Engine.Entities;
 // 1. It descends the tree of the index to the first entry of the key after the last identity returned
 //    (OrderedTree.TryFindFirst), with the search key written on its stack (SearchKey). No entry: the
 //    search ends.
-// 2. It reads the root entry the identity names. One that is not live is passed over: the insert of an
-//    entry is installed before its root is published, and the entries of a delete are taken away after
-//    its position. A live one is taken by its stamp, as a read by key takes it (EntityTable, "A read by
-//    key", step 2).
+// 2. It takes the root entry the identity names by its stamp, whatever its state, as a read by key
+//    takes it (EntityTable, "A read by key", step 2): a write between its mark and its stamp is waited
+//    for, so that a step that passes over a delete or a replace ends at its position or a later one. No
+//    entry met keeps the mark for good: the entries of an insert enter the tree in the publication that
+//    stores its root entry right after them (ChangePublisher.Publish), and the entries of a delete leave
+//    the tree before its root entry is retired; a publication that fails between the two faults the
+//    database, and the wait then reports Unavailable. An entry that is not live, a delete or an insert
+//    whose state Live is not stored yet, is passed over: that insert has a position after the start of
+//    the step.
 // 3. The entry is a hint: unless the root has the key of the search (SecondaryIndex.HasKey), the step
 //    passes over it to the next entry of the run; so an entity is never returned under a key its current
 //    state does not have.
