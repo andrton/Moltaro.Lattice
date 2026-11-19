@@ -16,7 +16,7 @@ decision records in `docs/decisions` are the authority for what the database gua
 The physical baseline, evidence and planning handoff are in `docs/design`. These describe
 intended behavior; a feature is delivered when the README says so.
 
-This repository is going to be public. Nothing specific to a private product goes into it.
+This repository is public. Nothing specific to a private product goes into it.
 
 ## Layout
 
