@@ -108,8 +108,9 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 | Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md), [how it works](ordered-index.md)); single or composite keys; built and kept on every node, searched by the full key; the walk of leading fields, ranges, order and paging is not built yet |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
-The caller names the index. Equality, leading-key/range access and Limit/Offset are
-supported; a named-index lookup never silently becomes a full scan. Every node builds
+The caller names the index. Equality on the full key is built, on a master and on a
+child; leading-key/range access and Limit/Offset are planned and not built yet. A
+named-index lookup never silently becomes a full scan. Every node builds
 its indexes locally before readiness and maintains them with entity changes. Indexes
 over the members of a collection, automatic index choice and keyset continuation are
 not in this milestone.

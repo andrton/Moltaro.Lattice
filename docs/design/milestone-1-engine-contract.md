@@ -664,9 +664,9 @@ committed, the copy for delivery to children included (from S24/S33; until then 
 is counted and reported only, outside the budget and without a limit); a transaction the budget cannot
 hold is refused before it has any effect: it leaves no entry, no reference and no native byte
 behind. Only managed capacity kept for later writes may stay; of what the counters report, that is
-the bucket table of the text table, which a new text entry may have grown before the arena refused
-the entry, and which keeps that room for the next one and is not given back. It is reported, and
-not charged to the budget.
+the managed capacity of the text table — its slot array as well as its bucket table — which a new
+text entry may have grown before the arena refused the entry, and which keeps that room for the
+next one and is not given back. It is reported, and not charged to the budget.
 Reserve managed/native/index/comparison/buffer overhead as well as encoded bytes;
 encoded size alone is not a memory reservation. Reject inconsistent options at open.
 Count old/new primary tables and managed arrays awaiting collection in peak evidence.

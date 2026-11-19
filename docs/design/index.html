@@ -214,8 +214,9 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 </tr>
 </tbody>
 </table>
-<p>The caller names the index. Equality, leading-key/range access and Limit/Offset are
-supported; a named-index lookup never silently becomes a full scan. Every node builds
+<p>The caller names the index. Equality on the full key is built, on a master and on a
+child; leading-key/range access and Limit/Offset are planned and not built yet. A
+named-index lookup never silently becomes a full scan. Every node builds
 its indexes locally before readiness and maintains them with entity changes. Indexes
 over the members of a collection, automatic index choice and keyset continuation are
 not in this milestone.</p>
