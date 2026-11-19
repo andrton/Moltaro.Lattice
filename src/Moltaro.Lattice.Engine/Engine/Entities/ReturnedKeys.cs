@@ -24,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // of its hash give, or on to the next places while they are taken. The hash is the one of the primary
 // index, which a step takes from the entry of the index it found, so a step hashes no key; a growth
 // of the table hashes the integer and Guid keys again, by the function of the index
-// (EntityTable.IntegerHash, GuidHash), and finds the hash of a String key in its place. A place is one
+// (PrimaryKeys.IntegerHash, GuidHash), and finds the hash of a String key in its place. A place is one
 // word for an integer key, the key itself, and two for a Guid, its two halves; a place of 0 is empty,
 // and the key whose words are all 0, the integer 0 or the empty Guid, is held apart by a flag. A place
 // of a String key is two words: its hash and its length in code units, then where its text lies, plus
@@ -89,8 +89,9 @@ internal sealed class ReturnedKeys
 
     private const int MostChunk = 32 * 1024;
 
-    // The table of the entity type, which knows how a key is stored and hashed.
-    private readonly EntityTable _table;
+    // The primary keys of the entity type, which know how a key is stored and hashed: a copy made once,
+    // which is the same keys (PrimaryKeys).
+    private readonly PrimaryKeys _keys;
 
     private readonly KeyKindEnum _kind;
 
@@ -130,11 +131,11 @@ internal sealed class ReturnedKeys
 
     private int _length;
 
-    public ReturnedKeys(EntityTable table)
+    public ReturnedKeys(in PrimaryKeys keys)
     {
-        _table = table;
-        _kind = table.KeyKind;
-        _key = table.EntityType.Key;
+        _keys = keys;
+        _kind = keys.KeyKind;
+        _key = keys.Field;
         _wordsPerPlace = _kind == KeyKindEnum.Integer ? 1 : 2;
     }
 
@@ -177,11 +178,11 @@ internal sealed class ReturnedKeys
 
     // Whether the key the root stores, which this does not hold, can be staged without allocating: a
     // place within three quarters of the places, and for a String key room in the last chunk for its
-    // text, whose bound it gives (EntityTable.TextBound); the bound is 0 for any other key. Inside the
+    // text, whose bound it gives (PrimaryKeys.TextBound); the bound is 0 for any other key. Inside the
     // protection of reads.
     public bool HasRoomFor(in RootReader stored, out int bound)
     {
-        bound = _kind == KeyKindEnum.Text ? _table.TextBound(stored) : 0;
+        bound = _kind == KeyKindEnum.Text ? _keys.TextBound(stored) : 0;
 
         return PlacesFor(_count + 1, _places) == _places && FitsLastChunk(bound);
     }
@@ -294,7 +295,7 @@ internal sealed class ReturnedKeys
     {
         if (_kind == KeyKindEnum.Integer)
         {
-            return (_table.StoredInteger(stored), 0);
+            return (_keys.StoredInteger(stored), 0);
         }
 
         var guid = stored.GetGuid(_key);
@@ -414,8 +415,8 @@ internal sealed class ReturnedKeys
     // primary index, for a String key the one its place holds.
     private uint HashOfPlace(long first, long second) => _kind switch
     {
-        KeyKindEnum.Integer => _table.IntegerHash(first),
-        KeyKindEnum.Guid => _table.GuidHash(first, second),
+        KeyKindEnum.Integer => _keys.IntegerHash(first),
+        KeyKindEnum.Guid => _keys.GuidHash(first, second),
         _ => (uint)((ulong)first >> 32),
     };
 
@@ -444,7 +445,7 @@ internal sealed class ReturnedKeys
 
     // Copies the text of the stored key into the last chunk after the code units in use, where room
     // was made for its bound. One read takes the whole text, since the room is at least its bound
-    // (EntityTable.TextBound).
+    // (PrimaryKeys.TextBound).
     private void StageText(uint hash, in RootReader stored, int bound)
     {
         var length = 0;

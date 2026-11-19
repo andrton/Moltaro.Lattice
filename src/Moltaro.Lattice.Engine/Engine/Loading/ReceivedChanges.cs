@@ -1,12 +1,11 @@
 using System.Buffers;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
-using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
-using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Loading;
@@ -40,49 +39,41 @@ namespace Moltaro.Lattice.Engine.Loading;
 //
 // How. Under the lock of the writes, as a write on a master is: each change is checked and prepared
 // first — the root placed in prepared blocks for the lifetime it goes to, with the room its publication
-// needs reserved, in the index for an insert and in the retired list for a replace or a delete — and
-// nothing is published until every change of the transaction is prepared (Publish); a change that is not
-// valid, or that the arena refuses, abandons every change prepared since (Abandon), so a transaction is
-// applied whole or not at all. Then everything prepared is published through the stores of the write path
-// (Publish, Writes.WriteExecutor) with the sequence of the master as its last mutation, so the revision of
-// every entity on the child is its revision on the master. The key of a root is read from the checked
-// bytes before anything is taken for it (Replication.Load.BlockImport), so a skipped state takes nothing
-// of the arena, the root table, the index or the retired list; for a String key its text is decoded into
-// a string first, the one allocation a skipped state makes beside a growth of the list that remembers the
-// keys a transaction names. A replaced root is placed for the lifetime of the entity it replaces.
+// needs reserved (Entities.ChangePublisher.Reserve), in the index for an insert and in the retired list
+// for a replace or a delete — and nothing is published until every change of the transaction is prepared
+// (Publish); a change that is not valid, or that the arena refuses, abandons every change prepared since
+// (Abandon), so a transaction is applied whole or not at all. Then everything prepared is published at
+// once by the publisher of the write path (Entities.ChangePublisher), with the sequence of the master as
+// its stamp, so the revision of every entity on the child is its revision on the master. The key of a root
+// is read from the checked bytes before anything is taken for it (Replication.Load.BlockImport), so a
+// skipped state takes nothing of the arena, the root table, the index or the retired list; for a String
+// key its text is decoded into a string first, the one allocation a skipped state makes beside a growth of
+// the list that remembers the keys a transaction names. A replaced root is placed for the lifetime of the
+// entity it replaces.
 //
-// Publication, and what a read by key sees. A transaction at sequence s is published in three steps, the
-// stores of the writes of a master split where a master publishes its position (Publish):
-// 1. every insert is installed, its entry and then its entry of the index, with the stamp s; every replace
-//    stores the mark of a write in progress and then its new root; every delete stores the mark and then
-//    the state Deleted;
-// 2. the position of the child becomes s, once;
-// 3. every replace and delete stores its stamp s; then every delete removes its entry of the index; what
-//    they replaced or deleted is retired.
-// So a read never returns a state at a position at which the master did not have it
-// (Entities.EntityTable, "The position of an answer"). The position of the child is s − 1 until step 2:
-// - A read that finds an inserted key reads its stamp s, at s; one that misses it reads s − 1 before its
-//   lookup.
-// - A read of a replaced or deleted key returns its old state only if the mark was not stored yet when it
-//   loaded the stamp the second time; the mark is stored before the position, so it then read the
-//   position s − 1 or earlier.
-// - A read that finds the mark backs off until step 3; one that loads the stamp s reads the new root, or
-//   the state Deleted at s, with the position s or later.
-// - A read that misses a deleted key does so after step 3, at s or later.
-// With one effect this is the order of the write of a master. Once step 1 has begun nothing can fail:
-// every store goes to what the preparation took and reserved, and nothing allocates. Should one fail
-// anyway, a defect, the reads are marked faulted at once, under the lock (ReadEpochs.Fault, which takes
-// no lock), so that a read that backs off on a mark gives up with Unavailable instead of waiting for a
-// stamp that will never come, as on a master; once it has left the lock it faults the rest of the
-// instance, its state and its clock (the action given to the constructor; EngineDatabase, the order of
-// the locks).
+// Publication. A transaction at sequence s is published in the three steps of every publication: each
+// change makes its stores before the position, the position of the child becomes s once, then each change
+// makes its stores after it, so a read never returns a state at a position at which the master did not
+// have it (docs/design/write-path.md, "How a publication is made"). A root of the load is published without
+// a position: the end of the load publishes the capture start (EndLoad). Once the first step has begun
+// nothing can fail: every store goes to what the preparation took and reserved, and nothing allocates.
+// Should one fail anyway, a defect, the reads are marked faulted at once, under the lock (ReadEpochs.Fault,
+// which takes no lock), so that a read that backs off on a mark gives up with Unavailable instead of
+// waiting for a stamp that will never come, as on a master; once it has left the lock it faults the rest
+// of the instance, its state and its clock (the action given to the constructor; EngineDatabase, the order
+// of the locks).
 //
 // Memory. A root or a transaction the arena refuses follows the rule of a write refused for memory: what
-// is retired is freed and it is tried once more. For a root of the load that is all: before the
+// is retired is freed and it is tried once more, each try and each drain in a hold of the lock of its own
+// (TryPlace, TryApply), and the wait for the reads outside it. Between those holds nothing takes memory of
+// the arena: during the load no other thread takes the lock, since the members that take it refuse a
+// child that is not Ready and the close takes it only after the barrier, and later only a drain or a count
+// of the counters can. For a root of the load that is all: before the
 // child is Ready no read can hold retired memory, so there is nothing else to wait for, and a root refused
 // again cannot be held: the open of the child ends with Unavailable and the reason. A transaction refused
 // again waits for the reads that hold retired memory, what they held is freed, and it is tried once more;
-// refused then, it cannot be held (Following.Follower).
+// refused then, it cannot be held: Apply ends with Unavailable, which fails the open of a child that is not
+// Ready yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
     private readonly Arena _arena;
@@ -95,7 +86,8 @@ internal sealed class ReceivedChanges
 
     private readonly ReadEpochs _epochs;
 
-    private readonly WriteExecutor _executor;
+    // Publishes what the child applies with the stores of the write path; it holds no state of its own.
+    private readonly ChangePublisher _publisher;
 
     private readonly EntityTables _tables;
 
@@ -103,17 +95,13 @@ internal sealed class ReceivedChanges
 
     private readonly CloseBarrier _barrier;
 
-    // The coordinator of the child, which admits no write; it keeps the switch of the tests for a refused
-    // write, which a transaction the arena refused runs before its wait for the reads (Apply).
-    private readonly WriteCoordinator _coordinator;
-
     private readonly BlockImport _import;
 
     // Faults the instance, after the lock, when a publication failed between its stores.
     private readonly Action _fault;
 
     // The changes prepared and not published yet, in the order they were received.
-    private readonly List<Change> _prepared = [];
+    private readonly List<PreparedChange> _prepared = [];
 
     // The keys of the states the rule skipped since the last Publish: a skipped state names its key as
     // much as a prepared change does (ThrowIfNamed).
@@ -137,12 +125,9 @@ internal sealed class ReceivedChanges
         RetiredMemory retired,
         PositionClock clock,
         ReadEpochs epochs,
-        WriteExecutor executor,
-        LatticeSchema schema,
         EntityTables tables,
         Lock writes,
         CloseBarrier barrier,
-        WriteCoordinator coordinator,
         Action fault)
     {
         _arena = arena;
@@ -150,33 +135,46 @@ internal sealed class ReceivedChanges
         _retired = retired;
         _clock = clock;
         _epochs = epochs;
-        _executor = executor;
+        _publisher = new ChangePublisher(arena, roots, retired, clock);
         _tables = tables;
         _writes = writes;
         _barrier = barrier;
-        _coordinator = coordinator;
         _fault = fault;
-        _import = new BlockImport(arena, schema);
+        _import = new BlockImport(arena);
     }
 
     // Places and publishes a root of the load of the entity type of the table, whose last mutation is given
-    // and whose rest the input holds, from its layout version on (RootPlacement), under the lock of the
-    // writes and by the rule of a write refused for memory (see the class). The roots received before it
-    // are counted for the reason of a root that cannot be held.
+    // and whose rest the input holds, from its layout version on (RootPlacement), by the rule of a write
+    // refused for memory (see the class). The roots received before it are counted for the reason of a root
+    // that cannot be held.
     public void Place(EntityTable table, ulong lastMutation, SequenceReader<byte> rest, ulong received)
     {
         _barrier.Enter();
 
         try
         {
+            if (TryPlace(table, lastMutation, rest))
+            {
+                return;
+            }
+
             lock (_writes)
             {
-                PlaceUnderTheLock(rest, table, lastMutation, received);
+                _retired.Drain();
             }
+
+            if (TryPlace(table, lastMutation, rest))
+            {
+                return;
+            }
+
+            throw new LatticeException(
+                LatticeErrorEnum.Unavailable,
+                $"The memory limit of this child cannot hold the database of its master: a root of {table.EntityType.Name} of {rest.Remaining} bytes does not fit beside the {received} roots received before it.");
         }
         catch
         {
-            // After the lock: the reads were marked faulted under it.
+            // After the lock, which TryPlace takes and leaves: the reads were marked faulted under it.
             if (_publicationFailed)
             {
                 _fault();
@@ -221,7 +219,6 @@ internal sealed class ReceivedChanges
             }
 
             long epoch;
-            bool retired;
 
             lock (_writes)
             {
@@ -235,12 +232,12 @@ internal sealed class ReceivedChanges
 
             lock (_writes)
             {
-                epoch = _executor.ReadsToWaitFor(out retired);
+                epoch = _retired.ReadsToWaitFor();
             }
 
-            if (retired && epoch != 0)
+            if (epoch != 0)
             {
-                _coordinator.RunWaitHold();
+                _retired.RunWaitHold();
                 _epochs.WaitForReadsBefore(epoch, cancellationToken);
 
                 lock (_writes)
@@ -272,31 +269,22 @@ internal sealed class ReceivedChanges
         }
     }
 
-    // The root placed by the rule of a write refused for memory (see the class).
-    private void PlaceUnderTheLock(SequenceReader<byte> start, EntityTable table, ulong lastMutation, ulong received)
+    // Under the lock of the writes, which it takes: places the root and publishes it, or skips it by the
+    // rule. False when the arena refused it, with nothing of it left. The reader is a copy, so that every
+    // try reads the root from its start.
+    private bool TryPlace(EntityTable table, ulong lastMutation, SequenceReader<byte> rest)
     {
-        var reader = start;
-
-        if (TryPrepareWrite(table, lastMutation, ref reader))
+        lock (_writes)
         {
-            Publish(position: null);
+            if (!TryPrepareWrite(table, lastMutation, ref rest))
+            {
+                return false;
+            }
 
-            return;
+            Publish(lastMutation, publishesPosition: false);
+
+            return true;
         }
-
-        _retired.Drain();
-        reader = start;
-
-        if (TryPrepareWrite(table, lastMutation, ref reader))
-        {
-            Publish(position: null);
-
-            return;
-        }
-
-        throw new LatticeException(
-            LatticeErrorEnum.Unavailable,
-            $"The memory limit of this child cannot hold the database of its master: a root of {table.EntityType.Name} of {start.Remaining} bytes does not fit beside the {received} roots received before it.");
     }
 
     // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
@@ -323,7 +311,7 @@ internal sealed class ReceivedChanges
                 throw;
             }
 
-            Publish(sequence);
+            Publish(sequence, publishesPosition: true);
 
             return true;
         }
@@ -331,7 +319,7 @@ internal sealed class ReceivedChanges
 
     // Prepares the next effect of the transaction (Replication.Transactions.TransactionFormat): false when
     // the arena refused it. Each effect is of an entity type the engine stores, and the root of a Write
-    // carries the sequence of its transaction as its last mutation (Following.Follower).
+    // carries the sequence of its transaction as its last mutation, which is the stamp of its publication.
     private bool TryPrepareEffect(ref SequenceReader<byte> reader, ulong sequence)
     {
         switch (TransactionFormat.ReadEffect(ref reader, sequence, out var typeId, out var lastMutation, out var root))
@@ -348,7 +336,7 @@ internal sealed class ReceivedChanges
 
             case EffectKindEnum.Delete:
                 var deleted = TableOf(typeId, sequence);
-                var key = deleted.ReadKey(ref reader);
+                var key = deleted.Keys.ReadKey(ref reader);
 
                 PrepareDelete(deleted, key, sequence);
 
@@ -416,6 +404,7 @@ internal sealed class ReceivedChanges
         }
 
         var root = default(ArenaAddress);
+        PreparedChange change;
 
         try
         {
@@ -428,14 +417,8 @@ internal sealed class ReceivedChanges
                 return false;
             }
 
-            if (inserts)
-            {
-                table.Reserve(key);
-            }
-            else
-            {
-                _retired.Reserve();
-            }
+            change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root);
+            _publisher.Reserve(change);
         }
         catch
         {
@@ -443,7 +426,7 @@ internal sealed class ReceivedChanges
             throw;
         }
 
-        _prepared.Add(new Change(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, lastMutation));
+        _prepared.Add(change);
 
         return true;
     }
@@ -471,9 +454,11 @@ internal sealed class ReceivedChanges
             return;
         }
 
+        var change = new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default);
+
         try
         {
-            _retired.Reserve();
+            _publisher.Reserve(change);
         }
         catch
         {
@@ -481,59 +466,17 @@ internal sealed class ReceivedChanges
             throw;
         }
 
-        _prepared.Add(new Change(ChangeKindEnum.Delete, table, key, handle, default, sequence));
+        _prepared.Add(change);
     }
 
-    // Under the lock of the writes: publishes every change prepared, in the three steps of the class, with
-    // the position given, or none for a root of a load. Then what is retired is freed as after a write, by
-    // this thread.
-    private void Publish(ulong? position)
+    // Under the lock of the writes: publishes every change prepared, in the three steps of a publication,
+    // each with the stamp given, which becomes the position of the child unless they are a root of a load
+    // (see the class). Then what is retired is freed as after a write, by this thread.
+    private void Publish(ulong stamp, bool publishesPosition)
     {
-        // Whether a replace or a delete retires what it replaced or deleted.
-        var retires = false;
-
         try
         {
-            for (var index = 0; index < _prepared.Count; index++)
-            {
-                var change = _prepared[index];
-
-                switch (change.Kind)
-                {
-                    case ChangeKindEnum.Insert:
-                        _executor.Install(change.Table, change.Key, change.Handle, change.Root, change.Sequence);
-                        break;
-
-                    case ChangeKindEnum.Replace:
-                        _prepared[index] = change with { Replaced = _executor.MarkReplace(change.Table.Layout!, change.Handle, change.Root) };
-                        break;
-
-                    default:
-                        _executor.MarkDelete(change.Handle);
-                        break;
-                }
-            }
-
-            if (position is { } sequence)
-            {
-                _clock.Publish(sequence);
-            }
-
-            foreach (var change in _prepared)
-            {
-                switch (change.Kind)
-                {
-                    case ChangeKindEnum.Replace:
-                        _executor.StampReplace(change.Table.Layout!, change.Handle, change.Replaced, change.Sequence);
-                        retires = true;
-                        break;
-
-                    case ChangeKindEnum.Delete:
-                        _executor.StampDelete(change.Table, change.Key, change.Handle, change.Sequence);
-                        retires = true;
-                        break;
-                }
-            }
+            _publisher.Publish(CollectionsMarshal.AsSpan(_prepared), stamp, publishesPosition, armedFault: null);
         }
         catch
         {
@@ -546,36 +489,14 @@ internal sealed class ReceivedChanges
         SkippedStates += _skipped.Count;
         _skipped.Clear();
         _prepared.Clear();
-        _retired.AfterWrite(retiredNothing: retires ? 0 : 1);
+        _retired.AfterWrite();
     }
 
     // Under the lock of the writes: gives back everything the changes prepared since the last Publish
     // took, in the reverse of their order: no read has reached any of it.
     private void Abandon()
     {
-        for (var index = _prepared.Count - 1; index >= 0; index--)
-        {
-            var change = _prepared[index];
-
-            switch (change.Kind)
-            {
-                case ChangeKindEnum.Insert:
-                    RootStorage.Free(_arena, change.Table.Layout!, change.Root);
-                    change.Table.ReleaseReservation();
-                    _roots.Release(change.Handle);
-                    break;
-
-                case ChangeKindEnum.Replace:
-                    RootStorage.Free(_arena, change.Table.Layout!, change.Root);
-                    _retired.Release();
-                    break;
-
-                default:
-                    _retired.Release();
-                    break;
-            }
-        }
-
+        _publisher.Release(CollectionsMarshal.AsSpan(_prepared));
         _skipped.Clear();
         _prepared.Clear();
     }
@@ -583,14 +504,14 @@ internal sealed class ReceivedChanges
     // The key of a checked root, read where the root holds it and hashed under the seed of this instance.
     private EntityKey KeyOf(EntityTable table, in ReceivedRoot received)
     {
-        if (table.KeyKind == KeyKindEnum.Text)
+        if (table.Keys.KeyKind == KeyKindEnum.Text)
         {
-            return table.KeyOfText(_import.Text(received, table.EntityType.Key));
+            return table.Keys.KeyOfText(_import.Text(received, table.EntityType.Key));
         }
 
         var fixedPart = _import.FixedPart(received);
 
-        return table.StoredKey(fixedPart);
+        return table.Keys.StoredKey(fixedPart);
     }
 
     // A transaction names each key once: two changes of one key in one transaction would be prepared
@@ -600,7 +521,7 @@ internal sealed class ReceivedChanges
     {
         foreach (var change in _prepared)
         {
-            if (ReferenceEquals(change.Table, table) && table.KeysEqual(change.Key, key))
+            if (ReferenceEquals(change.Table, table) && table.Keys.KeysEqual(change.Key, key))
             {
                 throw NamedTwice(table, key);
             }
@@ -608,7 +529,7 @@ internal sealed class ReceivedChanges
 
         foreach (var (skippedTable, skippedKey) in _skipped)
         {
-            if (ReferenceEquals(skippedTable, table) && table.KeysEqual(skippedKey, key))
+            if (ReferenceEquals(skippedTable, table) && table.Keys.KeysEqual(skippedKey, key))
             {
                 throw NamedTwice(table, key);
             }
@@ -634,15 +555,4 @@ internal sealed class ReceivedChanges
 
         Abandon();
     }
-
-    private enum ChangeKindEnum
-    {
-        Insert = 1,
-        Replace = 2,
-        Delete = 3,
-    }
-
-    // One change prepared: what it does, to which entity, and what its publication installs; for a replace,
-    // the root it replaced, from step 1 of its publication on.
-    private readonly record struct Change(ChangeKindEnum Kind, EntityTable Table, EntityKey Key, RootHandle Handle, ArenaAddress Root, ulong Sequence, ArenaAddress Replaced = default);
 }

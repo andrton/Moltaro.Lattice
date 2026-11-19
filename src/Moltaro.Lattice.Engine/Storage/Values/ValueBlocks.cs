@@ -81,12 +81,17 @@ internal static class ValueBlocks
         TryStore(arena, root, layoutVersion, prepared, sharedText: false, length, ref source, place);
 
     // Allocates the blocks of the entry of a Dictionary text of length bytes, at least one, and fills
-    // them from the source, by the placement of TryStore: every block of kind SharedText, its header
-    // naming the slot of the entry instead of a root (owner), its parent none, a chunk's parent its
-    // directory. The descriptor in place becomes a Text descriptor with the length and the address of
-    // the block or the directory. Stored whole or not at all, as TryStore.
-    public static bool TryStoreText(Arena arena, RootHandle owner, bool prepared, int length, ref ValueSource source, scoped Span<byte> place) =>
-        TryStore(arena, owner, NoLayout, prepared, sharedText: true, length, ref source, place);
+    // them from the source, by the placement of TryStore: every block of kind SharedText, its parent
+    // none, a chunk's parent its directory, and its header naming the slot of the entry in the text table
+    // where the block of a root names its root, as a handle of generation 0, which no lifetime of a root
+    // has (RootTable); TextSlotOf reads it. The descriptor in place becomes a Text descriptor with the
+    // length and the address of the block or the directory. Stored whole or not at all, as TryStore.
+    public static bool TryStoreText(Arena arena, uint slot, bool prepared, int length, ref ValueSource source, scoped Span<byte> place) =>
+        TryStore(arena, new RootHandle(0, slot), NoLayout, prepared, sharedText: true, length, ref source, place);
+
+    // The slot of the text entry whose first block is at the address, as TryStoreText wrote it into the
+    // header of the block.
+    public static uint TextSlotOf(Arena arena, ArenaAddress address) => arena.Header(address).Root.Slot;
 
     // Names the root block as the parent of the value block or the directory of a value, with the
     // offset of its descriptor in the root block. A value inline or null has no block to adopt, and

@@ -108,7 +108,7 @@ internal sealed class RequestReceiver
             throw Protocol.Invalid($"A forwarded write names the entity type {request.TypeId}, which the master does not store.");
         }
 
-        var key = table.ReadKey(ref reader);
+        var key = table.Keys.ReadKey(ref reader);
         ReadOnlySequence<byte> root;
 
         if (request.Kind == WriteKindEnum.Delete)
@@ -158,11 +158,11 @@ internal sealed class RequestReceiver
     // unit.
     private bool HoldsKey(EntityTable table, in ReceivedRoot received, in EntityKey key)
     {
-        if (table.KeyKind == KeyKindEnum.Text)
+        if (table.Keys.KeyKind == KeyKindEnum.Text)
         {
             return string.Equals(_import.Text(received, table.EntityType.Key), key.Text, StringComparison.Ordinal);
         }
 
-        return table.KeysEqual(table.StoredKey(_import.FixedPart(received)), key);
+        return table.Keys.KeysEqual(table.Keys.StoredKey(_import.FixedPart(received)), key);
     }
 }

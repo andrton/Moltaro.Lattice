@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 //   layout version, root payload, values out of line, in the byte order the Hello has checked. The last
 //   mutation of the root is the sequence of its transaction.
 // - Delete: its kind, the type id of the entity (UInt32), then the key, in the form of the entity type
-//   of the key (Engine.Entities.EntityTable.WriteKey).
+//   of the key (Engine.Entities.PrimaryKeys.WriteKey).
 // - Unchanged: its kind and nothing more.
 // It travels in Transaction frames (FrameKindEnum.Transaction) cut from those bytes in their order: a
 // transaction begins a frame of its own, each frame holds at most Protocol.MaxDataPayload bytes of it,

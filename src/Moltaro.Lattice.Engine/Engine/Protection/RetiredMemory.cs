@@ -22,8 +22,8 @@ namespace Moltaro.Lattice.Engine.Protection;
 // because the arena, the table of root entries and the indexes take no lock and have one writer.
 // A read never frees. Freeing happens on the path of the operations of the database, and no thread
 // or timer is started for it:
-// - after every group of writes published, the writer looks once enough was counted since its last
-//   look (AfterWrite):
+// - after every publication of a position, a write on a master or a transaction on a child, and of a
+//   root of a load, the writer looks once enough was counted since its last look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look
 //   moves the epoch on and reads every slot, which costs about what reading the slots costs, so the
 //   look is made once for as many retired things as there are slots: about one read of a slot for
@@ -34,7 +34,10 @@ namespace Moltaro.Lattice.Engine.Protection;
 //   What a look could not free, because a read could still reach it, stays retired: in RetiredBytes
 //   and in the list. A later look frees it, once that read has left.
 //   A look that leaves retired things behind arms a second trigger: until a look leaves nothing
-//   behind, a published write that retires nothing counts as one thing.
+//   behind, a published write that retires nothing counts as one thing. Whether a publication retired
+//   nothing is noted here, not told by the writer: anything retired since the publication before it
+//   counts, so an insert whose reservation grew a primary index, and retired its old table, is a write
+//   that retired something.
 //   Without such a look a write that retires nothing counts nothing, also while something retired
 //   waits below the thresholds, so a load without a held read looks as often as it would without
 //   that trigger, and a load that retires nothing never looks.
@@ -88,6 +91,10 @@ internal sealed class RetiredMemory
     // nothing until a look leaves nothing behind (see the class).
     private bool _leftBehind;
 
+    // Whether anything was retired since the last publication (AfterWrite): by that publication, or by
+    // a preparation before it, as an insert whose reservation grew a primary index.
+    private bool _retiredSincePublication;
+
     // The epoch of the last thing retired.
     private long _newest;
 
@@ -98,6 +105,15 @@ internal sealed class RetiredMemory
     // group is in the storage step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator).
     private int _reserved;
+
+    // What the next write the arena refused runs at the first wait of its resolution, and on a child what
+    // the next transaction its arena refused twice runs before its applier waits for the reads, for the
+    // tests of the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it, and only
+    // a refused write or transaction loads it. The one field of this class written and read outside the
+    // lock of the writes: a test arms it from its own thread and the waiter takes it before it waits,
+    // outside every lock, so it is written with release semantics and taken by an interlocked exchange,
+    // which runs it once.
+    private Action? _waitHold;
 
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
@@ -138,15 +154,17 @@ internal sealed class RetiredMemory
         Add(RetiredKindEnum.IndexTable, layout: null, default, default, table, bytes);
     }
 
-    // After a publication, with the number of its writes that retired nothing: looks when enough was
-    // counted since the last look, those writes counting one thing each while the last look left
-    // something behind (see the class).
-    public void AfterWrite(int retiredNothing)
+    // After the publication of one position, or of one root of a load: looks when enough was counted
+    // since the last look, a publication after which nothing was retired since the one before it
+    // counting one thing while the last look left something behind (see the class).
+    public void AfterWrite()
     {
-        if (_leftBehind)
+        if (_leftBehind && !_retiredSincePublication)
         {
-            _itemsSinceLook += retiredNothing;
+            _itemsSinceLook++;
         }
+
+        _retiredSincePublication = false;
 
         if (_itemsSinceLook >= _itemsPerLook || _bytesSinceLook >= _bytesPerLook)
         {
@@ -207,6 +225,22 @@ internal sealed class RetiredMemory
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
     }
 
+    // Arms the switch of the tests for a refused write (_waitHold): the next one runs hold once, at the
+    // first wait of its resolution.
+    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
+
+    // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
+    // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
+    // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
+    // before it waits (Loading.ReceivedChanges.Apply).
+    public void RunWaitHold()
+    {
+        if (_waitHold is not null)
+        {
+            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+        }
+    }
+
     // After the close, once no read and no write is in progress: forgets everything retired. The arena
     // is disposed with every block, retired ones included, and the retired tables are let go of.
     public void Clear()
@@ -233,6 +267,7 @@ internal sealed class RetiredMemory
         _reserved--;
         _itemsSinceLook++;
         _bytesSinceLook += bytes;
+        _retiredSincePublication = true;
     }
 
     private void Free(in RetiredItem item)

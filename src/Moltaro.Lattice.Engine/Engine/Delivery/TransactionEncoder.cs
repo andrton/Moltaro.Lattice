@@ -42,10 +42,10 @@ internal static class TransactionEncoder
     }
 
     // A transaction whose one effect deletes the key of the entity type of the table. The key goes into the
-    // spans the tail gives (EntityTable.WriteKey): the text of a String key may be longer than a block.
+    // spans the tail gives (Entities.PrimaryKeys.WriteKey): the text of a String key may be longer than a block.
     public static void Delete(DeliveryTail tail, ulong sequence, EntityTable table, in EntityKey key)
     {
-        var effects = TransactionFormat.DeleteEnvelopeSize + table.KeyLength(key);
+        var effects = TransactionFormat.DeleteEnvelopeSize + table.Keys.KeyLength(key);
         const int Start = TransactionFormat.HeaderSize + TransactionFormat.DeleteEnvelopeSize;
 
         tail.Begin(sequence, effects);
@@ -57,7 +57,7 @@ internal static class TransactionEncoder
         effect[0] = (byte)EffectKindEnum.Delete;
         BinaryPrimitives.WriteUInt32LittleEndian(effect[1..], (uint)table.EntityType.Id);
         tail.Advance(Start);
-        table.WriteKey(key, tail);
+        table.Keys.WriteKey(key, tail);
     }
 
     // A transaction of a write that changed nothing.
