@@ -141,9 +141,16 @@ internal sealed class OrderedTree
     // the probe lies after the last entry of that leaf, one more from the root at the fence of the leaf,
     // the separator above it in its parent or further up, which every entry of the next leaf is at or
     // above (ordered-index.md, "Fences").
-    public bool TryFindFirst(scoped in SearchKey probe, out RootHandle identity)
+    //
+    // With an entry found, runEnds says whether the run of the key ends with it, as this descent sees the
+    // tree: the entry after it in its leaf has another key; or it is the last entry of its leaf, and the
+    // leaf has no fence, so no entry lies after it, or the fence has another key, so every entry after the
+    // leaf has a key above the fence's, which is above the probe's. A fence of the key says nothing, and
+    // the run is not taken to end.
+    public bool TryFindFirst(scoped in SearchKey probe, out RootHandle identity, out bool runEnds)
     {
         identity = default;
+        runEnds = false;
 
         var address = LoadRoot();
 
@@ -219,6 +226,9 @@ internal sealed class OrderedTree
         }
 
         identity = IndexLayout.IdentityOf(entry);
+        runEnds = place + 1 < node.Count
+            ? !_order.SameKey(probe, node.EntryAt(place + 1))
+            : !hasFence || !_order.SameKey(probe, fence);
 
         return true;
     }

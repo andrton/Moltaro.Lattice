@@ -28,7 +28,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 //    passes over it to the next entry of the run; so an entity is never returned under a key its current
 //    state does not have.
 // 4. Otherwise it copies the root, as a read by key does (IRootCopy.Copy), remembers its identity, and
-//    leaves the protection; the caller builds the entity outside it.
+//    leaves the protection; the caller builds the entity outside it. When the entry after the one it
+//    copied has another key and the sequence of the database did not change over the step, the search
+//    has no further entity at that sequence: the next step ends there, as it would after its descent, and
+//    takes no descent (EntityTable.TrySearch). It still enters the protection, so a step after the close
+//    is ObjectDisposedException, also then.
 // Every entity that has the key for the whole search is returned once: its entry is in the tree
 // throughout, the entries of one key are ordered by identity, and each step starts after the last
 // identity returned. A root entry that a search meets in a node is never released and given to another
@@ -61,6 +65,12 @@ internal sealed class IndexSearch
     // The identity after the entity of the last step, which the caller commits once it has built it.
     private RootHandle _staged;
 
+    // The sequence at which a step that returned an entity saw the end of the run of the key, null while
+    // none did, and the one the last step saw, committed with its entity.
+    private ulong? _endsAt;
+
+    private ulong? _stagedEnd;
+
     // A search of the table through the index, for the key given, which IndexCriteria bound to the index
     // and which gives a value to every field of it; standing before its first step. The index is null for
     // an entity type the engine does not store: such a search finds nothing, as a read by key does.
@@ -82,10 +92,16 @@ internal sealed class IndexSearch
         where TResult : class
     {
         _staged = _from;
+        _stagedEnd = _endsAt;
 
-        return _table.TrySearch<TCopy, TResult>(_index, _key, ref _staged, ref copy, out sequence, cancellationToken);
+        return _table.TrySearch<TCopy, TResult>(_index, _key, ref _staged, ref _stagedEnd, ref copy, out sequence, cancellationToken);
     }
 
-    // The entity of the last step was built: the next step starts after it.
-    public void Commit() => _from = _staged;
+    // The entity of the last step was built: the next step starts after it, or ends at the end its step
+    // saw.
+    public void Commit()
+    {
+        _from = _staged;
+        _endsAt = _stagedEnd;
+    }
 }

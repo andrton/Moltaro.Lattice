@@ -107,7 +107,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // entry of the key from an identity on, takes the root entry the entry names as a read by key takes it,
 // and copies the root only when it is live and has the key; otherwise it passes over the entry. At the
 // end of the run the sequence of the database read when the step began is the position of the end when
-// it is unchanged after the walk, as for an absent key; otherwise the step walks again.
+// it is unchanged after the walk, as for an absent key; otherwise the step walks again. The step that
+// copies an entity sees the end of the run too when the entry after it has another key, and then, under
+// the same condition, gives the sequence of the end with the entity, so that the next step ends there
+// without a descent.
 // Why every entity that nobody changes during the pass is returned once: its entry is in the index
 // throughout the pass, an entry does not move within a table, so a walk of a table meets it at its
 // word, and a walk of a grown table from its start meets it too; the key it stores is the same in
@@ -517,7 +520,17 @@ internal sealed class EntityTable
     // store, which has no index, finds nothing, as a read by key does. ObjectDisposedException after the
     // close; the token ends the wait for a slot of the protection, with OperationCanceledException.
     // Allocates nothing but what the copy makes.
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref RootHandle from, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+    //
+    // The end of the run seen by a step that copies an entity. EndsAt is the sequence at which an earlier
+    // step saw the end, null when none did; a step given one enters the protection, as every step does,
+    // and ends there without a descent. A step that copies an entity sets it to the sequence read when its
+    // walk began, before, when the tree showed it the end of the run (OrderedTree.TryFindFirst, runEnds)
+    // and the sequence of the database is still before once the entity is copied, and to null otherwise.
+    // That is the condition under which the next step would end at before: no entry of the key after the
+    // identity, under an unchanged sequence. A write that adds an entry of the key meanwhile publishes its
+    // position only after the entry (ChangePublisher.Publish): published before the check, it changed the
+    // sequence and nothing ends early; not yet published, its entity has no state at before.
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref RootHandle from, ref ulong? endsAt, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -535,20 +548,35 @@ internal sealed class EntityTable
                 return false;
             }
 
+            if (endsAt is { } end)
+            {
+                sequence = end;
+
+                return false;
+            }
+
             while (true)
             {
                 var before = _clock.Sequence;
                 var probe = start;
 
-                while (index.Tree.TryFindFirst(probe, out var identity))
+                while (index.Tree.TryFindFirst(probe, out var identity, out var runEnds))
                 {
                     // The entry is a hint: its root entry is not released while the step is inside,
                     // since the entries of a delete leave the tree before the entry is retired.
                     if (TryCopyFound<TCopy, TResult>(ref _roots.EntryOfSlot(identity.Slot), index, probe, ref copy, out sequence))
                     {
                         from = probe.After(identity).From;
+                        endsAt = runEnds && _clock.Sequence == before ? before : null;
 
                         return true;
+                    }
+
+                    // A hint passed over at the end of the run: the next descent would find no entry of the
+                    // key, so the walk ends here.
+                    if (runEnds)
+                    {
+                        break;
                     }
 
                     probe = probe.After(identity);

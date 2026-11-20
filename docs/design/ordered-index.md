@@ -406,6 +406,19 @@ runs has a new root entry, so a new identity, which can lie after the one the se
 returned before: the search then returns that entity twice. That no entity is returned
 twice also then is chosen with the walk of ranges (below).
 
+The step that finds an entity sees the end of the run as well when it can: the entry
+after the one it found, in its leaf, has another key; or that entry is the last of its
+leaf, and the leaf has no fence, or a fence of another key, above which every entry of
+the next leaf lies. When the sequence read at the start of its walk is unchanged once it
+has copied the entity, that is the condition under which the next step would end at that
+sequence, so the next step ends there without a descent. A write that adds an entry of the
+key meanwhile publishes its position after the entry: published before the check, it
+changed the sequence and nothing ends early; not yet published, its entity has no state at
+that sequence. The next step still enters the protection, so that a step after a close is
+refused as every step is. A lazy search so ends at the sequence of the step that returned
+its last entity, not at the sequence of a later call. A fence of the key says nothing:
+then the next step descends as before.
+
 The key is bound to the fields of the index once, outside the protection, and its fixed
 parts are written on the stack in their stored form, by the one writer of that form the
 root writer uses as well (`Storage/Values/StoredScalars.cs`; an entry copies its fixed
