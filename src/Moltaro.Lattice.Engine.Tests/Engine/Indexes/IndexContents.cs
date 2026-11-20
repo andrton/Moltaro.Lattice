@@ -36,6 +36,11 @@ internal sealed class IndexContents
     // The separators of the root when it is an inner node, empty otherwise.
     public List<object?[]> RootSeparators => _nodes.Count == 0 || _nodes[0].Level == 0 ? [] : [.. _nodes[0].Items.Select(item => item.Key)];
 
+    // Every node in the order of the walk, as one line of its level and its items, each key with the entity
+    // of an entry: the whole tree, for a test that states that it did not change.
+    public List<string> Walk =>
+        [.. _nodes.Select(node => $"{node.Level}: {string.Join("; ", node.Items.Select(item => $"({string.Join(", ", item.Key)}) {item.Entity}"))}")];
+
     public static IndexContents Of(EngineDatabase database, string entityType, string index)
     {
         Assert.True(database.Schema.TryGetEntityType(entityType, out var type));

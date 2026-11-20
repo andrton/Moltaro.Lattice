@@ -1,0 +1,79 @@
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
+
+// A write withdrawn before its publication gives back the nodes its indexes reserved
+// (docs/design/ordered-index.md, "The reservation"), and the token of a write is honored until its
+// dispatch, also once its indexes are reserved: its call ends in OperationCanceledException, and the write
+// has had no effect (decision on mutation commands, "Cancellation at the commit boundary";
+// Writes.WriteCoordinator, "Cancellation"). Apart from a fault of the database and the managed heap
+// running out, a cancellation is the one failure a write of a master meets after its indexes are reserved
+// and before its publication. A replace and a delete of entities of Ranked wait prepared behind a write of
+// an entity in no index that the storage step of the test holds (HeldCommitStorage): the replace moves the
+// entry of its entity in ByNumber, keeps it in ByLogin, whose long key it shares with the text entry, and
+// rewrites it in ByRegion, its Region now in another case; the delete takes the entries of its entity out
+// of all three. Both are cancelled: the database holds what it held before they were submitted
+// (HeldState), every search finds what it found, and the instance stays Ready; submitted again, both
+// succeed. An insert withdrawn so is stated by IndexPreparationTests.
+public sealed class CancelledAfterReservationTests
+{
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
+
+    [Fact]
+    public async Task Replace_and_delete_cancelled_after_their_indexes_reserved_nodes_give_every_node_back_and_succeed_when_submitted_again()
+    {
+        var storage = new HeldCommitStorage(holding: false);
+        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { CommitStorage = storage });
+
+        try
+        {
+            var ranked = database.Set<IndexSchema.Ranked>();
+            var uncounted = database.Set<IndexSchema.Uncounted>();
+            var replaced = new IndexSchema.Ranked { Id = 1, Number = 1, Login = new string('a', 100), Region = "North" };
+            var deleted = new IndexSchema.Ranked { Id = 2, Number = 2, Login = "login 2", Region = "South" };
+            var moved = new IndexSchema.Ranked { Id = 1, Number = 3, Login = replaced.Login, Region = "NORTH" };
+
+            await ranked.InsertAsync(replaced);
+            await ranked.InsertAsync(deleted);
+            await uncounted.InsertAsync(new IndexSchema.Uncounted { Id = 1, Number = 1 });
+
+            storage.Hold();
+            var first = uncounted.ReplaceAsync(new IndexSchema.Uncounted { Id = 1, Number = 2 }).AsTask();
+            await storage.NextAsync();
+            var alone = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted");
+            var held = HeldState.Of(database);
+
+            using var cancellation = new CancellationTokenSource();
+            var replace = ranked.ReplaceAsync(moved, cancellation.Token).AsTask();
+            var delete = ranked.DeleteAsync(deleted.Id, cancellation.Token).AsTask();
+            var waiting = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 3, "the replace and the delete are admitted");
+
+            Assert.True(waiting.Arena.PreparedBytes - alone.Arena.PreparedBytes >= IndexSchema.NodeBytes, "The replace and the delete reserved no node of their indexes.");
+
+            await cancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replace.WaitAsync(Bound));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => delete.WaitAsync(Bound));
+
+            held.ExpectHeldBy(database);
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
+            RankedSearch.ExpectFound(database, replaced, [1L]);
+            RankedSearch.ExpectFound(database, deleted, [2L]);
+            Assert.Empty(ranked.Index("ByNumber").Find(IndexKey.Equal(moved.Number)));
+
+            storage.ReleaseAll();
+            await first.WaitAsync(Bound);
+            await ranked.ReplaceAsync(moved);
+            await ranked.DeleteAsync(deleted.Id);
+
+            RankedSearch.ExpectFound(database, moved, [1L]);
+            RankedSearch.ExpectFound(database, deleted, []);
+            Assert.Empty(ranked.Index("ByNumber").Find(IndexKey.Equal(replaced.Number)));
+        }
+        finally
+        {
+            storage.ReleaseAll();
+            await database.CloseAsync().AsTask().WaitAsync(Bound);
+        }
+    }
+}
