@@ -32,9 +32,13 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // step.
 internal readonly ref struct SearchKey
 {
-    // The most UTF-8 bytes of the text of one String part the scratch holds: a key of the length of the
-    // copied keys of an entry and of a good many shared ones; a longer one is compared decoded, which needs
-    // no copy on the stack.
+    // The most UTF-8 bytes of the text of one String part that a step writes into the scratch on its
+    // stack: it bounds the copy of the text of a key compared Ordinal in a UTF-8 database, part by part, and
+    // nothing else. A part whose text takes these bytes or fewer is compared as bytes with the stored text;
+    // a longer one has no bytes in the scratch and is compared decoded, a piece at a time, which needs no
+    // copy on the stack and gives the same result, the order of the UTF-16 code units of the two texts
+    // (Comparison.ValueComparer). So a key of 256 bytes and one of 257 order and find as the oracle does,
+    // also as a part of a composite key.
     public const int TextBytesPerPart = 256;
 
     // The scratch a search key takes at most: the null bitmap of four parts, four parts of 16 bytes, the
