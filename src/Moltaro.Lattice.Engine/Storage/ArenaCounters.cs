@@ -16,8 +16,9 @@ namespace Moltaro.Lattice.Storage;
 // unchanged does not reclaim it. LiveBytes plus ClassSlackBytes is the capacity of the slots of
 // live blocks.
 //
-// PreparedBytes: the capacity of the slots of prepared blocks, allocated for a write that is not
-// published yet (TryAllocatePrepared), whole, until Publish or Free.
+// PreparedBytes: the capacity of the slots of prepared blocks (TryAllocatePrepared), whole, until
+// Publish or Free: blocks no reader can reach, taken for a write that is not published yet or held in
+// the standing reserve of an index for no write.
 //
 // RetiredBytes: the capacity of the slots of retired blocks, detached from their owner but not
 // reusable yet, because a reader or another retainer may still reach them. They are freed once the

@@ -35,8 +35,8 @@ internal sealed unsafe class ArenaSegment
     // because each block clears its bit when it is freed.
     private readonly ulong[] _slotBits;
 
-    // One bit per slot, in the same order: set while the block in the slot is prepared, allocated
-    // for a write that has not published it yet (Arena.TryAllocatePrepared). It is clear for every
+    // One bit per slot, in the same order: set while the block in the slot is prepared, reachable by no
+    // reader until a write publishes it (Arena.TryAllocatePrepared). It is clear for every
     // free slot, because a block clears it when it is published or freed.
     private readonly ulong[] _preparedBits;
 
