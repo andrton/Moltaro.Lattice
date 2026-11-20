@@ -5,7 +5,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // arena cannot hold takes nothing and is refused as a write the memory budget cannot hold is: before its
 // commit (docs/design/ordered-index.md, "The reservation"; decision on write admission, Q14: WriteRejected
 // with Limit Memory, and the write has had no effect). In an arena full but for the room of a root and its
-// texts (FullArena), a replace of the first entity of Ranked that gives it new keys in all three indexes,
+// texts, whose fill ends by a refusal of a filler and leaves no free slot of the class of the nodes
+// (FullArena), a replace of the first entity of Ranked that gives it new keys in all three indexes,
 // a new long Login and a new Region among them, and a delete of it, are each refused for memory: the
 // entity keeps its state, a search of each index finds it by the keys it had and nothing by the keys of
 // the replace, the database holds what it held, its text entries and the nodes of its indexes included

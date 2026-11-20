@@ -29,10 +29,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // - Inserts that wait while some of them, every third, are withdrawn: the pool stays within the bound of
 //   the writes still waiting after the withdrawals, and once the rest are published, the tree has grown and
 //   its entries are those of the inserts that ran.
-// - A write withdrawn while it waits, because its token was cancelled, leaves the prepared bytes as the
-//   writes before it held them, and nothing of it is found or left in the arena.
-// - A write cancelled while it is being prepared, held there by the allocator of the test when its large
-//   value needs a new segment (HeldPreparation), leaves the same, its new text entries included.
+// - An insert withdrawn while it waits, because its token was cancelled: as the first write of its index it
+//   takes nodes from the arena, and the same insert withdrawn once more leaves the prepared bytes as the
+//   first withdrawal left them, however many nodes the pool keeps while nothing waits; nothing of it is
+//   found or left in the arena.
+// - An insert cancelled while it is being prepared, held there by the allocator of the test when its large
+//   value needs a new segment (HeldPreparation), twice: the second leaves the same as the first, its new
+//   text entries included.
 // A faulted write is stated by IndexCloseTests, a write the arena cannot hold by RefusedReservationTests.
 public sealed class IndexPreparationTests
 {
@@ -225,11 +228,6 @@ public sealed class IndexPreparationTests
             var counted = database.Set<IndexSchema.Counted>();
             var uncounted = database.Set<IndexSchema.Uncounted>();
 
-            for (var id = 1L; id <= Existing; id++)
-            {
-                await counted.InsertAsync(new IndexSchema.Counted { Id = id, Number = id });
-            }
-
             await uncounted.InsertAsync(new IndexSchema.Uncounted { Id = 1, Number = 1 });
             database.DrainRetired();
             var before = database.Counters;
@@ -239,14 +237,16 @@ public sealed class IndexPreparationTests
             await storage.NextAsync();
             var alone = (await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted")).Arena.PreparedBytes;
 
-            using var cancellation = new CancellationTokenSource();
-            var withdrawn = counted.InsertAsync(new IndexSchema.Counted { Id = 100, Number = 100 }, cancellation.Token).AsTask();
-            var both = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 2, "both writes are admitted");
+            // The insert is the first write of ByNumber, whose pool holds nothing yet: the nodes it reserves
+            // come from the arena.
+            var both = await WithdrawnWhileItWaitsAsync(database, counted);
 
             Assert.True(both.Arena.PreparedBytes > alone + IndexSchema.CountedFixedSize, "The waiting insert reserved no node of the index.");
 
-            await cancellation.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => withdrawn.WaitAsync(Bound));
+            // The same insert once more: the state it is compared with is the one the first withdrawal left,
+            // however many nodes the pool of ByNumber keeps while nothing waits.
+            alone = database.Counters.Arena.PreparedBytes;
+            await WithdrawnWhileItWaitsAsync(database, counted);
 
             Assert.Equal(alone, database.Counters.Arena.PreparedBytes);
 
@@ -271,9 +271,11 @@ public sealed class IndexPreparationTests
     {
         var allocator = new CountingNativeAllocator();
         var storage = new HeldCommitStorage(holding: false);
+        // No segment is kept in reserve, so that a segment the first cancelled insert emptied is returned,
+        // and the second needs a new one as well.
         var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs
         {
-            Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize },
+            Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize, ReservedSegments = 0 },
             Allocator = allocator,
             CommitStorage = storage,
         });
@@ -291,25 +293,20 @@ public sealed class IndexPreparationTests
             await uncounted.InsertAsync(new IndexSchema.Uncounted { Id = 1, Number = 1 });
             database.DrainRetired();
             var before = database.Counters;
-            var texts = database.TextReferences().Count;
 
             storage.Hold();
             var first = uncounted.ReplaceAsync(new IndexSchema.Uncounted { Id = 1, Number = 2 }).AsTask();
             await storage.NextAsync();
-            var alone = (await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted")).Arena.PreparedBytes;
+            await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted");
 
-            // A Note of 5 MiB outgrows the segment the database has; a long Login and a new Region bring
-            // text entries, which are shared with the index.
-            using var cancellation = new CancellationTokenSource();
-            using var held = HeldPreparation.Arm(allocator);
-            var withdrawn = new IndexSchema.Ranked { Id = 100, Number = 100, Login = new string('l', 100), Region = new string('r', 100), Note = new string('n', 5 * 1024 * 1024) };
-            var cancelled = Task.Run(() => ranked.InsertAsync(withdrawn, cancellation.Token).AsTask());
+            // The same insert is cancelled while it is prepared twice, and the state it is compared with is
+            // the one the first cancellation left, however many nodes the pools of the indexes keep while
+            // nothing waits.
+            await CancelledWhileItIsPreparedAsync(ranked, allocator);
+            var alone = database.Counters.Arena.PreparedBytes;
+            var texts = database.TextReferences().Count;
 
-            await held.HeldAsync();
-            var cancelling = cancellation.CancelAsync();
-            held.Release();
-            await cancelling.WaitAsync(Bound);
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
+            await CancelledWhileItIsPreparedAsync(ranked, allocator);
 
             Assert.Equal(alone, database.Counters.Arena.PreparedBytes);
             Assert.Equal(texts, database.TextReferences().Count);
@@ -329,6 +326,37 @@ public sealed class IndexPreparationTests
             storage.ReleaseAll();
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
+    }
+
+    // An insert of Ranked 100 whose Note of 5 MiB outgrows the segments the database has, held by the
+    // allocator of the test while it is prepared (HeldPreparation), cancelled there, and let go; a long
+    // Login and a new Region bring text entries, which are shared with the index.
+    private static async Task CancelledWhileItIsPreparedAsync(ILatticeSet<IndexSchema.Ranked> ranked, CountingNativeAllocator allocator)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var held = HeldPreparation.Arm(allocator);
+        var withdrawn = new IndexSchema.Ranked { Id = 100, Number = 100, Login = new string('l', 100), Region = new string('r', 100), Note = new string('n', 5 * 1024 * 1024) };
+        var cancelled = Task.Run(() => ranked.InsertAsync(withdrawn, cancellation.Token).AsTask());
+
+        await held.HeldAsync();
+        var cancelling = cancellation.CancelAsync();
+        held.Release();
+        await cancelling.WaitAsync(Bound);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
+    }
+
+    // An insert of Counted 100, admitted behind the write the storage step holds and withdrawn there by its
+    // token; the counters while it waited.
+    private static async Task<EngineCounters> WithdrawnWhileItWaitsAsync(EngineDatabase database, ILatticeSet<IndexSchema.Counted> counted)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var withdrawn = counted.InsertAsync(new IndexSchema.Counted { Id = 100, Number = 100 }, cancellation.Token).AsTask();
+        var both = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 2, "both writes are admitted");
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => withdrawn.WaitAsync(Bound));
+
+        return both;
     }
 
     // The inserts of ids from 101 on and the deletes of ids from 1 on, of the set given.

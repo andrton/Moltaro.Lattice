@@ -5,37 +5,53 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // before it reserved their nodes gives those back as well, and is refused as a write the memory budget
 // cannot hold is, before its commit, with no effect (docs/design/ordered-index.md, "The reservation";
 // decision on write admission, Q14: WriteRejected with Limit Memory, and the write has had no effect).
-// In an arena full but for the room of a root and its texts (FullArena), five fillers are deleted, which
-// frees five slots of 1 KiB: an insert into an index of one leaf reserves 2 · 1 + 1 = 3 nodes, so the
-// first index of Ranked reserves its nodes and the next takes the two left before it is refused. Second,
-// with keys of its own in all three indexes, is refused for memory there: the database holds what it
-// held, the nodes of its indexes included (HeldState), a search finds nothing of Second, and the instance
-// stays Ready. Once more memory is freed, the same insert succeeds and every index finds it.
+// The arena is full but for the room of a root and its texts: the fill ends by a refusal of a filler and
+// leaves no free slot of the class of the nodes (FullArena). Then one filler after the other is deleted,
+// one slot of 1 KiB each, and Second, with keys of its own in all three indexes of Ranked, is written
+// after each until it succeeds. At every refusal the database holds what it held before the write, the
+// nodes of its indexes included (HeldState), a search finds nothing of Second, and the instance stays
+// Ready. An insert takes at least one node in each of the three indexes, so the refusal with one slot
+// fewer than the insert succeeds with came after the first index had all it needs: a refusal at a later
+// index. Once the insert succeeds, every index finds it.
 public sealed class RefusalAtALaterIndexTests
 {
-    // Slots of 1 KiB freed: one fewer than two indexes of one leaf reserve for an insert.
-    private const int Freed = 5;
+    // Far more slots than an insert into three trees of one leaf can take.
+    private const int MostFreed = 30;
+
+    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Insert_refused_at_a_later_index_gives_back_the_nodes_the_indexes_before_it_reserved_and_succeeds_once_memory_is_freed()
     {
         await using var database = await FullArena.OpenAsync();
         var ranked = database.Set<IndexSchema.Ranked>();
+        var refusals = 0;
 
-        await FullArena.FreeAsync(database, 1, Freed);
-        var held = HeldState.Of(database);
+        for (var freed = 1; ; freed++)
+        {
+            var held = HeldState.Of(database);
+            var refusal = await Record.ExceptionAsync(() => ranked.InsertAsync(FullArena.Second).AsTask().WaitAsync(Bound));
 
-        await FullArena.ExpectRefusedAsync(ranked.InsertAsync(FullArena.Second).AsTask());
+            if (refusal is null)
+            {
+                break;
+            }
 
-        Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
-        held.ExpectHeldBy(database);
-        Assert.Null(ranked.Get(FullArena.Second.Id));
-        RankedSearch.ExpectFound(database, FullArena.Second, []);
-        RankedSearch.ExpectFound(database, FullArena.First, [1L]);
+            var refused = Assert.IsType<LatticeException>(refusal);
 
-        await FullArena.FreeAsync(database, Freed + 1, Freed + 10);
-        await ranked.InsertAsync(FullArena.Second);
+            Assert.Equal((LatticeErrorEnum.WriteRejected, LatticeLimitEnum.Memory), (refused.Error, refused.Limit));
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
+            held.ExpectHeldBy(database);
+            Assert.Null(ranked.Get(FullArena.Second.Id));
+            RankedSearch.ExpectFound(database, FullArena.Second, []);
+            RankedSearch.ExpectFound(database, FullArena.First, [1L]);
+            refusals++;
 
+            Assert.True(freed <= MostFreed, $"The insert was refused with {MostFreed} slots of 1 KiB freed.");
+            await FullArena.FreeAsync(database, freed, freed);
+        }
+
+        Assert.True(refusals > 0, "The insert was never refused.");
         RankedSearch.ExpectFound(database, FullArena.Second, [2L]);
         RankedSearch.ExpectFound(database, FullArena.First, [1L]);
     }

@@ -12,6 +12,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // then the texts of Filler, a Dictionary field of 992 bytes whose entries take blocks of 1 KiB too, fill the
 // region of the nodes beside the region of their own roots, until the arena refuses one. A filler deleted,
 // once what it held is drained, gives back one slot of 1 KiB.
+//
+// The premise of every refusal of a master that these tests bring about: the fill ends by a refusal of a
+// filler and leaves no free slot of the class of the nodes. A write is refused for memory only when it
+// does not fit beside the stored data (decision on write admission, Q14), so before the refusal every
+// index gives back what its pool holds above the need of the writes prepared, none here, and the filler
+// is tried once more: what a pool held, the refused filler found free, and after the fill the pools hold
+// nothing beside the nodes of the trees.
 internal static class FullArena
 {
     public const int Regions = 5;

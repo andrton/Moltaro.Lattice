@@ -8,15 +8,16 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // before its commit (docs/design/ordered-index.md, "The reservation"; decision on write admission, Q14:
 // WriteRejected with Limit Memory, and the write has had no effect).
 //
-// The arena of these tests holds all it may beside one entity of Ranked (Refusals.FullArena). A write of
-// Ranked then finds a place for its root and for its long Login, and none for the nodes its indexes need:
-// it is WriteRejected with Limit Memory and leaves nothing behind — no root entry, no prepared, live or
-// retired byte, no native segment, no text entry and no reference, nothing found by a search; every
-// counter is as before — and the instance stays Ready. One thing it may leave grown: the managed capacity
-// of the text table, whose bucket table a new entry may have grown before the arena refused the entry, and
-// which keeps that room for the next one (Storage.Text.TextTable). That capacity is reported and not
-// charged to the memory budget (EngineCounters, TextTableBytes); it never shrinks for the refusal. Once
-// memory is freed, the same write succeeds and is found.
+// The arena of these tests holds all it may beside one entity of Ranked: its fill ends by a refusal of a
+// filler and leaves no free slot of the class of the nodes (Refusals.FullArena). A write of Ranked then
+// finds a place for its root and for its long Login, and none for the nodes its indexes need: it is
+// WriteRejected with Limit Memory and leaves nothing behind — no root entry, no prepared, live or retired
+// byte, no native segment, no text entry and no reference, nothing found by a search; every counter is as
+// before — and the instance stays Ready. One thing it may leave grown: the managed capacity of the text
+// table, whose bucket table a new entry may have grown before the arena refused the entry, and which keeps
+// that room for the next one (Storage.Text.TextTable). That capacity is reported and not charged to the
+// memory budget (EngineCounters, TextTableBytes); it never shrinks for the refusal. Once memory is freed,
+// the same write succeeds and is found.
 public sealed class RefusedReservationTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
