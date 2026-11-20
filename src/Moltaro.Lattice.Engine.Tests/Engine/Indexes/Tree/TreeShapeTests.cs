@@ -62,7 +62,7 @@ public sealed class TreeShapeTests
 
         ExpectShape(index, order, held);
 
-        Assert.True(index.Tree.Height >= 3, $"{held.Count} entries made a tree of {index.Tree.Height} levels.");
+        Assert.True(TreeWalk.HeightOf(index) >= 3, $"{held.Count} entries made a tree of {TreeWalk.HeightOf(index)} levels.");
 
         foreach (var entry in held)
         {
@@ -72,7 +72,7 @@ public sealed class TreeShapeTests
 
         retired.Drain();
 
-        Assert.Equal((0, 0L, 0L), (index.Tree.Height, index.Tree.Count, index.Tree.Bytes));
+        Assert.Equal((0, 0L, 0L), (TreeWalk.HeightOf(index), TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
         Assert.True(item.Arena.Counters.PreparedBytes <= ReservationNeed.OfOneChangeOfKey(height: 0, room: 0, index.Layout.LeastSeparators) * index.Layout.NodeBytes, "The arena holds prepared bytes beyond the reserve of the empty tree.");
         Assert.Equal(0, item.Arena.Counters.RetiredBytes);
     }
@@ -86,13 +86,13 @@ public sealed class TreeShapeTests
 
         if (nodes.Count > 0)
         {
-            Assert.Equal(index.Tree.Height - 1, nodes[0].Level);
+            Assert.Equal(TreeWalk.HeightOf(index) - 1, nodes[0].Level);
             Walk(nodes, ref next, order, lower: null, upper: null, entries);
         }
 
         Assert.Equal(nodes.Count, next);
-        Assert.Equal(held.Count, index.Tree.Count);
-        Assert.Equal((long)nodes.Count * index.Layout.NodeBytes, index.Tree.Bytes);
+        Assert.Equal(held.Count, TreeWalk.CountOf(index));
+        Assert.Equal((long)nodes.Count * index.Layout.NodeBytes, TreeWalk.BytesOf(index));
 
         var expected = held.Select(Convert.ToHexString).Order(StringComparer.Ordinal);
 

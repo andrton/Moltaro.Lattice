@@ -32,8 +32,8 @@ public sealed class ContradictionTests
         index.Tree.Insert(held);
         retired.Drain();
 
-        var count = index.Tree.Count;
-        var bytes = index.Tree.Bytes;
+        var count = TreeWalk.CountOf(index);
+        var bytes = TreeWalk.BytesOf(index);
         var arena = item.Arena.Counters;
 
         Assert.Equal(1, count);
@@ -48,7 +48,7 @@ public sealed class ContradictionTests
 
         retired.Drain();
 
-        Assert.Equal((count, bytes), (index.Tree.Count, index.Tree.Bytes));
+        Assert.Equal((count, bytes), (TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
         Assert.Equal(arena, item.Arena.Counters);
     }
 }
