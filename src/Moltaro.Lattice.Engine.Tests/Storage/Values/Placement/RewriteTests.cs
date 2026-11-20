@@ -117,7 +117,7 @@ public sealed class RewriteTests
 
         RootStorage.Free(item.Arena, item.Layout, root);
 
-        Assert.False(item.Arena.IsValid(root));
+        Assert.False(ArenaBlocks.IsValid(item.Arena, root));
         Assert.Equal(StoredBytes.Zero, StoredBytes.In(item.Arena));
     }
 

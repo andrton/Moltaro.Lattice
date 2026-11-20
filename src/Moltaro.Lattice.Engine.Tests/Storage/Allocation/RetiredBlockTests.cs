@@ -22,13 +22,13 @@ public sealed class RetiredBlockTests
 
         var after = arena.Counters;
 
-        Assert.True(arena.IsValid(block));
+        Assert.True(ArenaBlocks.IsValid(arena, block));
         Assert.All(arena.Payload(block).ToArray(), value => Assert.Equal(7, value));
         Assert.Equal(Arena.BlockSizeFor(100), after.RetiredBytes);
         Assert.Equal(before.LiveBytes + before.ClassSlackBytes - Arena.BlockSizeFor(100), after.LiveBytes + after.ClassSlackBytes);
         Assert.Equal(Arena.BlockSizeFor(10) - 32 - 10, after.ClassSlackBytes);
         Assert.Equal(before with { LiveBytes = after.LiveBytes, ClassSlackBytes = after.ClassSlackBytes, RetiredBytes = after.RetiredBytes }, after);
-        Assert.True(arena.IsValid(kept));
+        Assert.True(ArenaBlocks.IsValid(arena, kept));
     }
 
     [Fact]
@@ -44,11 +44,11 @@ public sealed class RetiredBlockTests
             arena.Retire(block);
             arena.Free(block);
 
-            Assert.False(arena.IsValid(block));
+            Assert.False(ArenaBlocks.IsValid(arena, block));
             Assert.Equal(before, arena.Counters);
         }
 
-        Assert.True(arena.IsValid(kept));
+        Assert.True(ArenaBlocks.IsValid(arena, kept));
     }
 
     [Fact]

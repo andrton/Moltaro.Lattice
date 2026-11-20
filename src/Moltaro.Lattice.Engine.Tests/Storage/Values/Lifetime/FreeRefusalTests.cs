@@ -26,7 +26,7 @@ public sealed class FreeRefusalTests
         Assert.Throws<ArgumentException>(() => RootStorage.Free(item.Arena, item.Layout, copy));
 
         Assert.Equal(before, item.Arena.Counters);
-        Assert.True(item.Arena.IsValid(copy));
+        Assert.True(ArenaBlocks.IsValid(item.Arena, copy));
         Assert.Equal(new string('t', 1_000), item.Reader(root).GetString(item.Field("Text")));
     }
 
@@ -44,7 +44,7 @@ public sealed class FreeRefusalTests
         Assert.Throws<ArgumentException>(() => RootStorage.Free(item.Arena, item.Layout, root));
 
         Assert.Equal(before, item.Arena.Counters);
-        Assert.True(item.Arena.IsValid(root));
+        Assert.True(ArenaBlocks.IsValid(item.Arena, root));
     }
 
     // A root whose text has a value block of its own.

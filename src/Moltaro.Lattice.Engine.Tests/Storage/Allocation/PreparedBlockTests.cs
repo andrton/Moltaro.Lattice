@@ -17,7 +17,7 @@ public sealed class PreparedBlockTests
 
         var block = Prepare(arena, 100);
 
-        Assert.True(arena.IsValid(block));
+        Assert.True(ArenaBlocks.IsValid(arena, block));
         Assert.True(arena.IsPrepared(block));
         Assert.Equal(Arena.BlockSizeFor(100), arena.Counters.PreparedBytes);
         Assert.Equal(0, arena.Counters.LiveBytes);
@@ -52,9 +52,9 @@ public sealed class PreparedBlockTests
         var block = Prepare(arena, 3_000);
         arena.Free(block);
 
-        Assert.False(arena.IsValid(block));
+        Assert.False(ArenaBlocks.IsValid(arena, block));
         Assert.Equal(before, arena.Counters);
-        Assert.True(arena.IsValid(kept));
+        Assert.True(ArenaBlocks.IsValid(arena, kept));
     }
 
     [Fact]

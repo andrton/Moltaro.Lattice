@@ -26,7 +26,7 @@ public sealed class DamagedHeaderTests
 
             Assert.Throws<InvalidOperationException>(() => arena.Free(address));
 
-            Assert.True(arena.IsValid(address));
+            Assert.True(ArenaBlocks.IsValid(arena, address));
             Assert.Equal(before, arena.Counters);
         }
 
@@ -34,7 +34,7 @@ public sealed class DamagedHeaderTests
         arena.Header(address).PayloadLength = 100;
         arena.Free(address);
 
-        Assert.False(arena.IsValid(address));
+        Assert.False(ArenaBlocks.IsValid(arena, address));
         Assert.Equal(0, arena.Counters.LiveBytes);
         Assert.Equal(0, arena.Counters.ClassSlackBytes);
     }

@@ -91,7 +91,7 @@ public sealed class WriterLifeTests
 
         // The root stays the caller's, as Complete left it.
         Assert.Equal(after, StoredBytes.In(item.Arena));
-        Assert.True(item.Arena.IsValid(root));
+        Assert.True(ArenaBlocks.IsValid(item.Arena, root));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class WriterLifeTests
         writer.Abandon();
 
         Assert.Equal(before, StoredBytes.In(item.Arena));
-        Assert.True(item.Arena.IsValid(kept));
+        Assert.True(ArenaBlocks.IsValid(item.Arena, kept));
     }
 
     [Fact]

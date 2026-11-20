@@ -126,7 +126,7 @@ public sealed class NativeMemoryTests
 
         // The arena is as it was before the failed allocation, and holds every segment it obtained.
         Assert.Equal(before, arena.Counters);
-        Assert.All(blocks, block => Assert.True(arena.IsValid(block)));
+        Assert.All(blocks, block => Assert.True(ArenaBlocks.IsValid(arena, block)));
         Assert.Equal(2, allocator.Obtained);
         Assert.Equal(arena.Counters.Segments, allocator.Outstanding);
 

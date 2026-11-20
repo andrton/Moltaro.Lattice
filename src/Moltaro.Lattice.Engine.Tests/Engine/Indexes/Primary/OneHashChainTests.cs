@@ -114,7 +114,7 @@ public sealed class OneHashChainTests
         var enumerated = new List<uint>();
         var position = 0L;
 
-        while (table.TryFindNext(ref position, out var slot))
+        while (table.TryFindNext(ref position, long.MaxValue, out var slot, out _))
         {
             enumerated.Add(slot);
         }
