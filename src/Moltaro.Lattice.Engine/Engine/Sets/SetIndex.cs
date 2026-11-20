@@ -15,9 +15,10 @@ namespace Moltaro.Lattice.Engine.Sets;
 // index cannot serve is ArgumentException, and the default of IndexKey is no key. The search by the full
 // key of the index is built; a search by its leading fields, with a range, in reverse, or with Offset or
 // Limit is the walk of ranges, which is not built, and is refused with NotSupportedException; nothing is
-// answered by reading every entity instead. Find is lazy, and every enumerator it gives is a search of
-// its own (IndexMatches); FindAsync waits for the position of its session first, outside every lock and
-// the protection of reads, and then runs the search to its end (IndexSearch).
+// answered by reading every entity instead. Find is lazy, one object that is its result and its first
+// enumerator, and every enumerator it gives is a search of its own (IndexMatches); FindAsync waits for the
+// position of its session first, outside every lock and the protection of reads, and then runs the search
+// to its end, with the search on its stack (IndexSearch).
 //
 // It holds no state that changes and keeps nothing of a search, so it is safe to keep and to share
 // between threads, and the database holds no reference to it.
@@ -111,13 +112,13 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     // reads; the position of the answer covers every step, its end included, and the session moves to it.
     private LatticeFindResult<TEntity> FindAll(in IndexKey bound, LatticeSession? session, CancellationToken cancellationToken)
     {
-        var search = new IndexSearch(_operations.Table, _index, bound);
+        var search = default(IndexSearch);
         var items = new List<TEntity>();
         var last = 0UL;
 
         while (true)
         {
-            var found = _operations.Next<TCopy, TEntity>(search, _prototype, out var sequence, cancellationToken);
+            var found = _operations.Next<TCopy, TEntity>(ref search, _index, bound, _prototype, out var sequence, cancellationToken);
 
             last = Math.Max(last, sequence);
 

@@ -441,6 +441,15 @@ comparison. A root entry met in a node is never released and given to
 another root while the search is inside, because the entries of a delete leave the tree
 before its entry is retired, so the identity needs no check of its generation.
 
+A lazy search, `Find`, is one object: the enumerable it returns is also the enumerator its
+first `GetEnumerator` gives, and it holds the bound key once and where the search stands
+between two steps, the identity after the last entity returned and the sequence of an end
+a step saw; a further `GetEnumerator` is a search of its own. The search key of a step
+refers to that bound key and does not copy it. A search that returns one entity so
+allocates that object and the entity: through a class 328 bytes and the entity. `FindAsync`
+runs its search to its end with the position on its stack, and allocates the list of its
+result, the result and the entities.
+
 ### The hot key
 
 A key that many entities share is one long run: the prototype checked a run of 6,000

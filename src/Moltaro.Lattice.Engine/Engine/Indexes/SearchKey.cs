@@ -27,7 +27,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // is not well-formed, has no bytes and is compared decoded. A key has at most four values
 // (IndexKey.Equal), so ScratchBytes always holds them.
 //
-// A readonly ref struct: it refers to the scratch, and lives on the stack of the step.
+// A readonly ref struct: it refers to the scratch and to the bound key, which it does not copy and which
+// its caller holds for the whole search (Sets.IndexMatches, Sets.SetIndex), and lives on the stack of the
+// step.
 internal readonly ref struct SearchKey
 {
     // The most UTF-8 bytes of the text of one String part the scratch holds: a key of the length of the
@@ -57,8 +59,8 @@ internal readonly ref struct SearchKey
 
     private readonly IndexLayout _layout;
 
-    // The key, bound: a value for every part of the index.
-    private readonly IndexKey _key;
+    // The key, bound: a value for every part of the index, where its caller holds it.
+    private readonly ref readonly IndexKey _key;
 
     // The null bitmap, the stored bytes of the fixed-width parts and the bytes of the texts, in the scratch.
     private readonly ReadOnlySpan<byte> _scratch;
@@ -73,7 +75,7 @@ internal readonly ref struct SearchKey
         Debug.Assert(bound.Count == parts.Length && parts.Length <= 4, "A search key gives a value to every part of its index.");
 
         _layout = layout;
-        _key = bound;
+        _key = ref bound;
         From = from;
         scratch[0] = 0;
 
@@ -114,10 +116,10 @@ internal readonly ref struct SearchKey
     }
 
     // The same key with the scratch it wrote, from another identity.
-    private SearchKey(IndexLayout layout, scoped in IndexKey bound, ReadOnlySpan<byte> written, RootHandle from)
+    private SearchKey(IndexLayout layout, ref readonly IndexKey bound, ReadOnlySpan<byte> written, RootHandle from)
     {
         _layout = layout;
-        _key = bound;
+        _key = ref bound;
         _scratch = written;
         From = from;
     }
@@ -127,14 +129,8 @@ internal readonly ref struct SearchKey
 
     // The same key, for the entries after the identity given: the next step of a search, after the entity
     // of that identity was returned or its entry was found to be a hint its root no longer holds. The
-    // identities are ordered as the numbers of their handles, and no handle is the largest number: a slot
-    // is below 2^31.
-    public SearchKey After(RootHandle identity)
-    {
-        var next = (((ulong)identity.Generation << 32) | identity.Slot) + 1;
-
-        return new SearchKey(_layout, _key, _scratch, new RootHandle((uint)(next >> 32), (uint)next));
-    }
+    // identities are ordered as the packed numbers of their handles (RootHandle.Next).
+    public SearchKey After(RootHandle identity) => new(_layout, in _key, _scratch, identity.Next);
 
     // Whether the part at the place given, in the order of the index, is null in the key.
     public bool IsNull(int place) => (_scratch[0] & (1 << place)) != 0;

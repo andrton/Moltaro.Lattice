@@ -87,7 +87,7 @@ internal sealed class IndexOrder
     {
         var order = _oneNumber ? NumberOf(probe).CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
 
-        return order != 0 ? order : IdentityOf(probe.From).CompareTo(IdentityOf(entry));
+        return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
     }
 
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
@@ -235,7 +235,6 @@ internal sealed class IndexOrder
     // The identity of an entry as the number the order compares: the RootHandle it begins with.
     private static ulong IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<ulong>(entry);
 
-    private static ulong IdentityOf(RootHandle handle) => ((ulong)handle.Generation << 32) | handle.Slot;
 
     // The parts of two entries, one after the other (see the class).
     private int CompareKeys(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)

@@ -18,7 +18,7 @@ public sealed class SearchObjectAllocationTests
 {
     private const long Ceiling = 400;
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Search_that_returns_one_entity_allocates_one_object_beside_its_result_through_a_class_and_by_name()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
