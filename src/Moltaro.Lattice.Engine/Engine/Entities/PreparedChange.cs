@@ -24,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // clears more than it must. Nothing changes a field after the preparation but Replaced.
 internal struct PreparedChange
 {
-    // The last bit of a mask, which stands for every index from its place on (BitOf).
+    // The last bit of a mask, which every index at place 63 or above shares (IndexChanges).
     public const int SharedBit = 63;
 
     public ChangeKindEnum Kind;
@@ -45,13 +45,25 @@ internal struct PreparedChange
     // retires after it; null otherwise.
     public ArenaAddress Replaced;
 
-    // The secondary indexes the change changes, one bit for each, the index at place i of its entity type
-    // at bit i (BitOf); none for an entity type without an index, and for a replace that leaves every entry
-    // as it was. Written by the reservation, 0 until then.
+    // The secondary indexes the change changes, written by the reservation and 0 until then; 0 for an entity
+    // type without an index, and for a replace that leaves every entry as it was. The places of the indexes
+    // of the entity type count from 0, and the rule is (BitOf):
+    // - below the last bit, one decision is recorded for each index: the index at place i, for i from 0 to
+    //   62, has bit i, set when the change changes it;
+    // - from the last bit on, the shared bit says "decide again": every index at place 63 or above has bit
+    //   63, which is set when the change changes at least one of them and says nothing of which; each step
+    //   then decides each of them again, also when bit 63 stands for one index alone, as in an entity type
+    //   of exactly 64 indexes, and with bit 63 clear none of them changes;
+    // - deciding again reads the same two roots the reservation read, the root the change replaces or
+    //   deletes and the root it publishes, by the same test (ChangePublisher.ChangeAt): neither root changes
+    //   between the preparation and the publication or the withdrawal of the change, so the decision taken
+    //   again cannot differ from the one the reservation took.
     public ulong IndexChanges;
 
     // Among the indexes a replace changes, those whose entry it rewrites at its place, an equal key by the
-    // order in other bytes, at the same bits; the others it moves. 0 for an insert and a delete.
+    // order in other bytes; the others it moves. Recorded below the last bit only, at the bit of IndexChanges
+    // for each place from 0 to 62; bit 63 is never set here, since an index at place 63 or above is decided
+    // again whole, a move or a rewrite with it. 0 for an insert and a delete.
     public ulong IndexRewrites;
 
     public PreparedChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
@@ -66,10 +78,10 @@ internal struct PreparedChange
         IndexRewrites = 0;
     }
 
-    // The bit of the masks for the index at the place given: its own for the first 63 indexes of an entity
-    // type; the last one for every index from the 64th on, whose change each step decides again from the
-    // two roots by the test of the reservation, which builds no entry (Entities.ChangePublisher.ChangeAt).
-    // So a mask has no limit of its own, and an entity type with more indexes than it has bits pays that
-    // test at each step for them alone.
+    // The bit of the masks for the index at the place given, from 0: bit i for each place i from 0 to 62,
+    // and the shared bit 63 for every place from 63 on, whose change each step decides again from the two
+    // roots by the test of the reservation, which builds no entry (IndexChanges). So a mask has no limit of
+    // its own, and an entity type of more than 63 indexes pays that test at each step for the indexes from
+    // place 63 on alone.
     public static ulong BitOf(int index) => 1UL << Math.Min(index, SharedBit);
 }

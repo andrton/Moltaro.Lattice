@@ -158,10 +158,11 @@ internal sealed class ChangePublisher
         }
     }
 
-    // What the change does to the index at the place given, as its reservation decided it: from the masks
-    // of the change, and for an index that shares the last bit with others decided again from the roots by
-    // the same test, which builds no entry (PreparedChange.BitOf). Replaced is the root the change replaces
-    // or deletes, null for an insert.
+    // What the change does to the index at the place given, as its reservation decided it: below the shared
+    // bit from the masks of the change, and at the place of the shared bit or above, when that bit is set,
+    // decided again from the same two roots by the same test, which builds no entry
+    // (PreparedChange.IndexChanges). Replaced is the root the change replaces or deletes, null for an
+    // insert.
     private IndexChangeEnum ChangeAt(in PreparedChange change, int index, ArenaAddress replaced)
     {
         var bit = PreparedChange.BitOf(index);
