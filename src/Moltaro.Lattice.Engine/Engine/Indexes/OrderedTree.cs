@@ -788,96 +788,68 @@ internal sealed class OrderedTree
         Complete(ref writer, merged);
         Replaced(leafAddress);
         Replaced(neighbourAddress);
-        ReplaceChildPair(level - 1, Math.Min(slot, neighbourSlot), merged);
+
+        // The second of the two children goes away, and the merged node takes the place of the first.
+        WithoutChild(level - 1, Math.Max(slot, neighbourSlot), merged);
 
         return true;
     }
 
-    // The children first and first + 1 of the inner node of the level became the one merged node: the
-    // node is copied without the separator between them; a root left with one child gives way to it.
-    private void ReplaceChildPair(int level, int first, ArenaAddress merged)
-    {
-        var parentAddress = _path[level];
-        var parent = NodeAt(parentAddress);
-
-        Replaced(parentAddress);
-
-        if (parent.Count == 1 && level == 0)
-        {
-            StoreRoot(merged);
-            _height--;
-
-            return;
-        }
-
-        var copy = TakeNode();
-        var writer = new NodeWriter(_layout, PayloadOf(copy), parent.Level, parent.Count - 1);
-
-        for (var place = 0; place < parent.Count; place++)
-        {
-            if (place != first)
-            {
-                writer.Add(parent.EntryAt(place));
-            }
-        }
-
-        for (var child = 0; child <= parent.Count; child++)
-        {
-            if (child == first)
-            {
-                writer.AddChild(merged);
-            }
-            else if (child != first + 1)
-            {
-                writer.AddChild(parent.ChildAt(child));
-            }
-        }
-
-        Complete(ref writer, copy);
-        Replace(level, copy);
-    }
-
-    // The child that the path took in the inner node of the level goes away: the node is copied without
-    // it and without the separator below it, or above it for the first child; a node left without
-    // children goes away from its own parent, and a root left with one child gives way to it.
+    // The child that the path took in the inner node of the level goes away: a node left without
+    // children goes away from its own parent, and a tree left without a node has none; otherwise the
+    // node loses the child and a separator beside it (WithoutChild).
     private void RemoveChild(int level)
     {
         var parentAddress = _path[level];
-        var parent = NodeAt(parentAddress);
-        var slot = _slots[level];
 
-        Replaced(parentAddress);
-
-        if (parent.Count == 0)
+        if (NodeAt(parentAddress).Count > 0)
         {
-            if (level == 0)
-            {
-                StoreRoot(default);
-                _height = 0;
-            }
-            else
-            {
-                RemoveChild(level - 1);
-            }
+            WithoutChild(level, _slots[level], merged: default);
 
             return;
         }
 
+        Replaced(parentAddress);
+
+        if (level == 0)
+        {
+            StoreRoot(default);
+            _height = 0;
+        }
+        else
+        {
+            RemoveChild(level - 1);
+        }
+    }
+
+    // The inner node of the level, which has a separator at least, loses the child at the place given and
+    // the separator before it, or after it for the first child: it is copied without the two, and with
+    // the merged node in place of the child before it, when two children were merged (TryMergeLeaf); a
+    // root left with one child gives way to that child.
+    private void WithoutChild(int level, int gone, ArenaAddress merged)
+    {
+        var parentAddress = _path[level];
+        var parent = NodeAt(parentAddress);
+        var separator = gone > 0 ? gone - 1 : 0;
+        var beside = gone > 0 ? gone - 1 : 1;
+        var kept = merged.IsNull ? parent.ChildAt(beside) : merged;
+
+        Replaced(parentAddress);
+
         if (parent.Count == 1 && level == 0)
         {
-            StoreRoot(parent.ChildAt(1 - slot));
+            StoreRoot(kept);
             _height--;
 
             return;
         }
 
-        var removed = slot > 0 ? slot - 1 : 0;
         var copy = TakeNode();
         var writer = new NodeWriter(_layout, PayloadOf(copy), parent.Level, parent.Count - 1);
 
         for (var place = 0; place < parent.Count; place++)
         {
-            if (place != removed)
+            if (place != separator)
             {
                 writer.Add(parent.EntryAt(place));
             }
@@ -885,7 +857,11 @@ internal sealed class OrderedTree
 
         for (var child = 0; child <= parent.Count; child++)
         {
-            if (child != slot)
+            if (child == beside)
+            {
+                writer.AddChild(kept);
+            }
+            else if (child != gone)
             {
                 writer.AddChild(parent.ChildAt(child));
             }
