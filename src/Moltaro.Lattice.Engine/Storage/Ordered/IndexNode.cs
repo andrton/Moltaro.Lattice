@@ -68,19 +68,30 @@ internal readonly ref struct IndexNode
     public ReadOnlySpan<byte> EntryAt(int place) =>
         _layout.HasText ? TextEntryAt(place) : _payload.Slice(EntriesStart + (place * _layout.FixedEntryBytes), _layout.FixedEntryBytes);
 
-    // The entry or separator at the place given in a node of an index with a String part, behind its offset.
-    private ReadOnlySpan<byte> TextEntryAt(int place)
+    // The entries of a leaf, or the separators of an inner node, from the place first to the place end,
+    // as the one block of bytes they lie in: in their order, one after the other, so a range of them is
+    // contiguous. A span over the node, valid while the node is; empty for an empty range.
+    public ReadOnlySpan<byte> EntriesBetween(int first, int end)
     {
-        // The entries follow one another in their order, so an entry ends where the next begins, and the
-        // last where the bytes of the node end.
-        var offsets = OffsetsStart;
-        var start = MemoryMarshal.Read<ushort>(_payload[(offsets + (place * IndexLayout.OffsetBytes))..]);
-        var end = place + 1 < _header.Count
-            ? MemoryMarshal.Read<ushort>(_payload[(offsets + ((place + 1) * IndexLayout.OffsetBytes))..])
-            : EntriesStart + _header.Bytes;
+        if (!_layout.HasText)
+        {
+            return _payload.Slice(EntriesStart + (first * _layout.FixedEntryBytes), (end - first) * _layout.FixedEntryBytes);
+        }
 
-        return _payload[start..end];
+        return first == end ? default : _payload[OffsetAt(first)..EndOf(end - 1)];
     }
+
+    // The offset of the entry or separator at the place given from the start of the payload, in a node of
+    // an index with a String part.
+    public int OffsetAt(int place) => MemoryMarshal.Read<ushort>(_payload[(OffsetsStart + (place * IndexLayout.OffsetBytes))..]);
+
+    // The entry or separator at the place given in a node of an index with a String part, behind its offset.
+    private ReadOnlySpan<byte> TextEntryAt(int place) => _payload[OffsetAt(place)..EndOf(place)];
+
+    // Where the entry or separator at the place given ends, in a node of an index with a String part: the
+    // entries follow one another in their order, so an entry ends where the next begins, and the last
+    // where the bytes of the node end.
+    private int EndOf(int place) => place + 1 < _header.Count ? OffsetAt(place + 1) : EntriesStart + _header.Bytes;
 
     // The child of an inner node at the place given, 0 to Count, by a load with acquire semantics (see
     // the struct).

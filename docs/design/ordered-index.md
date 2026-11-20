@@ -232,7 +232,11 @@ entry, a remove, or a rewrite of an entry at its place.
   splits as for an insert.
 
 Each new node is written whole and published by one store, into the nearest node that is
-not copied, or into the root of the tree. After the store, the nodes it replaced are
+not copied, or into the root of the tree. A copy of a leaf, and a merge of two, moves the
+entries it keeps as blocks: the entries before the changed one in one copy and those after
+it in another, and for entries behind offsets their offsets moved by the one distance the
+block moved; the bytes the edited leaf takes are those of the leaf with the one change,
+without a walk over its entries. After the store, the nodes it replaced are
 retired. A split of a full node into two always fits: a leaf holds at least four of the
 widest entries of its index, an inner node four of its widest separators.
 

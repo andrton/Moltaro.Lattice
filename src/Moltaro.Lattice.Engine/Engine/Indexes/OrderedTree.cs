@@ -687,18 +687,9 @@ internal sealed class OrderedTree
 
     private bool Fits(scoped in EditedLeaf edited) => BytesOf(edited) <= LeafCapacity;
 
-    // The bytes the entries of the leaf take with their offsets.
-    private int BytesOf(scoped in EditedLeaf edited)
-    {
-        var bytes = 0;
-
-        for (var place = 0; place < edited.Count; place++)
-        {
-            bytes += edited.At(place).Length + OffsetBytes;
-        }
-
-        return bytes;
-    }
+    // The bytes the entries of the leaf take with their offsets: those of the leaf it copies, with the one
+    // change.
+    private int BytesOf(scoped in EditedLeaf edited) => edited.Bytes(OffsetBytes);
 
     // Where a leaf that does not fit splits: the first entry of the second half, so that the first holds
     // half of the bytes or less, and each holds one entry at least. Each half fits a node, since a leaf
@@ -724,11 +715,7 @@ internal sealed class OrderedTree
         var leaf = TakeNode();
         var writer = new NodeWriter(_layout, PayloadOf(leaf), 0, end - first);
 
-        for (var place = first; place < end; place++)
-        {
-            writer.Add(edited.At(place));
-        }
-
+        edited.CopyTo(ref writer, first, end);
         Complete(ref writer, leaf);
 
         return leaf;
@@ -855,17 +842,14 @@ internal sealed class OrderedTree
 
         if (neighbourSlot < slot)
         {
-            AddEntries(ref writer, neighbour);
+            writer.AddRange(neighbour, 0, neighbour.Count);
         }
 
-        for (var place = 0; place < edited.Count; place++)
-        {
-            writer.Add(edited.At(place));
-        }
+        edited.CopyTo(ref writer, 0, edited.Count);
 
         if (neighbourSlot > slot)
         {
-            AddEntries(ref writer, neighbour);
+            writer.AddRange(neighbour, 0, neighbour.Count);
         }
 
         Complete(ref writer, merged);
@@ -874,14 +858,6 @@ internal sealed class OrderedTree
         ReplaceChildPair(level - 1, Math.Min(slot, neighbourSlot), merged);
 
         return true;
-    }
-
-    private static void AddEntries(ref NodeWriter writer, scoped in IndexNode node)
-    {
-        for (var place = 0; place < node.Count; place++)
-        {
-            writer.Add(node.EntryAt(place));
-        }
     }
 
     // The children first and first + 1 of the inner node of the level became the one merged node: the
@@ -1183,6 +1159,47 @@ internal sealed class OrderedTree
             Replaces => place == _place ? _entry : _leaf.EntryAt(place),
             _ => place < _place ? _leaf.EntryAt(place) : _leaf.EntryAt(place + 1),
         };
+
+        // The bytes the entries take, each with the offset bytes given: those of the leaf, with the entry
+        // added, replaced or taken away.
+        public int Bytes(int offsetBytes)
+        {
+            var bytes = _leaf.UsedBytes;
+
+            return _change switch
+            {
+                Inserts => bytes + _entry.Length + offsetBytes,
+                Replaces => bytes + _entry.Length - _leaf.EntryAt(_place).Length,
+                _ => bytes - _leaf.EntryAt(_place).Length - offsetBytes,
+            };
+        }
+
+        // Writes the entries from first to end as the next entries of the writer: the entries of the leaf
+        // before the place of the change as one block, the entry of the change, and the entries of the leaf
+        // after it as one block (NodeWriter.AddRange).
+        public void CopyTo(ref NodeWriter writer, int first, int end)
+        {
+            var before = Math.Min(end, _place);
+
+            if (first < before)
+            {
+                writer.AddRange(_leaf, first, before);
+            }
+
+            if (_change != Removes && first <= _place && _place < end)
+            {
+                writer.Add(_entry);
+            }
+
+            // After the change, the entry at a place of the edited leaf is the leaf's one place before it
+            // for an insert, at it for a replace, and one place after it for a remove.
+            var after = Math.Max(first, _change == Removes ? _place : _place + 1);
+
+            if (after < end)
+            {
+                writer.AddRange(_leaf, after - _change, end - _change);
+            }
+        }
     }
 
     // The separators and children of an inner node whose child at a place was split into left and right
