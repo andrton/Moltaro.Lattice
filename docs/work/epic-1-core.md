@@ -5882,7 +5882,10 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   still hold at least `Need` of what waits, at the tree as it then is. The probes are
   sequences that publish removes before inserts, and inserts that grow the tree while
   others wait. A third: a write refused at a later index after an earlier index topped up
-  its pool — the top-up must not be what made it fail (the rule of (b)).
+  its pool — the top-up must not be what made it fail (the rule of (b)). A fourth, the
+  boundary of the masks of (a): types of 63, 64 and 65 indexes, with none, a move and a
+  rewrite mixed on both sides of the 64th, and a write that changes only an index beyond
+  it (the planner, 20 November 2026).
 - **Acceptance.**
   - (a) A replace that keeps every indexed key costs what it costs for the same type
     without indexes, within the gauge (today −20 % with one index, −62 % with six). The
@@ -5893,7 +5896,11 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     change of case only, the scale of a Decimal, +0 and −0 or the bits of a NaN change
     those bytes while the values compare equal. The decision is recorded with the
     prepared change, one for each index, and the reservation, the release, the
-    installation and the removal read it (E2).
+    installation and the removal read it (E2). A type may have more indexes than the bits
+    of the record: from the last bit on, the bit is shared and says "decide again", and
+    deciding again reads the same two roots, so it cannot differ from the preparation. The
+    comment at the record states this rule; no limit goes into the schema language (the
+    planner, 20 November 2026).
   - (b) The upkeep of one index for a write that changes its key costs at most 1.5 times
     the bare tree's work measured by the prototype on the same machine (today 3 to 3.5
     times). Its base comes first: the reservation as one closed formula (E1), with a test
@@ -6022,8 +6029,11 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      one change of key at the tree as it is, `Need(h, room, L, 1, 1)` nodes. It is taken by
      the first preparation that touches the index, not at open. While writes wait, the pool
      of an index holds at most the larger of the need of those writes and the reserve; with
-     nothing waiting it holds at most the reserve, and it is not given back until the
-     database closes. Its tests are part of this step, skipped with the same reason: (i)
+     nothing waiting it holds at most the reserve. A publication keeps the reserve; a
+     withdrawal gives back what its write took, the reserve with it, down to the need of the
+     writes still prepared; the next preparation tops it up; all of it is given back at
+     close (the planner, 20 November 2026: `ContradictionTests` of S14 needs a withdrawal to
+     leave the arena as it found it, and no flag on the tree). Its tests are part of this step, skipped with the same reason: (i)
      after every write is published, the prepared bytes of an indexed type are above zero,
      at most the reserve of its indexes, and counted in `Counters.Arena.PreparedBytes`; (ii)
      the reserve counts against the memory limit while it is held, and a write that fits
@@ -6417,7 +6427,10 @@ unpublished write of another entity waits behind it, as a write to the same enti
   apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes while it builds them, before it
   is ready; a violation found there stops the load in the same way.
 - **Measured.** Reported: write time for the fixture's users with and without their
-  unique index.
+  unique index. A refused unique key is a withdrawal after the reservation, which gives
+  the standing reserve of each index back (S14, part 2), so here a withdrawal may stop
+  being rare: this sprint measures it before anyone changes that rule (the planner,
+  20 November 2026).
 - **Out of scope.** Swaps inside a batch (S17). Activation of a new unique index over
   existing data (S38).
 
@@ -6475,11 +6488,10 @@ retired something if any of its changes did. The envelopes of the effects of a
 transaction move beside the code that reads them in this sprint (entry D5).
 
 **Required of this sprint, carried from S14.** The memory reserved for index upkeep grows
-at most linearly with the number of changes prepared before a publication. As S14 built
-it, it grows quadratically with the changes prepared and not yet published: 600 waiting
-writes 16 to 18 MiB with one index and 205 to 280 MiB with seven; 2,000 waiting writes on
-seven indexes 2.0 to 3.05 GiB; 43,780 nodes reserved against 28,747 used. Candidates
-include a linear bound, with its proof first. A batch reserves for each index once, for the
+at most linearly with the number of changes prepared before a publication. As S14, part
+2 leaves it, the need grows with the square of the changes prepared and not yet
+published; [the reservation](../design/ordered-index.md#the-reservation) gives its
+formula and a figure. Candidates include a linear bound, with its proof first. A batch reserves for each index once, for the
 counts of the whole batch; today `ChangePublisher.TryReserve` takes one change and
 `PreparedWrite` holds one change inline, so a batch would top up each index once for each
 change. The linear reserve and this are one design.
