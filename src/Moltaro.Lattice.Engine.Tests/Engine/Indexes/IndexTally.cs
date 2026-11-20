@@ -1,3 +1,4 @@
+using Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.TestSupport.Text;
@@ -24,7 +25,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   64 bytes or less and the Note of 64 bytes or less in the root block, a longer Note in a block of its
 //   own —, of one entry for each text a live root or a live node refers to, a node by a key longer than 64
 //   bytes among its entries and separators, which may outlive the entity it was copied from, and of one
-//   slot of 1 KiB for each live node of every index; nothing is prepared and nothing retired.
+//   slot of 1 KiB for each live node of every index; nothing is retired, and nothing is prepared beyond
+//   the standing reserve of the indexes (IndexReserve).
 internal sealed class IndexTally(string encoding)
 {
     private readonly Dictionary<long, IndexSchema.Ranked> _live = [];
@@ -97,8 +99,9 @@ internal sealed class IndexTally(string encoding)
         Assert.Equal(expected.Count, database.Counters.TextEntries);
     }
 
-    // After a drain: nothing prepared or retired, and the live bytes and the class slack of the roots, of
-    // the text entries and of the nodes of every index of the schema.
+    // After a drain: nothing retired, nothing prepared beyond the reserve of the indexes, and the live
+    // bytes and the class slack of the roots, of the text entries and of the nodes of every index of the
+    // schema.
     public void ExpectHeldBy(EngineDatabase database)
     {
         database.DrainRetired();
@@ -152,7 +155,7 @@ internal sealed class IndexTally(string encoding)
             .Sum(index => IndexContents.Of(database, index.Item1, index.Item2).Nodes);
         var counters = database.Counters;
 
-        Assert.Equal(0, counters.Arena.PreparedBytes);
+        Assert.True(counters.Arena.PreparedBytes <= IndexReserve.BytesOfAll(database), "The arena holds prepared bytes beyond the reserve of the indexes.");
         Assert.Equal(0, counters.Arena.RetiredBytes);
         Assert.Equal(held.LiveBytes + held.ClassSlackBytes + ((long)nodes * IndexSchema.NodeBytes), counters.Arena.LiveBytes + counters.Arena.ClassSlackBytes);
         Assert.Equal(_live.Count, counters.RootEntries);

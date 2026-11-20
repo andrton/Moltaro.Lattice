@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
@@ -11,9 +12,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // an inner node is above every entry below child i and at or below every entry below child i + 1; every
 // leaf lies at level 0 and every child one level below its parent; the tree holds exactly the entries
 // added and not taken away, and its bytes are those of its live nodes. A tree left without entries
-// holds no node, and once every publication is made nothing is left reserved. The test works the parts
-// themselves, as ContradictionTests does: an arena with a root layout, the retired list, and the index
-// of Counted, whose writer it is, through inserts and removes of random keys, many of them equal,
+// holds no node, and once every publication is made nothing is left reserved beyond the standing reserve
+// of the index, the need of one change of key at the tree it has (ReservationNeed). The test works the
+// parts themselves, as ContradictionTests does: an arena with a root layout, the retired list, and the
+// index of Counted, whose writer it is, through inserts and removes of random keys, many of them equal,
 // until the tree has three levels, and checks the shape after every change while it is small and after
 // every sixteenth later, and at the end.
 public sealed class TreeShapeTests
@@ -71,7 +73,7 @@ public sealed class TreeShapeTests
         retired.Drain();
 
         Assert.Equal((0, 0L, 0L), (index.Tree.Height, index.Tree.Count, index.Tree.Bytes));
-        Assert.Equal(0, item.Arena.Counters.PreparedBytes);
+        Assert.True(item.Arena.Counters.PreparedBytes <= ReservationNeed.OfOneChangeOfKey(height: 0, room: 0, index.Layout.LeastSeparators) * index.Layout.NodeBytes, "The arena holds prepared bytes beyond the reserve of the empty tree.");
         Assert.Equal(0, item.Arena.Counters.RetiredBytes);
     }
 

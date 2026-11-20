@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
@@ -45,7 +46,7 @@ public sealed class RetiredNodeTests
         database.DrainRetired();
 
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
-        Assert.Equal(0, database.Counters.Arena.PreparedBytes);
+        Assert.True(database.Counters.Arena.PreparedBytes <= IndexReserve.BytesOf(database, "Counted"), "The arena holds prepared bytes beyond the reserve of ByNumber.");
     }
 
     [Fact]
