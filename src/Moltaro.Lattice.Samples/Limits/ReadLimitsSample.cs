@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Samples.Limits;
 // ReadLimitExceeded and names the limit; what it returned before stays valid, but it is not
 // complete.
 //
-// This shows the intended use. Read limits are not enforced yet: the options are validated and
-// otherwise not used, so the enumeration below runs to its end and the catch is not reached.
+// The enumeration below stays within both limits, so it runs to its end and the catch is not
+// reached; an enumeration that would exceed one of them would reach it.
 internal static class ReadLimitsSample
 {
     public static async Task RunAsync(LatticeSchema schema)

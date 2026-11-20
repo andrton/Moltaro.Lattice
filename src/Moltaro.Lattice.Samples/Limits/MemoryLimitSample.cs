@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Samples.Limits;
 // budget cannot hold is refused with WriteRejected, which names the Memory limit, before it has any
 // effect, and it never runs later.
 //
-// This shows the intended use. The memory budget is not enforced yet: the option is validated and
-// otherwise not used, so every write below completes and the catch is not reached.
+// The budget below holds every write the sample makes, so every write completes and the catch is
+// not reached; a write that the budget cannot hold would reach it.
 internal static class MemoryLimitSample
 {
     public static async Task RunAsync(LatticeSchema schema)
