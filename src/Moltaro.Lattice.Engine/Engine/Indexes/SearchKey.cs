@@ -30,7 +30,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // A readonly ref struct: it refers to the scratch and to the bound key, which it does not copy and which
 // its caller holds for the whole search (Sets.IndexMatches, Sets.SetIndex), and lives on the stack of the
 // step.
-internal readonly ref struct SearchKey : ITreeProbe<SearchKey>
+internal readonly ref struct SearchKey
 {
     // The most UTF-8 bytes of the text of one String part that a step writes into the scratch on its
     // stack: it bounds the copy of the text of a key compared Ordinal in a UTF-8 database, part by part, and
@@ -132,10 +132,6 @@ internal readonly ref struct SearchKey : ITreeProbe<SearchKey>
     // of that identity was returned or its entry was found to be a hint its root no longer holds. The
     // identities are ordered as the packed numbers of their handles (RootHandle.Next).
     public SearchKey After(RootHandle identity) => new(_layout, in _key, _scratch, identity.Next);
-
-    // The order of the key, with the identity it starts at, against an entry, for a search of the tree.
-    static int ITreeProbe<SearchKey>.Compare(IndexOrder order, scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
-        order.Compare(probe, entry);
 
     // Whether the part at the place given, in the order of the index, is null in the key.
     public bool IsNull(int place) => (_scratch[0] & (1 << place)) != 0;
