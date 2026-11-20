@@ -4,7 +4,7 @@ using Moltaro.Lattice.AspNet.Identity;
 using Moltaro.Lattice.DependencyInjection;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Hosting;
 
 // ASP.NET Core Identity with its users and roles in a Lattice database. The application
 // keeps using UserManager and RoleManager; only the registration of the stores differs.

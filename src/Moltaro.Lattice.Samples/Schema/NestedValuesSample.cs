@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Schema;
 
 // An entity is more than a flat row: it may own values with fields of their own, hold Lists,
 // Maps and Sets, and refer to other entities by their keys. The schema declares each of them,

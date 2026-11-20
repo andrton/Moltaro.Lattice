@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Basics;
 
 // An entity class does not have to be open for writing. The property of a field needs a public get
 // accessor and a set accessor of any accessibility: public, internal, protected, private or init.

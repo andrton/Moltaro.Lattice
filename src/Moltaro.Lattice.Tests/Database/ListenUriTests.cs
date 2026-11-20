@@ -10,10 +10,13 @@ public sealed class ListenUriTests
     [Fact]
     public async Task Master_reports_the_address_it_accepts_children_at_and_a_child_connects_to_it()
     {
-        var address = MasterAndChild.NewAddress();
-        await using var master = await TestData.OpenMasterAsync(address);
+        using var port = new ListeningPort();
 
-        Assert.Equal(address, master.ListenUri);
+        // The port is freed just before the master opens at it.
+        port.Dispose();
+        await using var master = await TestData.OpenMasterAsync(port.Address);
+
+        Assert.Equal(port.Address, master.ListenUri);
 
         await using var child = await TestData.OpenChildAsync(master.ListenUri!);
 

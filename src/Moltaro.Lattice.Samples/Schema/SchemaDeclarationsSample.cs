@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Schema;
 
 // What a schema declares besides entity types and their fields: enum types, how text is
 // compared and stored, and a stable identity for every enum type, entity type, field and

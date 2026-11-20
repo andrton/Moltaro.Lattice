@@ -1241,7 +1241,8 @@ Why this order:
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Not started |
-| S15 | Ranges, order, paging and the binding rules | Full | Not started |
+| S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
+| S15, part 2 | The binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -5863,7 +5864,12 @@ reports where it stops. The README of the repository points to it in one sentenc
 behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
 runs to the end. It starts after S14, part 2 is merged and before S14R, on a branch of its
 own (the planner, 20 November 2026): part 2 may touch `IndexSample` through `FindAsync`,
-and two agents must not edit the project at once.
+and two agents must not edit the project at once. Done on 20 November 2026, with entry F2
+of the [refactoring backlog](refactoring.md). Sixteen samples in seven folders; where the
+content said otherwise the grouping followed it: `DynamicAccess` in `Basics`, as the twin
+of `BasicCrud`; `NestedValues` in `Schema`; `MemoryLimit` and `ReadLimits` in a folder
+`Limits` of their own. The samples program checks before its first sample that its
+`README.md` lists the same samples in the same order.
 
 **After S14, not part of any sprint: SDK 11 as a change of its own.** `src/global.json`,
 the three jobs of CI, and the same commit built by both SDKs and compared on the
@@ -6478,6 +6484,161 @@ Two mistakes of the plan:
 
 #### S15 · Ranges, order, paging and the binding rules
 
+**Added by the planner on 20 November 2026, after S14, part 2.** It comes above the text of
+17 November; where they differ, this replaces it.
+
+Why. Only six tests wait for S15: five in `IndexTests`, and `RecreatedDuringASearchTests`.
+Its acceptance lists about a dozen behaviors that no test states. That is the shape that
+made tests turn up missing in the middle of S14, part 2. The sprint is also two different
+kinds of work.
+
+1. **The split.** The acceptance is unchanged in sum; the Status table has two rows.
+   - **S15, part 1 · The walk:** leading parts, ranges, both directions, Offset and Limit,
+     the read limits, and a search that returns an entity at most once. Full track. It
+     begins with a study and is critical, since it is a traversal under concurrent change
+     on the read path: one reviewer and a breaker. Needs S14R.
+   - **S15, part 2 · The binding rules:**
+     - every scalar and key family found the same by key, by index, through a class and
+       by name;
+     - the numeric allowlist with overflow, 42.0 for an integer field, NaN and signed zero;
+     - an unsupported key or bound shape refused;
+     - enum order numeric;
+     - text by its field policy in UTF-8 and UTF-16.
+     Full track, no study, not critical: one reviewer. It needs part 1 only for bounds. Its
+     tests of exact keys may be written while part 1 is implemented, by another test author,
+     where the coordinator judges that it shortens the way.
+2. **The study of part 1** (Fable) may start on `main`, read-only, beside S14R: it reads the
+   tree, not the loops S14R merges. Its questions, beside those below:
+   - which of the three ways gives "at most once across a delete and a re-creation", each
+     with its cost in bytes for an entry and in nanoseconds for a step. A way that adds
+     bytes to every entry of an index is a question for the owner, which the planner brings
+     with the figures; the study does not decide it;
+   - whether the early end of S14, part 2, the end seen in the step that finds the entry,
+     has a form for a range, and what its sequence means there;
+   - the one descent of a reader in either direction (E6), and what it does to the exact
+     search just measured;
+   - what a traversal allocates: one object, as a search does, and nothing for each entity
+     beyond what it returns.
+3. **Tests first for part 1**, by the test author, in this order, after the study and the
+   contract step; each sentence of the acceptance gets its smallest set:
+   1. The six that wait, unskipped by the implementer, their assertions unchanged.
+   2. Order and bounds against an oracle of values:
+      - composite indexes of two to four parts with a null in every position;
+      - searches by leading parts, and ranges with inclusive and exclusive bounds;
+      - both directions, nulls last in both;
+      - UTF-8 and UTF-16.
+      The P1 of S14, part 2 was a composite key with a null before another part. This is the
+      test that would have caught it, and it is written before the code.
+   3. Under change: no identity twice and every unchanged match, also inside a run of equal
+      keys, in both directions. The paused form is deterministic, as `PausedSearchTests` is.
+   4. At most once across a delete and a re-creation: `RecreatedDuringASearchTests`, and its
+      range form.
+   5. Offset and Limit. Offset skips without returning; Limit ends the walk without reading
+      the rest. Both are stated by what is read (the nodes retired or the steps taken), not
+      by time.
+   6. The limits: over `ReadMemoryLimit` and over `ReadTimeLimit`, each an explicit failure;
+      a cancellation is reported before a limit.
+   7. The sequence a search ends at (F5 of the [refactoring backlog](refactoring.md)), with
+      the member this sprint gives it; the probe of the breaker of S14, part 2, kept with its
+      outputs, is the starting point.
+   8. Allocation: a ceiling now, pinned to bytes with its composition after the
+      implementation, as `SearchObjectAllocationTests` was.
+   9. The rule of every asynchronous member in `AGENTS.md`, for the asynchronous forms of a
+      range.
+4. **Measured,** corrected by the rules written after the starts of 19 and 20 November:
+   - "on 1 and 16 threads" becomes: 1 and 8 readers judged on 16 cores, 16 reported and not
+     judged;
+   - the exact search of S14, part 2 must not lose: index-search over `main` and the head,
+     three builds rotating, against its figures of 20 November;
+   - a range of 100 entities alone and beside a writer; a page at Offset 10,000 beside the
+     first page;
+   - one start, at the end, after the review and the breaker have closed. Every series
+     carries its second build as the gauge. The plan is written in the brief before it and
+     read by the planner and the coordinator. It also carries the line of F7, and F9 (the
+     one line of the B2 harness, three builds) unless reading has found its cause.
+   - S14R has no start of its own. What it must show unchanged in figures is checked on
+     the workstation by direction and listing, and decided at this start: its builds are
+     `main` before S14R (22b8ee1), `main` after S14R and the head, each with a second build
+     as the gauge, so that a loss is attributed to the sprint that made it.
+5. **The breaker of part 1,** its targets in order:
+   1. twice or missed under change, both directions, inside equal keys;
+   2. a delete and a re-creation;
+   3. composite keys with nulls at the bounds;
+   4. the end sequence against its mutant;
+   5. a step that holds nothing: weak references after a paused traversal, and the growth of
+      the tree between two steps;
+   6. the limits and the order of cancellation.
+6. **Unchanged** from the texts of 17 and 19 November: points 1 to 4 of "For this sprint",
+   and the carried texts of the study of S14 and of the architect's review (E6 here, E3 at
+   S14R).
+
+**The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
+measured; a figure is quoted from the measured results or estimated by reading. Systems
+read, the licence checked first:
+- PostgreSQL's nbtree (PostgreSQL licence, commit 65ebed1f): a scan takes the matches of
+  a leaf at once, then holds no lock and usually no pin, and moves on by the sibling link;
+  "no row twice" comes from its snapshot. One descent serves both directions. The end is
+  seen from the high key. Offset and Limit are the executor's, linear.
+- LeanStore (MIT, commit fcb64bf3): forwards and backwards a new descent at the fence.
+- LevelDB (BSD-3-Clause, commit 29465588): a sequence of 8 bytes in every entry, and an
+  iterator passes over the entries later than its start, holding a version meanwhile.
+- SQLite (public domain, commit d0867680): a cursor saves its key, seeks again and knows
+  whether the next step repeats or skips. An idea only, no adaptation, so
+  `THIRD-PARTY-NOTICES.md` gains nothing.
+None gives "an entity at most once" without a snapshot or a stamp of a version: a seek that
+holds nothing gives "no entry twice", never "no entity twice".
+
+What it found:
+- The finding that changes the question of 19 November. Over a range, an entity whose key
+  moves ahead of the walk is returned again under its new pair, as the same lifetime and
+  the same handle. Q07.3.5 forbids it ("The same key must not be counted once in the
+  skipped prefix and returned again after it moves in the index"). A run ordered by the
+  primary key does not prevent it, nor does a stamp of creation for a lifetime. Only a
+  stamp in every entry, after LevelDB (8 bytes an entry of every index, a leaf of Int64
+  keys from 61 entries to 41), or the remembered set of S08 (no byte stored, about 110 ns
+  an entity as measured for the enumeration, memory for each pass) gives it.
+- The early end of S14, part 2 has a form for a range, as nbtree's high key: the next
+  entry of the leaf outside the range, or the fence on the side of travel outside it or
+  missing. Its sequence means the same, and it gives "no more" after a Limit without a
+  further step.
+- One descent with a side — before, after, or strictly after a (key, identity) — gives the
+  leaf, the place and the fence in either direction; by reading it costs the exact search
+  under 1 %. A step that only reports a remembered end writes the search key for nothing:
+  looking first saves about 22 ns of an Int64 search.
+- A step that holds nothing works in both directions on the tree as built; it needs a
+  bound on the work of one protection period, in rounds, and a probe of the last entry in
+  detached form.
+- Offset is linear in every system read; counts for each subtree would copy the path at
+  every write and count entries, not matches.
+- The hardest part: reverse with nulls last in a composite index, a short sequence of
+  seeks for each nullable part after the equal ones.
+
+Decided by the planner on 20 November 2026, on the study:
+- The way is the remembered set, for every walk, the exact search included: Q07.3.5
+  names it ("A plan may, however, need an O(K) set of processed identities") and places
+  it in the memory budget, and point 1 above already keeps it where the seek cannot give
+  the guarantee. It stores no byte in any entry, and it is the mechanism the enumeration
+  has. The set is made at the first step that returns an entity without seeing the end,
+  so a search that finds one entity or none allocates what it does today. Identities
+  passed over by Offset are remembered as well. The set counts against `ReadMemoryLimit`
+  by its capacity, and over the limit the search fails explicitly; it never drops the
+  set. A stamp in every entry stays on record with its figures.
+- The tests of group 4 above add the range form and the moving key, forwards and
+  backwards, returned and in the skipped prefix; it is the second target of the breaker.
+- The read limits count what the search holds: until `FindAsync` returns, its list by the
+  capacity of its array and each entity by the stored bytes of its root (Q07.1.1); the lazy
+  `Find` counts none. The documentation of `ReadMemoryLimit` says what is counted. Before
+  the test author writes group 6, it checks the default of `ReadMemoryLimit` against an
+  ordinary `FindAsync`, such as 10,000 entities of the fixture; a default that would refuse
+  ordinary load comes to the planner first.
+- Taken from the study: the early end for a range, the one descent with a side, the key
+  written only when a step needs it, and rounds within one period of the protection, whose
+  size the start measures. The pinned allocation figures may be restated for the 16 to 24
+  bytes of the read limits, with their composition, after the implementation.
+- Not taken: the harvest of a page at a time of nbtree, which needs an unproven protocol
+  for a handle held outside the protection (the start measures the share of descents in a
+  range of 100); counts for each subtree for Offset.
+
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
 sentence above or below says otherwise, these replace it. The owner asked for this check
 of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
@@ -6514,6 +6675,9 @@ For this sprint:
    and "inclusive reseek skipping visited identities" is rewritten by this sprint after
    the structure of S14. If the structure cannot seek so, the study of S14 says it and
    the remembered set stays.
+   20 November 2026: this holds for one run of one key; over a range a key that moves ahead
+   of the walk would be returned again, so the remembered set stays (the study of S15,
+   part 1).
 2. **Limits:** `ReadMemoryLimit` bounds what a traversal remembers (the last key; a set
    only if point 1 fails), `ReadTimeLimit` the engine time of its steps; a cancellation is
    reported before a limit (finding 2 of the outside review).
@@ -6587,6 +6751,15 @@ the comparison once under the loops before this sprint starts (entry E3).
 
 **Carried from S09, part 2:** a write whose unique value is held by a prepared,
 unpublished write of another entity waits behind it, as a write to the same entity does.
+
+**Carried from the architect's review after S14, part 2 (20 November 2026), for the study
+of this sprint:** `ChangePublisher.TryReserve` returns a bool whose false means "refused
+for memory", at five call sites. A unique conflict is a third outcome — a refusal that
+names the index, or a wait behind a prepared write — decided in the same loop. The study
+says where it goes before the code grows a second out parameter. The first structural
+commit of this sprint also records the replaced root once, by the reservation (entry G2
+of the [refactoring backlog](refactoring.md)), beside F6; this sprint measures the lines it
+touches anyway.
 
 **Track:** full · **Needs:** S15 · **Owners:** E04, E08
 
@@ -6862,6 +7035,11 @@ cost G1 after churn.
 
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
+
+**Carried from S14, part 2, deferred here by the owner on 20 November 2026, as the planner
+relays:** before its design, the references of a shared text for each entry are decided
+with the figures of 20 November 2026 (F8 of the [refactoring backlog](refactoring.md)):
+compaction revisits the shared entries anyway.
 
 **Track:** full · **Needs:** S22 · **Owners:** E01, E03 · **Closes:** Q17
 

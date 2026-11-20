@@ -55,15 +55,17 @@ public sealed class OpeningAndClosingTests
     [Fact]
     public async Task Closing_a_child_ends_its_wait_for_the_master()
     {
+        using var port = new ListeningPort();
+
         var child = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            MasterUri = MasterAndChild.NewAddress(),
+            MasterUri = port.Address,
         });
 
         var opening = child.OpenAsync().AsTask();
-        await Task.Delay(50);
+        await port.EndAttemptAsync();
         Assert.Equal(LatticeDatabaseStateEnum.Connecting, child.State);
 
         await child.CloseAsync();

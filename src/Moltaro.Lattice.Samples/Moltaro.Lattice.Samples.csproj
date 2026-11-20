@@ -12,6 +12,8 @@
     <ProjectReference Include="..\Moltaro.Lattice.AspNet.Identity\Moltaro.Lattice.AspNet.Identity.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="directory.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Schema\directory.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Program.cs reads it to check that it lists the samples in the order the program runs them. -->
+    <None Update="README.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -183,7 +183,8 @@ the one of every block, confirmed for index nodes. Measured on the rented machin
 November 2026, with keys of 100 and 200 bytes, references held for each entry by its root
 instead of for each node made a replace that changes the key 1.45 to 1.51 times as fast,
 and an insert and a delete 1.9 to 2.1, with a search unchanged; that would change the rule
-of the decision on strings, and it is an open question of the owner's.
+of the decision on strings, and the owner deferred it to the sprint of compaction. The rule
+of the decision on strings is unchanged.
 
 ## How a reader descends, and why it is safe
 
@@ -426,8 +427,8 @@ A step that ends without an entity takes the sequence of the database read when 
 as the position of its end when it is unchanged after the walk, as a read of an absent
 key does, and walks again otherwise. An entity deleted and created again while a search
 runs has a new root entry, so a new identity, which can lie after the one the search
-returned before: the search then returns that entity twice. That no entity is returned
-twice also then is chosen with the walk of ranges (below).
+returned before: the search then returns that entity twice. The walk of ranges (below)
+ends it with the set it remembers.
 
 The step that finds an entity sees the end of the run as well when it can: the entry
 after the one it found, in its leaf, has another key; or that entry is the last of its
@@ -486,10 +487,13 @@ after which every entry of the next leaf lies; backwards, at the separator below
 before which every entry of the leaf before lies: the same tree walked both ways, with no
 links between leaves, after LeanStore. With entries unique by (key, identity), a step
 that seeks strictly after the last pair returns no pair twice and every pair that is
-there throughout, also inside a run of equal keys. Nulls last in both directions is a
-rule of the walk: the null region of a part is visited after its values, whichever way.
-Whether the identity of an entry stays the root handle, under which an entity deleted and
-created again during a pass would come back as another identity, is chosen with ranges.
+there throughout, also inside a run of equal keys. That holds for one run of one key.
+Over a range an entity whose key moves ahead of the walk would be returned again under its
+new pair, so a walk remembers the entities it returned or passed over, as an enumeration
+does ([queries](../decisions/queries.md), Q07.3.5); the set counts against
+`ReadMemoryLimit`, and an entity deleted and created again during a pass is passed over by
+it as well. Nulls last in both directions is a rule of the walk: the null region of a part
+is visited after its values, whichever way.
 
 ## A child
 
