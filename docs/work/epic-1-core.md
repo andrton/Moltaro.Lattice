@@ -6572,6 +6572,73 @@ kinds of work.
    and the carried texts of the study of S14 and of the architect's review (E6 here, E3 at
    S14R).
 
+**The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
+measured; a figure is quoted from the measured results or estimated by reading. Systems
+read, the licence checked first:
+- PostgreSQL's nbtree (PostgreSQL licence, commit 65ebed1f): a scan takes the matches of
+  a leaf at once, then holds no lock and usually no pin, and moves on by the sibling link;
+  "no row twice" comes from its snapshot. One descent serves both directions. The end is
+  seen from the high key. Offset and Limit are the executor's, linear.
+- LeanStore (MIT, commit fcb64bf3): forwards and backwards a new descent at the fence.
+- LevelDB (BSD-3-Clause, commit 29465588): a sequence of 8 bytes in every entry, and an
+  iterator passes over the entries later than its start, holding a version meanwhile.
+- SQLite (public domain, commit d0867680): a cursor saves its key, seeks again and knows
+  whether the next step repeats or skips. An idea only, no adaptation, so
+  `THIRD-PARTY-NOTICES.md` gains nothing.
+None gives "an entity at most once" without a snapshot or a stamp of a version: a seek that
+holds nothing gives "no entry twice", never "no entity twice".
+
+What it found:
+- The finding that changes the question of 19 November. Over a range, an entity whose key
+  moves ahead of the walk is returned again under its new pair, as the same lifetime and
+  the same handle. Q07.3.5 forbids it ("The same key must not be counted once in the
+  skipped prefix and returned again after it moves in the index"). A run ordered by the
+  primary key does not prevent it, nor does a stamp of creation for a lifetime. Only a
+  stamp in every entry, after LevelDB (8 bytes an entry of every index, a leaf of Int64
+  keys from 61 entries to 41), or the remembered set of S08 (no byte stored, about 110 ns
+  an entity as measured for the enumeration, memory for each pass) gives it.
+- The early end of S14, part 2 has a form for a range, as nbtree's high key: the next
+  entry of the leaf outside the range, or the fence on the side of travel outside it or
+  missing. Its sequence means the same, and it gives "no more" after a Limit without a
+  further step.
+- One descent with a side — before, after, or strictly after a (key, identity) — gives the
+  leaf, the place and the fence in either direction; by reading it costs the exact search
+  under 1 %. A step that only reports a remembered end writes the search key for nothing:
+  looking first saves about 22 ns of an Int64 search.
+- A step that holds nothing works in both directions on the tree as built; it needs a
+  bound on the work of one protection period, in rounds, and a probe of the last entry in
+  detached form.
+- Offset is linear in every system read; counts for each subtree would copy the path at
+  every write and count entries, not matches.
+- The hardest part: reverse with nulls last in a composite index, a short sequence of
+  seeks for each nullable part after the equal ones.
+
+Decided by the planner on 20 November 2026, on the study:
+- The way is the remembered set, for every walk, the exact search included: Q07.3.5
+  names it ("A plan may, however, need an O(K) set of processed identities") and places
+  it in the memory budget, and point 1 above already keeps it where the seek cannot give
+  the guarantee. It stores no byte in any entry, and it is the mechanism the enumeration
+  has. The set is made at the first step that returns an entity without seeing the end,
+  so a search that finds one entity or none allocates what it does today. Identities
+  passed over by Offset are remembered as well. The set counts against `ReadMemoryLimit`
+  by its capacity, and over the limit the search fails explicitly; it never drops the
+  set. A stamp in every entry stays on record with its figures.
+- The tests of group 4 above add the range form and the moving key, forwards and
+  backwards, returned and in the skipped prefix; it is the second target of the breaker.
+- The read limits count what the search holds: until `FindAsync` returns, its list by the
+  capacity of its array and each entity by the stored bytes of its root (Q07.1.1); the lazy
+  `Find` counts none. The documentation of `ReadMemoryLimit` says what is counted. Before
+  the test author writes group 6, it checks the default of `ReadMemoryLimit` against an
+  ordinary `FindAsync`, such as 10,000 entities of the fixture; a default that would refuse
+  ordinary load comes to the planner first.
+- Taken from the study: the early end for a range, the one descent with a side, the key
+  written only when a step needs it, and rounds within one period of the protection, whose
+  size the start measures. The pinned allocation figures may be restated for the 16 to 24
+  bytes of the read limits, with their composition, after the implementation.
+- Not taken: the harvest of a page at a time of nbtree, which needs an unproven protocol
+  for a handle held outside the protection (the start measures the share of descents in a
+  range of 100); counts for each subtree for Offset.
+
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
 sentence above or below says otherwise, these replace it. The owner asked for this check
 of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
@@ -6608,6 +6675,9 @@ For this sprint:
    and "inclusive reseek skipping visited identities" is rewritten by this sprint after
    the structure of S14. If the structure cannot seek so, the study of S14 says it and
    the remembered set stays.
+   20 November 2026: this holds for one run of one key; over a range a key that moves ahead
+   of the walk would be returned again, so the remembered set stays (the study of S15,
+   part 1).
 2. **Limits:** `ReadMemoryLimit` bounds what a traversal remembers (the last key; a set
    only if point 1 fails), `ReadTimeLimit` the engine time of its steps; a cancellation is
    reported before a limit (finding 2 of the outside review).
