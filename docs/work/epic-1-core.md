@@ -6016,6 +6016,10 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      m = max(0, p − 1 − r); a = m / L, b = m % L; S = m + L·a·(a − 1)/2 + a·b, the sum of
      `Growth(k)` for k = 0 … p − 1; G = 0 when p ≤ r, else 1 + (p − 1 − r) / L, the height
      the removes see; Need = p·(2h + 1) + 2·S + q·(h + G + 1).
+     The need is compared in `long`: a need the pool cannot count is a reservation that
+     cannot be made, refused with nothing taken, as for an arena that cannot hold the nodes
+     (the planner, 20 November 2026, on the review: narrowed to `int` it wrapped and
+     reserved too few).
      The member its test addresses, the internal contract of this step:
      `internal static long Need(int height, int room, int leastSeparators, int inserts, int removes)`
      on `OrderedTree`. The instance `Need()` becomes a call of it, and it is the one target
@@ -6764,7 +6768,11 @@ announces, bounded only by its memory limit, and each accepted connection holds 
   runs after its cancellation.
 - **Measured.** Reported: peak against steady memory of one MemoryOnly node held at its
   budget under the churn trace; the share of the budget each counted part takes on the
-  reference fixture.
+  reference fixture. Also a write that alternates with indexed writes at the limit: the
+  top-up of the standing reserve of S14, part 2 takes back what the give-back before a
+  refusal freed, so such a write may go through the whole resolution every time; this is
+  read, not measured, and it is measured here before anyone changes that rule (the
+  planner, 20 November 2026).
 - **Out of scope.** Budgets of the journal and of delivery history (S31, S33).
 
 **Carried from the architect's review after S13 (18 November 2026).** Whether a text
