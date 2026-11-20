@@ -5885,7 +5885,11 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   its pool — the top-up must not be what made it fail (the rule of (b)). A fourth, the
   boundary of the masks of (a): types of 63, 64 and 65 indexes, with none, a move and a
   rewrite mixed on both sides of the 64th, and a write that changes only an index beyond
-  it (the planner, 20 November 2026).
+  it (the planner, 20 November 2026). The reviewer checks one bound of (d): the UTF-8 bytes
+  of a text part are compared as bytes up to `SearchKey.TextBytesPerPart` and decoded
+  beyond it, so a key of 256 and of 257 bytes, and a part exactly at the bound in a
+  composite key, give the same order and the same search as the oracle (the planner,
+  20 November 2026).
 - **Acceptance.**
   - (a) A replace that keeps every indexed key costs what it costs for the same type
     without indexes, within the gauge (today −20 % with one index, −62 % with six). The
@@ -6084,7 +6088,10 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   plan runs on the one window. Its proof by listings stands; its series was not taken,
   because the workstation was not quiet, and is series 1 below.
 - **The machine.** One start, at the end, by a plan written here before it: the series,
-  their order, the expected length and what each decides. The coordinator fills in the
+  their order, the expected length and what each decides. It starts after the review and
+  the breaker have closed with no P1 to P3, on the head that passed them: a fix after the
+  series would change the measured code and owe the series again (the planner,
+  20 November 2026). The coordinator fills in the
   lengths. The rules for a start of a rented machine in [Acceptance](#acceptance) apply:
   one queue on the machine, at most N/2 readers judged, and a fall called only after a
   series of three builds rotating.
