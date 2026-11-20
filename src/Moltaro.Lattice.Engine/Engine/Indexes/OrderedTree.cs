@@ -507,6 +507,21 @@ internal sealed class OrderedTree
         return need + (_removes * (_height + Growth(_inserts, room) + 1L));
     }
 
+    // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given
+    // whose root has the room given, and the most places in the retired list they can use: the closed form
+    // of the loop of Need above (see the class, "The reservation"), which costs the same for any number of
+    // writes waiting. With h the height, r the room, L the least separators, p the inserts and q the
+    // removes, every division integer and the whole in long:
+    //
+    //   m = max(0, p - 1 - r), a = m / L, b = m % L, S = m + L * a * (a - 1) / 2 + a * b,
+    //   G = 0 when p <= r, else 1 + (p - 1 - r) / L,
+    //   Need = p * (2 h + 1) + 2 S + q * (h + G + 1),
+    //
+    // where S is the sum of Growth over the inserts, the levels the inserts before each can add, and G is
+    // Growth of them all, the levels the removes can find added. Not implemented yet.
+    internal static long Need(int height, int room, int leastSeparators, int inserts, int removes) =>
+        throw new NotSupportedException();
+
     // The inserts the root takes before it can split: a node with fewer than LeastSeparators separators,
     // or entries, fits one more. 0 for an empty tree, whose first insert makes a root.
     private int Room() => _root == 0 ? 0 : Math.Max(0, _layout.LeastSeparators - NodeAt(LoadRoot()).Count);
