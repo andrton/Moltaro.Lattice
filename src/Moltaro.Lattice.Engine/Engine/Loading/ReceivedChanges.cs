@@ -70,12 +70,16 @@ namespace Moltaro.Lattice.Engine.Loading;
 // (TryPlace, TryApply), and the wait for the reads outside it. Between those holds nothing takes memory of
 // the arena: during the load no other thread takes the lock, since the members that take it refuse a
 // child that is not Ready and the close takes it only after the barrier, and later only a drain or a count
-// of the counters can. For a root of the load that is all: before the
-// child is Ready no read can hold retired memory, so there is nothing else to wait for, and a root refused
-// again cannot be held: the open of the child ends with Unavailable and the reason. A transaction refused
-// again waits for the reads that hold retired memory, what they held is freed, and it is tried once more;
-// refused then, it cannot be held: Apply ends with Unavailable, which fails the open of a child that is not
-// Ready yet and ends the following of one that is (Following.Follower).
+// of the counters can. A try that prepares everything tops the standing reserves of the indexes up before
+// it publishes, and the last try before a refusal is made after every index gave back what it holds above
+// the need, with no top-up, so that the reserves are never the reason of a refusal (Indexes.OrderedTree,
+// "The standing reserve"); what an index took for a change that is not published goes back to the arena
+// with its withdrawal, not into its reserve (Abandon). For a root of the load the second try is the last: before the child is Ready
+// no read can hold retired memory, so there is nothing else to wait for, and a root refused again cannot
+// be held: the open of the child ends with Unavailable and the reason. A transaction refused again waits
+// for the reads that hold retired memory, what they held is freed, and it is tried a last time; refused
+// then, it cannot be held: Apply ends with Unavailable, which fails the open of a child that is not Ready
+// yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
     private readonly Arena _arena;
@@ -137,7 +141,7 @@ internal sealed class ReceivedChanges
         _retired = retired;
         _clock = clock;
         _epochs = epochs;
-        _publisher = new ChangePublisher(arena, roots, retired, clock);
+        _publisher = new ChangePublisher(arena, roots, retired, clock, tables);
         _tables = tables;
         _writes = writes;
         _barrier = barrier;
@@ -155,7 +159,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            if (TryPlace(table, lastMutation, rest))
+            if (TryPlace(table, lastMutation, rest, topsUp: true))
             {
                 return;
             }
@@ -163,9 +167,10 @@ internal sealed class ReceivedChanges
             lock (_writes)
             {
                 _retired.Drain();
+                _publisher.GiveBackReserves();
             }
 
-            if (TryPlace(table, lastMutation, rest))
+            if (TryPlace(table, lastMutation, rest, topsUp: false))
             {
                 return;
             }
@@ -215,7 +220,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            if (TryApply(sequence, effects))
+            if (TryApply(sequence, effects, topsUp: true))
             {
                 return;
             }
@@ -227,7 +232,7 @@ internal sealed class ReceivedChanges
                 _retired.Drain();
             }
 
-            if (TryApply(sequence, effects))
+            if (TryApply(sequence, effects, topsUp: true))
             {
                 return;
             }
@@ -241,16 +246,17 @@ internal sealed class ReceivedChanges
             {
                 _retired.RunWaitHold();
                 _epochs.WaitForReadsBefore(epoch, cancellationToken);
+            }
 
-                lock (_writes)
-                {
-                    _retired.Drain();
-                }
+            lock (_writes)
+            {
+                _retired.Drain();
+                _publisher.GiveBackReserves();
+            }
 
-                if (TryApply(sequence, effects))
-                {
-                    return;
-                }
+            if (TryApply(sequence, effects, topsUp: false))
+            {
+                return;
             }
 
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The memory limit of this child cannot hold the transaction {sequence} of its master.");
@@ -272,15 +278,21 @@ internal sealed class ReceivedChanges
     }
 
     // Under the lock of the writes, which it takes: places the root and publishes it, or skips it by the
-    // rule. False when the arena refused it, with nothing of it left. The reader is a copy, so that every
-    // try reads the root from its start.
-    private bool TryPlace(EntityTable table, ulong lastMutation, SequenceReader<byte> rest)
+    // rule, and tops the standing reserves of the indexes up before its publication when topsUp is true
+    // (see the class, "Memory"). False when the arena refused it, with nothing of it left. The reader is a
+    // copy, so that every try reads the root from its start.
+    private bool TryPlace(EntityTable table, ulong lastMutation, SequenceReader<byte> rest, bool topsUp)
     {
         lock (_writes)
         {
             if (!TryPrepareWrite(table, lastMutation, ref rest))
             {
                 return false;
+            }
+
+            if (topsUp)
+            {
+                _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
             }
 
             Publish(lastMutation, publishesPosition: false);
@@ -290,8 +302,9 @@ internal sealed class ReceivedChanges
     }
 
     // Under the lock of the writes: prepares every effect of the transaction and publishes them, or none of
-    // them. False when the arena refused one, with nothing of the transaction left.
-    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects)
+    // them, and tops the standing reserves of the indexes up once all are prepared when topsUp is true (see
+    // the class, "Memory"). False when the arena refused one, with nothing of the transaction left.
+    private bool TryApply(ulong sequence, ReadOnlySequence<byte> effects, bool topsUp)
     {
         lock (_writes)
         {
@@ -311,6 +324,11 @@ internal sealed class ReceivedChanges
             {
                 Abandon();
                 throw;
+            }
+
+            if (topsUp)
+            {
+                _publisher.TopUp(CollectionsMarshal.AsSpan(_prepared));
             }
 
             Publish(sequence, publishesPosition: true);

@@ -294,8 +294,44 @@ enough:
   after every preparation, publication and withdrawal that the pool and the places hold
   at least the need of the writes still waiting.
 
+**The standing reserve.** Once a preparation has touched an index, its pool keeps the need
+of one change of key, an insert and a remove, at the tree as it is: *Need* with *p* = *q* =
+1, 5 nodes for a tree of one leaf, 11 or 12 at height 3. A write then takes its nodes from
+the pool, about one for an insert or a remove and two for a change of key, and the next
+preparation that touches the index tops up what it took, instead of every write taking its
+whole need from the arena and giving the rest back after its publication. The reserve is
+taken by the first preparation that touches the index, not at the open. While writes wait,
+the pool holds at most the larger of their need and the reserve; with nothing waiting, at
+most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
+counted in the prepared bytes, which are therefore above zero once a write of an indexed
+type has returned, and against the memory limit, like any other bytes. The places in the
+retired list follow the need alone: places held for no write would keep the retired list
+from letting its room go.
+
+The reserve is never the reason of a refusal: a write is refused for memory only when it
+does not fit beside the stored data, never for memory other writes hold for a time
+([write admission](../decisions/write-admission.md)).
+
+- A preparation takes the need of its write first, and once every index of the write has
+  its need, tops each pool up to its reserve as far as the arena gives; a top-up that
+  cannot be had is not a failure.
+- A publication gives back what is above the larger of the need of the writes still
+  waiting and the reserve. A withdrawal gives back what is above the need, the reserve
+  with it: what a write took and did not publish goes back to the arena, never into a
+  reserve.
+- Before a write is refused for memory — in its resolution alone, after what is retired
+  was freed; on a child before it stops following, or before a root of its load ends the
+  open — every index of the database gives back what its pool holds above the need of the
+  writes still prepared, and the write is tried once more, taking its own need and no
+  top-up. It is refused only when that try fails, and then leaves every pool at the need
+  of the writes still prepared, which for a write resolved alone is nothing.
+
+So a database with many indexes and a small memory limit opens, and writes to it whatever
+fits by itself.
+
 For one insert into an index of height 3, with nothing else waiting, the need is 7 nodes,
-7 KiB, while a publication takes about one, and the pool is empty again after it.
+7 KiB, while a publication takes about one; the pool keeps what is left up to the reserve
+for the next write.
 
 What it costs when many changes wait: the *k*-th insert is counted at the height the
 inserts before it can reach, so the need grows with the square of the inserts prepared

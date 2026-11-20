@@ -24,7 +24,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // place where the effects of a write are installed calls, for each index of the entity type, under the
 // lock of the writes, on a master and on a child alike:
 // - in the hold that prepares the write: TryReserve; false when the arena cannot hold what the change
-//   needs, which refuses the write as one the memory budget cannot hold, with nothing taken;
+//   needs, which refuses the write as one the memory budget cannot hold, with nothing taken; then, once
+//   every index has what the write needs, TopUp, which tops the standing reserve up and never fails;
 // - when the write is withdrawn before its publication: Release;
 // - in its publication, before the stores that publish the root and the position: InstallNew;
 // - after the position, before the old root or the deleted entry is retired: RemoveOld.
@@ -147,6 +148,17 @@ internal sealed class SecondaryIndex
         IndexChangeEnum.Remove => Tree.TryReserve(inserts: 0, removes: 1),
         _ => Tree.TryReserve(inserts: 1, removes: 1),
     };
+
+    // For the writer, in the hold that prepares the write, once every index of the write has its need: tops
+    // the pool of the tree up to its standing reserve when the write changes the index
+    // (OrderedTree.TopUp). Nothing fails.
+    public void TopUp(ArenaAddress replaced, ArenaAddress root)
+    {
+        if (ChangeOf(replaced, root) != IndexChangeEnum.None)
+        {
+            Tree.TopUp();
+        }
+    }
 
     // For the writer: gives back what TryReserve took, for a write withdrawn before its publication.
     public void Release(ArenaAddress replaced, ArenaAddress root)

@@ -1132,7 +1132,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this);
             var delivery = new DeliveryTail();
-            var changes = new ChangePublisher(arena, roots, retired, clock);
+            var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
+            var changes = new ChangePublisher(arena, roots, retired, clock, tables);
             var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
@@ -1147,21 +1148,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _options.SynchronizationTimeout,
                 Fault);
             var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
-            var inSchemaOrder = new List<EntityTable>();
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
-            foreach (var entityType in schema.EntityTypes)
+            foreach (var table in tables.InSchemaOrder)
             {
-                var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed);
                 var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
 
-                inSchemaOrder.Add(table);
-                operations.Add(entityType, forType);
-                recordSets.Add(entityType, new RecordSet(forType));
+                operations.Add(table.EntityType, forType);
+                recordSets.Add(table.EntityType, new RecordSet(forType));
             }
-
-            var tables = new EntityTables([.. inSchemaOrder]);
 
             lock (_stateLock)
             {

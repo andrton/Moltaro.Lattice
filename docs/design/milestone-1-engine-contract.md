@@ -275,7 +275,11 @@ the inserts before it can reach and each remove at the height after all of them
 ([ordered index](ordered-index.md#the-reservation)) — and releases them if
 the write is withdrawn. With the storage step busy a prepared, unpublished write holds
 them and no reader can reach them. A reservation the arena cannot hold refuses the write
-for memory before its commit. A retired node is a retired item of its own, with its bytes
+for memory before its commit. Once a write has touched an index, its pool keeps a
+standing reserve, the need of one change of key, counted in the prepared bytes and
+against the memory limit and freed at the close; it is never the reason of a refusal:
+before a write is refused for memory every index gives back what it holds above the need
+of the writes prepared, and the write is tried once more without it. A retired node is a retired item of its own, with its bytes
 toward the next look; freeing it releases the references to text entries it holds.
 
 Comparison/hash has one schema-owned service across indexes, Map/Set and direct

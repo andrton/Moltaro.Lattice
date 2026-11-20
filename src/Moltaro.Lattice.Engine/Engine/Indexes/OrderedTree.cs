@@ -37,11 +37,25 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // when the root splits (Growth): the root takes the inserts of its room first, a root made by a split
 // holds one separator, and an insert adds at most one to any node, so the k-th insert finds the tree at
 // most Growth(k - 1) levels above h and every remove at most Growth(p) (ordered-index.md, "The
-// reservation"). A preparation tops the pool up to the need of every write that waits, its own counted; a
-// withdrawal and a publication give back to the arena what is above the need of the writes still
-// waiting, and allocate nothing. A publication takes at most the share of the need its write was counted
-// with, and leaves the need of the writes still waiting, at the tree as it is then, no larger than what
-// is left: a Debug build asserts it after every preparation, publication and withdrawal (AssertReserved).
+// reservation"). A preparation takes the need of every write that waits, its own counted (TryReserve). A
+// publication takes at most the share of the need its write was counted with, and leaves the need of the
+// writes still waiting, at the tree as it is then, no larger than what is left: a Debug build asserts it
+// after every change of the pool (AssertReserved).
+//
+// The standing reserve. Once a preparation has touched the index, its pool keeps the need of one change
+// of key, an insert and a remove, at the tree as it is (StandingReserve), so that a write takes its nodes
+// from the pool and does not take and give back its whole need from the arena. A preparation tops the
+// pool up to it once every index of its write has its need, as far as the arena gives (TopUp); a top-up
+// that cannot be had is not a failure. A publication gives back what is above the larger of the need of
+// the writes still waiting and the reserve; a withdrawal what is above the need, the reserve with it, so
+// that what a write took and did not publish goes back to the arena and never into the reserve; neither
+// allocates. With nothing waiting the pool holds at most the reserve, and the close frees it with the
+// arena. Its nodes are prepared blocks, counted against the memory limit like any other, and it is never
+// the reason of a refusal: before a write is refused for memory every index gives back what is above the
+// need (GiveBackReserve), and the write is tried once more with its own need and no top-up
+// (Writes.WriteCoordinator, "The refusal"). The places in the retired list follow the need alone, since
+// places held for no write would keep the retired list from letting its room go
+// (Protection.RetiredMemory.Drain).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;
@@ -61,8 +75,8 @@ internal sealed class OrderedTree
 
     private readonly RetiredMemory _retired;
 
-    // The nodes reserved for the publications of the writes prepared and not published, prepared blocks
-    // of the arena that no reader can reach.
+    // The nodes reserved for the publications of the writes prepared and not published, and the standing
+    // reserve: prepared blocks of the arena that no reader can reach.
     private readonly Stack<ArenaAddress> _pool = new();
 
     // The address of the root as its number, 0 for an empty tree (see the class).
@@ -210,26 +224,27 @@ internal sealed class OrderedTree
     }
 
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
-    // list for the inserts and the removes given, beside those prepared before and not published (see
-    // the class, "The reservation"). True when the reservation is made; false when the arena cannot hold
-    // the nodes, with nothing taken. An OutOfMemoryException of the native allocator or of the managed
-    // heap leaves nothing taken either.
+    // list for the inserts and the removes given, beside those prepared before and not published, the
+    // need of them all (see the class, "The reservation"); the standing reserve is TopUp's. True when the
+    // reservation is made; false when the arena cannot hold the nodes, with nothing taken. An
+    // OutOfMemoryException of the native allocator or of the managed heap leaves nothing taken either.
     public bool TryReserve(int inserts, int removes)
     {
         var waitingInserts = _inserts + inserts;
         var waitingRemoves = _removes + removes;
         var room = Room();
-        var nodes = (int)Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
+        var need = (int)Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
 
-        // The managed room first, so that nothing of the arena is taken when it cannot be had.
+        // The managed room first, so that nothing of the arena is taken when it cannot be had; the room of
+        // the pool includes the standing reserve, so that a top-up allocates nothing of the managed heap.
         GrowPath(_height + Growth(waitingInserts, room, _layout.LeastSeparators));
-        _pool.EnsureCapacity(nodes);
+        _pool.EnsureCapacity(Math.Max(need, (int)StandingReserve(room)));
 
         var taken = 0;
 
         try
         {
-            while (_pool.Count < nodes)
+            while (_pool.Count < need)
             {
                 if (!_arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
                 {
@@ -242,10 +257,10 @@ internal sealed class OrderedTree
                 taken++;
             }
 
-            if (nodes > _places)
+            if (need > _places)
             {
-                _retired.Reserve(nodes - _places);
-                _places = nodes;
+                _retired.Reserve(need - _places);
+                _places = need;
             }
         }
         catch
@@ -261,14 +276,44 @@ internal sealed class OrderedTree
         return true;
     }
 
+    // For the writer, in the hold that prepares a write, once every index of the write has its need
+    // (TryReserve): tops the pool up to the standing reserve, as far as the arena gives (see the class).
+    // What the arena refuses, or the native allocator cannot supply, is not taken, and nothing fails.
+    public void TopUp()
+    {
+        var reserve = StandingReserve(Room());
+
+        try
+        {
+            while (_pool.Count < reserve && _arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
+            {
+                _pool.Push(node);
+            }
+        }
+        catch (OutOfMemoryException)
+        {
+            // The native allocator could not supply a segment: the rest of the reserve is not had, which
+            // is not a failure of the write.
+        }
+
+        AssertReserved();
+    }
+
     // For the writer: gives back what TryReserve took for a write that is withdrawn before its
-    // publication; the nodes above what the writes still prepared need go back to the arena.
+    // publication: every node above what the writes still prepared need goes back to the arena, the
+    // standing reserve with them, so that what a write took and did not publish never stays in the pool
+    // (see the class).
     public void Release(int inserts, int removes)
     {
         _inserts -= inserts;
         _removes -= removes;
-        Trim();
+        Trim(keepsReserve: false);
     }
+
+    // For the writer, before a write is refused for memory: gives back to the arena every node of the pool
+    // above the need of the writes prepared and not published, the standing reserve with them, so that the
+    // reserve is never the reason of a refusal (see the class).
+    public void GiveBackReserve() => Trim(keepsReserve: false);
 
     // For the writer, in a publication: adds the entry, which the tree does not hold, by copies of the
     // nodes it changes from the reservation, each published by one store, and retires what they replace;
@@ -445,13 +490,16 @@ internal sealed class OrderedTree
         }
     }
 
-    // After a withdrawal or a publication: what is above the need of the writes still waiting goes back,
-    // the nodes to the arena and the places to the retired list (see the class).
-    private void Trim()
+    // After a publication, a withdrawal or before a refusal: the nodes above the need of the writes still
+    // waiting go back to the arena, but for the standing reserve after a publication, and the places above
+    // the need to the retired list (see the class).
+    private void Trim(bool keepsReserve)
     {
-        var need = Need(_inserts, _removes);
+        var room = Room();
+        var need = NeedOfWaiting(room);
+        var kept = keepsReserve ? Math.Max(need, StandingReserve(room)) : need;
 
-        while (_pool.Count > need)
+        while (_pool.Count > kept)
         {
             _arena.Free(_pool.Pop());
         }
@@ -465,19 +513,27 @@ internal sealed class OrderedTree
         AssertReserved();
     }
 
-    // For a Debug build, after a reservation, a publication and a withdrawal: the invariant of the
-    // reservation (see the class).
+    // For a Debug build, after every change of the pool: the invariant of the reservation, and the most
+    // the pool holds (see the class).
     [Conditional("DEBUG")]
     private void AssertReserved()
     {
-        var need = Need(_inserts, _removes);
+        var room = Room();
+        var need = NeedOfWaiting(room);
+        var most = Math.Max(need, StandingReserve(room));
 
         Debug.Assert(_pool.Count >= need, $"The index {_layout.Index.Name} holds {_pool.Count} nodes for writes that can take {need}.");
+        Debug.Assert(_pool.Count <= most, $"The index {_layout.Index.Name} holds {_pool.Count} nodes, above the larger of the need of the writes waiting, {need}, and the standing reserve.");
         Debug.Assert(_places >= need, $"The index {_layout.Index.Name} holds {_places} places in the retired list for writes that can use {need}.");
     }
 
-    // The need of the inserts and the removes given, waiting, at the tree as it is now (see the class).
-    private long Need(int inserts, int removes) => Need(_height, Room(), _layout.LeastSeparators, inserts, removes);
+    // The need of the writes waiting at the tree as it is now, whose root has the room given (see the
+    // class).
+    private long NeedOfWaiting(int room) => Need(_height, room, _layout.LeastSeparators, _inserts, _removes);
+
+    // The standing reserve at the tree as it is now, whose root has the room given: the need of one change
+    // of key, an insert and a remove (see the class).
+    private long StandingReserve(int room) => Need(_height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
     // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given
     // whose root has the room given, and the most places in the retired list they can use (see the class,
@@ -525,8 +581,8 @@ internal sealed class OrderedTree
         _inserts--;
     }
 
-    // The end of a publication: the nodes its store replaced are retired, and what the writes still
-    // waiting do not need goes back.
+    // The end of a publication: the nodes its store replaced are retired, and what is above the larger of
+    // the need of the writes still waiting and the standing reserve goes back.
     private void AfterPublication()
     {
         for (var index = 0; index < _replacedCount; index++)
@@ -537,7 +593,7 @@ internal sealed class OrderedTree
         }
 
         _replacedCount = 0;
-        Trim();
+        Trim(keepsReserve: true);
     }
 
     // The leaf of the entry, which the tree holds by its key and its identity, with its place in it;

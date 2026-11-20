@@ -41,7 +41,7 @@ public sealed class StandingReserveTests
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task After_every_published_write_of_an_indexed_type_the_arena_holds_prepared_bytes_above_zero_and_within_the_reserve_of_its_indexes()
     {
         await using var database = await EngineMaster.OpenAsync(IndexSchema.Utf8);
@@ -68,7 +68,7 @@ public sealed class StandingReserveTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Reserve_counts_against_the_memory_limit_while_it_is_held_and_a_write_that_fits_only_without_it_succeeds()
     {
         await using var database = await EngineMaster.OpenAsync(FullArena.Schema, new EngineTestInputs { Arena = FullArena.Options });
@@ -111,7 +111,7 @@ public sealed class StandingReserveTests
         Assert.Equal(FullArena.SlotsOfOneKiB, filled + nodes);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Close_of_a_database_that_holds_a_reserve_returns_every_piece_of_native_memory()
     {
         var allocator = new CountingNativeAllocator();
@@ -126,7 +126,7 @@ public sealed class StandingReserveTests
         allocator.ExpectEverythingReturned();
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Database_whose_memory_limit_is_below_the_reserves_of_its_indexes_opens_writes_what_fits_by_itself_and_refuses_with_nothing_left_taken_what_does_not()
     {
         var arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = 2L * Arena.MaxBlockSize, ReservedSegments = 0 };

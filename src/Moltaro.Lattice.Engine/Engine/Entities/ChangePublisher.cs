@@ -17,12 +17,16 @@ namespace Moltaro.Lattice.Engine.Entities;
 // (Indexes.SecondaryIndex), so that a master, a forwarded write, a root of a load and a transaction of a
 // child keep them alike: the reservation reserves the nodes of each index the change needs, and a change
 // whose nodes the arena cannot hold is refused for memory with nothing taken; a change that is not
-// published gives them back; the new entries are installed before the stores of the root, and the old
+// published gives its nodes back; the new entries are installed before the stores of the root, and the old
 // ones taken away after the position and before the root they belong to is retired. So the entries of a
 // publication go in, then its roots, then the old entries go out, each by its own stores, and the check of
 // a found entry against its root covers the moments between (docs/design/ordered-index.md, "The entries of
 // one write"). Both roots of a change stay as they are between its preparation and its publication, so
-// each step computes the change of an index again from them.
+// each step computes the change of an index again from them. The callers keep the standing reserve of
+// each index (Indexes.OrderedTree, "The standing reserve") by the rule of a write refused for memory: once
+// every change of a write or a transaction has its nodes, a caller tops the reserves up (TopUp), and before
+// it refuses one for memory, it has every index of the database give back what is above the need of the
+// changes prepared (GiveBackReserves) and tries once more.
 //
 // What it guarantees. The stores are made in that order, each with release semantics (Volatile.Write), so a
 // read that sees one, by a load with acquire semantics, sees every store before it, the blocks the
@@ -32,8 +36,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // point a test armed, or for a defect; the stores made stay, and the caller faults the database.
 //
 // It holds no state of its own. What it changes — the arena, the table of root entries, the primary and the
-// secondary indexes, the position clock and the retired list — has one changing thread at a time, the holder
-// of the lock of the writes, and every member runs under that lock.
+// secondary indexes of the tables of the database, the position clock and the retired list — has one
+// changing thread at a time, the holder of the lock of the writes, and every member runs under that lock.
 //
 // The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted from
 // crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
@@ -52,12 +56,15 @@ internal sealed class ChangePublisher
 
     private readonly PositionClock _clock;
 
-    public ChangePublisher(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock)
+    private readonly EntityTables _tables;
+
+    public ChangePublisher(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, EntityTables tables)
     {
         _arena = arena;
         _roots = roots;
         _retired = retired;
         _clock = clock;
+        _tables = tables;
     }
 
     // Under the lock of the writes, at the end of a preparation: reserves what the publication of the
@@ -112,6 +119,48 @@ internal sealed class ChangePublisher
         }
 
         return true;
+    }
+
+    // Under the lock of the writes, once every change of a write or of a transaction is prepared and has
+    // what its publication uses (TryReserve): tops the standing reserve of each index the changes touch up,
+    // as far as the arena gives; nothing fails. After the needs of all of them, so that a top-up never
+    // takes what a change needs. Inlined into the preparation of a write, as TryReserve is, so that a write
+    // of an entity type without an index makes no call for it (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void TopUp(ReadOnlySpan<PreparedChange> changes)
+    {
+        foreach (ref readonly var change in changes)
+        {
+            if (!change.Table.Indexes.IsEmpty)
+            {
+                TopUpIndexes(change);
+            }
+        }
+    }
+
+    // Under the lock of the writes, before a write or a received change is refused for memory: every index
+    // of the database gives back what its pool holds above the need of the changes prepared and not
+    // published (Indexes.OrderedTree.GiveBackReserve).
+    public void GiveBackReserves()
+    {
+        foreach (var table in _tables.InSchemaOrder)
+        {
+            foreach (var index in table.Indexes)
+            {
+                index.Tree.GiveBackReserve();
+            }
+        }
+    }
+
+    // The top-up of the indexes of the entity type of a change (TopUp).
+    private void TopUpIndexes(in PreparedChange change)
+    {
+        var replaced = ReplacedBy(change);
+
+        foreach (var index in change.Table.Indexes)
+        {
+            index.TopUp(replaced, change.Root);
+        }
     }
 
     // What the change of the entity itself uses: room in the primary index for an insert, a place in the
