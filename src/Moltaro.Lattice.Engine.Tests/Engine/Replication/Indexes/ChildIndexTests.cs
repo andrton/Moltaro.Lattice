@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // - after it has followed a stream of inserts, replaces that change keys or keep them under another
 //   spelling, and deletes, the same holds.
 // The tally of the test (IndexTally) is kept from the writes of the master and states each node alike. A
-// test waits for the child through the position of the master.
+// test waits for the child through the position of the master, within the bound of the tests and not
+// within the default timeout of the child (ReplicationNodes.ChildWaitingBeyondTheBound): how long a busy
+// machine takes to apply some two thousand writes is not what the test states.
 public sealed class ChildIndexTests
 {
     [Theory]
@@ -32,7 +34,7 @@ public sealed class ChildIndexTests
             tally.Written(entity);
         }
 
-        await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(master.ListenUri!), new EngineTestInputs());
 
         ExpectEqual(tally, master, child);
 

@@ -11,7 +11,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // sends once its write has begun (HeldChildLink); while it holds, the master writes and the child applies
 // that write, since it receives and applies apart from its sender; then the link lets the rest through.
 // Between the first and the last frame of the request the child sent an Applied of the write it applied
-// meanwhile, never one before its readiness position (the rule of S11, AppliedTests).
+// meanwhile, never one before its readiness position (the rule of S11, AppliedTests). The child waits
+// beyond the bound for its write to be applied (ReplicationNodes.ChildWaitingBeyondTheBound): how long
+// the write of 32 MiB takes to come back on a busy machine is not what the test states.
 public sealed class AcknowledgmentDuringARequestTests
 {
     [Fact]
@@ -19,7 +21,7 @@ public sealed class AcknowledgmentDuringARequestTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var link = HeldChildLink.Start(master.ListenUri!);
-        await using var child = await ReplicationNodes.OpenChildAsync(link.Address);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(link.Address), new EngineTestInputs());
         var readiness = PositionSequence.Of(child.Position);
         await link.HoldOnceAcknowledgedAsync();
 
