@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
@@ -11,9 +11,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // per second meanwhile, beside readers of its own database and, as the control, beside as many
 // readers of another database of the same process.
 //
-// A series starts its readers, each on a thread of its own, and lets them read for a warm-up, then
-// counts the reads every thread makes in a window of a fixed length and divides their sum by the
-// length of the window. Every reader reads the keys of read-by-key, drawn with the same seed, from a
+// A series is a window (StepWindow): it starts its readers, each on a thread of its own, and lets them
+// read for a warm-up, then counts the reads every thread makes in a window of a fixed length and
+// divides their sum by the length of the window. Every reader reads the keys of read-by-key, drawn with the same seed, from a
 // place of its own in them, so that the readers do not read the same users at the same moment. The
 // reads are not timed one by one: a series measures what all its threads read together. The threads
 // are not pinned to processors, and the processor of the development machine has cores of two kinds,
@@ -53,18 +53,6 @@ internal static class ReadByKeyThreadsScenario
     // The users the writer that inserts and deletes takes in turn.
     private const int OwnUsers = 1_000;
 
-    private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
-
-    private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
-
-    // The phases of a series, which its threads read: they read, or write when there is a writer,
-    // through the warm-up, count what they do through the window, then stop.
-    private const int WarmingUp = 0;
-
-    private const int Counting = 1;
-
-    private const int Stopped = 2;
-
     public static IReadOnlyList<string> Run()
     {
         using var users = UserDatabase.Load();
@@ -97,7 +85,7 @@ internal static class ReadByKeyThreadsScenario
             users.Fixture,
             users.Loaded,
             $"The other database, which readers of the control read: {others.Loaded}",
-            $"Series: reads through the class of keys drawn from 1 to {ReadSeries.Number(users.Count)} with seed {ReadByKeyScenario.KeySeed}, each reader from a place of its own in them; a warm-up of {Seconds(WarmUp)} s, then the reads of all readers in a window of {Seconds(Window)} s, in reads per second in total",
+            $"Series: reads through the class of keys drawn from 1 to {ReadSeries.Number(users.Count)} with seed {ReadByKeyScenario.KeySeed}, each reader from a place of its own in them; a warm-up of {Seconds(StepWindow.WarmUp)} s, then the reads of all readers in a window of {Seconds(StepWindow.Length)} s, in reads per second in total",
             "",
         ];
 
@@ -163,70 +151,33 @@ internal static class ReadByKeyThreadsScenario
     // the writes a second of the writer.
     private static (string Line, long Writes) Series(UserDatabase reading, long[] keys, int readers, Func<int>? write, bool writesInWindowOnly)
     {
-        var phase = WarmingUp;
-
-        // What each reader counted in the window, written once by the reader when it stops.
-        var reads = new long[readers];
-        var writes = 0L;
-
-        // The readers and the main thread start together.
-        using var start = new Barrier(readers + 1);
-
-        var threads = new List<Thread>();
+        var window = new StepWindow();
 
         for (var reader = 0; reader < readers; reader++)
         {
-            var index = reader;
-
-            threads.Add(new Thread(() =>
-            {
-                start.SignalAndWait();
-                reads[index] = Read(reading, keys, index * (keys.Length / readers), ref phase);
-            })
-            {
-                IsBackground = true,
-                Name = $"Reader {index}",
-            });
+            window.Add($"Reader {reader}", new Reader(reading, keys, reader * (keys.Length / readers)));
         }
 
         if (write is not null)
         {
-            threads.Add(new Thread(() => writes = Write(write, writesInWindowOnly, ref phase))
-            {
-                IsBackground = true,
-                Name = "Writer",
-            });
+            window.Add("Writer", new Writer(write, writesInWindowOnly));
         }
 
-        foreach (var thread in threads)
-        {
-            thread.Start();
-        }
-
-        start.SignalAndWait();
-        Thread.Sleep(WarmUp);
+        window.Start();
 
         var gen0 = GC.CollectionCount(0);
         var gen1 = GC.CollectionCount(1);
         var gen2 = GC.CollectionCount(2);
-        var started = Stopwatch.GetTimestamp();
-
-        Volatile.Write(ref phase, Counting);
-        Thread.Sleep(Window);
-        Volatile.Write(ref phase, Stopped);
-
-        var elapsed = Stopwatch.GetElapsedTime(started);
+        var elapsed = window.Count();
 
         gen0 = GC.CollectionCount(0) - gen0;
         gen1 = GC.CollectionCount(1) - gen1;
         gen2 = GC.CollectionCount(2) - gen2;
 
-        foreach (var thread in threads)
-        {
-            thread.Join();
-        }
+        window.Join();
 
-        var total = reads.Sum();
+        var total = window.Counted.Take(readers).Sum();
+        var writes = write is null ? 0 : window.Counted[readers];
         var line = $"{PerSecond(total, elapsed)} reads/s; {ReadSeries.Number(total)} reads in {Seconds(elapsed)} s; collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}";
 
         return write is null
@@ -234,73 +185,58 @@ internal static class ReadByKeyThreadsScenario
             : ($"{line}; the writer made {ReadSeries.Number(writes)} writes meanwhile, {PerSecond(writes, elapsed)} per second", (long)Math.Round(writes / elapsed.TotalSeconds));
     }
 
-    // Reads keys from the place on, until the phase is Stopped, and returns how many it read while
-    // the phase was Counting.
-    private static long Read(UserDatabase users, long[] keys, int place, ref int phase)
-    {
-        var counted = 0L;
-        var counting = false;
-        var index = place;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return counted;
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-            }
-
-            if (users.ByClass.Get(keys[index]) is null)
-            {
-                throw new InvalidOperationException($"The user {keys[index]} was not found.");
-            }
-
-            counted++;
-            index = index + 1 == keys.Length ? 0 : index + 1;
-        }
-    }
-
-    // Writes until the phase is Stopped, from the warm-up on or in the window only, and returns how
-    // many writes it made while the phase was Counting.
-    private static long Write(Func<int> write, bool inWindowOnly, ref int phase)
-    {
-        var counted = 0L;
-        var counting = false;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return counted;
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-            }
-
-            if (!counting && inWindowOnly)
-            {
-                Thread.Sleep(1);
-                continue;
-            }
-
-            counted += write();
-        }
-    }
-
     private static string PerSecond(long count, TimeSpan elapsed) =>
         ReadSeries.Number((long)Math.Round(count / elapsed.TotalSeconds));
 
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+
+    // A reader of users by key through the class, from its place in the keys on.
+    private struct Reader : IWindowStep
+    {
+        private readonly UserDatabase _users;
+
+        private readonly long[] _keys;
+
+        private int _index;
+
+        public Reader(UserDatabase users, long[] keys, int place)
+        {
+            _users = users;
+            _keys = keys;
+            _index = place;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            if (_users.ByClass.Get(_keys[_index]) is null)
+            {
+                NotFound(_keys[_index]);
+            }
+
+            _index = _index + 1 == _keys.Length ? 0 : _index + 1;
+
+            return 1;
+        }
+
+        private static void NotFound(long key) => throw new InvalidOperationException($"The user {key} was not found.");
+    }
+
+    // The writer of a series: it writes from the warm-up on, or in the window only, sleeping until the
+    // window opens.
+    private readonly struct Writer(Func<int> write, bool inWindowOnly) : IWindowStep
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            if (!counting && inWindowOnly)
+            {
+                Thread.Sleep(1);
+
+                return 0;
+            }
+
+            return write();
+        }
+    }
 }

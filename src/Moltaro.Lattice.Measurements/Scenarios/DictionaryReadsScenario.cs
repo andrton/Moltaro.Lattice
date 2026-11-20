@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
@@ -8,7 +9,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // class, for 100,000 items of TextItems. A Dictionary read that is slower than a Plain read of the same
 // length stored out of line beyond the spread of the rounds is a finding.
 // - Against Plain out of line: texts of 100 bytes, 16 distinct ones; the time of one read on one thread
-//   (ReadSeries), and the reads a second of 1 and of 16 threads together (ReadWindow).
+//   (ReadSeries), and the reads a second of 1 and of 16 threads together (StepWindow).
 // - Against Plain in the root: the reads a second of one thread for texts of 8, 16, 32, 48 and 64
 //   bytes, which a Plain field keeps in the root, and of 65 and 128 bytes, which it keeps out of line;
 //   where the two cross is read off them.
@@ -47,7 +48,7 @@ internal static class DictionaryReadsScenario
         [
             $"Items: {ReadSeries.Number(Count)} of TextItems, UTF-8; keys drawn from 1 to {ReadSeries.Number(Count)} with seed {KeySeed}, read through the class",
             ReadSeries.Described("those keys"),
-            ReadWindow.Described,
+            $"Windows: each reader and the writer a thread of its own; a warm-up of {StepWindow.WarmUp.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)} s, then what all of them did in {StepWindow.Length.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)} s, per second",
             "",
             $"Against Plain out of line: texts of {LongText} bytes, 16 distinct ones",
         ];
@@ -78,9 +79,9 @@ internal static class DictionaryReadsScenario
                 foreach (var storage in InOrder(round + index))
                 {
                     using var items = TextItems.Load(storage, Count, place => texts[place % 16]);
-                    var one = ReadWindow.Run(items, items.Keys(KeySeed, ReadSeries.Reads), readers: 1, write: null);
+                    var one = Window(items, items.Keys(KeySeed, ReadSeries.Reads), readers: 1, write: null);
 
-                    lines.Add($"round {round + 1}, {lengths[index]} bytes, {storage}: {ReadWindow.PerSecond(one.Reads)} reads/s");
+                    lines.Add($"round {round + 1}, {lengths[index]} bytes, {storage}: {StepWindow.PerSecond(one.Reads)} reads/s");
                 }
             }
         }
@@ -97,10 +98,10 @@ internal static class DictionaryReadsScenario
 
                 foreach (var readers in new[] { 16, 7 })
                 {
-                    var alone = ReadWindow.Run(items, keys, readers, write: null);
-                    var beside = ReadWindow.Run(items, keys, readers, ChurnWriter(items));
+                    var alone = Window(items, keys, readers, write: null);
+                    var beside = Window(items, keys, readers, ChurnWriter(items));
 
-                    lines.Add($"round {round + 1}, {storage}, {readers} readers: alone {ReadWindow.PerSecond(alone.Reads)} reads/s; beside the writer {ReadWindow.PerSecond(beside.Reads)} reads/s, {(beside.Reads / alone.Reads).ToString("F2", CultureInfo.InvariantCulture)} of alone; the writer {ReadWindow.PerSecond(beside.Writes)} writes/s");
+                    lines.Add($"round {round + 1}, {storage}, {readers} readers: alone {StepWindow.PerSecond(alone.Reads)} reads/s; beside the writer {StepWindow.PerSecond(beside.Reads)} reads/s, {(beside.Reads / alone.Reads).ToString("F2", CultureInfo.InvariantCulture)} of alone; the writer {StepWindow.PerSecond(beside.Writes)} writes/s");
                 }
             }
         }
@@ -129,10 +130,37 @@ internal static class DictionaryReadsScenario
     {
         var keys = items.Keys(KeySeed, ReadSeries.Reads);
         var latency = ReadSeries.Run($"{title}, one thread", count => ByClass(items, keys, count), writer: null);
-        var one = ReadWindow.Run(items, keys, readers: 1, write: null);
-        var sixteen = ReadWindow.Run(items, keys, readers: 16, write: null);
+        var one = Window(items, keys, readers: 1, write: null);
+        var sixteen = Window(items, keys, readers: 16, write: null);
 
-        return [latency, $"{title}: 1 thread {ReadWindow.PerSecond(one.Reads)} reads/s, 16 threads {ReadWindow.PerSecond(sixteen.Reads)} reads/s"];
+        return [latency, $"{title}: 1 thread {StepWindow.PerSecond(one.Reads)} reads/s, 16 threads {StepWindow.PerSecond(sixteen.Reads)} reads/s"];
+    }
+
+    // Reads of the items on the threads given, beside the writer when there is one, whose call returns
+    // the writes it made: reads per second, and writes per second of the writer.
+    private static (double Reads, double Writes) Window(TextItems items, long[] keys, int readers, Func<int>? write)
+    {
+        var window = new StepWindow();
+
+        for (var reader = 0; reader < readers; reader++)
+        {
+            window.Add($"Reader {reader}", new Reader(items, keys, reader * (keys.Length / readers)));
+        }
+
+        if (write is not null)
+        {
+            window.Add("Writer", new WriterStep(write));
+        }
+
+        window.Start();
+
+        var elapsed = window.Count().TotalSeconds;
+
+        window.Join();
+
+        var writes = write is null ? 0 : window.Counted[readers];
+
+        return (window.Counted.Take(readers).Sum() / elapsed, writes / elapsed);
     }
 
     // A writer that inserts an entity of Churn and deletes it again, over the same rows in turn: two
@@ -172,5 +200,37 @@ internal static class DictionaryReadsScenario
         }
 
         return times;
+    }
+
+    // A reader of the items by key through the class, from its place in the keys on.
+    private struct Reader : IWindowStep
+    {
+        private readonly TextItems _items;
+
+        private readonly long[] _keys;
+
+        private int _index;
+
+        public Reader(TextItems items, long[] keys, int place)
+        {
+            _items = items;
+            _keys = keys;
+            _index = place;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            if (_items.Items.Get(_keys[_index]) is null)
+            {
+                NotFound(_keys[_index]);
+            }
+
+            _index = _index + 1 == _keys.Length ? 0 : _index + 1;
+
+            return 1;
+        }
+
+        private static void NotFound(long key) => throw new InvalidOperationException($"The item {key} was not found.");
     }
 }
