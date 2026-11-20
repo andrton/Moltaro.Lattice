@@ -6324,6 +6324,83 @@ machine 13 to 53 % busy before the runs: differences under about a tenth decide 
   writer only through the scenario; nothing of nodes of 2 KiB, text references or writes of
   text keys measured.
 
+**Carried out and reviewed on 20 November 2026.** Where a sentence above says otherwise,
+these replace it. The figures of the rented machine follow its start.
+
+1. **What was built.**
+   - (a) The change of each index is decided once, in the preparation, by the bytes of
+     the two entries, and kept with the prepared change in two masks (no change, a move,
+     a rewrite). From the 64th index of a type on, the last bit is shared and says
+     "decide again", which reads the same two roots.
+   - (b) The reservation is the closed form `OrderedTree.Need`, its one target. A
+     standing reserve of one change of key is kept for each index and is never the
+     reason of a refusal. A publication keeps it; a withdrawal gives it back; before a
+     refusal every index gives back what it holds above the need. A need the pool
+     cannot count is refused with nothing taken.
+   - (c) One object holds a search, with its key once: 328 bytes, and the entity it
+     returns, through a class; 320 and the record by name. `SearchKey` refers to the bound
+     parts. `FindAsync` and both `WaitForPositionAsync` deliver everything that depends on
+     the state of the database through the task.
+   - (d) The comparison of an index of one number of 8 bytes is chosen once. The end of a
+     run is seen in the step that finds the entry. A leaf is copied as blocks. An Ordinal
+     text of a UTF-8 database is compared as bytes with its one turn; text stored as
+     UTF-16 is compared decoded. The check of a found root is "the order is zero".
+   - Proposal 1 is done in that form only: no scenario measures fixed parts at offsets
+     resolved once, so the plainer form stays; it is not a debt. The second half of
+     proposal 8, and a first piece of 32 code units for decoded text, were built and
+     taken out again on the review: their figures lay inside the noise.
+   - For the machine: the scenario `index-long-text`, and three variants as patches kept
+     outside the repository (a node of 2 KiB, a prefix of 8 bytes beside a shared key,
+     the references of a text held by its root for each entry).
+2. **Tests first.** The test author's commits came before the implementation, 16 of them
+   skipped with the sprint's reason until their step. The figures of S14 restated on the
+   planner's word moved only where the planner named them, which the reviewer checked. The
+   allocation of a search is pinned to its exact bytes. `NothingHeldAfterCloseTests`, which
+   failed four times in 20 runs of a diagnostic series, has its cause shown: the shared
+   array pool trimmed between its two measurements, the difference equal to the bytes it
+   freed, the instance holding nothing. That the first failure was the same event is likely,
+   not shown. It now measures in a process of its own, a test marked explicit that an
+   ordinary run counts as skipped, which is why 151 tests are skipped and not 150. One
+   failure of `OpeningAndClosingTests` was not reproduced in 30 runs on the head and 30 on
+   `main`: entry F2.
+3. **The review: two rounds.** An independent reviewer and a breaker.
+   - Round 1: one P1 from the breaker; seven P3 and six P4 from the reviewer, all taken or
+     placed.
+   - **The P1.** `IndexOrder.HasKey`, written in this sprint when the check of a found root
+     became "the order is zero", did not move its place in the search key past a fixed part
+     that was null. So a search by a composite key with a null fixed part before another
+     fixed part missed the entity that had the key and, while a writer changed it, returned
+     entities under a key they did not have. On `main` the check was right: this sprint
+     brought it. The tests of the brief did not see it, because none had a composite index
+     with a null before another part; the reviewer's first round did not either. Its tests
+     came first (df0cf43, fdd4f8c): a scenario through the public API, and every comparison
+     of a search held against every root on composite indexes with a null in each place.
+     The fix is 96be5e7.
+   - Round 2: no P1, P2 or P3; three P4, placed in F3 and F4.
+   - The check that the end of a run is reported at the sequence before the step only when
+     the sequence did not move has no test in this sprint. A mutant that drops it passes
+     every test and every probe through the public API, since no public path sees that
+     sequence alone. A probe of the engine catches it in every run, but only through private
+     fields, and no member is added for it now: its test is owed to S15, entry F5.
+   - Four commits of the branch do not build, df0cf43 to def8b32: tests written against an
+     earlier head were brought onto the branch without a build. fdd4f8c mends it; the merge
+     squashes them.
+4. **The hardest part to follow.** For the first round, the early end of a run in
+   `EntityTable.TrySearch`, whose reason needs three orders from three files. For the
+   second, the place of each fixed part in the scratch of a search key, worked out by three
+   loops; E3 joins them at S14R.
+5. **A small change of the sprint.** The rule of every asynchronous member is written into
+   `AGENTS.md`, "Shape of the public API" (the owner, 20 November 2026).
+
+**Checked by the coordinator:** on 471b756, whose code the head carries, the builds in
+Debug and Release with 0 warnings, the format clean, 2,710 tests with 2,559 passed, 151
+skipped and 0 failed in both, the samples to the end.
+
+**Accepted and known.** The managed room of a refused reservation, F3, for S17; the need
+grows with the square of the changes waiting, for S17's linear bound. The head of
+`ValueComparer`, F4, for S14R. The top-up near the memory limit, for S24. The test of the
+sequence a search ends at, F5, for S15.
+
 #### S15 · Ranges, order, paging and the binding rules
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
