@@ -36,7 +36,7 @@ public sealed class UncountableNeedTests
 
         Assert.False(index.Tree.TryReserve(inserts: counted + 1, removes: 0), $"A reservation of {counted + 1} inserts, whose need passes what the pool counts, was made.");
         Assert.Equal(before, item.Arena.Counters);
-        Assert.Equal((0, 0L, 0L), (TreeWalk.HeightOf(index), TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
+        Assert.Equal((0, 0L, 0L), (index.Tree.Height, TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
 
         // No write was left waiting: one insert reserves, publishes, and once the pool gives back what is
         // above the need of the writes still waiting, the arena holds no prepared node.

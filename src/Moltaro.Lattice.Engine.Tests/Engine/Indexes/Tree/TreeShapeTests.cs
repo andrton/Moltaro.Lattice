@@ -72,7 +72,7 @@ public sealed class TreeShapeTests
 
         retired.Drain();
 
-        Assert.Equal((0, 0L, 0L), (TreeWalk.HeightOf(index), TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
+        Assert.Equal((0, 0L, 0L), (index.Tree.Height, TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
         Assert.True(item.Arena.Counters.PreparedBytes <= ReservationNeed.OfOneChangeOfKey(height: 0, room: 0, index.Layout.LeastSeparators) * index.Layout.NodeBytes, "The arena holds prepared bytes beyond the reserve of the empty tree.");
         Assert.Equal(0, item.Arena.Counters.RetiredBytes);
     }
@@ -86,7 +86,7 @@ public sealed class TreeShapeTests
 
         if (nodes.Count > 0)
         {
-            Assert.Equal(TreeWalk.HeightOf(index) - 1, nodes[0].Level);
+            Assert.Equal(index.Tree.Height - 1, nodes[0].Level);
             Walk(nodes, ref next, order, lower: null, upper: null, entries);
         }
 
