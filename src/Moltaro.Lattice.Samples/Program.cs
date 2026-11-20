@@ -14,62 +14,84 @@ const bool Implemented = true;
 const bool Planned = false;
 
 // The schema of the directory, its users and settings. The first sample compiles it from
-// Schema/directory.schema.json, and the samples after it that work on the directory use it.
+// Schema/directory.schema.json and returns it, and the samples after it that work on the directory
+// take it.
 LatticeSchema schema = null!;
 
-// The samples in the learning order, from simple to complex: the file of each, whether its feature
-// is implemented, and how it runs. README.md of this project lists the same samples in the same
-// order, and the program checks that before it runs the first.
-(string File, bool Implemented, Func<Task> Run)[] samples =
+// The samples in the learning order, from simple to complex: the Run method of each, and whether its
+// feature is implemented. The method is all an entry names: the file the program prints is that of
+// its class. README.md of this project lists the same samples in the same order, and the program
+// checks that before it runs the first.
+(Delegate Run, bool Implemented)[] samples =
 [
-    ("Schema/SchemaSample.cs", Implemented, () =>
-    {
-        schema = SchemaSample.Run();
-        return Task.CompletedTask;
-    }),
-    ("Basics/BasicCrudSample.cs", Implemented, () => BasicCrudSample.RunAsync(schema)),
-    ("Basics/DynamicAccessSample.cs", Implemented, () => DynamicAccessSample.RunAsync(schema)),
-    ("Basics/KeyTypesSample.cs", Implemented, KeyTypesSample.RunAsync),
-    ("Basics/ClosedPropertiesSample.cs", Implemented, ClosedPropertiesSample.RunAsync),
-    ("Schema/SchemaDeclarationsSample.cs", Implemented, () =>
-    {
-        SchemaDeclarationsSample.Run();
-        return Task.CompletedTask;
-    }),
-    ("Schema/DictionaryStringsSample.cs", Implemented, DictionaryStringsSample.RunAsync),
-    ("Schema/NestedValuesSample.cs", Planned, NestedValuesSample.RunAsync),
-    ("Writes/WriteBatchSample.cs", Planned, () => WriteBatchSample.RunAsync(schema)),
-    ("Limits/MemoryLimitSample.cs", Implemented, () => MemoryLimitSample.RunAsync(schema)),
-    ("Limits/ReadLimitsSample.cs", Implemented, () => ReadLimitsSample.RunAsync(schema)),
-    ("Replication/MasterAndChildSample.cs", Implemented, () => MasterAndChildSample.RunAsync(schema)),
-    ("Indexes/IndexSample.cs", Planned, () => IndexSample.RunAsync(schema)),
-    ("Indexes/UniqueIndexSample.cs", Planned, UniqueIndexSample.RunAsync),
-    ("Hosting/DependencyInjectionSample.cs", Implemented, () => DependencyInjectionSample.RunAsync(schema)),
-    ("Hosting/IdentitySample.cs", Planned, IdentitySample.RunAsync),
+    (SchemaSample.Run, Implemented),
+    (BasicCrudSample.RunAsync, Implemented),
+    (DynamicAccessSample.RunAsync, Implemented),
+    (KeyTypesSample.RunAsync, Implemented),
+    (ClosedPropertiesSample.RunAsync, Implemented),
+    (SchemaDeclarationsSample.Run, Implemented),
+    (DictionaryStringsSample.RunAsync, Implemented),
+    (NestedValuesSample.RunAsync, Planned),
+    (WriteBatchSample.RunAsync, Planned),
+    (MemoryLimitSample.RunAsync, Implemented),
+    (ReadLimitsSample.RunAsync, Implemented),
+    (MasterAndChildSample.RunAsync, Implemented),
+    (IndexSample.RunAsync, Planned),
+    (UniqueIndexSample.RunAsync, Planned),
+    (DependencyInjectionSample.RunAsync, Implemented),
+    (IdentitySample.RunAsync, Planned),
 ];
 
-CheckReadme([.. samples.Select(sample => sample.File)]);
+string[] files = [.. samples.Select(sample => FileOf(sample.Run.Method.DeclaringType!))];
+CheckReadme(files);
 
 for (var index = 0; index < samples.Length; index++)
 {
-    var (file, implemented, run) = samples[index];
-    Console.WriteLine($"Sample {index + 1} of {samples.Length}: {file}");
+    var (run, implemented) = samples[index];
+    Console.WriteLine($"Sample {index + 1} of {samples.Length}: {files[index]}");
 
     if (implemented)
     {
-        await run();
+        await RunAsync(run);
     }
     else
     {
-        await RunPlannedAsync(run, file);
+        await RunPlannedAsync(run, files[index]);
     }
 }
 
-static async Task RunPlannedAsync(Func<Task> sample, string file)
+// Runs a sample by the form of its Run method: the sample that compiles the schema of the directory
+// returns it, and the samples that work on the directory take it.
+async Task RunAsync(Delegate run)
+{
+    switch (run)
+    {
+        case Func<LatticeSchema> compile:
+            schema = compile();
+            break;
+
+        case Action sample:
+            sample();
+            break;
+
+        case Func<Task> sample:
+            await sample();
+            break;
+
+        case Func<LatticeSchema, Task> sample:
+            await sample(schema);
+            break;
+
+        default:
+            throw new InvalidOperationException($"A sample has no Run method of the form {run.GetType()}.");
+    }
+}
+
+async Task RunPlannedAsync(Delegate run, string file)
 {
     try
     {
-        await sample();
+        await RunAsync(run);
     }
     catch (NotSupportedException exception)
     {
@@ -77,6 +99,11 @@ static async Task RunPlannedAsync(Func<Task> sample, string file)
         Console.WriteLine();
     }
 }
+
+// The file of a sample: a file holds one type and a folder is a namespace, so the class
+// Moltaro.Lattice.Samples.Basics.BasicCrudSample is Basics/BasicCrudSample.cs.
+static string FileOf(Type sample) =>
+    $"{sample.Namespace!["Moltaro.Lattice.Samples.".Length..].Replace('.', '/')}/{sample.Name}.cs";
 
 // The table of README.md has one row for each sample, which starts with the number of the sample
 // and a link to its file. The program refuses to run when those rows and its own list disagree,

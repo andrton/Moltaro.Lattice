@@ -24,3 +24,8 @@ dotnet_style_readonly_field = true:warning
 # of this repository. See the README in that folder.
 [src/Moltaro.Lattice.AspNet.Identity.Tests/Specification/*.cs]
 generated_code = true
+
+# Program.cs of the samples prints the file of each sample from the namespace of its class, so in the
+# samples a folder is the namespace of its files, and the build refuses a file whose namespace is not.
+[src/Moltaro.Lattice.Samples/**.cs]
+dotnet_diagnostic.IDE0130.severity = warning
