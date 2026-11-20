@@ -1103,18 +1103,17 @@ Why this order:
   retried, in the engine or in a test), and one failure of `AnnouncedLengthTests` in the
   handshake, which has no short wait. The output of every repeat is kept, so that the
   next one has a name and a message.
-- **Open work from it, to be taken up at once (owner, 19 November 2026).** Two failures
-  are not explained, and each has a next step:
+- **What became of it (closed on 20 November 2026).** By the rule of the owner nothing
+  open is handed on, so each item states its result:
   - *A handshake that failed once.* `AnnouncedLengthTests.Request_whose_frames_hold_more_than_it_announced…`
     failed in the handshake in one run of the engine tests in Debug on 19 November 2026,
     while two other agents built and ran suites on the workstation, and passed three of
     three alone; its message was not kept. Ruled out: a short wait in the test (it has
-    none: bounds of one minute, timeouts of 30 s). Next step: a soak that can catch it —
-    the replication tests of the engine in a loop under load, the output of every run
-    kept, until it appears with its message or 500 runs pass; on the workstation at a time
-    when it disturbs no measurement, otherwise as an item of the plan of the next start of
-    the rented machine. When it appears: the engine is examined first and the test second,
-    and it is reported to the planner before any test is changed.
+    none: bounds of one minute, timeouts of 30 s). Done: a soak of 500 runs of the
+    replication tests of the engine, 244 tests a run, 250 runs in Debug and 250 in
+    Release, four loops in parallel beside burners on every logical processor, the output
+    of every run kept. It did not appear. Closed as not reproduced in 500 runs under load;
+    nothing is retried anywhere.
   - *A master that could not listen.* `ClosedFrameTests.Closed_that_is_not_valid_ends_the_connection_and_a_request_without_a_reply_in_IndeterminateOutcome`
     failed once in ten repeats in Release on the same day under the same load: the bind
     of the listening socket reported that the system lacked sufficient buffer space or a
@@ -1122,23 +1121,80 @@ Why this order:
     suite, none left behind a passing test) and the range of ports (510 connections
     against about 14,000 ports under the heaviest load). Suspected and not shown: a
     shortage of the system as a whole (the commit charge stood at 59 of 72 GB under
-    load). Next step: a small capture in the failure path of the test helper that opens
-    a master — the commit charge, the handles of the process and the count of sockets
-    when a bind fails — for diagnosis only; nothing is retried, so that the next
-    occurrence explains itself.
+    load). It did not appear again in the soak. The helpers through which tests open a
+    listening master now report, when a socket error ends the open, the state of the
+    system: the socket error, the commit charge and its limit, the available memory, the
+    handles and threads of the process, and the listeners and connections of the machine
+    (`ListenFailure` and `SystemState` in `Moltaro.Lattice.TestSupport`). It is diagnosis
+    only and nothing is retried, so that a recurrence explains itself. Closed as a
+    shortage of the system under load, instrumented.
   - *A forwarded write the child did not apply in ten seconds.* `CancellationTests.Write_the_sender_has_not_taken_is_withdrawn_by_its_cancellation_and_never_executed`
     failed once in five repeats in Release on 19 November 2026, on the engine of `main`
     (the test and the engine unchanged by the change above), while another agent was
     building and measuring on the workstation: "The write is committed by the master at
     position …-1, but this child has not applied it: This node did not reach position
     …-1 within 00:00:10", from `Forwarder.WaitForApplicationAsync`. Ten seconds is long
-    for a loaded machine, so this is examined as a defect of the engine first: a child
-    that does not apply, or is not woken for, the first transaction after its load.
-    Next step: read the path from the master's delivery to the child's application and
-    the wake of the waiter; repeat this test under load with the output kept until it
-    fails again; report to the planner before any test is changed.
+    for a loaded machine, so this was examined as a defect of the engine first: a child
+    that does not apply, or is not woken for, the first transaction after its load. No
+    defect of the engine was found. The write that reported it was the setup write of
+    32 MiB, which the sender had already taken, not the cancelled one: the withdrawal
+    worked. Read with their lines and ruled out: a write between the end of a child's
+    load and the start of its sender; the wake of the sender; a large transaction waiting
+    in its middle; a follower that stopped, which would end the waiter at once with "lost
+    its master"; a lost wake-up of the waiter in `PositionClock`, because the waiter
+    publishes its target before it reads the sequence and the publication is followed by
+    a full fence before the targets are read; a waiter for a position equal to the one
+    just reached, which is woken; the withdrawn call left in the sender's queue, which is
+    skipped. On the engine of `main`, 3,000 forwarded writes that each waited for its own
+    application and 3,000 waits for the exact committed position all passed, and the test
+    with the child's application held for 11 s fails with the identical message. Not
+    reproduced in 484 runs: 200 of 200 alone, 259 of 259 beside 20 burners and a loop of
+    the engine suite, 25 of 25 inside runs of the suite. On an idle machine the
+    transaction arrives whole about 170 ms after the wait begins, so the failure needed a
+    stall some sixty times longer; what stalled that one run is not shown. The defect was
+    the test's: it put a write of 32 MiB under the default synchronization timeout of
+    10 s, which is not what the test is about. Corrected: the tests whose setup is large
+    (`CancellationTests`, `AcknowledgmentDuringARequestTests`, the test of 32 MiB of
+    `MasterAndChildTests`, `ChildIndexTests`) open their child waiting beyond the bound,
+    and the forwarding tests among them that put a write of 32 MiB through the child,
+    `AcknowledgmentDuringARequestTests` and both tests of `CancellationTests`, report the
+    child's applied position and the state of the system when that wait ends by a timeout
+    (`ApplicationWait`).
+  - *A read time limit of 100 ms against the machine.* `ReadLimitsTests.Cancellation_of_an_enumeration_under_read_limits_is_OperationCanceledException_and_never_ReadLimitExceeded`
+    failed once with the workstation at full load, and
+    `ReadTimeInsideTheEngineTests.Step_that_waits_inside_the_engine_longer_than_the_time_limit…`
+    twice in 25 runs of the suite. The engine was right: it checks the token before every
+    limit, and the step that failed was one whose token was not cancelled. The tests of
+    the read time limit (`ReadLimitsTests`, `ReadTimeLimitTests`, `CancelledStepTests`,
+    `ReadTimeInsideTheEngineTests`) now use times the test controls, kept once in
+    `Moltaro.Lattice.TestSupport` (`ReadTimes`: a limit of 2 s, controlled waits of 3 s).
+    The review showed with throwaway changes of the engine that they still catch what they
+    exist for: counting the caller's time fails both tests of the limit; not counting the
+    wait for a slot fails both tests of the time inside the engine; a cancelled wait that
+    reports the limit first fails exactly the two cases meant for it. One order had no
+    test, the token before the limits inside a round; it has one now, which fails ten runs
+    of ten with the two checks swapped in the engine.
+  - *An Applied ahead of the send that the master accepted.* `AppliedTests.Master_ends_the_connection_of_a_child_that_acknowledges_a_transaction_whose_last_frame_it_has_not_been_sent`
+    failed once in the 500 runs of the soak: the master did not end the connection within
+    the bound of one minute. The engine was right. Forced both ways on the engine as it
+    is: a peer whose receive buffer is 64 MiB takes all 16 MiB with the last frame, so the
+    master has queued the last frame, accepts the Applied and keeps the connection, which
+    is the failure, deterministic; a peer whose receive buffer is fixed at 64 KiB before
+    it connects holds 64 KiB, and the master ends the connection. The test rested on how
+    much the loopback buffers of the kernel happen to take. That the window grew in the
+    failing run is inferred, not reproduced: the default stayed 64 KiB in 20 of 20 tries
+    under load. Corrected at the two helpers every such test goes through: `Peer` and
+    both sockets of `LoopbackLink` fix their receive buffer at 64 KiB before they connect.
+    Fifty runs of the replication tests under load followed, and none failed. On Linux a
+    send buffer may grow to 4 MiB, so the cases of 8 MiB have a margin of about two there.
+    Left, with its place: the first test of `ChildCloseTests` depends on the receive
+    buffer of the engine's own child and has a margin of two over the largest window of
+    Windows (16 MiB); S33 gives it a form that does not rest on it.
   - Known and left: `SilentPeerTests` asserts only that the master does not give up
     before its timeout; its upper limit is the bound of one minute.
+  - The evidence for the rewritten tests is the margin of each wait and the forcing
+    experiments, not a failure reproduced and then cured, except where it says
+    "deterministic".
 - The `build` job keeps its name, because the ruleset of `main` requires that check. The
   PostgreSQL job and the cluster job become required checks too: the sprint that adds a
   lane adds its job to `.github/rulesets/main.json`, and the owner applies the ruleset.
@@ -6652,10 +6708,10 @@ stated otherwise here.
 - **Out of scope.** What the evicted or reconnecting child does next (S34). PostgreSQL
   as a source for a child's catch-up, excluded by decision.
 
-**Carried from the fixes after S13.** The test of an acknowledgment for a transaction
-that was not wholly sent relies on 16 MiB being more than the buffers of the loopback
-hold. The bound of the tail built here gives the observable; the test states its premise
-by it then, and no switch is added to the sender for it before.
+**Carried from the failures seen under load (20 November 2026).** `ChildCloseTests`, its
+first test, depends on the receive buffer of the engine's own child, with a margin of two
+over the largest window of Windows (16 MiB). S33 gives a way to state it without resting
+on that buffer: the bound of the tail built here, or the option of the close.
 
 #### S34 · Reconnect, reload and a restarted master
 
