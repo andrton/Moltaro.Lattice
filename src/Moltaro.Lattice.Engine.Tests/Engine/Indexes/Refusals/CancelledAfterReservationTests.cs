@@ -13,9 +13,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // an entity in no index that the storage step of the test holds (HeldCommitStorage): the replace moves the
 // entry of its entity in ByNumber, keeps it in ByLogin, whose long key it shares with the text entry, and
 // rewrites it in ByRegion, its Region now in another case; the delete takes the entries of its entity out
-// of all three. Both are cancelled: the database holds what it held before they were submitted
-// (HeldState), every search finds what it found, and the instance stays Ready; submitted again, both
-// succeed. An insert withdrawn so is stated by IndexPreparationTests.
+// of all three. Both are prepared and cancelled twice, and the state the test compares with is taken
+// after the first time: a withdrawal leaves the pool of an index as an earlier withdrawal of the same
+// writes from the same tree left it, however many nodes the pool keeps while nothing waits. After the
+// second, the database holds what it held before it (HeldState), every search finds what it found, and
+// the instance stays Ready; submitted again without a token, both succeed. An insert withdrawn so is
+// stated by IndexPreparationTests.
 public sealed class CancelledAfterReservationTests
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
@@ -41,19 +44,18 @@ public sealed class CancelledAfterReservationTests
             storage.Hold();
             var first = uncounted.ReplaceAsync(new IndexSchema.Uncounted { Id = 1, Number = 2 }).AsTask();
             await storage.NextAsync();
-            var alone = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted");
+            await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 1, "the first write is admitted");
+
+            await PrepareAndCancelAsync(database, moved, deleted.Id);
             var held = HeldState.Of(database);
+            var heldPrepared = database.Counters.Arena.PreparedBytes;
 
-            using var cancellation = new CancellationTokenSource();
-            var replace = ranked.ReplaceAsync(moved, cancellation.Token).AsTask();
-            var delete = ranked.DeleteAsync(deleted.Id, cancellation.Token).AsTask();
-            var waiting = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 3, "the replace and the delete are admitted");
+            var waiting = await PrepareAndCancelAsync(database, moved, deleted.Id);
 
-            Assert.True(waiting.Arena.PreparedBytes - alone.Arena.PreparedBytes >= IndexSchema.NodeBytes, "The replace and the delete reserved no node of their indexes.");
-
-            await cancellation.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replace.WaitAsync(Bound));
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => delete.WaitAsync(Bound));
+            // In ByNumber the replace moves one entry while the delete removes another: more than one change
+            // of key, the most the pool of an index holds while nothing waits, so the two took nodes from the
+            // arena whatever the pool held.
+            Assert.True(waiting.Arena.PreparedBytes - heldPrepared >= IndexSchema.NodeBytes, "The replace and the delete reserved no node of their indexes.");
 
             held.ExpectHeldBy(database);
             Assert.Equal(LatticeDatabaseStateEnum.Ready, database.State);
@@ -75,5 +77,23 @@ public sealed class CancelledAfterReservationTests
             storage.ReleaseAll();
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
+    }
+
+    // Submits the replace and the delete with one token, waits until both are admitted behind the held
+    // write, cancels them and waits until both have ended cancelled; the counters while both waited.
+    private static async Task<EngineCounters> PrepareAndCancelAsync(EngineDatabase database, IndexSchema.Ranked moved, long deleted)
+    {
+        var ranked = database.Set<IndexSchema.Ranked>();
+
+        using var cancellation = new CancellationTokenSource();
+        var replace = ranked.ReplaceAsync(moved, cancellation.Token).AsTask();
+        var delete = ranked.DeleteAsync(deleted, cancellation.Token).AsTask();
+        var waiting = await CountersWait.UntilAsync(database, counters => counters.QueuedWrites == 3, "the replace and the delete are admitted");
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replace.WaitAsync(Bound));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => delete.WaitAsync(Bound));
+
+        return waiting;
     }
 }
