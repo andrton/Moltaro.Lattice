@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Measurements.Fixture;
 
@@ -28,11 +28,11 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // (GC.GetAllocatedBytesForCurrentThread), as bytes allocated per read; a series with the writer also the
 // writes a second of the writer.
 //
-// The window here is also the window of index-writes and index-read-by-key: each step of a series, a
-// search, a read by key or a write, called over and over on a thread of its own, through a delegate
-// whose call costs the same in every series; ReadWindow reads only the items of TextItems. A series
-// calls its steps through a warm-up, then counts them in a window of a fixed length. The threads are
-// not pinned to processors; a figure is the result of one window, and runs are repeated.
+// Every series is a window (StepWindow), measured here for index-writes and index-read-by-key as well
+// (Measure): each step of a series, a search, a read by key or a write, taken over and over on a thread
+// of its own through a warm-up, then counted in a window of a fixed length; a writer is called through
+// a delegate (WriterStep). The threads are not pinned to processors; a figure is the result of one
+// window, and runs are repeated.
 //
 // A run takes a little over a minute on the development machine.
 internal static class IndexSearchScenario
@@ -52,19 +52,8 @@ internal static class IndexSearchScenario
 
     private static readonly int[] TextLengths = [8, 100];
 
-    private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
-
-    private static readonly TimeSpan Length = TimeSpan.FromSeconds(2);
-
-    // The phases of a window, which its threads read.
-    private const int WarmingUp = 0;
-
-    private const int Counting = 1;
-
-    private const int Stopped = 2;
-
     // What a scenario says of how its windows count.
-    public static string Described => $"Windows: each step on a thread of its own; a warm-up of {Seconds(WarmUp)} s, then what all of them did in {Seconds(Length)} s, per second";
+    public static string Described => $"Windows: each step on a thread of its own; a warm-up of {Seconds(StepWindow.WarmUp)} s, then what all of them did in {Seconds(StepWindow.Length)} s, per second";
 
     public static IReadOnlyList<string> Run()
     {
@@ -120,23 +109,24 @@ internal static class IndexSearchScenario
 
     // One series of readers, each a step that starts at its own place, beside the writer when there is
     // one: reads a second, the bytes per read of one reader, and the writes a second of the writer.
-    internal static string Series(int readers, Func<int, Func<int>> readerFrom, Func<int>? writer)
+    internal static string Series<TRead>(int readers, Func<int, TRead> readerFrom, Func<int>? writer)
+        where TRead : struct, IWindowStep
     {
-        var steps = new List<(string Name, Func<int> Step)>();
+        var window = new StepWindow();
 
         for (var reader = 0; reader < readers; reader++)
         {
-            steps.Add(($"Reader {reader}", readerFrom(reader * (ReadSeries.Reads / readers))));
+            window.Add($"Reader {reader}", readerFrom(reader * (ReadSeries.Reads / readers)));
         }
 
         if (writer is not null)
         {
-            steps.Add(("Writer", writer));
+            window.Add("Writer", new WriterStep(writer));
         }
 
-        var window = Window(steps);
+        var (_, seconds) = Measure(window);
         var reads = window.Counted.Take(readers).Sum();
-        var parts = new List<string> { $"{ReadWindow.PerSecond(reads / window.Seconds)} reads/s" };
+        var parts = new List<string> { $"{StepWindow.PerSecond(reads / seconds)} reads/s" };
 
         if (readers == 1)
         {
@@ -145,68 +135,26 @@ internal static class IndexSearchScenario
 
         if (writer is not null)
         {
-            parts.Add($"{ReadWindow.PerSecond(window.Counted[readers] / window.Seconds)} writes/s");
+            parts.Add($"{StepWindow.PerSecond(window.Counted[readers] / seconds)} writes/s");
         }
 
         return string.Join("; ", parts);
     }
 
-    // One window of the steps, each called over and over on a thread of its own, through the warm-up and
-    // then through the window: what each step's thread counted in the window, the managed bytes it
-    // allocated in it, the bytes the whole process allocated in it, and its length in seconds.
-    internal static (long[] Counted, long[] Allocated, long ProcessAllocated, double Seconds) Window(IReadOnlyList<(string Name, Func<int> Step)> steps)
+    // Runs the window: the managed bytes the whole process allocated in it, and how long it was open,
+    // in seconds.
+    internal static (long ProcessAllocated, double Seconds) Measure(StepWindow window)
     {
-        var phase = WarmingUp;
-
-        // What each thread counted and allocated in the window, written once by it when it stops.
-        var counted = new long[steps.Count];
-        var allocated = new long[steps.Count];
-
-        // The threads and the main thread start together.
-        using var start = new Barrier(steps.Count + 1);
-
-        var threads = new List<Thread>();
-
-        for (var index = 0; index < steps.Count; index++)
-        {
-            var own = index;
-
-            threads.Add(new Thread(() =>
-            {
-                start.SignalAndWait();
-                (counted[own], allocated[own]) = Repeat(steps[own].Step, ref phase);
-            })
-            {
-                IsBackground = true,
-                Name = steps[own].Name,
-            });
-        }
-
-        foreach (var thread in threads)
-        {
-            thread.Start();
-        }
-
-        start.SignalAndWait();
-        Thread.Sleep(WarmUp);
+        window.Start();
 
         var processAllocated = GC.GetTotalAllocatedBytes(precise: true);
-        var started = Stopwatch.GetTimestamp();
-
-        Volatile.Write(ref phase, Counting);
-        Thread.Sleep(Length);
-        Volatile.Write(ref phase, Stopped);
-
-        var elapsed = Stopwatch.GetElapsedTime(started);
+        var elapsed = window.Count();
 
         processAllocated = GC.GetTotalAllocatedBytes(precise: true) - processAllocated;
 
-        foreach (var thread in threads)
-        {
-            thread.Join();
-        }
+        window.Join();
 
-        return (counted, allocated, processAllocated, elapsed.TotalSeconds);
+        return (processAllocated, elapsed.TotalSeconds);
     }
 
     // Managed bytes for one of count, as a report gives them.
@@ -227,34 +175,6 @@ internal static class IndexSearchScenario
         }
 
         return places;
-    }
-
-    // Calls the step until the phase is Stopped and returns what it counted while the phase was
-    // Counting, and the managed bytes its thread allocated meanwhile.
-    private static (long Counted, long Allocated) Repeat(Func<int> step, ref int phase)
-    {
-        var counted = 0L;
-        var allocated = 0L;
-        var counting = false;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return (counted, counting ? GC.GetAllocatedBytesForCurrentThread() - allocated : 0);
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-                allocated = GC.GetAllocatedBytesForCurrentThread();
-            }
-
-            counted += step();
-        }
     }
 
     // The searched items, the item at a place with the key of the place, and after them the items of the
@@ -315,28 +235,52 @@ internal static class IndexSearchScenario
         }
     }
 
-    // A reader that searches the key of each place in turn from the start on, one search a call: the
+    // A reader that searches the key of each place in turn from the start on (Search).
+    private static Search<TEntity, TKey> Searcher<TEntity, TKey>(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
+        where TEntity : class => new(index, keys, places, start, firstOnly);
+
+    private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+
+    // A reader that searches the key of each place in turn from its start on, one search a step: the
     // whole result, or its first item only.
-    private static Func<int> Searcher<TEntity, TKey>(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
+    private struct Search<TEntity, TKey> : IWindowStep
         where TEntity : class
     {
-        var next = start;
+        private readonly ILatticeIndex<TEntity> _index;
 
-        return () =>
+        private readonly TKey[] _keys;
+
+        private readonly int[] _places;
+
+        private readonly bool _firstOnly;
+
+        private int _next;
+
+        public Search(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
         {
-            var key = keys[places[next]];
+            _index = index;
+            _keys = keys;
+            _places = places;
+            _firstOnly = firstOnly;
+            _next = start;
+        }
 
-            next = next + 1 == places.Length ? 0 : next + 1;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var key = _keys[_places[_next]];
+
+            _next = _next + 1 == _places.Length ? 0 : _next + 1;
 
             var found = 0;
 
-            using (var matches = index.Find(IndexKey.Equal(key)).GetEnumerator())
+            using (var matches = _index.Find(IndexKey.Equal(key)).GetEnumerator())
             {
                 while (matches.MoveNext())
                 {
                     found++;
 
-                    if (firstOnly)
+                    if (_firstOnly)
                     {
                         break;
                     }
@@ -345,12 +289,12 @@ internal static class IndexSearchScenario
 
             if (found != 1)
             {
-                throw new InvalidOperationException($"The search for {key} found {found} items, not one.");
+                NotOne(key, found);
             }
 
             return 1;
-        };
-    }
+        }
 
-    private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+        private static void NotOne(TKey key, int found) => throw new InvalidOperationException($"The search for {key} found {found} items, not one.");
+    }
 }

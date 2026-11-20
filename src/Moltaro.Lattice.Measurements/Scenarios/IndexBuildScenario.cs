@@ -66,7 +66,7 @@ internal static class IndexBuildScenario
                 var none = rows.Single(row => row.Indexes == 0 && row.Order == order).Retained;
                 var perEntry = indexes == 0 ? "" : $"; {PerOne(retained - none, (long)indexes * Count)} arena bytes per index entry over 0 indexes";
 
-                lines.Add($"round {round + 1}, {indexes} {(indexes == 1 ? "index" : "indexes")}, {order}: {inserting.TotalMilliseconds.ToString("F1", CultureInfo.InvariantCulture)} ms; {ReadWindow.PerSecond(Count / inserting.TotalSeconds)} inserts/s; {PerOne(retained, Count)} arena bytes per entity{perEntry}");
+                lines.Add($"round {round + 1}, {indexes} {(indexes == 1 ? "index" : "indexes")}, {order}: {inserting.TotalMilliseconds.ToString("F1", CultureInfo.InvariantCulture)} ms; {StepWindow.PerSecond(Count / inserting.TotalSeconds)} inserts/s; {PerOne(retained, Count)} arena bytes per entity{perEntry}");
             }
         }
 
