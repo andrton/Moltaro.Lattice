@@ -5905,6 +5905,15 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     deciding again reads the same two roots, so it cannot differ from the preparation. The
     comment at the record states this rule; no limit goes into the schema language (the
     planner, 20 November 2026).
+    As measured on 20 November 2026 on rented-arm64-1: a replace that keeps every indexed
+    key costs, above the same type without indexes, about 30 ns for each index — 0.96,
+    0.94 and 0.86 of its rate with one, three and six indexes, where it was 0.80, 0.56 and
+    0.39. With one index this is within the gauge; with three and six it is not. The owner
+    accepted it as measured (20 November 2026). What is left is the decision itself: it
+    looks up the stored fields of each part on every write. The stored fields of an index
+    are resolved once when its layout is compiled, in S16, after S14R has made the
+    comparison of a part one, and the same line is measured there (entry F6 of the
+    [refactoring backlog](refactoring.md)).
   - (b) The upkeep of one index for a write that changes its key costs at most 1.5 times
     the bare tree's work measured by the prototype on the same machine (today 3 to 3.5
     times). Its base comes first: the reservation as one closed formula (E1), with a test
@@ -6529,7 +6538,9 @@ unpublished write of another entity waits behind it, as a write to the same enti
   apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes while it builds them, before it
   is ready; a violation found there stops the load in the same way.
 - **Measured.** Reported: write time for the fixture's users with and without their
-  unique index. A refused unique key is a withdrawal after the reservation, which gives
+  unique index. The replace that keeps every indexed key, index-writes with 0, 1, 3 and 6
+  indexes, measured again after the stored fields of an index are resolved once when its
+  layout is compiled (S14, part 2, acceptance (a), as the owner accepted it; entry F6). A refused unique key is a withdrawal after the reservation, which gives
   the standing reserve of each index back (S14, part 2), so here a withdrawal may stop
   being rare: this sprint measures it before anyone changes that rule (the planner,
   20 November 2026).
