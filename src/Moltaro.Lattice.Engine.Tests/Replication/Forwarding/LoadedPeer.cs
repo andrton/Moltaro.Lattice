@@ -34,16 +34,25 @@ internal sealed class LoadedPeer : IDisposable
         return master;
     }
 
+    // A connect that fails closes the peer it opened before the exception leaves.
     public static async Task<LoadedPeer> ConnectAsync(EngineDatabase master)
     {
         var handshake = await Handshake.RecordAsync(master);
         var peer = await Peer.ConnectAsync(master.ListenUri!);
 
-        await peer.SendAsync(handshake.Hello);
+        try
+        {
+            await peer.SendAsync(handshake.Hello);
 
-        var load = await peer.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
+            var load = await peer.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
 
-        return new LoadedPeer(peer, ForwardPayload.RootOf(load.Single(frame => frame.Kind == FrameKindEnum.Blocks)));
+            return new LoadedPeer(peer, ForwardPayload.RootOf(load.Single(frame => frame.Kind == FrameKindEnum.Blocks)));
+        }
+        catch
+        {
+            peer.Dispose();
+            throw;
+        }
     }
 
     // The body of an Upsert of "code" with its root: valid, and it changes the revision of "code".

@@ -157,29 +157,47 @@ public sealed class ClosedFrameTests
 
         public Task Writing { get; }
 
+        // A start that fails closes the master and the relay it opened before the exception leaves.
         public static async Task<ClosingRelay> StartAsync(Func<WireFrame, IEnumerable<WireFrame>> inPlaceOfTheReply)
         {
             var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
             var stream = 0UL;
             var replaced = false;
-            var relay = FrameRelay.Start(master.ListenUri!, frame =>
+            FrameRelay? relay = null;
+            EngineDatabase child;
+
+            try
             {
-                if (replaced)
+                relay = FrameRelay.Start(master.ListenUri!, frame =>
                 {
-                    return [];
+                    if (replaced)
+                    {
+                        return [];
+                    }
+
+                    IEnumerable<WireFrame> passed = [frame];
+
+                    if (frame.Kind == ForwardPayload.WriteReply)
+                    {
+                        replaced = true;
+                        passed = inPlaceOfTheReply(frame);
+                    }
+
+                    return [.. passed.Select(each => each.WithStreamSequence(++stream))];
+                });
+                child = await ReplicationNodes.OpenChildAsync(relay.Address);
+            }
+            catch
+            {
+                if (relay is not null)
+                {
+                    await relay.DisposeAsync();
                 }
 
-                IEnumerable<WireFrame> passed = [frame];
+                await master.DisposeAsync();
+                throw;
+            }
 
-                if (frame.Kind == ForwardPayload.WriteReply)
-                {
-                    replaced = true;
-                    passed = inPlaceOfTheReply(frame);
-                }
-
-                return [.. passed.Select(each => each.WithStreamSequence(++stream))];
-            });
-            var child = await ReplicationNodes.OpenChildAsync(relay.Address);
             var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
 
             return new ClosingRelay(master, relay, child, writing);

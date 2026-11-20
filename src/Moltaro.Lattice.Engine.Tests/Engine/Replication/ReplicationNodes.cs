@@ -19,6 +19,12 @@ internal static class ReplicationNodes
     // because its time was up.
     public static readonly TimeSpan BeyondTheBound = TimeSpan.FromHours(1);
 
+    // An open timeout short enough for a test to let it pass, and long enough that every wait of an open
+    // that has to end within it, a connect, a Hello or the next frame of a load, does so on a machine
+    // busy with other work as well. A timeout of 1 s ended a load whose frames arrived at most half a
+    // second apart when the suite ran beside three other builds and suites.
+    public static readonly TimeSpan ShortOpenTimeout = TimeSpan.FromSeconds(5);
+
     public static Task<EngineDatabase> OpenMasterAsync(LatticeSchema schema) =>
         OpenMasterAsync(schema, MasterAndChild.Loopback, new EngineTestInputs());
 
