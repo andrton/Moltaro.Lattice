@@ -57,13 +57,20 @@ internal static class TestData
 
     public static readonly LatticeSchema Schema = LatticeSchema.Compile(SchemaJson);
 
-    public static ValueTask<ILatticeDatabase> OpenMasterAsync(Uri? listenUri = null, LatticeSchema? schema = null) =>
-        LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+    // A master whose socket the system refuses fails its open with the state of the system in the
+    // message (ListenFailure).
+    public static async ValueTask<ILatticeDatabase> OpenMasterAsync(Uri? listenUri = null, LatticeSchema? schema = null)
+    {
+        var master = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema ?? Schema,
             ListenUri = listenUri,
         });
+
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask());
+        return master;
+    }
 
     public static ValueTask<ILatticeDatabase> OpenChildAsync(Uri masterUri, CancellationToken cancellationToken = default) =>
         LatticeDatabase.OpenAsync(

@@ -12,7 +12,9 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 //   and the token have both been passed when the step looks (brief of S09, part 2, the second finding
 //   of the outside review it carries: a cancellation is reported before a limit is). Inside the wait of
 //   a step for a slot of the protection of reads and between the rounds of a step the tests of the
-//   engine state it (CancelledStepTests).
+//   engine state it (CancelledStepTests). The time limit is one that the step between the first two
+//   cases, which has to return its entity, reaches only if the machine holds it up for two seconds, and
+//   the wait for the position lasts a second longer than it (ReadTimes).
 // - Without a limit an enumeration of any length runs to its end, also under limits as large as their
 //   types allow, from which a deadline has to be computed without overflow.
 public sealed class ReadLimitsTests
@@ -22,14 +24,12 @@ public sealed class ReadLimitsTests
     [Fact]
     public async Task Cancellation_of_an_enumeration_under_read_limits_is_OperationCanceledException_and_never_ReadLimitExceeded()
     {
-        var timeLimit = TimeSpan.FromMilliseconds(100);
-
         await using var database = await TestDatabases.OpenAsync(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = TestData.Schema,
             ReadMemoryLimit = 1024 * 1024,
-            ReadTimeLimit = timeLimit,
+            ReadTimeLimit = ReadTimes.Limit,
         });
         var users = database.Set<User>();
         var records = database.Set("User");
@@ -60,7 +60,7 @@ public sealed class ReadLimitsTests
         await using var patient = users.EnumerateAsync(session, waiting.Token).GetAsyncEnumerator();
         var first = patient.MoveNextAsync().AsTask();
 
-        await Task.Delay(3 * timeLimit);
+        await Task.Delay(ReadTimes.BeyondTheLimit);
         await waiting.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(Bound));

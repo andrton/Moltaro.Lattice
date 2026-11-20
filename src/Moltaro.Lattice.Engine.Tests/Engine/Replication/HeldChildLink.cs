@@ -6,12 +6,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
 // A link between one child and its master (LoopbackLink) that holds back what the child sends, as a
 // network that stops taking the bytes of a sender would, for the tests of a write through a child that is
-// in the middle of being sent (brief of Epic 1, sprint S12). The child is given Address as its MasterUri;
-// what the master sends passes at once. Until Hold the link passes everything the child sends; from then
-// on it holds the first bytes it reads from the child, and everything after them, until Release, so that
-// a send of the child that the buffers of the connection cannot take waits. It keeps every byte it read
-// from the child, held or passed, so that a test can read the child's frames (WireFrame). Cut ends both
-// connections with a reset, as the network does when the process of a peer is gone.
+// in the middle of being sent. The child is given Address as its MasterUri; what the master sends passes
+// at once. Until Hold the link passes everything the child sends; from then on it holds the first bytes
+// it reads from the child, and everything after them, until Release, so that a send of the child that
+// the fixed receive buffer of the link (LoopbackLink.ReceiveBuffer) and the send buffer of the child
+// cannot take waits. It keeps every byte it read from the child, held or passed, so that a test can read
+// the child's frames (WireFrame). Cut ends both connections with a reset, as the network does when the
+// process of a peer is gone.
 internal sealed class HeldChildLink : IAsyncDisposable
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
@@ -54,8 +55,9 @@ internal sealed class HeldChildLink : IAsyncDisposable
     // From now on the link holds what the child sends.
     public void Hold() => _holding = true;
 
-    // Holds what the child sends from the moment the child has acknowledged its readiness position (an
-    // Applied, the rule of S11), after which an idle child sends nothing until a write.
+    // Holds what the child sends from the moment the child has acknowledged its readiness position with
+    // an Applied: a child acknowledges that position once it is ready, and an idle child sends nothing
+    // after it until a write.
     public async Task HoldOnceAcknowledgedAsync()
     {
         await Eventually.HoldsAsync(() => FromChild.Any(frame => frame.Kind == FrameKindEnum.Applied), "The child did not acknowledge its readiness position.");

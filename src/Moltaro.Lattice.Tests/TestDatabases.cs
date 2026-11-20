@@ -25,14 +25,20 @@ internal static class TestDatabases
 
     // A MemoryOnly master that accepts children, with the schema of TestData unless another one is
     // given, on the loopback interface at a port the system chooses (MasterAndChild.Loopback). Its
-    // ListenUri is the address a child is given.
-    public static ValueTask<ILatticeDatabase> OpenListeningMasterAsync(LatticeSchema? schema = null) =>
-        OpenAsync(new LatticeDatabaseOptions
+    // ListenUri is the address a child is given. A master whose socket the system refuses fails its open
+    // with the state of the system in the message (ListenFailure).
+    public static async ValueTask<ILatticeDatabase> OpenListeningMasterAsync(LatticeSchema? schema = null)
+    {
+        var master = Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema ?? TestData.Schema,
             ListenUri = MasterAndChild.Loopback,
         });
+
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask());
+        return master;
+    }
 
     // A child of the master, at the address the master reports. Its open completes when it has loaded
     // the database.

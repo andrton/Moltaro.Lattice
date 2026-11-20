@@ -8,22 +8,22 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // pass, and neither the time between two steps nor the wait for the position of a session, which the
 // timeout of the session bounds.
 // - A caller that is slow between two steps does not use the limit up: with a pause longer than the
-//   limit between two steps, every form of a pass completes.
+//   limit between the first two steps, every form of a pass completes. The passes of the four forms
+//   take their first step, the caller pauses once for all of them, and each takes the rest.
 // - The wait for the position of a session does not use it up: a pass whose session depends on a
 //   position ahead of the database waits for longer than the limit, and completes once a write
 //   reaches the position.
 // That a step which spends longer inside the engine than the limit fails the pass with ReadTime is
 // stated by the tests of the engine, which can keep a step waiting inside it
 // (ReadTimeInsideTheEngineTests in Moltaro.Lattice.Engine.Tests). Time passing is what these tests
-// state, so they are the tests of the enumeration that wait for it: the limit is 200 ms, thousands of
-// times what the few steps of a pass take inside the engine, and a pause 300 ms. Before it counts, a
-// test takes every form of a pass once on a database without limits, so that the first step it times
-// does not include compiling the code of a step.
+// state, so they are the tests of the enumeration that wait for it: the limit is one that the few
+// steps of a pass reach inside the engine only if the machine holds them up for two seconds, and the
+// pause and the wait last a second longer than it (ReadTimes). Before it counts, a test takes every
+// form of a pass once on a database without limits, so that the first step it times does not include
+// compiling the code of a step.
 public sealed class ReadTimeLimitTests
 {
-    private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(200);
-
-    private static readonly TimeSpan Pause = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan Pause = ReadTimes.BeyondTheLimit;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -39,22 +39,29 @@ public sealed class ReadTimeLimitTests
             await users.InsertAsync(new User { Id = id, Name = $"user {id}" });
         }
 
-        foreach (var form in EnumerationForms.All)
+        var passes = EnumerationForms.All.Select(form => UserPass.Of(database, form).GetAsyncEnumerator()).ToList();
+        var returned = passes.Select(_ => new List<long>()).ToList();
+
+        for (var pass = 0; pass < passes.Count; pass++)
         {
-            var returned = new List<long>();
-            await using var steps = UserPass.Of(database, form).GetAsyncEnumerator();
-
-            while (await steps.MoveNextAsync())
+            if (await passes[pass].MoveNextAsync())
             {
-                returned.Add(steps.Current.Id);
+                returned[pass].Add(passes[pass].Current.Id);
+            }
+        }
 
-                if (returned.Count == 1)
-                {
-                    await Task.Delay(Pause);
-                }
+        await Task.Delay(Pause);
+
+        for (var pass = 0; pass < passes.Count; pass++)
+        {
+            while (await passes[pass].MoveNextAsync())
+            {
+                returned[pass].Add(passes[pass].Current.Id);
             }
 
-            Assert.Equal([1L, 2L, 3L], returned.Order());
+            await passes[pass].DisposeAsync();
+
+            Assert.Equal([1L, 2L, 3L], returned[pass].Order());
         }
     }
 
@@ -102,6 +109,6 @@ public sealed class ReadTimeLimitTests
     {
         PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
         Schema = TestData.Schema,
-        ReadTimeLimit = Limit,
+        ReadTimeLimit = ReadTimes.Limit,
     });
 }

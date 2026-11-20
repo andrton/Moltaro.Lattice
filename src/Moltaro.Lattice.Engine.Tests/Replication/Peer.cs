@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication;
@@ -9,12 +10,15 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // transport (WireFrame): it sends what the test gives, and reads what the master sends, up to a frame the
 // test waits for or until the master ends the connection. As a hand-made child it acknowledges what the
 // test says (SendAppliedAsync), each frame the next of its stream after those it sent. Every wait is
-// bounded.
+// bounded. Its receive buffer is fixed before it connects (LoopbackLink.ReceiveBuffer), so that while it
+// reads nothing the master can hand its socket only that buffer and its own send buffer, and the master
+// is still sending a load or a transaction of 8 MiB: on Windows the two take about 192 KiB, as measured;
+// on Linux the send buffer may grow to 4 MiB, half of such a write (LoopbackLink.ReceiveBuffer).
 internal sealed class Peer : IDisposable
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
-    private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ReceiveBufferSize = LoopbackLink.ReceiveBuffer };
 
     // What was received and not handed out yet, and the frames sent so far.
     private readonly List<byte> _received = [];

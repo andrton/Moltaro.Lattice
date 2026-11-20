@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // interface, at a port the system chooses (MasterAndChild.Loopback) unless the test gives the address;
 // a child is given the address its master reports in its ListenUri. Either takes the inputs a test gives (EngineTestInputs),
 // such as an allocator that counts the native memory or the seed of the hashes; inputs left empty are
-// what an instance made without them uses.
+// what an instance made without them uses. A master whose socket the system refuses fails its open with
+// the state of the system in the message (ListenFailure).
 internal static class ReplicationNodes
 {
     // The bound of every wait of these tests.
@@ -38,7 +39,7 @@ internal static class ReplicationNodes
     {
         var master = EngineDatabase.Create(MasterOptions(schema, listenUri), inputs);
 
-        await master.OpenAsync().AsTask().WaitAsync(Bound);
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
         return master;
     }
 
@@ -55,7 +56,7 @@ internal static class ReplicationNodes
         };
         var master = (EngineDatabase)LatticeDatabase.Create(options);
 
-        await master.OpenAsync().AsTask().WaitAsync(Bound);
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
         return master;
     }
 
