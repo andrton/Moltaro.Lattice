@@ -63,8 +63,8 @@ differs, one text has a character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, a
 other one beyond U+FFFF, lead byte 0xF0 or above; there the order turns around, and the
 comparison turns it. A key whose UTF-8 bytes take more than 256 bytes, a text in chunks, a
 comparison without case and every text of a UTF-16 database, whose little-endian bytes are
-not in the order of its code units, are compared decoded, a piece at a time, the first
-piece of 32 code units. The check of an entry against its root, whether the root still has
+not in the order of its code units, are compared decoded, a piece of 256 code units at a
+time. The check of an entry against its root, whether the root still has
 the key, is that same order being zero.
 
 Two keys can be equal and not the same bytes: a text under another case, a Decimal of

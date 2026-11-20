@@ -77,9 +77,7 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // What it reserves: nothing. The buffers are pieces of 512 bytes of the stack of the comparison, those of
 // the mapping only for a comparison without case, and none of them is zeroed (SkipLocalsInit): every code
 // unit a comparison reads it wrote first. A comparison allocates nothing, whatever the length of the text
-// and wherever it lies. The first piece of a stored text holds FirstPieceLength code units, so that two
-// texts that differ early are decided before more of either is decoded. The hash without case maps the
-// text into 512 bytes of the stack as well.
+// and wherever it lies. The hash without case maps the text into 512 bytes of the stack as well.
 //
 // What a lookup costs: the hash of the given text, one pass over it; and for each key of the index
 // with the same hash, in practice the one that is looked for, one pass over its stored text, decoded
@@ -90,10 +88,6 @@ internal static class ValueComparer
 {
     // The code units of stored text compared at a time.
     private const int PieceLength = 256;
-
-    // The code units of the first piece of a stored text that an order reads: keys that differ mostly do
-    // so in their first characters, and a longer piece only follows while the texts are equal.
-    private const int FirstPieceLength = 32;
 
     // The hash of a text in the primary index under the comparison the String field declares and the
     // seed (see the class): texts that are equal under the comparison have the same hash under every
@@ -296,9 +290,6 @@ internal static class ValueComparer
 
         private ReadOnlySpan<char> _given;
 
-        // Whether a piece of the stored text was read: the first is FirstPieceLength code units long.
-        private bool _started;
-
         public Units(StoredTextReader stored, Span<char> piece, Span<char> mapped, bool ignoresCase)
         {
             _isStored = true;
@@ -324,10 +315,7 @@ internal static class ValueComparer
 
             if (_isStored)
             {
-                var piece = _started ? _piece : _piece[..FirstPieceLength];
-
-                units = piece[.._stored.Read(piece)];
-                _started = true;
+                units = _piece[.._stored.Read(_piece)];
             }
             else
             {
