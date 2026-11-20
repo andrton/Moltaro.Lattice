@@ -5851,7 +5851,8 @@ samples project lists the same order from simple to complex — for each sample 
 on what it teaches, what to read before it, and whether it runs to the end today or
 reports where it stops. The README of the repository points to it in one sentence. No
 behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
-runs to the end. It starts right after S14 is merged, because S14 changes `IndexSample`
+runs to the end. It starts after S14, part 2 is merged and before S14R, on a branch of its
+own (the planner, 20 November 2026): part 2 may touch `IndexSample` through `FindAsync`,
 and two agents must not edit the project at once.
 
 **After S14, not part of any sprint: SDK 11 as a change of its own.** `src/global.json`,
@@ -5874,7 +5875,13 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   tree of the prototype.
 - **Review.** A critical sprint: one reviewer, and beside it a breaker, a second agent
   that writes probe tests against the guarantees this brief states and reports only what
-  fails ([development process](process.md#review)).
+  fails ([development process](process.md#review)). Its second target, after the end of a
+  run of (d) (the planner, 20 November 2026): with `Need` the exact target, the reservation
+  has no slack, so after any one publication — an insert that splits the root, a remove
+  that merges into it, in either order among the waiting writes — the pool and the places
+  still hold at least `Need` of what waits, at the tree as it then is. The probes are
+  sequences that publish removes before inserts, and inserts that grow the tree while
+  others wait.
 - **Acceptance.**
   - (a) A replace that keeps every indexed key costs what it costs for the same type
     without indexes, within the gauge (today −20 % with one index, −62 % with six). The
@@ -5946,6 +5953,51 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   2. The closed form of the reservation against the loop. Then, in a commit of its own,
      the figures of the reservation tests of S14 restated from the new formula, on the
      planner's word: the formula reserves fewer nodes.
+
+     **The planner, 20 November 2026.** The formula is the closed form of today's
+     `OrderedTree.Need()` and nothing else. With h the height now, r the room of the root
+     (`Room()`), L = `LeastSeparators`, p waiting inserts and q waiting removes, every
+     division integer and the whole computed in `long`:
+     m = max(0, p − 1 − r); a = m / L, b = m % L; S = m + L·a·(a − 1)/2 + a·b, the sum of
+     `Growth(k)` for k = 0 … p − 1; G = 0 when p ≤ r, else 1 + (p − 1 − r) / L, the height
+     the removes see; Need = p·(2h + 1) + 2·S + q·(h + G + 1).
+     The member its test addresses, the internal contract of this step:
+     `internal static long Need(int height, int room, int leastSeparators, int inserts, int removes)`
+     on `OrderedTree`. The instance `Need()` becomes a call of it, and it is the one target
+     of `TryReserve` and `Trim`; `Bound` goes (E1). A contract commit of this one member,
+     throwing `NotSupportedException`, comes before this step, by a contract author; step
+     1 needs no member. The test keeps the loop as today's `Need()` and `Growth()` define
+     it and compares it with the static member over a grid: height 0 to 4; room 0, 1,
+     L − 1 and L; L of 2 and of the real layout; inserts 0 to 3L + 2; removes 0 to 3. It is
+     skipped with the sprint's one shared reason until the implementation. A member and not
+     the pool measured against the loop, because the standing reserve of (b) keeps the
+     pool above the need of the waiting writes: the formula is held where it does not
+     depend on the policy of the pool.
+
+     The standing reserve, the rule its tests state: the reserve of an index is the need of
+     one change of key at the tree as it is, `Need(h, room, L, 1, 1)` nodes. It is taken by
+     the first preparation that touches the index, not at open. While writes wait, the pool
+     of an index holds at most the larger of the need of those writes and the reserve; with
+     nothing waiting it holds at most the reserve, and it is not given back until the
+     database closes. Its tests are part of this step, skipped with the same reason: (i)
+     after every write is published, the prepared bytes of an indexed type are above zero,
+     at most the reserve of its indexes, and counted in `Counters.Arena.PreparedBytes`; (ii)
+     the reserve counts against the memory limit like any other bytes; (iii) a close gives
+     it back, and the arena ends with nothing prepared; (iv) a database with many indexes
+     and a limit below their reserves opens, and its first write is the refusal for memory,
+     with nothing left taken. The grid test and these go to `Engine/Indexes/Reservation` of
+     the engine tests.
+
+     The commit of the restated figures holds two changes, both on the planner's word: the
+     helper `BoundOf` of `IndexPreparationTests` is replaced by the formula, with the room
+     of the root the test knows from the tree it built, and `RefusedReservationTests` the
+     same where it states a count of nodes; and every assertion that the prepared bytes are
+     0 after the publication of writes to an indexed type becomes "at most the reserve of
+     its indexes". A type without an index keeps 0. Assertions stay "within" (≤) where they
+     are; nothing else of those tests changes. A test whose restated figure fails on `main`
+     is skipped with the same reason, not loosened. The list of every assertion changed
+     under this paragraph goes to the planner, and the reviewer checks that nothing else
+     moved.
   3. The tests of (a), each asserting the content of the index through the test member
      (`EngineDatabase.IndexNodes`) and the result of a search: a replace that keeps,
      changes and swaps keys; a change of case only under a comparison without case; the
@@ -5955,7 +6007,21 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      entry, so the upkeep is skipped and the references of the text count exactly as after
      a full upkeep; a replace that swaps the keys of two entities in two writes.
   4. The delivery rule of `FindAsync`, and the allocation of a search pinned to bytes.
-  5. The oracle test of the comparison of bytes.
+     **The planner, 20 November 2026:** a ceiling of 400 bytes now for a search of one
+     entity, the object and its result, skipped; after the implementation the test author
+     pins the exact figure in a commit that states what the bytes are made of. The reviewer
+     checks the composition — one object holding the key once, and the result — not only
+     that the number passes, and that 24 bytes more fail it.
+  5. The oracle test of the comparison of bytes. **The planner, 20 November 2026:** no new
+     member. The oracle addresses the existing forms of `IndexOrder.Compare`, the walk order
+     of a built index and a search for every key, against `ValueComparer.CompareText`, in a
+     UTF-8 and a UTF-16 database. If the engine refuses or changes an unpaired surrogate on
+     the way in, the test author reports what it does and tests what can be stored.
+
+  The new tests of the master go to sub-folders of `Engine/Indexes` of the engine tests by
+  area — `Refusals`, `Reservation`, `Upkeep`, `Search` — and those of a forwarded write
+  and of a child to `Engine/Replication/Indexes`. The existing files of `Engine/Indexes`
+  move at S14R ([refactoring backlog](refactoring.md)).
 - **Before the plan of the machine is used:** B2 of the
   [refactoring backlog](refactoring.md). Done on 20 November 2026: every scenario of the
   plan runs on the one window. Its proof by listings stands; its series was not taken,

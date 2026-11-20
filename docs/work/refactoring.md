@@ -43,7 +43,7 @@ Gone through by the planner and the coordinator on 18 November 2026.
   2. **S14, part 2** of the [epic](epic-1-core.md), which joins E1, E2, E4, E8 and the
      half of E3 that is `HasKey`.
   3. **S14R,** structure only: I1 to I4 of the review of S14; the loops of E3, with I1;
-     E7; E9; A9; M1; E10; and what was taken into it before — A3 with B4, A4 with B1 (in
+     E7; E9; A9; M1; E10; F1; and what was taken into it before — A3 with B4, A4 with B1 (in
      before S18), A5, A11, A12, A13, U6, U11, and N3 to N7 and C3 with the files as they
      are touched.
   4. **S15,** with E6.
@@ -192,6 +192,14 @@ changes a measured figure is not refactoring and is joined to S14, part 2 of the
 | E10 | `Engine/Writes/PreparedWrite.cs` (`WriteChange`, the comment at `SetNoChange`); `Engine/Writes/WriteExecutor.cs` (`TryPrepareDelete`); `Engine/Entities/ChangePublisher.cs` (the loop of `Publish`) | Two P4 of the review of the merge in S14 and two leftovers of the listings of the JIT: nothing asserts that the record `WriteChange` writes changes no entity yet; the comment at `SetNoChange` is inexact; `refusal = null` in `TryPrepareDelete` is redundant; the loop of `Publish` has a check of bounds the build before S14 did not have | The assertion; the comment corrected; the assignment removed; the check gone, as before S14 | — | taken (S14R) |
 
 It adds to three entries above: U6 with A3, I3, and B2, of which E5 is the fifth copy.
+
+## Found while coordinating S14, part 2, 20 November 2026
+
+Taken by the planner and the coordinator on the same day.
+
+| # | Place | What is wrong | The simpler form | Status |
+| --- | --- | --- | --- | --- |
+| F1 | `src/Moltaro.Lattice.Engine.Tests/Engine/Indexes` | 22 files lie flat in one folder that holds several areas: refusals and the reservation, the upkeep, the search, the order of text, nodes and their memory, seeds and contradictions | Sub-folders by area, those S14, part 2 opens for its new tests — `Refusals`, `Reservation`, `Upkeep`, `Search` — and what the rest needs; the helpers the whole folder shares stay at its root. No assertion changes | taken (S14R) |
 
 Sound, leave as it is: `IndexNode`, `NodeWriter`, `NodeHeader`; publishing a node by one
 release store and retiring after it; `EditedLeaf` and `GrownInner` as views; entries as
