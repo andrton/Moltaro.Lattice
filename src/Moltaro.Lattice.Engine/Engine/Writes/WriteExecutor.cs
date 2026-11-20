@@ -221,7 +221,7 @@ internal sealed class WriteExecutor
     {
         var record = write.Record;
 
-        if (!_changes.TryReserve(record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default)))
+        if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default)))
         {
             prepared = null;
             refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
@@ -268,7 +268,7 @@ internal sealed class WriteExecutor
         try
         {
             record = write.Record;
-            reserved = _changes.TryReserve(record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
+            reserved = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
         }
         catch
         {
@@ -317,7 +317,7 @@ internal sealed class WriteExecutor
 
             var record = write.Record;
 
-            if (!_changes.TryReserve(record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root)))
+            if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root)))
             {
                 refusal = RootWriter.RefusalForMemory(layout);
 

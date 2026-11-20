@@ -73,6 +73,42 @@ internal sealed class IndexOrder
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
     public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) => CompareKey(probe, entry) == 0;
 
+    // Whether the two roots contribute entries of equal keys by the order, read from their stored fields
+    // as the entries would hold them: a copy of a text or the text entry its root references is the text
+    // the root stores, and a fixed part its stored bytes. For the writer, which tells a key that moves from
+    // one equal by the order in other bytes (SecondaryIndex.ChangeOf); under the lock of the writes.
+    // Allocates nothing.
+    public bool SameKey(in RootReader left, in RootReader right)
+    {
+        foreach (ref readonly var part in _layout.Parts)
+        {
+            var leftNull = left.IsNull(part.Field);
+            var rightNull = right.IsNull(part.Field);
+            int order;
+
+            if (leftNull || rightNull)
+            {
+                // A null equals a null and no value.
+                order = leftNull == rightNull ? 0 : 1;
+            }
+            else if (part.IsText)
+            {
+                order = ValueComparer.CompareText(left.ReadText(part.Field), right.ReadText(part.Field), part.Comparison!);
+            }
+            else
+            {
+                order = ValueComparer.CompareStored(part.Type, left.StoredBytes(part.Field), right.StoredBytes(part.Field));
+            }
+
+            if (order != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // The identity of an entry as the number the order compares: the RootHandle it begins with.
     private static ulong IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<ulong>(entry);
 

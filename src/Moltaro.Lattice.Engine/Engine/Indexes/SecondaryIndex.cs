@@ -18,14 +18,16 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // has the key it looks for (HasKey). So a reader never finds an entity under a key the entity no longer
 // has, and finds every entity that has the key for the whole search.
 //
-// A write. ChangeOf compares the entry of the state the entity has with the entry of the state the
-// write publishes; nothing changes either root between the preparation and the publication of the write
-// (Writes.WriteCoordinator), so each step computes the change again instead of recording it. What the
-// place where the effects of a write are installed calls, for each index of the entity type, under the
-// lock of the writes, on a master and on a child alike:
+// A write. What a write does to the index is decided once, in the hold that prepares it, once its new
+// root is written: the entry the root it replaces contributes against the entry the new root
+// contributes, the same bytes being nothing (ChangeOf). Both roots stay as they are until the write is
+// published or withdrawn (Writes.WriteCoordinator), and the decision is recorded with the prepared change
+// (Entities.PreparedChange), which every later step reads; an entry is built only by the step that
+// inserts, removes or rewrites it. What the place where the effects of a write are installed calls, for
+// each index the write changes, under the lock of the writes, on a master and on a child alike:
 // - in the hold that prepares the write: TryReserve; false when the arena cannot hold what the change
 //   needs, which refuses the write as one the memory budget cannot hold, with nothing taken; then, once
-//   every index has what the write needs, TopUp, which tops the standing reserve up and never fails;
+//   every index has what the write needs, the top-up of the standing reserve (OrderedTree.TopUp);
 // - when the write is withdrawn before its publication: Release;
 // - in its publication, before the stores that publish the root and the position: InstallNew;
 // - after the position, before the old root or the deleted entry is retired: RemoveOld.
@@ -41,9 +43,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //
 // Memory. The nodes are blocks of the arena, counted in its live, prepared and retired bytes and so in
 // the budget of the instance; the bytes of the live ones are Tree.Bytes. The close frees them with the
-// arena. The two entries of a write are made in scratch of the writer that the index holds, of the
-// widest entry each, allocated when the database opens. Readers take no lock; only the holder of the
-// lock of the writes calls the members of a write.
+// arena. An entry of a write is made in scratch of the writer that the index holds, of the widest entry,
+// allocated when the database opens. Readers take no lock; only the holder of the lock of the writes
+// calls the members of a write.
 internal sealed class SecondaryIndex
 {
     private readonly RootLayout _roots;
@@ -52,10 +54,8 @@ internal sealed class SecondaryIndex
 
     private readonly IndexOrder _order;
 
-    // The entries of the old and of the new state of the entity of a write: the writer's alone.
-    private readonly byte[] _old;
-
-    private readonly byte[] _new;
+    // The entry a step of a write inserts, removes or rewrites: the writer's alone.
+    private readonly byte[] _entry;
 
     private SecondaryIndex(LatticeIndex definition, RootLayout roots, Arena arena, IndexLayout layout, IndexOrder order, OrderedTree tree)
     {
@@ -63,8 +63,7 @@ internal sealed class SecondaryIndex
         _roots = roots;
         _arena = arena;
         _order = order;
-        _old = new byte[layout.WidestEntryBytes];
-        _new = new byte[layout.WidestEntryBytes];
+        _entry = new byte[layout.WidestEntryBytes];
         Layout = layout;
         Tree = tree;
     }
@@ -133,37 +132,38 @@ internal sealed class SecondaryIndex
         return true;
     }
 
-    // For the writer: what the write does to the index, from the root the entity has, null for an
-    // insert, and the root the write publishes, null for a delete; both are the write's own until it is
-    // published or withdrawn.
-    public IndexChangeEnum ChangeOf(ArenaAddress replaced, ArenaAddress root) => Change(default, replaced, root, out _, out _);
-
-    // For the writer, in the hold that prepares the write: reserves what the change of the write needs
-    // (OrderedTree.TryReserve): an insert for Insert, Move and Rewrite, a remove for Remove and Move.
-    // False when the arena cannot hold it, with nothing taken (see the class).
-    public bool TryReserve(ArenaAddress replaced, ArenaAddress root) => ChangeOf(replaced, root) switch
+    // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
+    // does to the index, from the root the entity has and the root the write publishes, both the write's
+    // own until it is published or withdrawn (see the class). None when they contribute entries of the same
+    // bytes (IndexLayout.SameEntry); otherwise Rewrite when their keys are equal by the order, a text under
+    // another case or a Decimal of another scale, and Move when they are not (IndexOrder.SameKey). An
+    // insert of an entity is an Insert into every index and a delete a Remove. Builds no entry and
+    // allocates nothing.
+    public IndexChangeEnum ChangeOf(in RootReader replaced, in RootReader root)
     {
-        IndexChangeEnum.None => true,
+        if (Layout.SameEntry(replaced, root))
+        {
+            return IndexChangeEnum.None;
+        }
+
+        return _order.SameKey(replaced, root) ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
+    }
+
+    // For the writer, in the hold that prepares the write: reserves what the change the write makes to
+    // the index needs (OrderedTree.TryReserve): an insert for Insert, Move and Rewrite, a remove for Remove
+    // and Move. False when the arena cannot hold it, with nothing taken (see the class).
+    public bool TryReserve(IndexChangeEnum change) => change switch
+    {
         IndexChangeEnum.Insert or IndexChangeEnum.Rewrite => Tree.TryReserve(inserts: 1, removes: 0),
         IndexChangeEnum.Remove => Tree.TryReserve(inserts: 0, removes: 1),
         _ => Tree.TryReserve(inserts: 1, removes: 1),
     };
 
-    // For the writer, in the hold that prepares the write, once every index of the write has its need: tops
-    // the pool of the tree up to its standing reserve when the write changes the index
-    // (OrderedTree.TopUp). Nothing fails.
-    public void TopUp(ArenaAddress replaced, ArenaAddress root)
+    // For the writer: gives back what TryReserve took for the change, for a write withdrawn before its
+    // publication.
+    public void Release(IndexChangeEnum change)
     {
-        if (ChangeOf(replaced, root) != IndexChangeEnum.None)
-        {
-            Tree.TopUp();
-        }
-    }
-
-    // For the writer: gives back what TryReserve took, for a write withdrawn before its publication.
-    public void Release(ArenaAddress replaced, ArenaAddress root)
-    {
-        switch (ChangeOf(replaced, root))
+        switch (change)
         {
             case IndexChangeEnum.Insert or IndexChangeEnum.Rewrite:
                 Tree.Release(inserts: 1, removes: 0);
@@ -173,66 +173,42 @@ internal sealed class SecondaryIndex
                 Tree.Release(inserts: 0, removes: 1);
                 break;
 
-            case IndexChangeEnum.Move:
+            default:
                 Tree.Release(inserts: 1, removes: 1);
                 break;
         }
     }
 
-    // For the writer, in the publication of the write, before the stores of its root: adds the new entry
-    // of an Insert or a Move, under the handle of the root entry, from what was reserved. Allocates
-    // nothing; does nothing for another change.
-    public void InstallNew(RootHandle handle, ArenaAddress replaced, ArenaAddress root)
+    // For the writer, in the publication of the write, before the stores of its root: adds the entry the
+    // root the write publishes contributes, under the handle of the root entry, for an Insert or a Move,
+    // from what was reserved. Allocates nothing; does nothing for another change.
+    public void InstallNew(IndexChangeEnum change, RootHandle handle, ArenaAddress root)
     {
-        if (Change(handle, replaced, root, out _, out var newLength) is IndexChangeEnum.Insert or IndexChangeEnum.Move)
+        if (change is IndexChangeEnum.Insert or IndexChangeEnum.Move)
         {
-            Tree.Insert(_new.AsSpan(0, newLength));
+            Tree.Insert(EntryOf(handle, root));
         }
     }
 
     // For the writer, in the publication of the write, after its position and before what it replaced
-    // or deleted is retired: takes away the old entry of a Remove or a Move, and replaces the entry of a
-    // Rewrite by the new bytes. Allocates nothing; does nothing for another change.
-    public void RemoveOld(RootHandle handle, ArenaAddress replaced, ArenaAddress root)
+    // or deleted is retired: takes away the entry the replaced root contributes for a Remove or a Move,
+    // and for a Rewrite replaces it at its place by the entry of the root the write publishes. Allocates
+    // nothing; does nothing for another change.
+    public void RemoveOld(IndexChangeEnum change, RootHandle handle, ArenaAddress replaced, ArenaAddress root)
     {
-        switch (Change(handle, replaced, root, out var oldLength, out var newLength))
+        switch (change)
         {
             case IndexChangeEnum.Remove or IndexChangeEnum.Move:
-                Tree.Remove(_old.AsSpan(0, oldLength));
+                Tree.Remove(EntryOf(handle, replaced));
                 break;
 
             case IndexChangeEnum.Rewrite:
-                Tree.Rewrite(_new.AsSpan(0, newLength));
+                Tree.Rewrite(EntryOf(handle, root));
                 break;
         }
     }
 
-    // The entry of each state under the handle, in the scratch of the writer, and what the write does
-    // with them: the same bytes, nothing; equal keys by the order in other bytes, a rewrite; another key,
-    // a move.
-    private IndexChangeEnum Change(RootHandle handle, ArenaAddress replaced, ArenaAddress root, out int oldLength, out int newLength)
-    {
-        oldLength = replaced.IsNull ? 0 : Layout.WriteEntry(new RootReader(_arena, _roots, replaced), handle, _old);
-        newLength = root.IsNull ? 0 : Layout.WriteEntry(new RootReader(_arena, _roots, root), handle, _new);
-
-        if (replaced.IsNull)
-        {
-            return IndexChangeEnum.Insert;
-        }
-
-        if (root.IsNull)
-        {
-            return IndexChangeEnum.Remove;
-        }
-
-        var old = _old.AsSpan(0, oldLength);
-        var current = _new.AsSpan(0, newLength);
-
-        if (old.SequenceEqual(current))
-        {
-            return IndexChangeEnum.None;
-        }
-
-        return _order.SameKey(old, current) ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
-    }
+    // The entry the root contributes under the handle, in the scratch of the writer.
+    private ReadOnlySpan<byte> EntryOf(RootHandle handle, ArenaAddress root) =>
+        _entry.AsSpan(0, Layout.WriteEntry(new RootReader(_arena, _roots, root), handle, _entry));
 }

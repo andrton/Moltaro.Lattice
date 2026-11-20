@@ -234,8 +234,26 @@ widest entries of its index, an inner node four of its widest separators.
 What one write does to one index is the entry its old state contributes against the
 entry its new state contributes: the same bytes, nothing; an insert of the entity, an
 insert; a delete, a remove; another key, an insert of the new entry and a remove of the
-old; an equal key in other bytes, a rewrite. Both roots stay as they are between the
-preparation and the publication of the write, so each step computes this again.
+old; an equal key in other bytes, a rewrite. Equality under the comparison of the index is
+not the rule for nothing, since an entry holds the bytes of its own root: a text changed in
+case only, a Decimal of another scale, +0 and −0 or NaNs of other bits are equal keys in
+other bytes, and rewritten.
+
+It is decided once, in the hold that prepares the write, once the new root is written, and
+recorded with the prepared change, one bit for each index and one more for a rewrite; the
+reservation, a withdrawal, the publication and the top-up of the reserve read it, and a
+replace that leaves every entry as it was passes every index by. The decision reads the
+stored fields of the two roots instead of building their entries, by the rule an entry is
+written with: a part null in both is the same, whatever bytes lie under the null, and null
+in one only is not; a fixed part is the same when its stored bytes are, so a DateTimeOffset,
+stored as its UTC ticks, with another offset alone is the same; a text of 64 bytes or less
+when its bytes are, wherever they lie, never by its descriptor, whose offset depends on the
+root; a longer text when it references the same text entry. Whether two entries that are
+not the same have equal keys is the order of the index applied to the two roots. So the
+publication builds only the entries it inserts, removes or rewrites, each once. The masks
+have a bit of their own for the first 63 indexes of an entity type; the last bit stands for
+every index from the 64th on, which each step decides again by the same test, which builds
+no entry.
 
 The entries of a write are installed in the hold of the lock that publishes its root,
 each by its own stores, in this order: the new entries are inserted, the root is
@@ -285,14 +303,13 @@ enough:
   remove never grows the tree, nor makes its root fuller without making it lower by a
   level, so the order in which the waiting writes are published does not matter.
 - A preparation tops the pool up to the need of all writes that wait, with its own
-  counted; a publication gives back to the arena what is above the need of the writes
-  still waiting, at the tree as it is then, and so does a withdrawal. Neither ever takes a
-  node. A publication takes at most the first share of the need and leaves the need of the
-  rest no larger than what is left: a split makes a root of one separator, which counts
-  its growth from there, and a remove that lets a fuller child take the place of the root
-  lowers the tree by a level. A withdrawal only lowers the need. A Debug build asserts
-  after every preparation, publication and withdrawal that the pool and the places hold
-  at least the need of the writes still waiting.
+  counted; a publication and a withdrawal never take a node, and what they give back is
+  counted at the tree as it is then. A publication takes at most the first share of the
+  need and leaves the need of the rest no larger than what is left: a split makes a root
+  of one separator, which counts its growth from there, and a remove that lets a fuller
+  child take the place of the root lowers the tree by a level. A withdrawal only lowers
+  the need. A Debug build asserts after every preparation, publication and withdrawal
+  that the pool and the places hold at least the need of the writes still waiting.
 
 **The standing reserve.** Once a preparation has touched an index, its pool keeps the need
 of one change of key, an insert and a remove, at the tree as it is: *Need* with *p* = *q* =

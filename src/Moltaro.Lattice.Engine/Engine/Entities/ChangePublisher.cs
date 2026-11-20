@@ -21,12 +21,16 @@ namespace Moltaro.Lattice.Engine.Entities;
 // ones taken away after the position and before the root they belong to is retired. So the entries of a
 // publication go in, then its roots, then the old entries go out, each by its own stores, and the check of
 // a found entry against its root covers the moments between (docs/design/ordered-index.md, "The entries of
-// one write"). Both roots of a change stay as they are between its preparation and its publication, so
-// each step computes the change of an index again from them. The callers keep the standing reserve of
-// each index (Indexes.OrderedTree, "The standing reserve") by the rule of a write refused for memory: once
-// every change of a write or a transaction has its nodes, a caller tops the reserves up (TopUp), and before
-// it refuses one for memory, it has every index of the database give back what is above the need of the
-// changes prepared (GiveBackReserves) and tries once more.
+// one write"). What a change does to each index is decided once, by the reservation, from the two roots,
+// which stay as they are until the change is published or given back (Indexes.SecondaryIndex.ChangeOf),
+// and recorded with the change (PreparedChange.IndexChanges); every later step reads it, and a change that
+// changes no index, as a replace that leaves every entry as it was, passes every index by.
+//
+// The callers keep the standing reserve of each index (Indexes.OrderedTree, "The standing reserve") by the
+// rule of a write refused for memory: once every change of a write or a transaction has its nodes, a
+// caller tops the reserves up (TopUp), and before it refuses one for memory, it has every index of the
+// database give back what is above the need of the changes prepared (GiveBackReserves) and tries once
+// more.
 //
 // What it guarantees. The stores are made in that order, each with release semantics (Volatile.Write), so a
 // read that sees one, by a load with acquire semantics, sees every store before it, the blocks the
@@ -67,23 +71,25 @@ internal sealed class ChangePublisher
         _tables = tables;
     }
 
-    // Under the lock of the writes, at the end of a preparation: reserves what the publication of the
-    // change uses, so that publishing it allocates nothing and cannot fail: the nodes each secondary index
-    // of the entity type needs for the change, then room in the primary index for an insert, which may grow
-    // it, and a place in the retired list for a replace or a delete, beside what the changes prepared
-    // before it and not published yet reserved. False when the arena cannot hold the nodes of an index,
-    // which refuses the change for memory; then, and when an exception of memory passes, nothing is
-    // reserved, and what the change holds is the caller's to give back. The indexes come first, so that a
-    // change they refuse grows no primary index. An entity type without an index takes the path it took
-    // before there were indexes, with nothing more to give back. Inlined into the preparation of a write,
-    // as the reservation was before there were indexes, so that the preparation of a type without an index
-    // makes no call it did not make then (JIT listing at full optimization).
+    // Under the lock of the writes, at the end of a preparation, once the new root of the change is
+    // written: decides what the change does to each secondary index of its entity type and records it with
+    // the change (PreparedChange.IndexChanges), and reserves what the publication of the change uses, so
+    // that publishing it allocates nothing and cannot fail: the nodes each index the change changes needs,
+    // then room in the primary index for an insert, which may grow it, and a place in the retired list for
+    // a replace or a delete, beside what the changes prepared before it and not published yet reserved.
+    // False when the arena cannot hold the nodes of an index, which refuses the change for memory; then,
+    // and when an exception of memory passes, nothing is reserved, and what the change holds is the
+    // caller's to give back. The indexes come first, so that a change they refuse grows no primary index.
+    // An entity type without an index takes the path it took before there were indexes, with nothing more
+    // to give back. Inlined into the preparation of a write, as the reservation was before there were
+    // indexes, so that the preparation of a type without an index makes no call it did not make then (JIT
+    // listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryReserve(in PreparedChange change)
+    public bool TryReserve(ref PreparedChange change)
     {
         if (!change.Table.Indexes.IsEmpty)
         {
-            return TryReserveWithIndexes(change);
+            return TryReserveWithIndexes(ref change);
         }
 
         ReserveEntity(change);
@@ -91,38 +97,108 @@ internal sealed class ChangePublisher
         return true;
     }
 
-    // The reservation of a change of an entity type with indexes (TryReserve).
-    private bool TryReserveWithIndexes(in PreparedChange change)
+    // The decision and the reservation of a change of an entity type with indexes (TryReserve). An insert
+    // changes every index and a delete as well; a replace is decided for each index from its two roots
+    // (Indexes.SecondaryIndex.ChangeOf), read once for all of them, since a reader finds and checks the
+    // block of its root when it is made (Storage.RootReader).
+    private bool TryReserveWithIndexes(ref PreparedChange change)
     {
         var indexes = change.Table.Indexes;
+        var layout = change.Table.Layout!;
         var replaced = ReplacedBy(change);
+        var replaces = change.Kind == ChangeKindEnum.Replace;
+        var every = change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
+        var old = replaces ? new RootReader(_arena, layout, replaced) : default;
+        var current = replaces ? new RootReader(_arena, layout, change.Root) : default;
         var reserved = 0;
 
         try
         {
             for (; reserved < indexes.Length; reserved++)
             {
-                if (!indexes[reserved].TryReserve(replaced, change.Root))
+                var decided = replaces ? indexes[reserved].ChangeOf(old, current) : every;
+
+                if (decided == IndexChangeEnum.None)
                 {
-                    ReleaseIndexes(indexes[..reserved], replaced, change.Root);
+                    continue;
+                }
+
+                if (!indexes[reserved].TryReserve(decided))
+                {
+                    ReleaseIndexes(change, reserved, replaced);
 
                     return false;
                 }
+
+                Record(ref change, reserved, decided);
             }
 
             ReserveEntity(change);
         }
         catch
         {
-            ReleaseIndexes(indexes[..reserved], replaced, change.Root);
+            ReleaseIndexes(change, reserved, replaced);
             throw;
         }
 
         return true;
     }
 
+    // Records with the change what it does to the index at the place given, once the index has reserved
+    // for it (PreparedChange.BitOf).
+    private static void Record(ref PreparedChange change, int index, IndexChangeEnum decided)
+    {
+        var bit = PreparedChange.BitOf(index);
+
+        change.IndexChanges |= bit;
+
+        if (decided == IndexChangeEnum.Rewrite && index < PreparedChange.SharedBit)
+        {
+            change.IndexRewrites |= bit;
+        }
+    }
+
+    // What the change does to the index at the place given, as its reservation decided it: from the masks
+    // of the change, and for an index that shares the last bit with others decided again from the roots by
+    // the same test, which builds no entry (PreparedChange.BitOf). Replaced is the root the change replaces
+    // or deletes, null for an insert.
+    private IndexChangeEnum ChangeAt(in PreparedChange change, int index, ArenaAddress replaced)
+    {
+        var bit = PreparedChange.BitOf(index);
+
+        if ((change.IndexChanges & bit) == 0)
+        {
+            return IndexChangeEnum.None;
+        }
+
+        if (index >= PreparedChange.SharedBit)
+        {
+            return Decide(change, change.Table.Indexes[index], replaced);
+        }
+
+        return change.Kind switch
+        {
+            ChangeKindEnum.Insert => IndexChangeEnum.Insert,
+            ChangeKindEnum.Delete => IndexChangeEnum.Remove,
+            _ => (change.IndexRewrites & bit) != 0 ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move,
+        };
+    }
+
+    // What the change does to the index, decided from its roots as the reservation decides it.
+    private IndexChangeEnum Decide(in PreparedChange change, SecondaryIndex index, ArenaAddress replaced)
+    {
+        if (change.Kind != ChangeKindEnum.Replace)
+        {
+            return change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
+        }
+
+        var layout = change.Table.Layout!;
+
+        return index.ChangeOf(new RootReader(_arena, layout, replaced), new RootReader(_arena, layout, change.Root));
+    }
+
     // Under the lock of the writes, once every change of a write or of a transaction is prepared and has
-    // what its publication uses (TryReserve): tops the standing reserve of each index the changes touch up,
+    // what its publication uses (TryReserve): tops the standing reserve of each index the changes change up,
     // as far as the arena gives; nothing fails. After the needs of all of them, so that a top-up never
     // takes what a change needs. Inlined into the preparation of a write, as TryReserve is, so that a write
     // of an entity type without an index makes no call for it (JIT listing at full optimization).
@@ -131,7 +207,7 @@ internal sealed class ChangePublisher
     {
         foreach (ref readonly var change in changes)
         {
-            if (!change.Table.Indexes.IsEmpty)
+            if (change.IndexChanges != 0)
             {
                 TopUpIndexes(change);
             }
@@ -152,14 +228,18 @@ internal sealed class ChangePublisher
         }
     }
 
-    // The top-up of the indexes of the entity type of a change (TopUp).
+    // The top-up of the indexes the change changes (TopUp).
     private void TopUpIndexes(in PreparedChange change)
     {
+        var indexes = change.Table.Indexes;
         var replaced = ReplacedBy(change);
 
-        foreach (var index in change.Table.Indexes)
+        for (var index = 0; index < indexes.Length; index++)
         {
-            index.TopUp(replaced, change.Root);
+            if (ChangeAt(change, index, replaced) != IndexChangeEnum.None)
+            {
+                indexes[index].Tree.TopUp();
+            }
         }
     }
 
@@ -178,8 +258,8 @@ internal sealed class ChangePublisher
     }
 
     // Under the lock of the writes: gives back everything the changes took and reserved, in the reverse of
-    // their order, because they are not published: the nodes of the secondary indexes, computed from the
-    // roots while they are there; the new root of an insert or a replace and the root entry of an insert,
+    // their order, because they are not published: the nodes of the secondary indexes they change, as their
+    // reservation recorded it; the new root of an insert or a replace and the root entry of an insert,
     // to which no index maps a key, so that no read can have reached either; the room in the primary index
     // or the place in the retired list.
     public void Release(ReadOnlySpan<PreparedChange> changes)
@@ -188,9 +268,9 @@ internal sealed class ChangePublisher
         {
             ref readonly var change = ref changes[index];
 
-            if (!change.Table.Indexes.IsEmpty)
+            if (change.IndexChanges != 0)
             {
-                ReleaseIndexes(change.Table.Indexes, ReplacedBy(change), change.Root);
+                ReleaseIndexes(change, change.Table.Indexes.Length, ReplacedBy(change));
             }
 
             switch (change.Kind)
@@ -235,7 +315,7 @@ internal sealed class ChangePublisher
     {
         foreach (ref var change in changes)
         {
-            if (!change.Table.Indexes.IsEmpty)
+            if (change.IndexChanges != 0)
             {
                 InstallNew(change);
             }
@@ -271,34 +351,47 @@ internal sealed class ChangePublisher
             switch (change.Kind)
             {
                 case ChangeKindEnum.Replace:
-                    StampReplace(change.Table, change.Handle, change.Replaced, change.Root, stamp);
+                    StampReplace(change, stamp);
                     break;
 
                 case ChangeKindEnum.Delete:
-                    StampDelete(change.Table, change.Key, change.Handle, stamp);
+                    StampDelete(change, stamp);
                     break;
             }
         }
     }
 
-    // The new entries of the change in every index of its entity type, before the stores of its root.
+    // The new entries of the change in the indexes it changes, before the stores of its root.
     private void InstallNew(in PreparedChange change)
     {
+        var indexes = change.Table.Indexes;
         var replaced = ReplacedBy(change);
 
-        foreach (var index in change.Table.Indexes)
+        for (var index = 0; index < indexes.Length; index++)
         {
-            index.InstallNew(change.Handle, replaced, change.Root);
+            var decided = ChangeAt(change, index, replaced);
+
+            if (decided != IndexChangeEnum.None)
+            {
+                indexes[index].InstallNew(decided, change.Handle, change.Root);
+            }
         }
     }
 
-    // The old entries of a change in every index of its entity type, after the position and before the
-    // root they were made from is retired.
-    private static void RemoveOld(EntityTable table, RootHandle handle, ArenaAddress replaced, ArenaAddress root)
+    // The old entries of a change in the indexes it changes, after the position and before the root they
+    // were made from, replaced or deleted, is retired.
+    private void RemoveOld(in PreparedChange change, ArenaAddress replaced)
     {
-        foreach (var index in table.Indexes)
+        var indexes = change.Table.Indexes;
+
+        for (var index = 0; index < indexes.Length; index++)
         {
-            index.RemoveOld(handle, replaced, root);
+            var decided = ChangeAt(change, index, replaced);
+
+            if (decided != IndexChangeEnum.None)
+            {
+                indexes[index].RemoveOld(decided, change.Handle, replaced, change.Root);
+            }
         }
     }
 
@@ -345,16 +438,16 @@ internal sealed class ChangePublisher
     // so a read that loads it sees the new root; then the old entries of the indexes go, while the old root
     // they were made from is still there. Reads that took the old root before go on copying it; it is
     // freed once they have left.
-    private void StampReplace(EntityTable table, RootHandle handle, ArenaAddress replaced, ArenaAddress root, ulong sequence)
+    private void StampReplace(in PreparedChange change, ulong sequence)
     {
-        _roots.Entry(handle).ReleaseLastMutation(sequence);
+        _roots.Entry(change.Handle).ReleaseLastMutation(sequence);
 
-        if (!table.Indexes.IsEmpty)
+        if (change.IndexChanges != 0)
         {
-            RemoveOld(table, handle, replaced, root);
+            RemoveOld(change, change.Replaced);
         }
 
-        _retired.RetireRoot(table.Layout!, replaced);
+        _retired.RetireRoot(change.Table.Layout!, change.Replaced);
     }
 
     // The stores of a delete before the position: the mark, then the state where a replace has the root.
@@ -374,19 +467,19 @@ internal sealed class ChangePublisher
     // Inlined into Publish, as it was before there were indexes, which made it too large to be inlined
     // by the JIT's choice (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void StampDelete(EntityTable table, in EntityKey key, RootHandle handle, ulong sequence)
+    private void StampDelete(in PreparedChange change, ulong sequence)
     {
-        ref var entry = ref _roots.Entry(handle);
+        ref var entry = ref _roots.Entry(change.Handle);
 
         entry.ReleaseLastMutation(sequence);
-        table.Remove(key, handle);
+        change.Table.Remove(change.Key, change.Handle);
 
-        if (!table.Indexes.IsEmpty)
+        if (change.IndexChanges != 0)
         {
-            RemoveOld(table, handle, entry.Root, default);
+            RemoveOld(change, entry.Root);
         }
 
-        _retired.RetireDeleted(table.Layout!, handle, entry.Root);
+        _retired.RetireDeleted(change.Table.Layout!, change.Handle, entry.Root);
     }
 
     // The root a change replaces or deletes, which the entry of its entity holds until the change is
@@ -394,12 +487,20 @@ internal sealed class ChangePublisher
     private ArenaAddress ReplacedBy(in PreparedChange change) =>
         change.Kind == ChangeKindEnum.Insert ? default : _roots.Entry(change.Handle).Root;
 
-    // Gives back what the indexes given reserved for the change of the roots given.
-    private static void ReleaseIndexes(ReadOnlySpan<SecondaryIndex> indexes, ArenaAddress replaced, ArenaAddress root)
+    // Gives back what the first indexes of the entity type of the change, as many as given, reserved for
+    // it, as its reservation recorded it; replaced is the root it replaces or deletes.
+    private void ReleaseIndexes(in PreparedChange change, int count, ArenaAddress replaced)
     {
-        foreach (var index in indexes)
+        var indexes = change.Table.Indexes;
+
+        for (var index = 0; index < count; index++)
         {
-            index.Release(replaced, root);
+            var decided = ChangeAt(change, index, replaced);
+
+            if (decided != IndexChangeEnum.None)
+            {
+                indexes[index].Release(decided);
+            }
         }
     }
 }

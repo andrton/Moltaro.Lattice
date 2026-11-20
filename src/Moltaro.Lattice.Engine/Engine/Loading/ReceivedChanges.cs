@@ -437,7 +437,7 @@ internal sealed class ReceivedChanges
 
             change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root);
 
-            if (!_publisher.TryReserve(change))
+            if (!_publisher.TryReserve(ref change))
             {
                 GiveBack(table, inserts, handle, root);
 
@@ -484,7 +484,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            reserved = _publisher.TryReserve(change);
+            reserved = _publisher.TryReserve(ref change);
         }
         catch
         {
