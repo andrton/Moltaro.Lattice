@@ -5881,7 +5881,8 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   that merges into it, in either order among the waiting writes — the pool and the places
   still hold at least `Need` of what waits, at the tree as it then is. The probes are
   sequences that publish removes before inserts, and inserts that grow the tree while
-  others wait.
+  others wait. A third: a write refused at a later index after an earlier index topped up
+  its pool — the top-up must not be what made it fail (the rule of (b)).
 - **Acceptance.**
   - (a) A replace that keeps every indexed key costs what it costs for the same type
     without indexes, within the gauge (today −20 % with one index, −62 % with six). The
@@ -5899,10 +5900,18 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     of the engine that holds the closed form against the loop. Then a standing reserve of
     nodes instead of topping up and trimming on every write, on three conditions: it is
     counted where prepared memory is reported and against the memory limit, like any
-    other bytes; it is given back at close; and a database with many indexes and a small
-    limit still opens — when the reserve alone cannot be taken, that is the refusal for
-    memory of the first write, not a failure of the open. Each entry is built once for a
-    write.
+    other bytes; it is given back at close; and it is never the reason of a refusal (the
+    owner, 20 November 2026, on the planner's proposal; it follows from the decision on
+    write admission, "a write is refused for memory only when it does not fit beside the
+    stored data, never for memory other writes hold for a time"). The rule: a preparation
+    takes the need of its write and then tops the pool up to the reserve as far as the
+    arena gives; a top-up that cannot be had is not a failure. Before a write is refused
+    for memory — in its resolution alone, after what is retired was freed, and for a child
+    before it stops following — every index gives back what its pool holds above the need
+    of the writes still prepared, and the write is tried once more, taking its own need and
+    no top-up. A write is refused only when that try fails. So a database with many
+    indexes and a small limit opens, and writes to it whatever fits by itself. Each entry
+    is built once for a write.
   - (c) One object holds a search, with the key in it once; a search for one entity
     allocates that object and its result. The allocation test pins this to a number of
     bytes, so that one more object fails it. This answers the study's question on (c): a
@@ -5950,17 +5959,27 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      refused replace and a refused delete of an indexed type; a refusal at a later index,
      which releases the indexes already reserved; a throw after the indexes are reserved;
      a refused forwarded write; a refused change of a child.
-     **The planner, 20 November 2026:** the standing reserve of (b) covers one write into
-     an index already touched. So these refusals, and those of `RefusedReservationTests`
-     of S14, are brought about so that they hold under either policy of the pool. The
-     refused write is the first write of its indexes wherever the scenario allows; where
-     it needs an entity that exists, it waits prepared behind enough writes to the same
-     indexes that their need together is above that of one change of key. Only how the
-     refusal is brought about changes, in a commit of the test author before step 2: every
-     assertion stays. A test that frees memory step by step asserts that the write was
-     refused at least once before it succeeded. On `main` they all pass; a throw after the
-     reservation is a cancellation, and a child that cannot hold a change stops following
-     as Q14, option A, says until the pause is built.
+     **The planner, 20 November 2026, on the rule of (b) the owner accepted that day.** A
+     refusal happens with the pools at the need of what waits, which for a write resolved
+     alone is nothing, so at that moment the tree is as on `main`. The premise of every
+     refusal test of a master, in words for its comment: the fill ends by a refusal of a
+     filler and leaves no free slot of the class of the nodes. A refused replace and a
+     refused delete, a refused forwarded write and `RefusedReservationTests` of S14 keep
+     their assertions; where a fill stops by a count without a refusal, only the fill is
+     restated. A refusal at a later index stays if freeing one slot at a time shows it,
+     with the write refused at least once before it succeeds; otherwise a type whose two
+     indexes have nodes of two size classes, the plainer of the two, with the reason. A
+     throw after the reservation is a cancellation, and also an OutOfMemoryException of
+     the tests' allocator (`CountingNativeAllocator.FailNextAllocation`, an existing switch
+     of the tests, not a fault point of the engine), which reaches the catch blocks of
+     `TryReserveWithIndexes` and `TryPrepareReplace`. Two tests of `IndexPreparationTests`
+     of S14 (a write withdrawn while it waits; one cancelled while it is prepared) take
+     their state after the same writes were prepared and withdrawn once, as the test of
+     the cancellation does, and where a node must be seen to be taken the waiting write is
+     the first of its index; their assertions stay. A child that cannot hold a change
+     stops following, as Q14, option A, says until the pause is built. Every one of them
+     passes on `main` and under the rule; one that cannot be given such a premise is named
+     to the planner, not skipped.
   2. The closed form of the reservation against the loop. Then, in a commit of its own,
      the figures of the reservation tests of S14 restated from the new formula, on the
      planner's word: the formula reserves fewer nodes.
@@ -5993,11 +6012,14 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      database closes. Its tests are part of this step, skipped with the same reason: (i)
      after every write is published, the prepared bytes of an indexed type are above zero,
      at most the reserve of its indexes, and counted in `Counters.Arena.PreparedBytes`; (ii)
-     the reserve counts against the memory limit like any other bytes; (iii) a close gives
-     it back, and the arena ends with nothing prepared; (iv) a database with many indexes
-     and a limit below their reserves opens, and its first write is the refusal for memory,
-     with nothing left taken. The grid test and these go to `Engine/Indexes/Reservation` of
-     the engine tests.
+     the reserve counts against the memory limit while it is held, and a write that fits
+     only without the reserves of the indexes succeeds, after which the pools are below
+     their reserve and nothing is refused; (iii) a close gives it back, and the arena ends
+     with nothing prepared; (iv) a database with many indexes and a limit below their
+     reserves opens, a first write that fits by itself succeeds though its reserve cannot
+     be taken, and a write whose own need cannot be had is refused with nothing left taken
+     ((ii) and (iv) as the rule of (b) restates them, the planner, 20 November 2026). The
+     grid test and these go to `Engine/Indexes/Reservation` of the engine tests.
 
      The commit of the restated figures holds two changes, both on the planner's word: the
      helper `BoundOf` of `IndexPreparationTests` is replaced by the formula, with the room
