@@ -11,8 +11,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // test waits for or until the master ends the connection. As a hand-made child it acknowledges what the
 // test says (SendAppliedAsync), each frame the next of its stream after those it sent. Every wait is
 // bounded. Its receive buffer is fixed before it connects (LoopbackLink.ReceiveBuffer), so that while it
-// reads nothing the master can hand its socket only that buffer and its own send buffer: far less than a
-// load or a transaction of 8 MiB, which the master is then still sending.
+// reads nothing the master can hand its socket only that buffer and its own send buffer, and the master
+// is still sending a load or a transaction of 8 MiB: on Windows the two take about 192 KiB, as measured;
+// on Linux the send buffer may grow to 4 MiB, half of such a write (LoopbackLink.ReceiveBuffer).
 internal sealed class Peer : IDisposable
 {
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);

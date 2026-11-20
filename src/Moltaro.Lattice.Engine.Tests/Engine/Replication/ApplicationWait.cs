@@ -7,10 +7,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // apply it in time: the message names the position or the bound, not why the child stayed behind. The
 // wait ends either by the SynchronizationTimeout of the child, a LatticeException with that code, or, for
 // a child that waits beyond the bound (ReplicationNodes.ChildWaitingBeyondTheBound), by the bound the test
-// gives the wait, a TimeoutException. The forwarding tests that put a large write through a child await it
-// here, and either failure is rethrown as the same type with the position the child has applied and the
-// state of the system in its message (Diagnostics.SystemState), the original as its inner exception. For
-// diagnosis only: nothing is retried, and the code and the committed position stay what the engine
+// gives the wait, a TimeoutException. The forwarding tests that put a write of 32 MiB through a child and
+// wait for it to be applied, AcknowledgmentDuringARequestTests and both tests of CancellationTests, await
+// it here, and either failure is rethrown as the same type with the position the child has applied and
+// the state of the system in its message (Diagnostics.SystemState), the original as its inner exception.
+// For diagnosis only: nothing is retried, and the code and the committed position stay what the engine
 // reported. How many bytes of a transaction a child has received no hook of the engine exposes, so the
 // capture does not say it.
 internal static class ApplicationWait

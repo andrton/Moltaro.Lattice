@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 //
 // The master holds 16 small pieces, 1 to 16, and then 32 pieces of 1 MiB, 17 to 48, inserted in that
 // order into an empty master, so that the capture, which walks the slots of the root table in their
-// order (brief of Epic 1, sprint S10, the planner's block of 17 November 2026, point 3), meets them in
-// that order. When the link holds, after HeldLink.Passed bytes:
+// order, meets them in that order: an empty master gives its slots in the order of the inserts. When the
+// link holds, after HeldLink.Passed bytes:
 // - the small pieces have been copied: they travel in the first Blocks frame, well within what the link
 //   passes (Copied);
 // - the last pieces have not been copied yet: more than 28 MiB lie before them, far more than the fixed

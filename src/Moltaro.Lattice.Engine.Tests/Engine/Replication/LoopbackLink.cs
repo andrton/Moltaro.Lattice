@@ -19,11 +19,13 @@ internal sealed class LoopbackLink : IAsyncDisposable
     // The receive buffer of each socket of a link and of a peer of the tests (Peer), fixed before the
     // socket connects. Left to the system, the buffer of a connection grows: Windows tunes its receive
     // window up to 16 MiB, Linux its buffer up to tcp_rmem; a buffer the application fixes is tuned on
-    // neither. So what a link that holds, or a peer that reads nothing, lets the other side hand to its
-    // socket is this buffer and the sender's own, whatever the load of the machine, and a write of the
-    // tests of 8 MiB or more cannot fit. Measured on Windows: a peer that reads nothing holds 65,536 bytes
-    // of a transaction of 16 MiB with this buffer, and the master's socket about 128 KiB more; with a
-    // buffer of 64 MiB the peer holds the whole transaction.
+    // neither. What a link that holds, or a peer that reads nothing, lets the other side hand to its
+    // socket is then this buffer and the sender's send buffer, which the sender does not fix. Measured on
+    // Windows: a peer that reads nothing holds 65,536 bytes of a transaction of 16 MiB with this buffer,
+    // and the master's socket about 128 KiB more; with a buffer of 64 MiB the peer holds the whole
+    // transaction. Not measured on Linux, where a send buffer grows up to the largest size of tcp_wmem,
+    // 4 MiB by default: there a write of the tests of 8 MiB is about twice what the two buffers can take,
+    // so it still cannot fit, but by that margin and not by far.
     public const int ReceiveBuffer = 64 * 1024;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
