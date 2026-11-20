@@ -47,8 +47,9 @@ internal readonly ref struct SearchKey
     public const int ScratchBytes = TextBytesStart + (4 * TextBytesPerPart);
 
     // Where the stored bytes of the fixed-width parts begin in the scratch, after the null bitmap of one
-    // byte, which has the bit of part i at i: each part at its width, in the order of the index.
-    public const int FixedStart = 1;
+    // byte, which has the bit of part i at i: each part at its width, in the order of the index, so that
+    // a part lies at the offset its layout compiled (Storage.Ordered.EntryPart.FixedOffset).
+    private const int FixedStart = 1;
 
     // Where the lengths of the UTF-8 bytes of the String parts lie in the scratch, after the fixed parts:
     // two bytes for each place, NoTextBytes for a part without bytes.
@@ -83,8 +84,6 @@ internal readonly ref struct SearchKey
         From = from;
         scratch[0] = 0;
 
-        var offset = FixedStart;
-
         for (var place = 0; place < parts.Length; place++)
         {
             ref readonly var part = ref parts[place];
@@ -102,7 +101,7 @@ internal readonly ref struct SearchKey
                 continue;
             }
 
-            var at = scratch.Slice(offset, part.Width);
+            var at = scratch.Slice(FixedStart + part.FixedOffset, part.Width);
 
             if (value.IsNull)
             {
@@ -112,8 +111,6 @@ internal readonly ref struct SearchKey
             {
                 StoredScalars.Write(at, part.Type, value);
             }
-
-            offset += part.Width;
         }
 
         _scratch = scratch;
@@ -139,9 +136,12 @@ internal readonly ref struct SearchKey
     // Whether the part at the place given, in the order of the index, is null in the key.
     public bool IsNull(int place) => (_scratch[0] & (1 << place)) != 0;
 
-    // The stored bytes of a fixed-width part, at the offset in the scratch the order counts from
-    // FixedStart.
-    public ReadOnlySpan<byte> FixedAt(int offset, int width) => _scratch.Slice(offset, width);
+    // The stored bytes of a fixed-width part of the index, where its layout placed them in the scratch
+    // (FixedStart).
+    public ReadOnlySpan<byte> FixedAt(in EntryPart part) => _scratch.Slice(FixedStart + part.FixedOffset, part.Width);
+
+    // The number of a key of an index of one number, its one part, at FixedStart (IndexOrder).
+    public long Number => MemoryMarshal.Read<long>(_scratch.Slice(FixedStart, sizeof(long)));
 
     // The text of a String part that is not null, as the key holds it.
     public ReadOnlySpan<char> TextAt(int place) => _key.ValueAt(place).Text;
