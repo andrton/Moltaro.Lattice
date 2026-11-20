@@ -15,7 +15,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Order;
 // - the order of a search key against an entry, by which the step descends (IndexOrder.Compare), has the
 //   sign of the order of the entry of a root with that key against the entry, and is zero exactly when
 //   the two keys are equal;
-// - whether an entry has the key, where the run of the key ends (IndexOrder.SameKey);
+// - whether an entry has the key, which decides whether the entry a step finds is of the key, and where
+//   the run of the key ends (IndexOrder.SameKey);
 // - whether a root has the key, by which the step passes over an entry whose root no longer has it
 //   (IndexOrder.HasKey).
 // Every key is held against every root the parts of an index of Composite can make: ByNumbers (First,
@@ -55,7 +56,8 @@ public sealed class CompositeKeyComparisonTests
                     var probe = new SearchKey(layout, key, RootArena.Handle, scratch);
                     var equal = states[searched].SequenceEqual(states[other]);
                     var entryOrder = Math.Sign(order.Compare(entries[searched], entries[other]));
-                    var keyOrder = Math.Sign(order.Compare(probe, entries[other], out var descent));
+                    var keyOrder = Math.Sign(order.Compare(probe, entries[other]));
+                    var descent = keyOrder == 0;
                     var run = order.SameKey(probe, entries[other]);
                     var root = order.HasKey(item.Reader(roots[other]), probe);
 
