@@ -6423,8 +6423,14 @@ for S16. A line of `write-callers` over a type without indexes, F7, for the next
 references of a shared text for each entry, F8, the owner's question.
 
 **Measured on the rented machine, 20 November 2026**, the head 9e34443 against `main` at
-3229ba1, by the plan above, in the order 3, 5, 4, 6, 1. All 163 runs ended. The figures
-are in [Measured results](#measured-results).
+3229ba1, by the plan above, in the order 3, 5, 4, 6, 1. The start took 3 hours and 11
+minutes against the plan's 3 hours and 10, and all 163 runs reached their end line. The
+figures are in [Measured results](#measured-results).
+
+Two mistakes of the plan:
+- Row 5 named a type without indexes, and its scenarios wrote the fixture's users, which
+  have three.
+- Series 1 had one pair of the gauge, too few to judge a single line.
 
 - (d) is met. Even the lowest single run of each search is above its target: Int64
   768 k against 700 k, text of 8 bytes 492 k against 450 k, of 100 bytes 288 k against
@@ -6446,12 +6452,22 @@ are in [Measured results](#measured-results).
   - The references of a shared text held for each entry gain 1.45 to 2.1 on writes of
     long keys. That changes a rule of the decision on strings, so it goes to the owner
     after this sprint (F8).
-- The harness of B2 measures as the old one did on every line but one. index-read-by-key,
-  0 indexes, 1 thread, alone reads 0.89 of the old in all three rounds; its gauge is a
-  single pair, 1.07.
+- The harness of B2 agrees with the old one on read-by-key-threads up to 8 threads, on
+  write-callers and on index-search. One line does not agree: index-read-by-key with 0
+  indexes, 1 thread, alone, reads 0.888 of the old, in rounds of 0.94, 0.87 and 0.89. Its
+  gauge is a single pair, at 1.066.
+  - This series cannot confirm a fall: it has two builds rotating and one pair of the
+    gauge, not three builds.
+  - It is not the engine: both sides run the same engine, and the two harnesses read that
+    one line differently.
+  - So the figures of that line recorded before B2 are not compared with figures after it
+    until the difference has a cause.
+  - The cause is looked for by reading, before the next start of the machine (entry F9).
 - Not judged:
   - the readers above 8 on 16 cores, among them 0.903 for readers of the other database
-    beside one caller that inserts and deletes, which is bimodal in both builds of `main`;
+    beside one caller that inserts and deletes, which is bimodal in both builds of `main`,
+    and in series 1 read-by-key-threads at 16 threads, 0.898 alone [0.90 1.13 0.89] and
+    0.882 beside a replace [0.88 1.08 0.88];
   - insert and delete with a common head of `index-long-text`, whose gauge is bimodal;
   - one round of 0.56 at 200 bytes.
 - Not explained:
