@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
@@ -18,12 +19,28 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 //   garbage collection, with the instance open, closed and let go of. 200,000 places, each with a text of
 //   its own, take several MiB of managed memory in the table of root entries, the primary index and the
 //   slots and buckets of the text table; once closed, the instance holds less than one MiB more than none.
+//
+// The memory is measured in a process where nothing else runs: the test starts this executable for the one
+// measurement and asserts how it ended. In a process that runs other tests, the shared array pools
+// (ArrayPool<T>.Shared) hold arrays those tests rented, and they let go of some of them after a garbage
+// collection of the second generation, on the finalizer thread, once an array has lain unused for a time
+// that depends on the memory load of the machine. The full collection of one measurement can start such a
+// trim, and what it lets go of, an array larger than one MiB among them, is then counted between two
+// measurements as memory the closed instance held. In a process of its own the pools hold only the small
+// arrays of the measurement.
 [Collection<WholeProcessHeapCollection>]
 public sealed class NothingHeldAfterCloseTests
 {
     private const int Places = 200_000;
 
     private const long Mebibyte = 1024 * 1024;
+
+    // What the console runner of xUnit reports when it ran one test and the test passed.
+    private const string OneTestPassed = "Total: 1, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0";
+
+    // How long the process of the measurement may run before it is killed: it finds the tests of this
+    // assembly and runs one, in two to six seconds on a workstation (Windows x64, Release and Debug).
+    private static readonly TimeSpan MeasurementTimeout = TimeSpan.FromMinutes(2);
 
     [Fact]
     public async Task Closed_instance_that_is_kept_alive_holds_neither_its_sets_nor_its_primary_indexes_nor_its_write_coordinator()
@@ -43,12 +60,21 @@ public sealed class NothingHeldAfterCloseTests
         GC.KeepAlive(database);
     }
 
-    // The figure stands for the managed memory of the root entries, the primary index and the text table,
-    // which grows with the entities and the texts. The delivery tail and the retired list are small in an
-    // instance with no child and nothing retired, and the figure does not test them; the tail has a test
-    // of its own with weak references (ReleasedTransactionsTests).
     [Fact]
-    public void Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_root_entries_its_index_and_its_text_table()
+    public async Task Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_root_entries_its_index_and_its_text_table()
+    {
+        var (exitCode, output) = await RunAloneAsync(nameof(Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_parts_measured_where_nothing_else_runs));
+
+        Assert.True(exitCode == 0 && output.Contains(OneTestPassed, StringComparison.Ordinal), $"The measurement in a process of its own ended with the exit code {exitCode}. Its output:{Environment.NewLine}{output}");
+    }
+
+    // The measurement, which the test above runs in a process of its own and no ordinary run executes (see
+    // the class). The figure stands for the managed memory of the root entries, the primary index and the
+    // text table, which grows with the entities and the texts. The delivery tail and the retired list are
+    // small in an instance with no child and nothing retired, and the figure does not test them; the tail
+    // has a test of its own with weak references (ReleasedTransactionsTests).
+    [Fact(Explicit = true)]
+    public void Closed_instance_that_is_kept_alive_holds_none_of_the_managed_memory_of_its_parts_measured_where_nothing_else_runs()
     {
         var (open, closed, instance) = OpenFillAndClose();
         var gone = HeapBytes();
@@ -126,4 +152,40 @@ public sealed class NothingHeldAfterCloseTests
 
     // The managed memory the process holds once a full garbage collection has run.
     private static long HeapBytes() => GC.GetTotalMemory(forceFullCollection: true);
+
+    // Runs the explicit test of this class named in a process of its own and returns its exit code and its
+    // output, the standard output before the standard error. The process is this executable, the one the
+    // build made for the platform and that runs the tests now (Environment.ProcessPath). Started without
+    // the switches of a server of the Microsoft Testing Platform, it runs the console runner of xUnit, and
+    // these are its switches: the one method, explicit tests only, and no colors, no logo and no reporter
+    // that the environment chooses, so that its summary reads the same on every platform. A process that
+    // has not ended within the timeout is killed, and the test fails with its output.
+    private static async Task<(int ExitCode, string Output)> RunAloneAsync(string method)
+    {
+        var start = new ProcessStartInfo(Environment.ProcessPath!, ["-method", $"{typeof(NothingHeldAfterCloseTests).FullName}.{method}", "-explicit", "only", "-noColor", "-noLogo", "-noAutoReporters"])
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var process = Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(MeasurementTimeout);
+
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+
+            Assert.Fail($"The measurement in a process of its own did not end within {MeasurementTimeout} and was killed. Its output:{Environment.NewLine}{await output}{await error}");
+        }
+
+        return (process.ExitCode, await output + await error);
+    }
 }
