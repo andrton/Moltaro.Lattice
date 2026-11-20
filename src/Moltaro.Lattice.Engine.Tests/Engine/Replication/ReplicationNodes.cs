@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // interface, at a port the system chooses (MasterAndChild.Loopback) unless the test gives the address;
 // a child is given the address its master reports in its ListenUri. Either takes the inputs a test gives (EngineTestInputs),
 // such as an allocator that counts the native memory or the seed of the hashes; inputs left empty are
-// what an instance made without them uses.
+// what an instance made without them uses. A master whose socket the system refuses fails its open with
+// the state of the system in the message (ListenFailure).
 internal static class ReplicationNodes
 {
     // The bound of every wait of these tests.
@@ -18,6 +19,12 @@ internal static class ReplicationNodes
     // An open timeout far beyond the bound: an open given it that ends within the bound did not end
     // because its time was up.
     public static readonly TimeSpan BeyondTheBound = TimeSpan.FromHours(1);
+
+    // An open timeout short enough for a test to let it pass, and long enough that every wait of an open
+    // that has to end within it, a connect, a Hello or the next frame of a load, does so on a machine
+    // busy with other work as well. A timeout of 1 s ended a load whose frames arrived at most half a
+    // second apart when the suite ran beside three other builds and suites.
+    public static readonly TimeSpan ShortOpenTimeout = TimeSpan.FromSeconds(5);
 
     public static Task<EngineDatabase> OpenMasterAsync(LatticeSchema schema) =>
         OpenMasterAsync(schema, MasterAndChild.Loopback, new EngineTestInputs());
@@ -32,7 +39,7 @@ internal static class ReplicationNodes
     {
         var master = EngineDatabase.Create(MasterOptions(schema, listenUri), inputs);
 
-        await master.OpenAsync().AsTask().WaitAsync(Bound);
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
         return master;
     }
 
@@ -49,7 +56,7 @@ internal static class ReplicationNodes
         };
         var master = (EngineDatabase)LatticeDatabase.Create(options);
 
-        await master.OpenAsync().AsTask().WaitAsync(Bound);
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
         return master;
     }
 

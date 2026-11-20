@@ -23,27 +23,37 @@ internal sealed class LoadedPeer : IDisposable
     // The root of "code", its last mutation sequence 0.
     public byte[] Root { get; }
 
-    // A master of MarkedRoot with a ListenUri that holds the record "code", and the options given.
+    // A master of MarkedRoot with a ListenUri that holds the record "code", and the options given; one
+    // whose socket the system refuses fails with the state of the system in the message (ListenFailure).
     public static async Task<EngineDatabase> OpenMasterAsync(LatticeDatabaseOptions? options = null, EngineTestInputs? inputs = null)
     {
         var master = EngineDatabase.Create(options ?? ReplicationNodes.MasterOptions(MarkedRoot.Schema, MasterAndChild.Loopback), inputs ?? new EngineTestInputs());
 
-        await master.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound));
         await master.Set("Marked").InsertAsync(MarkedRoot.RecordOf(master.Set("Marked").EntityType, "code"));
 
         return master;
     }
 
+    // A connect that fails closes the peer it opened before the exception leaves.
     public static async Task<LoadedPeer> ConnectAsync(EngineDatabase master)
     {
         var handshake = await Handshake.RecordAsync(master);
         var peer = await Peer.ConnectAsync(master.ListenUri!);
 
-        await peer.SendAsync(handshake.Hello);
+        try
+        {
+            await peer.SendAsync(handshake.Hello);
 
-        var load = await peer.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
+            var load = await peer.ReceiveUntilAsync(frame => frame.Kind == FrameKindEnum.LoadEnd);
 
-        return new LoadedPeer(peer, ForwardPayload.RootOf(load.Single(frame => frame.Kind == FrameKindEnum.Blocks)));
+            return new LoadedPeer(peer, ForwardPayload.RootOf(load.Single(frame => frame.Kind == FrameKindEnum.Blocks)));
+        }
+        catch
+        {
+            peer.Dispose();
+            throw;
+        }
     }
 
     // The body of an Upsert of "code" with its root: valid, and it changes the revision of "code".

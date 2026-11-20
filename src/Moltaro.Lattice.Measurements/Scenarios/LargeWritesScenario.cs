@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine;
 using Moltaro.Lattice.Schema;
@@ -36,16 +37,6 @@ internal static class LargeWritesScenario
 
     // The writes of one caller whose time a window keeps; more than any window makes.
     internal const int MostTimed = 4_000_000;
-
-    private const int WarmingUp = 0;
-
-    private const int Counting = 1;
-
-    private const int Stopped = 2;
-
-    private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
-
-    private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
 
     internal static readonly LatticeSchema Schema = LatticeSchema.Compile("""
         {
@@ -102,7 +93,7 @@ internal static class LargeWritesScenario
 
         return
         [
-            $"Large entities: a database of its own, MemoryOnly, with 1 entity of {Number(LargeBytes)} bytes and {Number(SmallEntities)} of {SmallBytes} bytes, replaced by name with the values they have; a warm-up of {Seconds(WarmUp)} s, then a window of {Seconds(Window)} s",
+            $"Large entities: a database of its own, MemoryOnly, with 1 entity of {Number(LargeBytes)} bytes and {Number(SmallEntities)} of {SmallBytes} bytes, replaced by name with the values they have; a warm-up of {Seconds(StepWindow.WarmUp)} s, then a window of {Seconds(StepWindow.Length)} s",
             largeLine,
             smallLine,
             besideLine,
@@ -127,76 +118,20 @@ internal static class LargeWritesScenario
     // window and how long the window was.
     internal static (long Writes, TimeSpan Elapsed)[] Series((Action Write, long[] Times)[] callers)
     {
-        var phase = WarmingUp;
-        var counts = new long[callers.Length];
+        var window = new StepWindow();
 
-        using var start = new Barrier(callers.Length + 1);
-
-        var threads = callers.Select((caller, index) => new Thread(() =>
+        for (var index = 0; index < callers.Length; index++)
         {
-            start.SignalAndWait();
-            counts[index] = Write(caller.Write, caller.Times, ref phase);
-        })
-        {
-            IsBackground = true,
-            Name = $"Caller {index}",
-        }).ToList();
-
-        foreach (var thread in threads)
-        {
-            thread.Start();
+            window.Add($"Caller {index}", new Caller(callers[index].Write, callers[index].Times));
         }
 
-        start.SignalAndWait();
-        Thread.Sleep(WarmUp);
+        window.Start();
 
-        var started = Stopwatch.GetTimestamp();
+        var elapsed = window.Count();
 
-        Volatile.Write(ref phase, Counting);
-        Thread.Sleep(Window);
-        Volatile.Write(ref phase, Stopped);
+        window.Join();
 
-        var elapsed = Stopwatch.GetElapsedTime(started);
-
-        foreach (var thread in threads)
-        {
-            thread.Join();
-        }
-
-        return [.. counts.Select(count => (count, elapsed))];
-    }
-
-    // Writes until the phase is Stopped, and returns how many writes it made while the phase was
-    // Counting, with the time of each in times, in ticks of the timer.
-    private static long Write(Action write, long[] times, ref int phase)
-    {
-        var counted = 0L;
-        var counting = false;
-
-        while (true)
-        {
-            var now = Volatile.Read(ref phase);
-
-            if (now == Stopped)
-            {
-                return counted;
-            }
-
-            if (now == Counting && !counting)
-            {
-                counting = true;
-                counted = 0;
-            }
-
-            var before = Stopwatch.GetTimestamp();
-
-            write();
-
-            if (counting && counted < times.Length)
-            {
-                times[counted++] = Stopwatch.GetTimestamp() - before;
-            }
-        }
+        return [.. window.Counted.Select(count => (count, elapsed))];
     }
 
     internal static string Rate((long Writes, TimeSpan Elapsed) series) =>
@@ -228,4 +163,26 @@ internal static class LargeWritesScenario
 
     private static string Microseconds(long ticks) =>
         $"{(ticks * 1_000_000.0 / Stopwatch.Frequency).ToString("F2", CultureInfo.InvariantCulture)} µs";
+
+    // A caller that writes over and over, keeping the time of each write it makes in the window, in
+    // ticks of the timer, as long as its times have room.
+    private readonly struct Caller(Action write, long[] times) : IWindowStep
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var before = Stopwatch.GetTimestamp();
+
+            write();
+
+            if (counting && counted < times.Length)
+            {
+                times[counted] = Stopwatch.GetTimestamp() - before;
+
+                return 1;
+            }
+
+            return 0;
+        }
+    }
 }

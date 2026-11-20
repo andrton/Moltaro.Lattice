@@ -16,13 +16,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // The test keeps a step inside the engine for as long as it likes, without a slow machine: it holds a
 // table's worth of reads by key inside the protection of reads (HeldRead), so that every slot of the
 // epoch table is held, and then takes the next step of a pass in every form of an enumeration, each on
-// a thread of its own; a step that finds no free slot waits for one (FullEpochTableTests). After five
-// times the limit it lets one held read go, and the steps get through its slot. The engine checks the
-// limit at the points of a step where it can stop safely, so the step that waited may still return its
-// entity: the pass then fails at its next step, before its end. The limit is 100 ms, thousands of
-// times what the steps take that do not wait. Before it counts, the test takes the same passes on a
-// database without a limit, so that the first step it times does not include compiling the code of a
-// step.
+// a thread of its own; a step that finds no free slot waits for one (FullEpochTableTests). Once the
+// steps have waited longer than the limit it lets one held read go, and the steps get through its slot.
+// The engine checks the limit at the points of a step where it can stop safely, so the step that waited
+// may still return its entity: the pass then fails at its next step, before its end. The limit is that
+// of ReadTimes, which the first steps, which do not wait, reach only if the machine holds them up for
+// two seconds, and the wait passes it because the test holds the slots a second longer, as long as each
+// waiting step has taken its timestamp within that second. Before it counts, the test takes the same
+// passes on a database without a limit, so that the first step it times does not include compiling the
+// code of a step.
 //
 // The limit is the sum over the steps of a pass, not the time of one step (review round 1 of S08, part
 // 2). With every slot held as above, a pass takes one step after another that waits for a slot, and
@@ -57,10 +59,10 @@ public sealed class ReadTimeInsideTheEngineTests
     // How long each step of the test of the sum waits for a slot at the least.
     private static readonly TimeSpan StepWait = TimeSpan.FromMilliseconds(100);
 
-    private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan Limit = ReadTimes.Limit;
 
     // How long the steps wait for a slot at the least.
-    private static readonly TimeSpan Wait = 5 * Limit;
+    private static readonly TimeSpan Wait = ReadTimes.BeyondTheLimit;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 

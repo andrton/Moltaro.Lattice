@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Storage.Values;
 
@@ -10,7 +11,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // Plain field keeps in the root, and of 100 bytes, which it keeps out of line:
 // - Writes a second: callers on threads of their own, 1 and 4, each replacing items of its own, each
 //   replace moving its item between two texts that other items hold, so that every Dictionary write
-//   finds its text in the table; a warm-up, then a window, as write-callers counts (WriteCallersScenario).
+//   finds its text in the table; a warm-up, then a window (StepWindow), as write-callers counts.
 // - Each kind of write on one thread, 100,000 of it: a replace that keeps the text, one that moves to a
 //   text the database holds (a hit), one to a text it does not hold (a miss), and a delete; the time of
 //   one write and the managed memory its thread allocated, in the mean over the 100,000. In MemoryOnly a
@@ -35,16 +36,12 @@ internal static class DictionaryWritesScenario
 
     private static readonly string[] DictionaryFirst = ["Dictionary", "Plain"];
 
-    private static readonly TimeSpan WarmUp = TimeSpan.FromSeconds(0.5);
-
-    private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
-
     public static IReadOnlyList<string> Run()
     {
         List<string> lines =
         [
             $"Items: {ReadSeries.Number(Count)} of TextItems, UTF-8, 16 distinct texts of each length unless a part says otherwise",
-            $"Windows of the callers: a warm-up of {Seconds(WarmUp)} s, then the writes of all callers in {Seconds(Window)} s, per second",
+            $"Windows of the callers: a warm-up of {Seconds(StepWindow.WarmUp)} s, then the writes of all callers in {Seconds(StepWindow.Length)} s, per second",
             "",
             "Writes a second, replaces between two texts the database holds",
         ];
@@ -59,7 +56,7 @@ internal static class DictionaryWritesScenario
                     var one = Callers(items, length, callers: 1);
                     var four = Callers(items, length, callers: 4);
 
-                    lines.Add($"{length} bytes, round {round + 1}, {storage}: 1 caller {ReadWindow.PerSecond(one)} writes/s, 4 callers {ReadWindow.PerSecond(four)} writes/s");
+                    lines.Add($"{length} bytes, round {round + 1}, {storage}: 1 caller {StepWindow.PerSecond(one)} writes/s, 4 callers {StepWindow.PerSecond(four)} writes/s");
                 }
             }
         }
@@ -124,76 +121,20 @@ internal static class DictionaryWritesScenario
     private static double Callers(TextItems items, int length, int callers)
     {
         var texts = TextItems.Sixteen(length);
-        var phase = 0;
-        var writes = new long[callers];
+        var window = new StepWindow();
 
-        using var start = new Barrier(callers + 1);
-
-        var threads = Enumerable.Range(0, callers).Select(caller => new Thread(() =>
+        for (var caller = 0; caller < callers; caller++)
         {
-            start.SignalAndWait();
-
-            var counted = 0L;
-            var counting = false;
-            var turn = 0L;
-
-            for (var place = caller; ; place += callers)
-            {
-                var now = Volatile.Read(ref phase);
-
-                if (now == 2)
-                {
-                    writes[caller] = counted;
-
-                    return;
-                }
-
-                if (now == 1 && !counting)
-                {
-                    counting = true;
-                    counted = 0;
-                }
-
-                if (place >= items.Count)
-                {
-                    place = caller;
-                    turn++;
-                }
-
-                // Between the first two texts, each held by thousands of other items.
-                var item = new TextItems.Item { Id = place + 1, Number = turn, Text = texts[(int)((place + turn) % 2)] };
-
-                items.Items.ReplaceAsync(item).AsTask().GetAwaiter().GetResult();
-                counted++;
-            }
-        })
-        {
-            IsBackground = true,
-            Name = $"Caller {caller}",
-        }).ToList();
-
-        foreach (var thread in threads)
-        {
-            thread.Start();
+            window.Add($"Caller {caller}", new Caller(items, texts, caller, callers));
         }
 
-        start.SignalAndWait();
-        Thread.Sleep(WarmUp);
+        window.Start();
 
-        var started = Stopwatch.GetTimestamp();
+        var elapsed = window.Count().TotalSeconds;
 
-        Volatile.Write(ref phase, 1);
-        Thread.Sleep(Window);
-        Volatile.Write(ref phase, 2);
+        window.Join();
 
-        var elapsed = Stopwatch.GetElapsedTime(started).TotalSeconds;
-
-        foreach (var thread in threads)
-        {
-            thread.Join();
-        }
-
-        return writes.Sum() / elapsed;
+        return window.Counted.Sum() / elapsed;
     }
 
     // The four kinds of write over every item, in this order: keep, hit, miss, delete.
@@ -297,4 +238,47 @@ internal static class DictionaryWritesScenario
     private static long StoredSize(int bytes) => ValueBlocks.SlotBytesOf(bytes);
 
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
+
+    // A caller that replaces the items of its own in turn, from the first again after the last, each
+    // replace moving its item between the first two texts, each held by thousands of other items.
+    private struct Caller : IWindowStep
+    {
+        private readonly TextItems _items;
+
+        private readonly string[] _texts;
+
+        private readonly int _caller;
+
+        private readonly int _callers;
+
+        private int _place;
+
+        private long _turn;
+
+        public Caller(TextItems items, string[] texts, int caller, int callers)
+        {
+            _items = items;
+            _texts = texts;
+            _caller = caller;
+            _callers = callers;
+            _place = caller;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            if (_place >= _items.Count)
+            {
+                _place = _caller;
+                _turn++;
+            }
+
+            var item = new TextItems.Item { Id = _place + 1, Number = _turn, Text = _texts[(int)((_place + _turn) % 2)] };
+
+            _items.Items.ReplaceAsync(item).AsTask().GetAwaiter().GetResult();
+            _place += _callers;
+
+            return 1;
+        }
+    }
 }

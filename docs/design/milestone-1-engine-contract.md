@@ -466,6 +466,11 @@ indexes**, not merely received by the socket: a child sends `Applied` with a seq
 each burst it received once it has applied all of it, and never a sequence before R. A
 child sends no success ACK for a partial WriteBatch.
 
+A transaction counts as sent to a child when its last frame has been added to the
+connection, before the socket has taken it. A child is therefore believed about a
+transaction as soon as the master has queued its last frame; an Applied of a transaction
+whose last frame is not yet queued ends the connection.
+
 Keep one shared RAM delivery tail. A committed transaction is encoded and appended to it
 in the hold of the lock of the writes that publishes it, in the order of sequences, and
 only while a child or a capture is registered; it is encoded once for all children and

@@ -108,7 +108,16 @@ public sealed class MasterAndChildTests
     public async Task Write_of_an_entity_of_32_MiB_through_a_child_succeeds_and_is_read_back_on_that_child()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
-        await using var child = await TestData.OpenChildAsync(master.ListenUri!);
+
+        // The write returns once this child has applied it. How long that takes for 32 MiB on a busy
+        // machine is not what the test states, so the child waits for it a minute, not the default.
+        await using var child = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+        {
+            Role = LatticeRoleEnum.Child,
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            MasterUri = master.ListenUri,
+            SynchronizationTimeout = TimeSpan.FromMinutes(1),
+        });
         var settings = child.Set("Setting");
         var payload = new byte[32 * 1024 * 1024];
         new Random(12).NextBytes(payload);

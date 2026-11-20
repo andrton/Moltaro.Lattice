@@ -6,6 +6,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // taken it, its first frame begun, a cancellation does not withdraw it, and the call returns the real
 // outcome. A link holds what the child sends (HeldChildLink) once a write of 32 MiB has begun, so that the
 // sender is in the middle of it and a second write waits behind it; the link then lets everything through.
+// The child waits beyond the bound for its writes to be applied (ReplicationNodes.ChildWaitingBeyondTheBound):
+// how long the write of 32 MiB takes to come back on a busy machine is not what the tests state. A wait
+// for it that the bound ends says where the child was and what the system had left (ApplicationWait).
 public sealed class CancellationTests
 {
     private const int ThirtyTwoMebibytes = 32 * 1024 * 1024;
@@ -15,7 +18,7 @@ public sealed class CancellationTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var link = HeldChildLink.Start(master.ListenUri!);
-        await using var child = await ReplicationNodes.OpenChildAsync(link.Address);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(link.Address), new EngineTestInputs());
         var pieces = child.Set<PieceSchema.Piece>();
         using var cancellation = new CancellationTokenSource();
         await link.HoldOnceAcknowledgedAsync();
@@ -29,7 +32,7 @@ public sealed class CancellationTests
         Assert.False(taken.IsCompleted, "The write the sender had taken completed while the link held it.");
 
         link.Release();
-        await taken.WaitAsync(ReplicationNodes.Bound);
+        await ApplicationWait.WithCaptureAsync(taken.WaitAsync(ReplicationNodes.Bound), child);
 
         Assert.NotNull(master.Set<PieceSchema.Piece>().Get(1L));
         Assert.Null(master.Set<PieceSchema.Piece>().Get(2L));
@@ -40,7 +43,7 @@ public sealed class CancellationTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var link = HeldChildLink.Start(master.ListenUri!);
-        await using var child = await ReplicationNodes.OpenChildAsync(link.Address);
+        await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildWaitingBeyondTheBound(link.Address), new EngineTestInputs());
         using var cancellation = new CancellationTokenSource();
         await link.HoldOnceAcknowledgedAsync();
 
@@ -49,7 +52,7 @@ public sealed class CancellationTests
         await cancellation.CancelAsync();
 
         link.Release();
-        var written = await taken.WaitAsync(ReplicationNodes.Bound);
+        var written = await ApplicationWait.WithCaptureAsync(taken.WaitAsync(ReplicationNodes.Bound), child);
 
         Assert.True(written.Changed);
         Assert.Equal(ThirtyTwoMebibytes, child.Set<PieceSchema.Piece>().Get(1L)?.Data?.Length);

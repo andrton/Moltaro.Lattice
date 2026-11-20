@@ -40,10 +40,10 @@ public sealed class AppliedTests
         var handshake = await Handshake.RecordAsync(master);
         using var child = await Peer.ConnectAsync(master.ListenUri!);
 
-        // The child reads nothing until its capture has started; 8 MiB are far more than the buffers of
-        // a connection on the loopback interface hold, so the capture waits in a send, and a write of the
-        // master falls between its start and its end: S is before R, and the child is sent the transaction
-        // of the write after LoadEnd.
+        // The child reads nothing until its capture has started; 8 MiB are far more than its fixed receive
+        // buffer and the send buffer of the master hold (Peer), so the capture waits in a send, and a write
+        // of the master falls between its start and its end: S is before R, and the child is sent the
+        // transaction of the write after LoadEnd.
         await child.SendAsync(handshake.Hello);
         await Eventually.HoldsAsync(() => master.Counters.ActiveCaptures == 1, "The capture of the child did not start.");
         await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(200, name: 8));
@@ -82,8 +82,9 @@ public sealed class AppliedTests
     // "Replication transport and initial loading"), so it cannot have applied one whose last frame the
     // master has not sent, and an Applied of it ends the connection as the acknowledgments above do. The
     // child made by hand reads its load, then the first frame of a transaction of 16 MiB, far more than
-    // the buffers of a connection on the loopback interface hold, and nothing more: the master waits in a
-    // send before the last frame of the transaction while the child acknowledges it.
+    // its fixed receive buffer and the send buffer of the master hold (Peer), and nothing more: the master
+    // waits in a send before it adds the last frame of the transaction, which is when it counts the
+    // transaction as sent, while the child acknowledges it.
     [Fact]
     public async Task Master_ends_the_connection_of_a_child_that_acknowledges_a_transaction_whose_last_frame_it_has_not_been_sent()
     {
