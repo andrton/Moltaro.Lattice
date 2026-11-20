@@ -251,13 +251,15 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_opened_before_its_master_waits_for_it()
     {
-        var address = MasterAndChild.NewAddress();
+        using var address = new HeldAddress();
 
-        var opening = TestData.OpenChildAsync(address).AsTask();
-        await Task.Delay(50);
+        var opening = TestData.OpenChildAsync(address.Uri).AsTask();
+        await address.EndAttemptAsync();
         Assert.False(opening.IsCompleted);
 
-        await using var master = await TestData.OpenMasterAsync(address);
+        // The address is let go only now, for the master that opens at it.
+        address.Dispose();
+        await using var master = await TestData.OpenMasterAsync(address.Uri);
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 
         await using var child = await opening;
@@ -267,10 +269,11 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Opening_a_child_can_be_cancelled()
     {
+        using var address = new HeldAddress();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await TestData.OpenChildAsync(MasterAndChild.NewAddress(), cancellation.Token));
+            async () => await TestData.OpenChildAsync(address.Uri, cancellation.Token));
     }
 
     [Fact]

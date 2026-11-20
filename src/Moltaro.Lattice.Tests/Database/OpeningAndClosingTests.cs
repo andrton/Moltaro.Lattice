@@ -1,12 +1,7 @@
-using System.Net;
-using System.Net.Sockets;
-
 namespace Moltaro.Lattice.Tests.Database;
 
 public sealed class OpeningAndClosingTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Opened_database_is_ready_and_closed_database_is_closed()
     {
@@ -60,24 +55,16 @@ public sealed class OpeningAndClosingTests
     [Fact]
     public async Task Closing_a_child_ends_its_wait_for_the_master()
     {
-        // The test holds the address of the master with a socket of its own for as long as it uses
-        // it, so that no master can take its port. The socket accepts the child's attempt to reach
-        // its master and ends it: the child has begun its wait and tries again after a pause, since
-        // a connection that ends before the master replied counts as not reached.
-        using var address = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        address.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        address.Listen();
-
+        using var address = new HeldAddress();
         var child = LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             Role = LatticeRoleEnum.Child,
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            MasterUri = new UriBuilder("lattice", IPAddress.Loopback.ToString(), ((IPEndPoint)address.LocalEndPoint!).Port).Uri,
+            MasterUri = address.Uri,
         });
 
         var opening = child.OpenAsync().AsTask();
-        var attempt = await address.AcceptAsync().WaitAsync(Bound);
-        attempt.Dispose();
+        await address.EndAttemptAsync();
         Assert.Equal(LatticeDatabaseStateEnum.Connecting, child.State);
 
         await child.CloseAsync();
