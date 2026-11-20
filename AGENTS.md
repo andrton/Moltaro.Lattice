@@ -220,6 +220,9 @@ Shape of the public API:
   `ArgumentException` and its relatives report a caller's mistake.
   `ObjectDisposedException` follows a close. `NotSupportedException` marks what is not
   implemented.
+- An asynchronous member throws at the call only what the caller can know from its own
+  arguments. Everything that depends on the state of the database, a close included,
+  comes through the returned task.
 - Use ordinary results for expected outcomes; reserve exceptions for failures.
 - Every public member has XML documentation: what it does, what it guarantees, what it
   does not, and which errors it reports. Plain sentences, no restating of the signature.

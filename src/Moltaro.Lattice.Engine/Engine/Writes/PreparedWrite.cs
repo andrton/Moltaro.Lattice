@@ -46,9 +46,10 @@ internal sealed class PreparedWrite
     public Span<PreparedChange> Changes => MemoryMarshal.CreateSpan(ref _change, ChangesEntity ? 1 : 0);
 
     // For a write being prepared: writes its change into the record where it lies, so that the reservation
-    // of what its publication uses reads it there (Entities.ChangePublisher.TryReserve). It is the write's
-    // change only once the preparation has made that reservation (Set).
-    public ref readonly PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
+    // of what its publication uses reads it there and records its decision for each index in it
+    // (Entities.ChangePublisher.TryReserve). It is the write's change only once the preparation has made
+    // that reservation (Set).
+    public ref PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
     {
         // One field at a time, not through the constructor of PreparedChange: the JIT builds a value made
         // by a constructor aside and copies it into the field, and written so it writes the change where
@@ -59,6 +60,8 @@ internal sealed class PreparedWrite
         _change.Handle = handle;
         _change.Root = root;
         _change.Replaced = default;
+        _change.IndexChanges = 0;
+        _change.IndexRewrites = 0;
 
         return ref _change;
     }

@@ -236,14 +236,14 @@ internal static class IndexSearchScenario
     }
 
     // A reader that searches the key of each place in turn from the start on (Search).
-    private static Search<TEntity, TKey> Searcher<TEntity, TKey>(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
+    internal static Search<TEntity, TKey> Searcher<TEntity, TKey>(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
         where TEntity : class => new(index, keys, places, start, firstOnly);
 
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
 
     // A reader that searches the key of each place in turn from its start on, one search a step: the
     // whole result, or its first item only.
-    private struct Search<TEntity, TKey> : IWindowStep
+    internal struct Search<TEntity, TKey> : IWindowStep
         where TEntity : class
     {
         private readonly ILatticeIndex<TEntity> _index;

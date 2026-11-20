@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 //   levels at least; then a run of 2,000 of them deleted, which merges leaves and leaves fewer nodes, then
 //   put back, then all deleted: at every checkpoint the entries are those of the live entities, in the order
 //   of the index, and every key is found with its entities; a tree without entries holds no node, and the
-//   arena then holds nothing.
+//   arena then holds nothing but the standing reserve of the index (IndexReserve).
 public sealed class EntryTallyTests
 {
     private const int Checkpoint = 500;
@@ -141,7 +141,7 @@ public sealed class EntryTallyTests
 
         ExpectEntriesAndSearches(database, live);
 
-        // Every entry deleted: the tree holds no node, and the arena nothing.
+        // Every entry deleted: the tree holds no node, and the arena nothing but the reserve of the index.
         foreach (var id in ids)
         {
             await counted.DeleteAsync(id);
@@ -155,7 +155,8 @@ public sealed class EntryTallyTests
         var counters = database.Counters;
 
         Assert.Equal((0, 0), (empty.Nodes, empty.Height));
-        Assert.Equal((0L, 0L, 0L, 0L), (counters.Arena.LiveBytes, counters.Arena.ClassSlackBytes, counters.Arena.PreparedBytes, counters.Arena.RetiredBytes));
+        Assert.Equal((0L, 0L, 0L), (counters.Arena.LiveBytes, counters.Arena.ClassSlackBytes, counters.Arena.RetiredBytes));
+        Assert.True(counters.Arena.PreparedBytes <= IndexReserve.BytesOf(database, "Counted"), "The arena holds prepared bytes beyond the reserve of ByNumber.");
     }
 
     // The entries of ByNumber are those of the live entities, in the order of the index, and each of their

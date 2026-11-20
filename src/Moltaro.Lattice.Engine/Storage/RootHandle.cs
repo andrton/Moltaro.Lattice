@@ -21,6 +21,16 @@ internal readonly struct RootHandle : IEquatable<RootHandle>
     public RootHandle(uint generation, uint slot) =>
         _value = ((ulong)generation << 32) | slot;
 
+    private RootHandle(ulong packed) => _value = packed;
+
+    // The packed handle as one number, the generation above the slot: what orders the identities of the
+    // entries of a secondary index (Engine.Indexes.IndexOrder).
+    public ulong Packed => _value;
+
+    // The handle whose packed number follows this one: where a search starts after this identity. A slot is
+    // below 2^31, so no handle is the largest number and this never wraps.
+    public RootHandle Next => new(_value + 1);
+
     // The generation the slot had when this lifetime began.
     public uint Generation => (uint)(_value >> 32);
 

@@ -40,15 +40,34 @@ from one key to another in the same order. An index on the members of a collecti
 where a state would contribute a set of entries, is not built.
 
 Entries are ordered part by part in the order of the index, each part by the comparison
-of its field, and then by identity. Keys are never compared as raw bytes: an integer by
-its value, a floating-point value by `CompareTo` (NaN first, the two zeros equal), a
-Decimal by its value, a Guid by `CompareTo`, the temporal types by their ticks or day
-numbers, text by the comparison of its field, the same in a UTF-8 and in a UTF-16
+of its field, and then by identity. Keys are compared by their values, never by bytes in
+another order than theirs: an integer by its value, signed or unsigned at its width; a
+Boolean false before true; a floating-point value by `CompareTo`, NaN first and the two
+zeros equal ([queries](../decisions/queries.md), Q07.3.6); a Decimal by its value, so 1.0
+and 1.00 are equal; a Guid by `CompareTo`; the temporal types by their ticks or day
+numbers; text by the comparison of its field, the same in a UTF-8 and in a UTF-16
 database: Ordinal by UTF-16 code units, without case by the code units of the texts
 mapped through the case table of the core ([strings](../decisions/strings.md), Q46). A
 null orders after every value of its part and equals another null, so a composite key
 goes on to its next part. All of it is the one comparison service of the schema, which
 gains the order beside its equality.
+
+The comparison is chosen once for an index, when its order is made from its layout. An
+index of one part that is never null and whose stored form is a signed integer of 8 bytes
+— an Int64 or an Enum over one, a DateTimeOffset as its UTC ticks, a TimeOnly or a
+TimeSpan as its ticks — compares that number, read where the layout places it, in the
+order of the comparison service, without the loop over the parts and the comparison by
+type; every other index takes the loop. A text part compared Ordinal in a UTF-8 database is
+compared by its bytes where they lie, the copy in an entry or the text entry of a shared key,
+against the key of a search encoded to UTF-8 once for the step: UTF-8 bytes sort as code
+points, which is the order of UTF-16 code units except where, at the first byte that
+differs, one text has a character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, and the
+other one beyond U+FFFF, lead byte 0xF0 or above; there the order turns around, and the
+comparison turns it. A key whose UTF-8 bytes take more than 256 bytes, a text in chunks, a
+comparison without case and every text of a UTF-16 database, whose little-endian bytes are
+not in the order of its code units, are compared decoded, a piece of 256 code units at a
+time. The check of an entry against its root, whether the root still has
+the key, is that same order being zero.
 
 Two keys can be equal and not the same bytes: a text under another case, a Decimal of
 another scale. They are one key with one place in the tree; an entry holds the bytes of
@@ -101,7 +120,9 @@ for keys of 4, 8 and 16 bytes inserted in random order, 12.9, 17.2 and 26.5 asce
 16-byte steps, so it loses no slack of a class: 992 bytes of payload. The prototype
 searched at 1.90 million a second on one thread and 7.32 million on sixteen with nodes of
 1 KiB, and at 2.15 and 8.26 million with nodes of 4 KiB: a difference near the tenth that
-one run does not decide. A write copies and retires one node of each index it changes,
+one run does not decide; in the engine on the rented machine a node of 2 KiB read at most
+4 % faster beside a writer and wrote 2 to 3 % slower (20 November 2026), so the node stays
+at 1 KiB. A write copies and retires one node of each index it changes,
 so a node of 4 KiB would copy, and hold back under a held read, four times the bytes for
 every write. The engine measures it again. An index whose four widest entries, every text
 part a copy of 64 bytes, do not fit a leaf of 1 KiB, or four widest separators an inner
@@ -135,12 +156,12 @@ this form on 19 November 2026; the prototype measured a search by a copied key t
 five times faster than through a shared entry at 8 and 32 bytes, and sharing short values
 cost a read by the primary key 14 to 25% at 8 bytes.
 
-**Open: a prefix beside a shared key.** Whether a shared key carries its first 8 bytes
-beside the reference, so that most comparisons do not read the text entry, is decided by
-a measurement in the engine on keys with random and with common heads. On the prototype
-the prefix won on random keys and lost on keys of 32 bytes that share their first
-bytes, as numbered logins, addresses and paths do. The head byte 254 is kept for that
-form; nothing else of it is built.
+**No prefix beside a shared key.** A shared key does not carry its first 8 bytes beside
+the reference. Measured in the engine on the rented machine on 20 November 2026, with
+keys of 100 and 200 bytes, the prefix made a search 1.26 and 1.30 times as fast where the
+keys differ in their first bytes, and 0.89 and 0.93 where they share them, as numbered
+logins, addresses and paths do; long keys usually share their heads. The head byte 254
+stays kept for a form of its own; nothing of it is built.
 
 ### Text references
 
@@ -158,8 +179,11 @@ The cost is one reference taken for each shared key of each node a write copies,
 released when that copy is freed. In an index whose keys are all longer than 64 bytes a
 leaf holds up to 42 of them, about 28 at the fill random inserts leave, so a write takes
 and later releases about that many; in an index whose keys are copied, none. The rule is
-the one of every block, confirmed for index nodes; the write of an index of long keys is
-measured before it is questioned.
+the one of every block, confirmed for index nodes. Measured on the rented machine on 20
+November 2026, with keys of 100 and 200 bytes, references held for each entry by its root
+instead of for each node made a replace that changes the key 1.45 to 1.51 times as fast,
+and an insert and a delete 1.9 to 2.1, with a search unchanged; that would change the rule
+of the decision on strings, and it is an open question of the owner's.
 
 ## How a reader descends, and why it is safe
 
@@ -225,7 +249,11 @@ entry, a remove, or a rewrite of an entry at its place.
   splits as for an insert.
 
 Each new node is written whole and published by one store, into the nearest node that is
-not copied, or into the root of the tree. After the store, the nodes it replaced are
+not copied, or into the root of the tree. A copy of a leaf, and a merge of two, moves the
+entries it keeps as blocks: the entries before the changed one in one copy and those after
+it in another, and for entries behind offsets their offsets moved by the one distance the
+block moved; the bytes the edited leaf takes are those of the leaf with the one change,
+without a walk over its entries. After the store, the nodes it replaced are
 retired. A split of a full node into two always fits: a leaf holds at least four of the
 widest entries of its index, an inner node four of its widest separators.
 
@@ -234,8 +262,26 @@ widest entries of its index, an inner node four of its widest separators.
 What one write does to one index is the entry its old state contributes against the
 entry its new state contributes: the same bytes, nothing; an insert of the entity, an
 insert; a delete, a remove; another key, an insert of the new entry and a remove of the
-old; an equal key in other bytes, a rewrite. Both roots stay as they are between the
-preparation and the publication of the write, so each step computes this again.
+old; an equal key in other bytes, a rewrite. Equality under the comparison of the index is
+not the rule for nothing, since an entry holds the bytes of its own root: a text changed in
+case only, a Decimal of another scale, +0 and −0 or NaNs of other bits are equal keys in
+other bytes, and rewritten.
+
+It is decided once, in the hold that prepares the write, once the new root is written, and
+recorded with the prepared change, one bit for each index and one more for a rewrite; the
+reservation, a withdrawal, the publication and the top-up of the reserve read it, and a
+replace that leaves every entry as it was passes every index by. The decision reads the
+stored fields of the two roots instead of building their entries, by the rule an entry is
+written with: a part null in both is the same, whatever bytes lie under the null, and null
+in one only is not; a fixed part is the same when its stored bytes are, so a DateTimeOffset,
+stored as its UTC ticks, with another offset alone is the same; a text of 64 bytes or less
+when its bytes are, wherever they lie, never by its descriptor, whose offset depends on the
+root; a longer text when it references the same text entry. Whether two entries that are
+not the same have equal keys is the order of the index applied to the two roots. So the
+publication builds only the entries it inserts, removes or rewrites, each once. The masks
+have a bit of their own for the first 63 indexes of an entity type; the last bit stands for
+every index from the 64th on, which each step decides again by the same test, which builds
+no entry.
 
 The entries of a write are installed in the hold of the lock that publishes its root,
 each by its own stores, in this order: the new entries are inserted, the root is
@@ -253,61 +299,95 @@ counted in its prepared bytes and in the budget, and as many places in the retir
 A write withdrawn before its publication gives them back; a prepared, unpublished write
 holds them while the storage step is busy, and no reader can reach them. A reservation
 the arena cannot hold takes nothing and is refused as a write the memory budget cannot
-hold is: before its commit.
+hold is: before its commit. So is a reservation whose need the pool cannot count, more
+nodes than an Int32 holds.
 
 The writes prepared and not published share one pool for each index. While *p* inserts,
-rewrites among them, and *q* removes wait, the pool holds
+rewrites among them, and *q* removes wait, the pool holds their *need*, the most nodes
+their publications can take from the tree as it is now:
 
-> *p* · (2*H*ᵢ + 1) + *q* · (*H*ᵣ + 1) nodes, with *H*ᵢ = *h* + ⌈(*p* − 1) / *I*⌉ and
-> *H*ᵣ = *h* + ⌈*p* / *I*⌉,
+> *Need* = *p* · (2*h* + 1) + 2*S* + *q* · (*h* + *G*(*p*) + 1),
 
-where *h* is the height of the tree now and *I* the separators of its widest form an
-inner node holds before it is full, at least four. *H*ᵢ bounds the height an insert finds
-when it is published, *H*ᵣ the height a remove finds; with no insert waiting the tree
-cannot grow, and removes alone are counted at the height it has. Why it is enough:
+where *h* is the height of the tree now, *G*(*k*) the most levels *k* inserts can add to
+it, and *S* = *G*(0) + … + *G*(*p* − 1), the levels the inserts before each insert can
+add. With *r* the inserts the root takes before it can split and *I* the separators of
+its widest form an inner node holds before it is full, at least four, *G*(*k*) is 0 for
+*k* ≤ *r* and 1 + ⌊(*k* − 1 − *r*) / *I*⌋ above it. The sum has a closed form, so that the
+need costs the same for any number of writes waiting: with *m* = max(0, *p* − 1 − *r*),
+*a* = ⌊*m* / *I*⌋ and *b* = *m* mod *I*, *S* = *m* + *I* · *a*(*a* − 1) / 2 + *a* · *b*
+(`OrderedTree.Need`, which a test of the engine holds against the sum). Why it is
+enough:
 
 - An insert at height *H* splits at most every level and adds a root: at most two nodes on
   each level and one more, 2*H* + 1, and it retires at most one node on each level. A
   remove copies at most one node on each level, a merge of two leaves taking one for
   both, and retires at most one more, the neighbour of that merge: *H* + 1 serves both
   counts.
-- The height grows only when the root splits. A root made by a split holds one separator,
-  and one insert adds at most one separator to any node; a leaf holds at least as many
-  of the widest entries as an inner node holds separators, so a root leaf grows no sooner.
-  So the first insert may grow the tree, and every further growth takes *I* inserts more:
-  the *k*-th insert finds the tree at most ⌈(*k* − 1) / *I*⌉ levels above *h*, and every
-  remove at most ⌈*p* / *I*⌉. A remove never grows the tree, and a tree that a remove
-  made lower grows again no sooner.
-- A preparation tops the pool up to the bound for all writes that wait, with its own
-  counted; a publication consumes at most its share and gives back to the arena what is
-  above the bound of the writes still waiting; a withdrawal does the same. Neither ever
-  takes a node. After an insert that grew the tree, the bound of the writes still
-  waiting, counted at the new height, can lie above what is left; what is left is enough
-  by an invariant, which a Debug build asserts after every preparation, publication and
-  withdrawal. The pool and the places hold at least the *need* of the writes still
-  waiting, from the tree as it is now: the *k*-th insert counted at *h* plus the levels
-  the *k* − 1 inserts before it can add, and every remove at the height after all
-  inserts, where the root takes *I* minus its separators or entries, at least none,
-  inserts before it can split, since a node with fewer than *I* fits one more, and every
-  further split *I* inserts more. The bound is never below the need. A publication takes
-  at most the first share of the need and leaves the need of the rest no larger than what
-  is left: a split makes a root of one separator, which counts its growth from there, and
-  a remove that lets a fuller child take the place of the root lowers the tree by a
-  level. A withdrawal only lowers the need.
+- The height grows only when the root splits. The root takes *I* minus its separators or
+  entries, at least none, inserts before it can split, since a node with fewer than *I*
+  fits one more; a root made by a split holds one separator, and one insert adds at most
+  one separator to any node; a leaf holds at least as many of the widest entries as an
+  inner node holds separators, so a root leaf grows no sooner. So the *k*-th insert finds
+  the tree at most *G*(*k* − 1) levels above *h*, and every remove at most *G*(*p*). A
+  remove never grows the tree, nor makes its root fuller without making it lower by a
+  level, so the order in which the waiting writes are published does not matter.
+- A preparation tops the pool up to the need of all writes that wait, with its own
+  counted; a publication and a withdrawal never take a node, and what they give back is
+  counted at the tree as it is then. A publication takes at most the first share of the
+  need and leaves the need of the rest no larger than what is left: a split makes a root
+  of one separator, which counts its growth from there, and a remove that lets a fuller
+  child take the place of the root lowers the tree by a level. A withdrawal only lowers
+  the need. A Debug build asserts after every preparation, publication and withdrawal
+  that the pool and the places hold at least the need of the writes still waiting.
 
-For one insert into an index of height 3, with nothing else waiting, the bound is 7 nodes,
-7 KiB, while a publication takes about one, and the pool is empty again after it. The
-bound first written here counted *h* + 1 + ⌊(*p* − 1) / *I*⌋, the height after the last
-insert, for every insert: two nodes more for each insert than it can take.
+**The standing reserve.** Once a preparation has touched an index, its pool keeps the need
+of one change of key, an insert and a remove, at the tree as it is: *Need* with *p* = *q* =
+1, 5 nodes for a tree of one leaf, 11 or 12 at height 3. A write then takes its nodes from
+the pool, about one for an insert or a remove and two for a change of key, and the next
+preparation that touches the index tops up what it took, instead of every write taking its
+whole need from the arena and giving the rest back after its publication. The reserve is
+taken by the first preparation that touches the index, not at the open. While writes wait,
+the pool holds at most the larger of their need and the reserve; with nothing waiting, at
+most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
+counted in the prepared bytes, which are therefore above zero once a write of an indexed
+type has returned, and against the memory limit, like any other bytes. The places in the
+retired list follow the need alone: places held for no write would keep the retired list
+from letting its room go.
 
-What it costs when many changes wait: every insert is counted at the height the last can
-find, so the pool grows with the square of the inserts prepared and not published.
-Measured with a storage step that a test held, 600 waiting writes reserved 16 to 18 MiB
-with one index and 205 to 280 MiB with seven. No mode built today lets more than one
-change wait: the storage step of MemoryOnly completes in the hold that prepares the
-write, write batches are not built, and a child prepares one root of its load, or one
-transaction of its stream, at a time. A write batch, or a transaction of many changes,
-prepared whole before its publication, will reserve by the same bound.
+The reserve is never the reason of a refusal: a write is refused for memory only when it
+does not fit beside the stored data, never for memory other writes hold for a time
+([write admission](../decisions/write-admission.md)).
+
+- A preparation takes the need of its write first, and once every index of the write has
+  its need, tops each pool up to its reserve as far as the arena gives; a top-up that
+  cannot be had is not a failure.
+- A publication gives back what is above the larger of the need of the writes still
+  waiting and the reserve. A withdrawal gives back what is above the need, the reserve
+  with it: what a write took and did not publish goes back to the arena, never into a
+  reserve.
+- Before a write is refused for memory — in its resolution alone, after what is retired
+  was freed; on a child before it stops following, or before a root of its load ends the
+  open — every index of the database gives back what its pool holds above the need of the
+  writes still prepared, and the write is tried once more, taking its own need and no
+  top-up. It is refused only when that try fails, and then leaves every pool at the need
+  of the writes still prepared, which for a write resolved alone is nothing.
+
+So a database with many indexes and a small memory limit opens, and writes to it whatever
+fits by itself.
+
+For one insert into an index of height 3, with nothing else waiting, the need is 7 nodes,
+7 KiB, while a publication takes about one; the pool keeps what is left up to the reserve
+for the next write.
+
+What it costs when many changes wait: the *k*-th insert is counted at the height the
+inserts before it can reach, so the need grows with the square of the inserts prepared
+and not published, divided by *I*. By the formula, 600 inserts waiting on an index of one
+Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
+13 MiB. No mode built today lets more than one change wait: the storage step of
+MemoryOnly completes in the hold that prepares the write, write batches are not built,
+and a child prepares one root of its load, or one transaction of its stream, at a time. A
+write batch, or a transaction of many changes, prepared whole before its publication,
+will reserve by the same need.
 
 ### The retired node
 
@@ -333,8 +413,9 @@ between two steps only the key and the identity of the last entity it returned:
    ends at its position or a later one, never before it. No entry the tree names keeps the
    mark for good: the entries of an insert enter the tree in the publication that stores
    its root entry right after them, and those of a delete leave before its root entry is
-   retired. An entry that is not live, a delete or an insert not yet published, is passed
-   over.
+   retired; a publication that fails between the two faults the database, and the wait
+   then reports `Unavailable`. An entry that is not live, a delete or an insert not yet
+   published, is passed over: such an insert has its position after the start of the step.
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is
@@ -348,6 +429,24 @@ runs has a new root entry, so a new identity, which can lie after the one the se
 returned before: the search then returns that entity twice. That no entity is returned
 twice also then is chosen with the walk of ranges (below).
 
+The step that finds an entity sees the end of the run as well when it can: the entry
+after the one it found, in its leaf, has another key; or that entry is the last of its
+leaf, and the leaf has no fence, or a fence of another key, above which every entry of
+the next leaf lies. When the sequence read at the start of its walk is unchanged once it
+has copied the entity, that is the condition under which the next step would end at that
+sequence, so the next step ends there without a descent. The check of the sequence is for
+a write that takes an entry of the key away: a replace that moves an entity after the
+identity to another key, or its delete, publishes its position and only then removes the
+old entry. A descent that no longer meets that entry so comes after the position, and the
+sequence has changed; without the check the end would be given at a sequence at which that
+entity still had the key. A write that adds an entry of the key needs no check: it inserts
+the entry before its position, so the descent either meets the entry, and the run does not
+end there, or does not, and the entity has no state at that sequence. The next step still
+enters the protection, so that a step after a close is
+refused as every step is. A lazy search so ends at the sequence of the step that returned
+its last entity, not at the sequence of a later call. A fence of the key says nothing:
+then the next step descends as before.
+
 The key is bound to the fields of the index once, outside the protection, and its fixed
 parts are written on the stack in their stored form, by the one writer of that form the
 root writer uses as well (`Storage/Values/StoredScalars.cs`; an entry copies its fixed
@@ -355,6 +454,17 @@ parts from its root as they lie); a search allocates what it returns and nothing
 comparison. A root entry met in a node is never released and given to
 another root while the search is inside, because the entries of a delete leave the tree
 before its entry is retired, so the identity needs no check of its generation.
+
+A lazy search, `Find`, is one object: the enumerable it returns is also the enumerator its
+first `GetEnumerator` gives, and it holds the bound key once and where the search stands
+between two steps, the identity after the last entity returned and the sequence of an end
+a step saw; a further `GetEnumerator` is a search of its own. The search key of a step
+refers to that bound key and does not copy it. A search that returns one entity so
+allocates that object and the entity: through a class 328 bytes and the entity. `FindAsync`
+runs its search to its end with the position on its stack, and allocates the list of its
+result, the result and the entities; in a Release build nothing more when it needs no wait.
+A Debug build makes the state machine of an asynchronous method a class, which every call
+allocates.
 
 ### The hot key
 
@@ -408,10 +518,11 @@ The design follows these, read under their licences; no code is ported, so
 
 | Source | What was taken | What was not |
 | --- | --- | --- |
-| LMDB, `libraries/liblmdb/mdb.c`, OpenLDAP Public License 2.8, commit `74dd6c3ec648c31857fe0a100f11c2a34619e2d7` | Copy a page before it changes (`mdb_page_touch`); a split that keeps the left page full when the new entry goes last (`mdb_page_split`); rebalance below a quarter of fill (`mdb_rebalance`); pages freed only after the oldest reader that could see them has left (`mdb_find_oldest`) | The copy of the whole path to the root and the meta page as the point of commit: here one aligned store of an address is the publication, so only changed nodes are copied. Its page format |
+| LMDB, `libraries/liblmdb/mdb.c`, OpenLDAP Public License 2.8, commit `74dd6c3ec648c31857fe0a100f11c2a34619e2d7` | Copy a page before it changes (`mdb_page_touch`); a split that keeps the left page full when the new entry goes last (`mdb_page_split`); rebalance below a quarter of fill (`mdb_rebalance`); pages freed only after the oldest reader that could see them has left (`mdb_find_oldest`); the comparison chosen once for a database (`mdb_default_cmp`), here once for an index | The copy of the whole path to the root and the meta page as the point of commit: here one aligned store of an address is the publication, so only changed nodes are copied. Its page format |
 | ROWEX: V. Leis, F. Scheibner, A. Kemper, T. Neumann, "The ART of Practical Synchronization", DaMoN 2016, section 4 | Readers take no lock and check no version; a node that changes is built privately and published by one atomic store of its address; the replaced node is retired to an epoch | The radix tree itself, which needs keys whose bytes compare in the order of their values: a second definition of order beside the comparison service |
 | LeanStore, `backend/leanstore/storage/btree/core/BTreeGenericIterator.hpp`, MIT, commit `fcb64bf39cf69c435173f76e062cbb305a9a998f` | The next leaf found by a new descent at the fence, the same way forwards and backwards, without links between leaves | Fences stored in each node; optimistic versions and restarts |
-| DuckDB `string_t`, `src/include/duckdb/common/types/string_type.hpp`, MIT, commit `aa87a115e8ad8affc3a4ee2e373525cbb2c6efd8`; the binary view of Apache Arrow, Apache-2.0 | The form measured for the open question of a prefix beside a shared key | Not decided |
+| RFC 3629, UTF-8 | That the bytes of UTF-8 sort as code points, from which the one turn against the order of UTF-16 code units follows | — |
+| DuckDB `string_t`, `src/include/duckdb/common/types/string_type.hpp`, MIT, commit `aa87a115e8ad8affc3a4ee2e373525cbb2c6efd8`; the binary view of Apache Arrow, Apache-2.0 | The form of a prefix beside a shared key, measured in the engine | Not taken |
 
 The study read also the skip lists of LevelDB (BSD-3-Clause) and RocksDB (Apache-2.0),
 the adaptive radix tree of DuckDB, the synchronization of ARTSynchronized (Apache-2.0),

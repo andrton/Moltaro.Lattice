@@ -9,48 +9,28 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // The ordered tree of one secondary index: a B+tree of nodes of the arena whose published nodes never
 // change (decision on index structures, the note of 19 November 2026). Modelled on, not adapted from,
 // LMDB, the principle of ROWEX and the walk of LeanStore; docs/design/ordered-index.md names them with
-// their licences and commits and tells how a split, a merge and a growth go. No code is ported.
+// their licences and commits and tells how a descent, a split, a merge and a growth go. No code is ported.
 //
-// Readers. A read inside the protection of reads loads the address of the root, and of each child on
-// its way down, with acquire semantics, reads each node with plain loads, and leaves: it takes no lock,
-// checks no version and never retries, and it never reads freed memory, since a node a write replaced is
-// retired, not freed, until the reads that could reach it have left (Protection.RetiredMemory).
-//
-// The writer. Only the holder of the lock of the writes changes the tree. A change copies each node it
-// changes into a node it reserved before the commit, writes the copy whole (NodeWriter), and publishes
-// it by one store of its address with release semantics, into the live parent or into the root of the
-// tree; the nodes it replaced are retired after that store. A node holds one reference for each shared
-// key among its entries or separators, from the moment it is written until it is freed, as every block
-// does (decision on strings, Q04.4, the settlement of 18 November 2026; Storage.Ordered.NodeStorage).
-//
-// The reservation. Nothing grows inside a publication. While p inserts, rewrites included, and q removes
-// are prepared and not published, the tree holds
-//
-//   p * (2 Hi + 1) + q * (Hr + 1) nodes, with Hi = h + ceil((p - 1) / LeastSeparators)
-//   and Hr = h + ceil(p / LeastSeparators),
-//
-// as prepared blocks no reader can reach, and as many places in the retired list; h is the height now.
-// An insert at height H takes at most two nodes on each level and a new root, 2H + 1, and retires at most
-// one node on each level; a remove takes at most one on each level and retires at most one more, the
-// neighbour of a merge. The height grows only when the root splits, a root made by a split holds one
-// separator and an insert adds at most one to any node, so the k-th insert finds the tree at most
-// ceil((k - 1) / LeastSeparators) levels above h, and a remove at most ceil(p / LeastSeparators): Hi and
-// Hr bound the height at the publications that wait (ordered-index.md, "The reservation"). A preparation
-// tops the pool up to the bound; a withdrawal and a publication give back to the arena what is above the
-// bound of the writes still waiting, and allocate nothing. What makes that enough, and what a Debug build
-// asserts after each of them (Need): the pool and the places hold at least what the writes still waiting
-// can take from the tree as it is now, where the k-th insert finds the height now plus the levels the
-// k - 1 inserts before it can add, given the inserts the root takes before it can split, and each remove
-// the height after every insert.
+// What it guarantees. A read inside the protection of reads takes no lock, checks no version, never
+// retries and never reads freed memory: it loads the root and every child address with acquire semantics,
+// and a node a write replaced is retired, not freed, until the reads that could reach it have left
+// (Protection.RetiredMemory; ordered-index.md, "How a reader descends, and why it is safe"). A write
+// copies each node it changes into a node reserved before its commit, writes the copy whole (NodeWriter),
+// publishes it by one store of its address with release semantics and retires what it replaced after that
+// store. A node holds one reference for each shared key among its entries and separators while it is
+// allocated (Storage.Ordered.NodeStorage; ordered-index.md, "Text references"). Nothing grows inside a
+// publication: the pool holds the need of the writes prepared and not published (Need), and once a
+// preparation has touched the index, the standing reserve of one change of key (StandingReserve, TopUp,
+// GiveBackReserve), which is never the reason of a refusal (ordered-index.md, "The reservation", "The
+// standing reserve"). A Debug build asserts after every change of the pool that it holds the need of the
+// writes still waiting (AssertReserved).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;
-// the pool of reserved nodes; the path of the writer's last descent. All but the root are the writer's
+// the pool of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
+// the protection; everything else from the writer, under the lock of the writes, which is safe because
+// only the holder of that lock changes, retires or frees what the tree holds, and all but the root is its
 // alone.
-//
-// Who calls what: TryFindFirst from reads, inside the protection; everything else from the writer, under
-// the lock of the writes, outside the protection, which is safe because only the holder of that lock
-// changes, retires or frees what the tree holds.
 internal sealed class OrderedTree
 {
     private readonly IndexLayout _layout;
@@ -61,8 +41,8 @@ internal sealed class OrderedTree
 
     private readonly RetiredMemory _retired;
 
-    // The nodes reserved for the publications of the writes prepared and not published, prepared blocks
-    // of the arena that no reader can reach.
+    // The nodes reserved for the publications of the writes prepared and not published, and the standing
+    // reserve: prepared blocks of the arena that no reader can reach.
     private readonly Stack<ArenaAddress> _pool = new();
 
     // The address of the root as its number, 0 for an empty tree (see the class).
@@ -127,9 +107,16 @@ internal sealed class OrderedTree
     // the probe lies after the last entry of that leaf, one more from the root at the fence of the leaf,
     // the separator above it in its parent or further up, which every entry of the next leaf is at or
     // above (ordered-index.md, "Fences").
-    public bool TryFindFirst(scoped in SearchKey probe, out RootHandle identity)
+    //
+    // With an entry found, runEnds says whether the run of the key ends with it, as this descent sees the
+    // tree: the entry after it in its leaf has another key; or it is the last entry of its leaf, and the
+    // leaf has no fence, so no entry lies after it, or the fence has another key, so every entry after the
+    // leaf has a key above the fence's, which is above the probe's. A fence of the key says nothing, and
+    // the run is not taken to end.
+    public bool TryFindFirst(scoped in SearchKey probe, out RootHandle identity, out bool runEnds)
     {
         identity = default;
+        runEnds = false;
 
         var address = LoadRoot();
 
@@ -205,30 +192,45 @@ internal sealed class OrderedTree
         }
 
         identity = IndexLayout.IdentityOf(entry);
+        runEnds = place + 1 < node.Count
+            ? !_order.SameKey(probe, node.EntryAt(place + 1))
+            : !hasFence || !_order.SameKey(probe, fence);
 
         return true;
     }
 
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
-    // list for the inserts and the removes given, beside those prepared before and not published (see
-    // the class, "The reservation"). True when the reservation is made; false when the arena cannot hold
-    // the nodes, with nothing taken. An OutOfMemoryException of the native allocator or of the managed
-    // heap leaves nothing taken either.
+    // list for the inserts and the removes given, beside those prepared before and not published, the
+    // need of them all (ordered-index.md, "The reservation"); the standing reserve is TopUp's. True when the
+    // reservation is made; false when the arena cannot hold the nodes, or the pool cannot count them, with
+    // nothing taken. An OutOfMemoryException of the native allocator or of the managed heap leaves nothing
+    // taken either.
     public bool TryReserve(int inserts, int removes)
     {
         var waitingInserts = _inserts + inserts;
         var waitingRemoves = _removes + removes;
-        var nodes = (int)Bound(waitingInserts, waitingRemoves);
+        var room = Room();
+        var counted = Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
 
-        // The managed room first, so that nothing of the arena is taken when it cannot be had.
-        GrowPath(waitingInserts);
-        _pool.EnsureCapacity(nodes);
+        // The pool counts its nodes as an Int32: a need above that is a reservation that cannot be made, and
+        // it is refused as one the arena cannot hold, before anything is taken.
+        if (counted > int.MaxValue)
+        {
+            return false;
+        }
+
+        var need = (int)counted;
+
+        // The managed room first, so that nothing of the arena is taken when it cannot be had; the room of
+        // the pool includes the standing reserve, so that a top-up allocates nothing of the managed heap.
+        GrowPath(_height + Growth(waitingInserts, room, _layout.LeastSeparators));
+        _pool.EnsureCapacity(Math.Max(need, (int)StandingReserve(room)));
 
         var taken = 0;
 
         try
         {
-            while (_pool.Count < nodes)
+            while (_pool.Count < need)
             {
                 if (!_arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
                 {
@@ -241,10 +243,10 @@ internal sealed class OrderedTree
                 taken++;
             }
 
-            if (nodes > _places)
+            if (need > _places)
             {
-                _retired.Reserve(nodes - _places);
-                _places = nodes;
+                _retired.Reserve(need - _places);
+                _places = need;
             }
         }
         catch
@@ -260,14 +262,44 @@ internal sealed class OrderedTree
         return true;
     }
 
+    // For the writer, in the hold that prepares a write, once every index of the write has its need
+    // (TryReserve): tops the pool up to the standing reserve, as far as the arena gives (see the class).
+    // What the arena refuses, or the native allocator cannot supply, is not taken, and nothing fails.
+    public void TopUp()
+    {
+        var reserve = StandingReserve(Room());
+
+        try
+        {
+            while (_pool.Count < reserve && _arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
+            {
+                _pool.Push(node);
+            }
+        }
+        catch (OutOfMemoryException)
+        {
+            // The native allocator could not supply a segment: the rest of the reserve is not had, which
+            // is not a failure of the write.
+        }
+
+        AssertReserved();
+    }
+
     // For the writer: gives back what TryReserve took for a write that is withdrawn before its
-    // publication; the nodes above what the writes still prepared need go back to the arena.
+    // publication: every node above what the writes still prepared need goes back to the arena, the
+    // standing reserve with them, so that what a write took and did not publish never stays in the pool
+    // (see the class).
     public void Release(int inserts, int removes)
     {
         _inserts -= inserts;
         _removes -= removes;
-        Trim();
+        Trim(keepsReserve: false);
     }
+
+    // For the writer, before a write is refused for memory: gives back to the arena every node of the pool
+    // above the need of the writes prepared and not published, the standing reserve with them, so that the
+    // reserve is never the reason of a refusal (see the class).
+    public void GiveBackReserve() => Trim(keepsReserve: false);
 
     // For the writer, in a publication: adds the entry, which the tree does not hold, by copies of the
     // nodes it changes from the reservation, each published by one store, and retires what they replace;
@@ -422,24 +454,11 @@ internal sealed class OrderedTree
         }
     }
 
-    // The nodes the waiting publications can take (see the class, "The reservation").
-    private long Bound(int inserts, int removes)
+    // Room in the writer's path for the most levels the tree can have while the writes reserved wait, and
+    // for the nodes one publication replaces, at most one more than the levels: a remove that merges two
+    // leaves replaces both and their parent.
+    private void GrowPath(int levels)
     {
-        var separators = _layout.LeastSeparators;
-        var insertHeight = _height + CeilingOf(Math.Max(inserts - 1, 0), separators);
-        var removeHeight = _height + CeilingOf(inserts, separators);
-
-        return (inserts * ((2L * insertHeight) + 1)) + (removes * (removeHeight + 1L));
-    }
-
-    private static long CeilingOf(int dividend, int divisor) => (dividend + divisor - 1) / divisor;
-
-    // Room in the writer's path for the height the waiting inserts can reach, a new root above it
-    // included, and for the nodes one publication replaces, at most one more than the levels.
-    private void GrowPath(int inserts)
-    {
-        var levels = (int)(_height + 2 + CeilingOf(inserts, _layout.LeastSeparators));
-
         if (_path.Length < levels)
         {
             _path = new ArenaAddress[levels];
@@ -457,64 +476,86 @@ internal sealed class OrderedTree
         }
     }
 
-    // After a withdrawal or a publication: what is above the bound of the writes still waiting goes back,
-    // the nodes to the arena and the places to the retired list (see the class).
-    private void Trim()
+    // After a publication, a withdrawal or before a refusal: the nodes above the need of the writes still
+    // waiting go back to the arena, but for the standing reserve after a publication, and the places above
+    // the need to the retired list (see the class).
+    private void Trim(bool keepsReserve)
     {
-        var bound = Bound(_inserts, _removes);
+        var room = Room();
+        var need = NeedOfWaiting(room);
+        var kept = keepsReserve ? Math.Max(need, StandingReserve(room)) : need;
 
-        while (_pool.Count > bound)
+        while (_pool.Count > kept)
         {
             _arena.Free(_pool.Pop());
         }
 
-        if (_places > bound)
+        if (_places > need)
         {
-            _retired.Release(_places - (int)bound);
-            _places = (int)bound;
+            _retired.Release(_places - (int)need);
+            _places = (int)need;
         }
 
         AssertReserved();
     }
 
-    // For a Debug build, after a reservation, a publication and a withdrawal: the invariant of the
-    // reservation (see the class).
+    // For a Debug build, after every change of the pool: the invariant of the reservation, and the most
+    // the pool holds (see the class).
     [Conditional("DEBUG")]
     private void AssertReserved()
     {
-        var need = Need();
+        var room = Room();
+        var need = NeedOfWaiting(room);
+        var most = Math.Max(need, StandingReserve(room));
 
         Debug.Assert(_pool.Count >= need, $"The index {_layout.Index.Name} holds {_pool.Count} nodes for writes that can take {need}.");
+        Debug.Assert(_pool.Count <= most, $"The index {_layout.Index.Name} holds {_pool.Count} nodes, above the larger of the need of the writes waiting, {need}, and the standing reserve.");
         Debug.Assert(_places >= need, $"The index {_layout.Index.Name} holds {_places} places in the retired list for writes that can use {need}.");
     }
 
-    // The most nodes the writes still waiting can take from the tree as it is now, and the most places
-    // in the retired list they can use: the k-th insert at the height now and the levels the k - 1 inserts
-    // before it can add, 2 H + 1 at height H, and each remove, H + 1, at the height after every insert. A
-    // remove never makes the tree higher, nor its root fuller without making it lower by a level, so the
-    // order of the writes does not matter. Bound counts every insert at the height of the last, and every
-    // growth from the first insert on, so it is never below this.
-    private long Need()
+    // The need of the writes waiting at the tree as it is now, whose root has the room given (see the
+    // class).
+    private long NeedOfWaiting(int room) => Need(_height, room, _layout.LeastSeparators, _inserts, _removes);
+
+    // The standing reserve at the tree as it is now, whose root has the room given: the need of one change
+    // of key, an insert and a remove (see the class).
+    private long StandingReserve(int room) => Need(_height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
+
+    // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given
+    // whose root has the room given, and the most places in the retired list they can use (see the class,
+    // "The reservation"). The k-th insert counts 2 H + 1 at the height H = h + Growth(k - 1) it can find,
+    // and every remove H + 1 at the height h + Growth(p) after all of them. A remove never makes the tree
+    // higher, nor its root fuller without making it lower by a level, so the order of the writes does not
+    // matter. The sum over the inserts in closed form, so that it costs the same for any number of writes
+    // waiting: with r the room, L the least separators, p the inserts and q the removes, every division
+    // integer and the whole in long,
+    //
+    //   m = max(0, p - 1 - r), a = m / L, b = m % L, S = m + L a (a - 1) / 2 + a b,
+    //   Need = p (2h + 1) + 2 S + q (h + Growth(p) + 1),
+    //
+    // where S is the sum of Growth(k) for k = 0 to p - 1. Growth(k) is 0 up to k = r, and for the m terms
+    // beyond the room it is 1, and on top of that 0 for the first L of them, 1 for the next L, and so on:
+    // a whole steps of L, which add L (0 + 1 + ... + (a - 1)), and b terms more, which add a each.
+    internal static long Need(int height, int room, int leastSeparators, int inserts, int removes)
     {
-        var room = Room();
-        long need = 0;
+        long least = leastSeparators;
+        var beyondRoom = Math.Max(0L, inserts - 1L - room);
+        var steps = beyondRoom / least;
+        var rest = beyondRoom % least;
+        var growths = beyondRoom + (least * steps * (steps - 1) / 2) + (steps * rest);
 
-        for (var before = 0; before < _inserts; before++)
-        {
-            need += (2L * (_height + Growth(before, room))) + 1;
-        }
-
-        return need + (_removes * (_height + Growth(_inserts, room) + 1L));
+        return (inserts * ((2L * height) + 1)) + (2 * growths) + (removes * (height + Growth(inserts, room, leastSeparators) + 1L));
     }
 
     // The inserts the root takes before it can split: a node with fewer than LeastSeparators separators,
     // or entries, fits one more. 0 for an empty tree, whose first insert makes a root.
     private int Room() => _root == 0 ? 0 : Math.Max(0, _layout.LeastSeparators - NodeAt(LoadRoot()).Count);
 
-    // The most levels the inserts given can add to the tree: the first growth after room of them, and each
-    // further one after LeastSeparators more, since the root a growth makes holds one separator or entry.
-    private long Growth(int inserts, int room) =>
-        inserts <= room ? 0 : 1 + ((inserts - 1 - room) / _layout.LeastSeparators);
+    // The rule of growth: the most levels the inserts given can add to a tree whose root has the room
+    // given, the first after the room of the root, and each further one after LeastSeparators more, since
+    // the root a growth makes holds one separator.
+    private static int Growth(int inserts, int room, int leastSeparators) =>
+        inserts <= room ? 0 : 1 + ((inserts - 1 - room) / leastSeparators);
 
     private void TakeInsert()
     {
@@ -526,8 +567,8 @@ internal sealed class OrderedTree
         _inserts--;
     }
 
-    // The end of a publication: the nodes its store replaced are retired, and what the writes still
-    // waiting do not need goes back.
+    // The end of a publication: the nodes its store replaced are retired, and what is above the larger of
+    // the need of the writes still waiting and the standing reserve goes back.
     private void AfterPublication()
     {
         for (var index = 0; index < _replacedCount; index++)
@@ -538,7 +579,7 @@ internal sealed class OrderedTree
         }
 
         _replacedCount = 0;
-        Trim();
+        Trim(keepsReserve: true);
     }
 
     // The leaf of the entry, which the tree holds by its key and its identity, with its place in it;
@@ -622,18 +663,9 @@ internal sealed class OrderedTree
 
     private bool Fits(scoped in EditedLeaf edited) => BytesOf(edited) <= LeafCapacity;
 
-    // The bytes the entries of the leaf take with their offsets.
-    private int BytesOf(scoped in EditedLeaf edited)
-    {
-        var bytes = 0;
-
-        for (var place = 0; place < edited.Count; place++)
-        {
-            bytes += edited.At(place).Length + OffsetBytes;
-        }
-
-        return bytes;
-    }
+    // The bytes the entries of the leaf take with their offsets: those of the leaf it copies, with the one
+    // change.
+    private int BytesOf(scoped in EditedLeaf edited) => edited.Bytes(OffsetBytes);
 
     // Where a leaf that does not fit splits: the first entry of the second half, so that the first holds
     // half of the bytes or less, and each holds one entry at least. Each half fits a node, since a leaf
@@ -659,11 +691,7 @@ internal sealed class OrderedTree
         var leaf = TakeNode();
         var writer = new NodeWriter(_layout, PayloadOf(leaf), 0, end - first);
 
-        for (var place = first; place < end; place++)
-        {
-            writer.Add(edited.At(place));
-        }
-
+        edited.CopyTo(ref writer, first, end);
         Complete(ref writer, leaf);
 
         return leaf;
@@ -790,17 +818,14 @@ internal sealed class OrderedTree
 
         if (neighbourSlot < slot)
         {
-            AddEntries(ref writer, neighbour);
+            writer.AddRange(neighbour, 0, neighbour.Count);
         }
 
-        for (var place = 0; place < edited.Count; place++)
-        {
-            writer.Add(edited.At(place));
-        }
+        edited.CopyTo(ref writer, 0, edited.Count);
 
         if (neighbourSlot > slot)
         {
-            AddEntries(ref writer, neighbour);
+            writer.AddRange(neighbour, 0, neighbour.Count);
         }
 
         Complete(ref writer, merged);
@@ -809,14 +834,6 @@ internal sealed class OrderedTree
         ReplaceChildPair(level - 1, Math.Min(slot, neighbourSlot), merged);
 
         return true;
-    }
-
-    private static void AddEntries(ref NodeWriter writer, scoped in IndexNode node)
-    {
-        for (var place = 0; place < node.Count; place++)
-        {
-            writer.Add(node.EntryAt(place));
-        }
     }
 
     // The children first and first + 1 of the inner node of the level became the one merged node: the
@@ -1118,6 +1135,47 @@ internal sealed class OrderedTree
             Replaces => place == _place ? _entry : _leaf.EntryAt(place),
             _ => place < _place ? _leaf.EntryAt(place) : _leaf.EntryAt(place + 1),
         };
+
+        // The bytes the entries take, each with the offset bytes given: those of the leaf, with the entry
+        // added, replaced or taken away.
+        public int Bytes(int offsetBytes)
+        {
+            var bytes = _leaf.UsedBytes;
+
+            return _change switch
+            {
+                Inserts => bytes + _entry.Length + offsetBytes,
+                Replaces => bytes + _entry.Length - _leaf.EntryAt(_place).Length,
+                _ => bytes - _leaf.EntryAt(_place).Length - offsetBytes,
+            };
+        }
+
+        // Writes the entries from first to end as the next entries of the writer: the entries of the leaf
+        // before the place of the change as one block, the entry of the change, and the entries of the leaf
+        // after it as one block (NodeWriter.AddRange).
+        public void CopyTo(ref NodeWriter writer, int first, int end)
+        {
+            var before = Math.Min(end, _place);
+
+            if (first < before)
+            {
+                writer.AddRange(_leaf, first, before);
+            }
+
+            if (_change != Removes && first <= _place && _place < end)
+            {
+                writer.Add(_entry);
+            }
+
+            // After the change, the entry at a place of the edited leaf is the leaf's one place before it
+            // for an insert, at it for a replace, and one place after it for a remove.
+            var after = Math.Max(first, _change == Removes ? _place : _place + 1);
+
+            if (after < end)
+            {
+                writer.AddRange(_leaf, after - _change, end - _change);
+            }
+        }
     }
 
     // The separators and children of an inner node whose child at a place was split into left and right

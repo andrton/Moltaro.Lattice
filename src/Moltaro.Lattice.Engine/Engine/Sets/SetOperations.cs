@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Forwarding;
+using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
 
@@ -123,24 +124,24 @@ internal sealed class SetOperations
         }
     }
 
-    // The next entity of a search through an index, as Next takes the next of an enumeration: built from
-    // its copy outside the protection of reads and only then committed to the search, so that an entity
-    // whose build throws is read again by the next step; null at the end, with the sequence of the end
-    // (Entities.IndexSearch).
-    public TResult? Next<TCopy, TResult>(IndexSearch search, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
+    // The next entity of a search through the index, for the key bound to it, as Next takes the next of
+    // an enumeration: built from its copy outside the protection of reads, and only then is the search
+    // moved past it, so that an entity whose build throws is read again by the next step; null at the end,
+    // with the sequence of the end (Entities.IndexSearch).
+    public TResult? Next<TCopy, TResult>(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            if (!search.TryReadNext<TCopy, TResult>(ref copy, out sequence, cancellationToken))
+            if (!search.TryReadNext<TCopy, TResult>(Table, index, key, ref copy, out var next, out sequence, cancellationToken))
             {
                 return null;
             }
 
             var result = copy.Build();
 
-            search.Commit();
+            search = next;
 
             return result;
         }

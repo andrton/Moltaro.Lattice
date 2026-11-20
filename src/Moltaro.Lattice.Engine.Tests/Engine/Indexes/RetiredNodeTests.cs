@@ -45,7 +45,7 @@ public sealed class RetiredNodeTests
         database.DrainRetired();
 
         Assert.Equal(0, database.Counters.Arena.RetiredBytes);
-        Assert.Equal(0, database.Counters.Arena.PreparedBytes);
+        Assert.True(database.Counters.Arena.PreparedBytes <= IndexReserve.BytesOf(database, "Counted"), "The arena holds prepared bytes beyond the reserve of ByNumber.");
     }
 
     [Fact]

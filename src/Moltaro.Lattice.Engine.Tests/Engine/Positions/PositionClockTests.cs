@@ -78,16 +78,16 @@ public sealed class PositionClockTests
 
         var exception = await Assert.ThrowsAsync<LatticeException>(() => wait);
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
-        Assert.Throws<ObjectDisposedException>(() => clock.WaitAsync(clock.At(0), Long, CancellationToken.None));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await clock.WaitAsync(clock.At(0), Long, CancellationToken.None));
     }
 
     [Fact]
-    public void Position_of_another_history_is_HistoryMismatch()
+    public async Task Position_of_another_history_is_HistoryMismatch()
     {
         var clock = new PositionClock(History, this);
         var other = new PositionClock(History + 1, this);
 
-        var exception = Assert.Throws<LatticeException>(() => clock.WaitAsync(other.At(0), Long, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<LatticeException>(async () => await clock.WaitAsync(other.At(0), Long, CancellationToken.None));
 
         Assert.Equal(LatticeErrorEnum.HistoryMismatch, exception.Error);
     }

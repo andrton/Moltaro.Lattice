@@ -119,7 +119,7 @@ internal sealed class IndexLayout
 
     // The fewest separators an inner node holds before it is full: as many of the widest as fit. A root
     // made by a split holds one, and gains at most one for each insert, which bounds how far the tree
-    // can grow while writes are prepared (Engine.Indexes.OrderedTree, "The reservation").
+    // can grow while writes are prepared (docs/design/ordered-index.md, "The reservation").
     public int LeastSeparators { get; }
 
     // How many parts are Strings: the most text entries one entry can reference.
@@ -228,6 +228,35 @@ internal sealed class IndexLayout
             : new StoredTextReader(part.Slice(1, head), Encoding);
     }
 
+    // The bytes of a String part that is not null, which begins the span, in the encoding of the database,
+    // when they lie in one place: the copy of the part, or the text entry it references when that is not in
+    // chunks; what an Ordinal order of a UTF-8 database compares as bytes. False for a text in chunks, which
+    // is read a piece at a time (ReadText). Inside the protection of reads or under the lock of the writes.
+    public static bool TryTextBytes(Arena arena, ReadOnlySpan<byte> part, out ReadOnlySpan<byte> bytes)
+    {
+        var head = part[0];
+
+        if (head != SharedTextHead)
+        {
+            bytes = part.Slice(1, head);
+
+            return true;
+        }
+
+        var descriptor = SharedDescriptorOf(part);
+
+        if (ValueBlocks.LiesInChunks(descriptor))
+        {
+            bytes = default;
+
+            return false;
+        }
+
+        bytes = ValueBlocks.Contiguous(arena, descriptor, default);
+
+        return true;
+    }
+
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from
     // the root as its bytes lie, not written again from its value: the stored form of a value is written
@@ -269,6 +298,46 @@ internal sealed class IndexLayout
         }
 
         return length;
+    }
+
+    // Whether the two roots contribute entries of the same bytes under one identity, decided from their
+    // stored fields without writing the entries: what WriteEntry would write, part by part. A part null in
+    // both is the same, whatever bytes lie under the null, since an entry writes zeros there; null in one
+    // only differs by the null bitmap. A fixed part is the same when its stored bytes are, which is not
+    // equality by value: a Decimal of another scale, -0 and +0 or NaNs of other bits differ, and a
+    // DateTimeOffset stores its UTC ticks, so an offset changed alone does not. A String part of
+    // TextCopyLimit bytes or less is the same when its text is the same bytes, wherever they lie, never by
+    // its descriptor, whose offset depends on the root; a longer one when it references the same text
+    // entry, as the entry holds the length and the address. For the writer, under the lock of the writes.
+    // Allocates nothing.
+    public bool SameEntry(in RootReader left, in RootReader right)
+    {
+        foreach (ref readonly var part in Parts)
+        {
+            var leftNull = left.IsNull(part.Field);
+            var rightNull = right.IsNull(part.Field);
+
+            if (leftNull || rightNull)
+            {
+                if (leftNull != rightNull)
+                {
+                    return false;
+                }
+            }
+            else if (part.IsText)
+            {
+                if (!SameText(left, right, part.Field))
+                {
+                    return false;
+                }
+            }
+            else if (!left.StoredBytes(part.Field).SequenceEqual(right.StoredBytes(part.Field)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // The text entries the String parts of an entry reference, into the span, which has a place for each
@@ -383,6 +452,23 @@ internal sealed class IndexLayout
         MemoryMarshal.Write(destination[(1 + sizeof(uint))..], descriptor.Location);
 
         return SharedTextBytes;
+    }
+
+    // Whether the String field, not null in either root, gives the same String part in an entry of each
+    // (WriteText): the same copy, or the same reference to a text entry.
+    private static bool SameText(in RootReader left, in RootReader right, LatticeField field)
+    {
+        var leftText = ValueBlocks.Read(left.StoredBytes(field));
+        var rightText = ValueBlocks.Read(right.StoredBytes(field));
+
+        if (leftText.Length != rightText.Length)
+        {
+            return false;
+        }
+
+        return leftText.Length <= TextCopyLimit
+            ? left.ValueBytes(leftText).SequenceEqual(right.ValueBytes(rightText))
+            : leftText.Location == rightText.Location;
     }
 
     private string TextOf(Arena arena, ReadOnlySpan<byte> part)

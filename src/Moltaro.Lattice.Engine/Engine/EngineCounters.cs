@@ -12,10 +12,12 @@ namespace Moltaro.Lattice.Engine;
 // 16 November 2026"); EngineDatabase.DrainRetired frees what no read in progress can reach.
 //
 // Arena: the counters of the arena of the database, as ArenaCounters describes them. When every
-// write has returned, PreparedBytes is 0. RetiredBytes and RetiredIndexBytes count what a write
-// replaced or removed while reads could still reach it; after a drain with no read in progress
-// (EngineDatabase.DrainRetired) both are 0, and the counters equal an independent tally of what the
-// entities hold.
+// write has returned, PreparedBytes is the standing reserves of the indexes that writes touched, at
+// most the need of one change of key for each (docs/design/ordered-index.md, "The standing
+// reserve"), and 0 in a database whose writes touched no index. RetiredBytes and RetiredIndexBytes
+// count what a write replaced or removed while reads could still reach it; after a drain with no read
+// in progress (EngineDatabase.DrainRetired) both are 0, and the counters equal an independent tally of
+// what the entities hold.
 //
 // PrimaryIndexBytes: what the engine holds for the primary index, in bytes.
 //

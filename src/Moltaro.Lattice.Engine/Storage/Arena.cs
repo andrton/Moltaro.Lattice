@@ -20,8 +20,9 @@ namespace Moltaro.Lattice.Storage;
 // never disposed keeps its native memory until the process ends.
 //
 // The states of a block. A block is free, prepared, live or retired. TryAllocate gives a live
-// block, as in S04. TryAllocatePrepared gives a prepared one, allocated for a write that has not
-// published it yet, and Publish makes it live when the write is published. Retire detaches a live
+// block, as in S04. TryAllocatePrepared gives a prepared one, which no reader can reach, taken for a
+// write that has not published it yet or held in the standing reserve of an index for no write, and
+// Publish makes it live when a write publishes it. Retire detaches a live
 // block from its owner while reads may still reach it: a write that replaced or deleted its root
 // retires the blocks of the old root, and frees them once the reads that could reach them have left
 // (arena protocol, "Deferred reclamation, 16 November 2026"). Every kind is valid from its
@@ -175,7 +176,7 @@ internal sealed unsafe class Arena : IDisposable
     public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address) =>
         TryTake(payloadLength, kind, root, prepared: true, out address);
 
-    // Makes a prepared block live, when the write it was allocated for is published: its slot leaves
+    // Makes a prepared block live, when a write publishes it: its slot leaves
     // PreparedBytes, its header and the payload length its header gives join LiveBytes, and the rest
     // of the slot ClassSlackBytes. It changes no byte of the block and allocates nothing, so it
     // cannot fail for a block that is prepared. An invalid address, or that of a block already freed,

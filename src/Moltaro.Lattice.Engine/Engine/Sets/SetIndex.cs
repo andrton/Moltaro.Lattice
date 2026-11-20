@@ -15,9 +15,13 @@ namespace Moltaro.Lattice.Engine.Sets;
 // index cannot serve is ArgumentException, and the default of IndexKey is no key. The search by the full
 // key of the index is built; a search by its leading fields, with a range, in reverse, or with Offset or
 // Limit is the walk of ranges, which is not built, and is refused with NotSupportedException; nothing is
-// answered by reading every entity instead. Find is lazy, and every enumerator it gives is a search of
-// its own (IndexMatches); FindAsync waits for the position of its session first, outside every lock and
-// the protection of reads, and then runs the search to its end (IndexSearch).
+// answered by reading every entity instead. FindAsync throws at the call only what the caller can know from
+// its own arguments: no options, a key the index cannot serve, the default of IndexKey, a shape of the walk
+// of ranges; everything that depends on the state of the database comes through the task it returns, also
+// on a path that needs no wait, a close among them, as in every asynchronous member. Find is lazy, one object that is its result and its first
+// enumerator, and every enumerator it gives is a search of its own (IndexMatches); FindAsync waits for the
+// position of its session first, outside every lock and the protection of reads, and then runs the search
+// to its end, with the search on its stack (IndexSearch).
 //
 // It holds no state that changes and keeps nothing of a search, so it is safe to keep and to share
 // between threads, and the database holds no reference to it.
@@ -64,21 +68,7 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var bound = Prepare(key, options);
-
-        if (options.Session is { } session)
-        {
-            var wait = _operations.WaitAsync(session, cancellationToken);
-
-            if (!wait.IsCompletedSuccessfully)
-            {
-                return FindAfterAsync(wait, bound, session, cancellationToken);
-            }
-
-            wait.GetAwaiter().GetResult();
-        }
-
-        return ValueTask.FromResult(FindAll(bound, options.Session, cancellationToken));
+        return FindAfterAsync(Prepare(key, options), options.Session, cancellationToken);
     }
 
     // The key checked against the index and bound to its fields, with the options of the search; the
@@ -100,9 +90,16 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
         return bound;
     }
 
-    private async ValueTask<LatticeFindResult<TEntity>> FindAfterAsync(ValueTask wait, IndexKey bound, LatticeSession session, CancellationToken cancellationToken)
+    // The search of a key the call checked, after the position of the session when it has one, every
+    // failure through the task (see the class). In a Release build an asynchronous method allocates nothing
+    // when it completes within its call, as a search without a wait does: its state machine is a struct on
+    // the stack. A Debug build makes the state machine a class and allocates it at every call.
+    private async ValueTask<LatticeFindResult<TEntity>> FindAfterAsync(IndexKey bound, LatticeSession? session, CancellationToken cancellationToken)
     {
-        await wait.ConfigureAwait(false);
+        if (session is not null)
+        {
+            await _operations.WaitAsync(session, cancellationToken).ConfigureAwait(false);
+        }
 
         return FindAll(bound, session, cancellationToken);
     }
@@ -111,13 +108,13 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     // reads; the position of the answer covers every step, its end included, and the session moves to it.
     private LatticeFindResult<TEntity> FindAll(in IndexKey bound, LatticeSession? session, CancellationToken cancellationToken)
     {
-        var search = new IndexSearch(_operations.Table, _index, bound);
+        var search = default(IndexSearch);
         var items = new List<TEntity>();
         var last = 0UL;
 
         while (true)
         {
-            var found = _operations.Next<TCopy, TEntity>(search, _prototype, out var sequence, cancellationToken);
+            var found = _operations.Next<TCopy, TEntity>(ref search, _index, bound, _prototype, out var sequence, cancellationToken);
 
             last = Math.Max(last, sequence);
 

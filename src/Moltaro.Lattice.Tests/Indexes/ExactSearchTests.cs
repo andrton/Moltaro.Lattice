@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // - several entities with one key are all returned, also 3,000 of them, each once; entities of one key
 //   come in no order the contract states, so the tests compare sets;
 // - a null part is a value of the index like any other: it finds the entities without a value there, in
-//   a field of its own and as a part of a composite key;
+//   a field of its own and as a part of a composite key, also before a part that has a value;
 // - a key is a small value that serves any number of searches, from any thread, and a copy of it is the
 //   same key;
 // - what a search returns is the caller's own: changing the items of a result, through a cast if one is
@@ -101,6 +101,33 @@ public sealed class ExactSearchTests
 
         Assert.Equal(5, Assert.Single(users.Set<User>().Index("ByAgeAndName").Find(IndexKey.Equal<int?, string>(null, "Edsger"))).Id);
         Assert.Equal(6L, Assert.Single(users.Set("User").Index("ByAgeAndName").Find(IndexKey.Equal(41, "Edsger")))["Id"]);
+    }
+
+    [Fact]
+    public async Task Null_part_before_a_part_with_a_value_finds_the_entity_without_a_value_there_through_a_class_and_by_name()
+    {
+        await using var database = await OpenWithMembersAsync(30);
+        var members = database.Set<Member>();
+        var byClass = members.Index("ByAllFour");
+        var byName = database.Set("Member").Index("ByAllFour");
+
+        // Member 31 has no code and a date; member 32 has the same group, login and date, and a code.
+        await members.InsertAsync(new Member { Id = 31, Group = 1, Login = "login 31", Joined = JoinedOf(31) });
+        await members.InsertAsync(new Member { Id = 32, Group = 1, Login = "login 31", Code = CodeOf(32), Joined = JoinedOf(31) });
+
+        var withoutCode = IndexKey.Equal<int, string, Guid?, DateOnly?>(1, "login 31", null, JoinedOf(31));
+
+        var classResult = await byClass.FindAsync(withoutCode, new LatticeFindOptions());
+        var nameResult = await byName.FindAsync(withoutCode, new LatticeFindOptions());
+
+        Assert.Equal([31L], MemberSchema.IdsOf(byClass.Find(withoutCode)));
+        Assert.Equal([31L], MemberSchema.IdsOf(byName.Find(withoutCode)));
+        Assert.Equal([31L], MemberSchema.IdsOf(classResult.Items));
+        Assert.Equal([31L], MemberSchema.IdsOf(nameResult.Items));
+
+        // The part after the null decides as every part does.
+        Assert.Equal([32L], MemberSchema.IdsOf(byClass.Find(IndexKey.Equal<int, string, Guid?, DateOnly?>(1, "login 31", CodeOf(32), JoinedOf(31)))));
+        Assert.Empty(byName.Find(IndexKey.Equal<int, string, Guid?, DateOnly?>(1, "login 31", null, JoinedOf(32))));
     }
 
     [Fact]

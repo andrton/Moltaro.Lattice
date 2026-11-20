@@ -268,13 +268,18 @@ comparers; keys are not raw byte-memcmp tuples; a null orders after every value 
 part.
 
 Index nodes and their text are prepared before the commit: in the hold that prepares a
-write, the index reserves prepared nodes and places in the retired list for the bound of
-its publication — with p inserts and q removes prepared and unpublished, p·(2Hᵢ + 1) +
-q·(Hᵣ + 1) nodes, Hᵢ and Hᵣ the heights an insert and a remove can find while they wait
+write, the index reserves prepared nodes and places in the retired list for the need of
+its publication — with p inserts and q removes prepared and unpublished, the most nodes
+their publications can take from the tree as it is, each insert counted at the height
+the inserts before it can reach and each remove at the height after all of them
 ([ordered index](ordered-index.md#the-reservation)) — and releases them if
 the write is withdrawn. With the storage step busy a prepared, unpublished write holds
 them and no reader can reach them. A reservation the arena cannot hold refuses the write
-for memory before its commit. A retired node is a retired item of its own, with its bytes
+for memory before its commit. Once a write has touched an index, its pool keeps a
+standing reserve, the need of one change of key, counted in the prepared bytes and
+against the memory limit and freed at the close; it is never the reason of a refusal:
+before a write is refused for memory every index gives back what it holds above the need
+of the writes prepared, and the write is tried once more without it. A retired node is a retired item of its own, with its bytes
 toward the next look; freeing it releases the references to text entries it holds.
 
 Comparison/hash has one schema-owned service across indexes, Map/Set and direct

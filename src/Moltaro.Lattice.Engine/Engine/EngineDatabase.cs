@@ -146,7 +146,9 @@ namespace Moltaro.Lattice.Engine;
 // Sessions and the write batch. On a master the members that take a session, and WaitForPositionAsync, are
 // served: a master has applied every position it gave out; a child has applied every position of its history
 // up to the one it is at, and a wait for a later one ends when it applies it or at its timeout, and at once
-// on a child that has lost its master (Positions.PositionClock). CreateWriteBatch returns the batch of the
+// on a child that has lost its master (Positions.PositionClock). WaitForPositionAsync throws at the call only
+// a mistake of its arguments; the state of the database, a close, a fault, another history and the loss of the
+// master come through its task, also when no wait is needed. CreateWriteBatch returns the batch of the
 // core: building it works, and its commit is NotSupportedException, since the commit of a batch is not built
 // yet.
 internal sealed class EngineDatabase : ILatticeDatabase
@@ -582,17 +584,31 @@ internal sealed class EngineDatabase : ILatticeDatabase
             throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "The timeout must be finite and positive.");
         }
 
-        ThrowIfNotReady();
-
-        return _clock!.WaitAsync(position, timeout ?? _options.SynchronizationTimeout, cancellationToken);
+        return WaitAfterChecksAsync(position, timeout ?? _options.SynchronizationTimeout, cancellationToken);
     }
 
     public ValueTask WaitForPositionAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ThrowIfNotReady();
 
-        return _clock!.WaitAsync(session, _options.SynchronizationTimeout, cancellationToken);
+        return WaitAfterChecksAsync(session, cancellationToken);
+    }
+
+    // The wait of WaitForPositionAsync for a position, once the call has checked its arguments: every
+    // failure, also one that needs no wait, comes through the task (see the class). In a Release build an
+    // asynchronous method allocates nothing when it completes within its call: its state machine is a
+    // struct on the stack. A Debug build makes the state machine a class and allocates it at every call.
+    private async ValueTask WaitAfterChecksAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ThrowIfNotReady();
+        await Part(_clock).WaitAsync(position, timeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    // The same for the position a session depends on, with the timeout of the session or of the options.
+    private async ValueTask WaitAfterChecksAsync(LatticeSession session, CancellationToken cancellationToken)
+    {
+        ThrowIfNotReady();
+        await Part(_clock).WaitAsync(session, _options.SynchronizationTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     // Opens the database. A master compiles the root layout of every entity type, makes the parts of an
@@ -1132,7 +1148,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
             var retired = new RetiredMemory(_epochs, arena, roots);
             var clock = new PositionClock(history, this);
             var delivery = new DeliveryTail();
-            var changes = new ChangePublisher(arena, roots, retired, clock);
+            var tables = new EntityTables([.. schema.EntityTypes.Select(entityType => EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed))]);
+            var changes = new ChangePublisher(arena, roots, retired, clock, tables);
             var executor = new WriteExecutor(arena, roots, retired, clock, changes, delivery);
             var coordinator = new WriteCoordinator(
                 writes,
@@ -1147,21 +1164,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _options.SynchronizationTimeout,
                 Fault);
             var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
-            var inSchemaOrder = new List<EntityTable>();
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
-            foreach (var entityType in schema.EntityTypes)
+            foreach (var table in tables.InSchemaOrder)
             {
-                var table = EntityTable.Open(entityType, schema, arena, roots, _epochs, retired, clock, seed);
                 var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
 
-                inSchemaOrder.Add(table);
-                operations.Add(entityType, forType);
-                recordSets.Add(entityType, new RecordSet(forType));
+                operations.Add(table.EntityType, forType);
+                recordSets.Add(table.EntityType, new RecordSet(forType));
             }
-
-            var tables = new EntityTables([.. inSchemaOrder]);
 
             lock (_stateLock)
             {

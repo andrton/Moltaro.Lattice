@@ -63,6 +63,33 @@ internal ref struct NodeWriter
         _added++;
     }
 
+    // Writes the entries or separators of the node given from the place first to the place end as the
+    // next ones, in their order, as one block: the bytes they lie in (IndexNode.EntriesBetween), copied at
+    // once, and for entries behind offsets their offsets, each moved by the one distance between where
+    // the block lay and where it goes. The same bytes and offsets as Add of each of them.
+    public void AddRange(scoped in IndexNode node, int first, int end)
+    {
+        var block = node.EntriesBetween(first, end);
+
+        if (_layout.HasText)
+        {
+            var shift = first == end ? 0 : _next - node.OffsetAt(first);
+
+            for (var place = first; place < end; place++)
+            {
+                MemoryMarshal.Write(_payload[(_offsets + (_added * IndexLayout.OffsetBytes))..], (ushort)(node.OffsetAt(place) + shift));
+                _added++;
+            }
+        }
+        else
+        {
+            _added += end - first;
+        }
+
+        block.CopyTo(_payload[_next..]);
+        _next += block.Length;
+    }
+
     // Writes the next child of an inner node, in their order: count + 1 of them.
     public void AddChild(ArenaAddress child)
     {

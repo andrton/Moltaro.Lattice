@@ -65,7 +65,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 // beside the places the writes prepared before it and not published yet reserved, so that retiring it
 // after its publication allocates nothing; the place is taken when it retires and given back when the
 // write is withdrawn (Release). The tree of a secondary index reserves as many places as it reserves
-// nodes (Indexes.OrderedTree, "The reservation").
+// nodes (docs/design/ordered-index.md, "The reservation").
 //
 // What LightEpoch does and this does not: its list has 16 places and a thread that finds it full
 // waits until an action runs; here the list grows, so a write never waits for a read to free a

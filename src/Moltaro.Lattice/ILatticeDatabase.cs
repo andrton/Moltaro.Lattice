@@ -76,13 +76,20 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// <see cref="LatticeDatabaseOptions.SynchronizationTimeout"/>. Always finite.
     /// </param>
     /// <param name="cancellationToken">Cancels the wait, nothing else.</param>
-    /// <exception cref="ArgumentException">The position is the default value.</exception>
+    /// <exception cref="ArgumentException">The position is the default value; thrown by the call.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The timeout is not finite and positive; thrown by the call.
+    /// </exception>
     /// <exception cref="LatticeException">
+    /// Through the returned task, also when no wait is needed:
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: the instance did not reach the
     /// position in time.
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/>: the position belongs to another
     /// database history.
     /// <see cref="LatticeErrorEnum.Unavailable"/>: the database is not ready.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database was closed; through the returned task.
     /// </exception>
     ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default);
 
@@ -96,10 +103,14 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// </remarks>
     /// <param name="session">The consistency context of the caller.</param>
     /// <param name="cancellationToken">Cancels the wait, nothing else.</param>
+    /// <exception cref="ArgumentNullException">The session is <see langword="null"/>; thrown by the call.</exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>,
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/> or
-    /// <see cref="LatticeErrorEnum.Unavailable"/>, as for a position.
+    /// <see cref="LatticeErrorEnum.Unavailable"/>, as for a position, through the returned task.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database was closed; through the returned task.
     /// </exception>
     ValueTask WaitForPositionAsync(LatticeSession session, CancellationToken cancellationToken = default);
 

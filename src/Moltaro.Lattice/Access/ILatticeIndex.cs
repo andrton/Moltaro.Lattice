@@ -92,11 +92,15 @@ public interface ILatticeIndex<TEntity>
     /// <param name="options">Consistency, direction and paging of the search.</param>
     /// <param name="cancellationToken">Cancels the wait for the session's position.</param>
     /// <returns>The matches and the position of the answer.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// The options are <see langword="null"/>; thrown by the call.
+    /// </exception>
     /// <exception cref="ArgumentException">
     /// The index cannot serve the key, or the key is the default of <see cref="IndexKey"/>, which
-    /// is no key.
+    /// is no key; thrown by the call.
     /// </exception>
     /// <exception cref="LatticeException">
+    /// Through the returned task, also when the search needs no wait:
     /// <see cref="LatticeErrorEnum.SynchronizationTimeout"/>: this node did not reach the
     /// position of the session in time; nothing was searched.
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/>: the session belongs to another
@@ -104,8 +108,10 @@ public interface ILatticeIndex<TEntity>
     /// </exception>
     /// <exception cref="NotSupportedException">
     /// The key gives values to the leading fields only or has a range, or the options ask for the
-    /// reverse order, an offset or a limit, which are not implemented yet.
+    /// reverse order, an offset or a limit, which are not implemented yet; thrown by the call.
     /// </exception>
-    /// <exception cref="ObjectDisposedException">The database was closed.</exception>
+    /// <exception cref="ObjectDisposedException">
+    /// The database was closed; through the returned task.
+    /// </exception>
     ValueTask<LatticeFindResult<TEntity>> FindAsync(IndexKey key, LatticeFindOptions options, CancellationToken cancellationToken = default);
 }
