@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.TestSupport.Replication;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -22,7 +23,7 @@ internal sealed class LoopbackLink : IAsyncDisposable
 
     private readonly List<Socket> _sockets = [];
 
-    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+    private readonly TcpListener _listener;
 
     private readonly IPEndPoint _master;
 
@@ -35,13 +36,23 @@ internal sealed class LoopbackLink : IAsyncDisposable
     private readonly Task _run;
 
     // Each copy reads from its first socket and writes to its second until the token ends or a socket
-    // fails; an exception of a socket or of the token ends the copy and so the link.
+    // fails; an exception of a socket or of the token ends the copy and so the link. A link whose socket
+    // the system refuses fails with the state of the system in the message (ListenFailure).
     public LoopbackLink(Uri masterUri, Func<Socket, Socket, CancellationToken, Task> toChild, Func<Socket, Socket, CancellationToken, Task>? toMaster = null)
     {
         _master = new IPEndPoint(IPAddress.Parse(masterUri.Host), masterUri.Port);
         _toChild = toChild;
         _toMaster = toMaster ?? CopyAsync;
-        _listener.Start(1);
+
+        try
+        {
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start(1);
+        }
+        catch (SocketException exception)
+        {
+            throw new InvalidOperationException($"The link cannot listen on the loopback interface: {exception.Message} {ListenFailure.Describe(exception)}", exception);
+        }
 
         Address = new Uri($"lattice://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}");
         _run = RunAsync();
