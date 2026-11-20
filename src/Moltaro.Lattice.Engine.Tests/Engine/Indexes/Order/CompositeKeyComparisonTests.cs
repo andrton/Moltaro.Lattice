@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Order;
 
@@ -45,7 +46,7 @@ public sealed class CompositeKeyComparisonTests
             var order = new IndexOrder(layout, item.Arena);
             var states = StatesOf(definition);
             var roots = states.Select(state => Write(item, definition, state)).ToList();
-            var entries = roots.Select(root => EntryOf(item, layout, root)).ToList();
+            var entries = roots.Select(root => EntryOf(item, layout, root, RootArena.Handle)).ToList();
 
             for (var searched = 0; searched < states.Count; searched++)
             {
@@ -113,13 +114,6 @@ public sealed class CompositeKeyComparisonTests
         }
 
         return writer.Complete();
-    }
-
-    private static byte[] EntryOf(RootArena item, IndexLayout layout, ArenaAddress root)
-    {
-        var entry = new byte[layout.WidestEntryBytes];
-
-        return entry[..layout.WriteEntry(item.Reader(root), RootArena.Handle, entry)];
     }
 
     // The key of the state, each value given as an object, which a key takes as the value it holds.

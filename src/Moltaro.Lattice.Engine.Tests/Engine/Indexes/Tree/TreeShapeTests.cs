@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
@@ -128,19 +129,5 @@ public sealed class TreeShapeTests
             Assert.Equal(level - 1, nodes[next].Level);
             Walk(nodes, ref next, order, child == 0 ? lower : items[child - 1], child == items.Count ? upper : items[child], entries);
         }
-    }
-
-    // The entry of a root of Counted with the number given, under the identity given.
-    private static byte[] EntryOf(RootArena item, SecondaryIndex index, RootHandle identity, long number)
-    {
-        var writer = item.Writer();
-
-        writer.SetInteger(item.Field("Id"), identity.Slot);
-        writer.SetInteger(item.Field("Number"), number);
-
-        var root = writer.Complete();
-        var entry = new byte[index.Layout.WidestEntryBytes];
-
-        return entry[..index.Layout.WriteEntry(item.Reader(root), identity, entry)];
     }
 }
