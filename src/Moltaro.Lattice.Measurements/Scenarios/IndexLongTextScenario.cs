@@ -10,13 +10,15 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //   their first bytes;
 // - a common head: the same letter but for the place at the end, so that two keys share all but their last
 //   7 bytes, as numbered logins, addresses and paths do.
+// In both forms keys order as their places. The item at place i is loaded with the key of i.
 // For each, through the class:
 // - a search by the full key, one reader, at the places of index-search, each finding one item and
 //   enumerating its result to the end;
-// - writes, one caller, as index-writes measures them: a replace that moves the key of an item between its
-//   own and one above every loaded key, of the same form, and back with the next replace of the item; a
-//   replace that keeps the key and changes Number; and an insert of an item of its own with a key of the
-//   same form between the loaded ones and its delete, 1,000 items in turn, both writes counted.
+// - writes, one caller, as index-writes measures them: a replace that moves the key of an item between
+//   that of its place and that of its place plus the count, above every loaded key, so that its entry
+//   leaves its leaf for the other half of the tree, and back with the next replace of the item; a replace
+//   that keeps the key and changes Number; and an insert of an item of its own, with a key above every
+//   loaded and moved one, and its delete, 1,000 items in turn, both writes counted.
 // A line gives the searches or the writes a second, and the managed bytes for each, as index-search and
 // index-writes give them; every window is measured as in index-search (IndexSearchScenario.Measure). Every
 // key a step writes or searches is built before the windows, so that the bytes are the database's alone:
@@ -57,7 +59,7 @@ internal static class IndexLongTextScenario
         List<string> lines =
         [
             $"Items: {ReadSeries.Number(Count)} of IndexedItems under {IndexedItems.TitleIndex}, a Plain String compared Ordinal, searched through the class at {ReadSeries.Number(places.Length)} places drawn from {ReadSeries.Number(Count)} with seed {KeySeed}; a read is one search by the full key",
-            $"Writes: one caller through the class; a replace changing the key moves it above every loaded key and back; an insert and a delete take {ReadSeries.Number(OwnItems)} items of their own in turn",
+            $"Writes: one caller through the class; a replace changing the key moves it to the other half of the tree, above every loaded key, and back; an insert and a delete take {ReadSeries.Number(OwnItems)} items of their own in turn, with keys above the loaded and the moved ones",
             IndexSearchScenario.Described,
         ];
 
@@ -79,9 +81,9 @@ internal static class IndexLongTextScenario
     // The lines of one case of the items given: the load, the search and the three kinds of writes.
     private static IEnumerable<string> Case(int length, bool common, int count, int[] places)
     {
-        var titles = Titles(count, length, common, 'a');
-        var movedTitles = Titles(count, length, common, 'z');
-        var ownTitles = Titles(OwnItems, length, common, 'm');
+        var titles = Titles(0, count, length, common);
+        var movedTitles = Titles(count, count, length, common);
+        var ownTitles = Titles(2 * count, OwnItems, length, common);
 
         using var items = IndexedItems.Load(0, [.. titles.Select((title, place) => IndexedItems.Item.Keyed(place + 1, 0, title))], titled: true);
 
@@ -98,22 +100,17 @@ internal static class IndexLongTextScenario
         yield return $"{title}, 1 caller that inserts and deletes: {IndexWritesScenario.Series(1, (_, _) => InserterAndDeleter(items, count, ownTitles))}";
     }
 
-    // The keys of the places 0 to count - 1 with the mark given (KeyOf).
-    private static string[] Titles(int count, int length, bool common, char mark) =>
-        [.. Enumerable.Range(0, count).Select(place => KeyOf(place, length, common, mark))];
+    // The keys of so many places from the first given on (KeyOf): the loaded ones from 0, the moved ones
+    // from the count, the items of the inserts from twice the count, so that every key is unique.
+    private static string[] Titles(int first, int count, int length, bool common) =>
+        [.. Enumerable.Range(first, count).Select(place => KeyOf(place, length, common))];
 
-    // A key of the length and the form given for the place, with the mark given: a letter that orders the
-    // keys of one mark against those of another, after the place in distinct heads and before it in a
-    // common head. The loaded keys have the mark 'a'; those a replace moves to 'z', above every loaded key;
-    // the items of the inserts 'm'.
-    private static string KeyOf(int place, int length, bool common, char mark)
-    {
-        var digits = place.ToString("D7", CultureInfo.InvariantCulture);
-
-        return common
-            ? new string('k', length - PlaceBytes - 1) + mark + digits
-            : digits + mark + new string('x', length - PlaceBytes - 1);
-    }
+    // The key of the length and the form given for the place: its seven digits first, then padding, in
+    // distinct heads (TextItems.Distinct); padding, then its digits, in a common head.
+    private static string KeyOf(int place, int length, bool common) =>
+        common
+            ? new string('k', length - PlaceBytes) + place.ToString("D7", CultureInfo.InvariantCulture)
+            : TextItems.Distinct(place, length);
 
     // Replaces the items in turn, one a call: changing the key moves the key of an item between its loaded
     // one and its moved one, and back with the next replace of the item; keeping it writes the key the
