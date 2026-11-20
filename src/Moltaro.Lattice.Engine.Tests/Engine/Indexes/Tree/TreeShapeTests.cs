@@ -4,7 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // The tree of an index keeps the shape of a B+tree through every change (docs/design/ordered-index.md,
 // "Nodes in the arena", "Writes"): the entries of a leaf lie in the order of the index; separator i of

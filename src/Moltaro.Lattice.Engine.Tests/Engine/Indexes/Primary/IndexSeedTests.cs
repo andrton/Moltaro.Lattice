@@ -3,7 +3,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.TestSupport.Text;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Each database instance draws a seed when it opens, and every hash of its primary index is computed
 // with it, for every key type and both comparisons of a String key; a String key compared with Ordinal

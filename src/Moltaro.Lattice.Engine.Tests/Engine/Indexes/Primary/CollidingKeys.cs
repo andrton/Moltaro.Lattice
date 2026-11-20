@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Int64 keys that share one hash of the primary index when its seed is 0, built as an outsider who
 // knows the function would build them (review round 2 of Epic 1, sprint S08, part 1; Q50 of the open

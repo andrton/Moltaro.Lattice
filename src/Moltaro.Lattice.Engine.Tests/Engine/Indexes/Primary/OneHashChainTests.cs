@@ -2,7 +2,7 @@ using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Entries that all have one hash, given to the primary index directly (review round 1 of Epic 1,
 // sprint S08, part 1: the index wrote past its table when many entries shared a hash). The engine

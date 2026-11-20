@@ -2,7 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Inserts prepared while the storage step holds a group, none of them published yet, each reserve room
 // in the primary index beside the others, so that every one finds its room when it is published, in

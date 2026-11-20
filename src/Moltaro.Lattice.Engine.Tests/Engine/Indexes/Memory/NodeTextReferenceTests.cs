@@ -2,7 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Text;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 
 // An index holds a copy of a text key of 64 bytes or less, whatever the storage of its field, and shares a
 // longer one with the text entry its root references; a node holds one reference for each such key among

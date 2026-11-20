@@ -6,7 +6,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 
 // A close completes only when the memory of the indexes is returned (docs/design/ordered-index.md: the
 // nodes are blocks of the arena; SecondaryIndex: the close frees them with the arena). The database is

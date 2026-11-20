@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Access;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
 // Index nodes are memory of the arena, counted in the budget of the instance, and a reservation of them
 // that the arena cannot hold takes nothing and is refused as a write the memory budget cannot hold is:

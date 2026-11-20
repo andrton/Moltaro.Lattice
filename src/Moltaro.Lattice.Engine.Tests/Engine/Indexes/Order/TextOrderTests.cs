@@ -2,7 +2,7 @@ using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Text;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Order;
 
 // Text in an index is ordered by the comparison of its field, the same in a UTF-8 and in a UTF-16
 // database: Ordinal by the UTF-16 code units, without case by the code units of the texts mapped through

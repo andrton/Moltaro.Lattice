@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // An enumeration that a growth of the primary index meets halfway returns every entity once and ends
 // (review round 1 of Epic 1, sprint S08, part 1: a step read the version of the index and then its

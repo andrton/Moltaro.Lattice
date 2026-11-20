@@ -3,7 +3,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // An entry the tree of an index holds already is never added again, and one it does not hold is never
 // taken away: either is refused before any store (OrderedTree.Insert, Remove; docs/design/ordered-index.md,

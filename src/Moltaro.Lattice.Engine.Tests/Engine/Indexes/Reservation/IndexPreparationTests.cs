@@ -5,7 +5,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
 // Index nodes are prepared before the commit, and nothing grows inside a publication (docs/design/
 // ordered-index.md, "The reservation"; milestone contract, "Index preparation and traversal"): in the hold

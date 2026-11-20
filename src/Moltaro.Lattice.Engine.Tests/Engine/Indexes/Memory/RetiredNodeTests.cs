@@ -2,7 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 
 // A node a write replaces is retired, counted as retired bytes, and freed after the reads that could reach
 // it have left, by the same protection of reads as every other read (docs/design/ordered-index.md, "The
