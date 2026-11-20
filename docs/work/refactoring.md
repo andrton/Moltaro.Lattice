@@ -55,10 +55,11 @@ Gone through by the planner and the coordinator on 18 November 2026.
      unchanged in figures is checked on the workstation by direction and listing, and
      decided at the start of S15, part 1, whose builds are `main` before S14R, `main`
      after it and the head.
-  4. **S15, part 1,** with E6, G4 and F5.
+  4. **S15, part 1,** with E6, G4, F5 and the read limits of F10.
   5. **S16,** with F6 and G2.
   6. **S17,** with F3, and G6 unless its study keeps the pool.
   7. **S23,** with F8.
+  8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
 
 ## Review of understandability, 18 November 2026
@@ -220,6 +221,7 @@ Taken by the planner and the coordinator on the same day.
 | F7 | `src/Moltaro.Lattice.Measurements/Scenarios/WriteCallersScenario.cs` and `ReadByKeyThreadsScenario.cs` | Both work on the users of the reference fixture, a type with three indexes, so neither measures a type without indexes, though the plan of the machine for S14, part 2 named them for it; that statement rested on the lines of `index-writes` with no index, one caller | A line of `write-callers` over a type without indexes, with its callers and its readers beside them, so that a start can state on many callers and readers that a type without indexes loses nothing | taken (the next sprint that starts the machine) |
 | F8 | `src/Moltaro.Lattice.Engine/Storage/Ordered/NodeStorage.cs` (the references of a shared text) | Each node that holds an entry of a shared key takes a reference to its text entry, so every copy of a leaf takes one for each such entry and every free releases them. A variant that leaves the reference to the root of the entry, for each entry, measured on the rented machine with keys of 100 and 200 bytes: a replace that changes the key 1.45 to 1.51 times the head, an insert and a delete 1.9 to 2.1 with distinct heads, a search and a replace that keeps the key unchanged; its patch is kept with the outputs of the start of S14, part 2, outside the repository | The references of a shared text held for each entry. It changes who holds a reference to a shared text, a rule of the [decision on strings](../decisions/strings.md), and its safety rests on the order of retirement: the owner's question, which the planner brings | taken (S23, decided by the owner on 20 November 2026, as the planner relays; it returns earlier only if a target for the writes of long text keys is set and missed) |
 | F9 | `src/Moltaro.Lattice.Measurements/Scenarios/IndexReadByKeyScenario.cs`, the line of 0 indexes, 1 thread, alone, before and after B2 | On the same engine the harness of B2 reads that line at 0.888 of the old one, in rounds of 0.94, 0.87 and 0.89, where its gauge is a single pair at 1.066; every other judged line agrees. Until the difference has a cause, the figures of that line recorded before B2 are not compared with figures after it | The cause found by reading what the old and the new harness do for that line: the window, the warm-up and what lies inside the timed region; if reading does not show it, that start carries a series of three builds for this line | taken (before the next start of the machine) |
+| F10 | `src/Moltaro.Lattice.Samples/Limits/ReadLimitsSample.cs` and `MemoryLimitSample.cs` | Both samples show their limit held and never reached, so the block that catches the refusal never runs: a sample of a limit teaches half of it | The sample of the read limits shows a limit reached and the error an application sees, in S15, part 1, whose tests and sample extend those limits to a search; the sample of the memory limit shows a write refused for memory and what the application does next, in S24. Each still runs to the end: its catch block reports and the program goes on | taken (S15, part 1, the read limits; S24, the memory limit) |
 
 ## Architect's review after S14, part 2, 20 November 2026
 
