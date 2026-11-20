@@ -118,59 +118,35 @@ internal sealed class OrderedTree
         identity = default;
         runEnds = false;
 
-        var address = LoadRoot();
-
-        if (address.IsNull)
-        {
-            return false;
-        }
-
         // The fence: the nearest separator above the leaf on the way down, in a node that stays
-        // allocated while the read is inside.
+        // allocated while the read is inside. The target: the fence of the leaf before, at which a descent
+        // after the first goes down; the first goes down by the probe.
         ReadOnlySpan<byte> fence = default;
+        ReadOnlySpan<byte> target = default;
         var hasFence = false;
-        var node = NodeAt(address);
+        var atFence = false;
+        IndexNode node;
+        int place;
 
-        while (!node.IsLeaf)
+        // The one descent, from the root to a leaf. When every entry of the leaf lies before the probe, it
+        // goes down again at the fence, to the next leaf, whose entries are all at or above the fence, which
+        // lies above the probe. A leaf of another moment may end before the fence, and the walk goes on at
+        // its own fence; each fence lies above the one before.
+        while (true)
         {
-            var child = ChildOf(node, probe);
-
-            if (child < node.Count)
-            {
-                fence = node.EntryAt(child);
-                hasFence = true;
-            }
-
-            node = NodeAt(node.ChildAt(child));
-        }
-
-        var place = FirstAtOrAfter(node, probe);
-
-        // Every entry of the leaf lies before the probe: the next leaf, whose entries are all at or above
-        // the fence, which lies above the probe. A leaf of another moment may end before the fence, and
-        // the walk goes on at its own fence; each fence lies above the one before.
-        while (place == node.Count)
-        {
-            if (!hasFence)
-            {
-                return false;
-            }
-
-            var target = fence;
-
-            hasFence = false;
-            address = LoadRoot();
+            var address = LoadRoot();
 
             if (address.IsNull)
             {
                 return false;
             }
 
+            hasFence = false;
             node = NodeAt(address);
 
             while (!node.IsLeaf)
             {
-                var child = ChildOf(node, target);
+                var child = atFence ? ChildOf(node, target) : ChildOf(node, probe);
 
                 if (child < node.Count)
                 {
@@ -181,7 +157,20 @@ internal sealed class OrderedTree
                 node = NodeAt(node.ChildAt(child));
             }
 
-            place = FirstAtOrAfter(node, target);
+            place = atFence ? FirstAtOrAfter(node, target) : FirstAtOrAfter(node, probe);
+
+            if (place < node.Count)
+            {
+                break;
+            }
+
+            if (!hasFence)
+            {
+                return false;
+            }
+
+            target = fence;
+            atFence = true;
         }
 
         var entry = node.EntryAt(place);
@@ -986,31 +975,26 @@ internal sealed class OrderedTree
     private IndexNode NodeAt(ArenaAddress node) => new(_layout, _arena.Payload(node));
 
     // The child of an inner node whose range holds the probe: the number of separators at or below it.
-    private int ChildOf(scoped in IndexNode node, scoped in SearchKey probe)
-    {
-        var low = 0;
-        var high = node.Count;
-
-        while (low < high)
-        {
-            var middle = (low + high) >>> 1;
-
-            if (_order.Compare(probe, node.EntryAt(middle)) < 0)
-            {
-                high = middle;
-            }
-            else
-            {
-                low = middle + 1;
-            }
-        }
-
-        return low;
-    }
+    private int ChildOf(scoped in IndexNode node, scoped in SearchKey probe) => EntriesBelow(node, probe, equalBelow: true);
 
     // The same for an entry: for the writer, and for a reader that descends at a fence.
-    private int ChildOf(scoped in IndexNode node, ReadOnlySpan<byte> entry)
+    private int ChildOf(scoped in IndexNode node, ReadOnlySpan<byte> entry) => EntriesBelow(node, entry, equalBelow: true);
+
+    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
+    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe) => EntriesBelow(leaf, probe, equalBelow: false);
+
+    // The same for an entry.
+    private int FirstAtOrAfter(scoped in IndexNode leaf, ReadOnlySpan<byte> entry) => EntriesBelow(leaf, entry, equalBelow: false);
+
+    // The binary search over the entries or the separators of a node by a search key: how many lie below
+    // the probe, with those equal to it counted below when equalBelow is true. It and the search by an
+    // entry below are one search written for each kind of probe, since a body shared between them would
+    // need an interface, a generic or a delegate.
+    private int EntriesBelow(scoped in IndexNode node, scoped in SearchKey probe, bool equalBelow)
     {
+        // The least order of the probe against an entry that counts the entry below it: one, which is
+        // above zero, or zero as well.
+        var least = equalBelow ? 0 : 1;
         var low = 0;
         var high = node.Count;
 
@@ -1018,59 +1002,37 @@ internal sealed class OrderedTree
         {
             var middle = (low + high) >>> 1;
 
-            if (_order.Compare(entry, node.EntryAt(middle)) < 0)
+            if (_order.Compare(probe, node.EntryAt(middle)) >= least)
             {
-                high = middle;
+                low = middle + 1;
             }
             else
             {
-                low = middle + 1;
+                high = middle;
             }
         }
 
         return low;
     }
 
-    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe)
+    // The same search by an entry.
+    private int EntriesBelow(scoped in IndexNode node, ReadOnlySpan<byte> entry, bool equalBelow)
     {
+        var least = equalBelow ? 0 : 1;
         var low = 0;
-        var high = leaf.Count;
+        var high = node.Count;
 
         while (low < high)
         {
             var middle = (low + high) >>> 1;
 
-            if (_order.Compare(probe, leaf.EntryAt(middle)) <= 0)
-            {
-                high = middle;
-            }
-            else
+            if (_order.Compare(entry, node.EntryAt(middle)) >= least)
             {
                 low = middle + 1;
             }
-        }
-
-        return low;
-    }
-
-    // The same for an entry.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, ReadOnlySpan<byte> entry)
-    {
-        var low = 0;
-        var high = leaf.Count;
-
-        while (low < high)
-        {
-            var middle = (low + high) >>> 1;
-
-            if (_order.Compare(entry, leaf.EntryAt(middle)) <= 0)
-            {
-                high = middle;
-            }
             else
             {
-                low = middle + 1;
+                high = middle;
             }
         }
 
