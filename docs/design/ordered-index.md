@@ -41,9 +41,11 @@ where a state would contribute a set of entries, is not built.
 
 Entries are ordered part by part in the order of the index, each part by the comparison
 of its field, and then by identity. Keys are compared by their values, never by bytes in
-another order than theirs: an integer by its value, a floating-point value by `CompareTo` (NaN first, the two zeros equal), a
-Decimal by its value, a Guid by `CompareTo`, the temporal types by their ticks or day
-numbers, text by the comparison of its field, the same in a UTF-8 and in a UTF-16
+another order than theirs: an integer by its value, signed or unsigned at its width; a
+Boolean false before true; a floating-point value by `CompareTo`, NaN first and the two
+zeros equal ([queries](../decisions/queries.md), Q07.3.6); a Decimal by its value, so 1.0
+and 1.00 are equal; a Guid by `CompareTo`; the temporal types by their ticks or day
+numbers; text by the comparison of its field, the same in a UTF-8 and in a UTF-16
 database: Ordinal by UTF-16 code units, without case by the code units of the texts
 mapped through the case table of the core ([strings](../decisions/strings.md), Q46). A
 null orders after every value of its part and equals another null, so a composite key
@@ -405,8 +407,9 @@ between two steps only the key and the identity of the last entity it returned:
    ends at its position or a later one, never before it. No entry the tree names keeps the
    mark for good: the entries of an insert enter the tree in the publication that stores
    its root entry right after them, and those of a delete leave before its root entry is
-   retired. An entry that is not live, a delete or an insert not yet published, is passed
-   over.
+   retired; a publication that fails between the two faults the database, and the wait
+   then reports `Unavailable`. An entry that is not live, a delete or an insert not yet
+   published, is passed over: such an insert has its position after the start of the step.
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is

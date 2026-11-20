@@ -9,62 +9,28 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // The ordered tree of one secondary index: a B+tree of nodes of the arena whose published nodes never
 // change (decision on index structures, the note of 19 November 2026). Modelled on, not adapted from,
 // LMDB, the principle of ROWEX and the walk of LeanStore; docs/design/ordered-index.md names them with
-// their licences and commits and tells how a split, a merge and a growth go. No code is ported.
+// their licences and commits and tells how a descent, a split, a merge and a growth go. No code is ported.
 //
-// Readers. A read inside the protection of reads loads the address of the root, and of each child on
-// its way down, with acquire semantics, reads each node with plain loads, and leaves: it takes no lock,
-// checks no version and never retries, and it never reads freed memory, since a node a write replaced is
-// retired, not freed, until the reads that could reach it have left (Protection.RetiredMemory).
-//
-// The writer. Only the holder of the lock of the writes changes the tree. A change copies each node it
-// changes into a node it reserved before the commit, writes the copy whole (NodeWriter), and publishes
-// it by one store of its address with release semantics, into the live parent or into the root of the
-// tree; the nodes it replaced are retired after that store. A node holds one reference for each shared
-// key among its entries or separators, from the moment it is written until it is freed, as every block
-// does (decision on strings, Q04.4, the settlement of 18 November 2026; Storage.Ordered.NodeStorage).
-//
-// The reservation. Nothing grows inside a publication. While p inserts, rewrites included, and q removes
-// are prepared and not published, the pool holds their need, the most nodes their publications can take
-// from the tree as it is now, as prepared blocks no reader can reach, and as many places in the retired
-// list:
-//
-//   Need = p (2h + 1) + 2 S + q (h + G + 1),
-//
-// with h the height now, S the levels the inserts before each insert can add, summed over the inserts,
-// and G the levels all p can add (Need, in closed form). An insert at height H takes at most two nodes on
-// each level and a new root, 2H + 1, and retires at most one node on each level; a remove takes at most
-// one on each level and retires at most one more, the neighbour of a merge, H + 1. The height grows only
-// when the root splits (Growth): the root takes the inserts of its room first, a root made by a split
-// holds one separator, and an insert adds at most one to any node, so the k-th insert finds the tree at
-// most Growth(k - 1) levels above h and every remove at most Growth(p) (ordered-index.md, "The
-// reservation"). A preparation takes the need of every write that waits, its own counted (TryReserve). A
-// publication takes at most the share of the need its write was counted with, and leaves the need of the
-// writes still waiting, at the tree as it is then, no larger than what is left: a Debug build asserts it
-// after every change of the pool (AssertReserved).
-//
-// The standing reserve. Once a preparation has touched the index, its pool keeps the need of one change
-// of key, an insert and a remove, at the tree as it is (StandingReserve), so that a write takes its nodes
-// from the pool and does not take and give back its whole need from the arena. A preparation tops the
-// pool up to it once every index of its write has its need, as far as the arena gives (TopUp); a top-up
-// that cannot be had is not a failure. A publication gives back what is above the larger of the need of
-// the writes still waiting and the reserve; a withdrawal what is above the need, the reserve with it, so
-// that what a write took and did not publish goes back to the arena and never into the reserve; neither
-// allocates. With nothing waiting the pool holds at most the reserve, and the close frees it with the
-// arena. Its nodes are prepared blocks, counted against the memory limit like any other, and it is never
-// the reason of a refusal: before a write is refused for memory every index gives back what is above the
-// need (GiveBackReserve), and the write is tried once more with its own need and no top-up
-// (Writes.WriteCoordinator, "The refusal"). The places in the retired list follow the need alone, since
-// places held for no write would keep the retired list from letting its room go
-// (Protection.RetiredMemory.Drain).
+// What it guarantees. A read inside the protection of reads takes no lock, checks no version, never
+// retries and never reads freed memory: it loads the root and every child address with acquire semantics,
+// and a node a write replaced is retired, not freed, until the reads that could reach it have left
+// (Protection.RetiredMemory; ordered-index.md, "How a reader descends, and why it is safe"). A write
+// copies each node it changes into a node reserved before its commit, writes the copy whole (NodeWriter),
+// publishes it by one store of its address with release semantics and retires what it replaced after that
+// store. A node holds one reference for each shared key among its entries and separators while it is
+// allocated (Storage.Ordered.NodeStorage; ordered-index.md, "Text references"). Nothing grows inside a
+// publication: the pool holds the need of the writes prepared and not published (Need), and once a
+// preparation has touched the index, the standing reserve of one change of key (StandingReserve, TopUp,
+// GiveBackReserve), which is never the reason of a refusal (ordered-index.md, "The reservation", "The
+// standing reserve"). A Debug build asserts after every change of the pool that it holds the need of the
+// writes still waiting (AssertReserved).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;
-// the pool of reserved nodes; the path of the writer's last descent. All but the root are the writer's
+// the pool of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
+// the protection; everything else from the writer, under the lock of the writes, which is safe because
+// only the holder of that lock changes, retires or frees what the tree holds, and all but the root is its
 // alone.
-//
-// Who calls what: TryFindFirst from reads, inside the protection; everything else from the writer, under
-// the lock of the writes, outside the protection, which is safe because only the holder of that lock
-// changes, retires or frees what the tree holds.
 internal sealed class OrderedTree
 {
     private readonly IndexLayout _layout;
@@ -235,7 +201,7 @@ internal sealed class OrderedTree
 
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
     // list for the inserts and the removes given, beside those prepared before and not published, the
-    // need of them all (see the class, "The reservation"); the standing reserve is TopUp's. True when the
+    // need of them all (ordered-index.md, "The reservation"); the standing reserve is TopUp's. True when the
     // reservation is made; false when the arena cannot hold the nodes, with nothing taken. An
     // OutOfMemoryException of the native allocator or of the managed heap leaves nothing taken either.
     public bool TryReserve(int inserts, int removes)

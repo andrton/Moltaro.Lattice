@@ -126,7 +126,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // A write that is prepared otherwise tops the standing reserve of each index it changes up, once it has
 // all it needs, as far as the arena gives (Entities.ChangePublisher.TopUp); a top-up that cannot be had
 // is not a failure. So the reserves count against the memory limit and are never the reason of a refusal
-// (Indexes.OrderedTree, "The standing reserve").
+// (docs/design/ordered-index.md, "The standing reserve").
 // In MemoryOnly a write completes in the hold of its call, so a refused write is the oldest and nothing
 // is prepared and unpublished, and the resolution is the plain one: free what is retired, wait for the
 // reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held

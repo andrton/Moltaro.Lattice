@@ -119,7 +119,7 @@ internal sealed class IndexLayout
 
     // The fewest separators an inner node holds before it is full: as many of the widest as fit. A root
     // made by a split holds one, and gains at most one for each insert, which bounds how far the tree
-    // can grow while writes are prepared (Engine.Indexes.OrderedTree, "The reservation").
+    // can grow while writes are prepared (docs/design/ordered-index.md, "The reservation").
     public int LeastSeparators { get; }
 
     // How many parts are Strings: the most text entries one entry can reference.

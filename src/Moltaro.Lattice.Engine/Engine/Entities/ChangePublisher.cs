@@ -15,22 +15,12 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // The secondary indexes are kept here, for every change and every index of its entity type
 // (Indexes.SecondaryIndex), so that a master, a forwarded write, a root of a load and a transaction of a
-// child keep them alike: the reservation reserves the nodes of each index the change needs, and a change
-// whose nodes the arena cannot hold is refused for memory with nothing taken; a change that is not
-// published gives its nodes back; the new entries are installed before the stores of the root, and the old
-// ones taken away after the position and before the root they belong to is retired. So the entries of a
-// publication go in, then its roots, then the old entries go out, each by its own stores, and the check of
-// a found entry against its root covers the moments between (docs/design/ordered-index.md, "The entries of
-// one write"). What a change does to each index is decided once, by the reservation, from the two roots,
-// which stay as they are until the change is published or given back (Indexes.SecondaryIndex.ChangeOf),
-// and recorded with the change (PreparedChange.IndexChanges); every later step reads it, and a change that
-// changes no index, as a replace that leaves every entry as it was, passes every index by.
-//
-// The callers keep the standing reserve of each index (Indexes.OrderedTree, "The standing reserve") by the
-// rule of a write refused for memory: once every change of a write or a transaction has its nodes, a
-// caller tops the reserves up (TopUp), and before it refuses one for memory, it has every index of the
-// database give back what is above the need of the changes prepared (GiveBackReserves) and tries once
-// more.
+// child keep them alike. What a change does to each index is decided once, by the reservation, from the
+// two roots, which stay as they are until the change is published or given back, and recorded with the
+// change (PreparedChange.IndexChanges); the new entries go in before the stores of the root, the old ones
+// out after the position and before their root is retired. The callers keep the standing reserve of each
+// index (TopUp, GiveBackReserves). docs/design/ordered-index.md, "The entries of one write", "The
+// reservation" and "The standing reserve", says how and why.
 //
 // What it guarantees. The stores are made in that order, each with release semantics (Volatile.Write), so a
 // read that sees one, by a load with acquire semantics, sees every store before it, the blocks the

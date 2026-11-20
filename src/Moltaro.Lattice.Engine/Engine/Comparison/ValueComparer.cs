@@ -48,33 +48,14 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // (Sets.KeyArgument), before the read enters the protection of reads, and the index keeps it in its
 // entry, so no stored text is ever hashed.
 //
-// The order (CompareStored, CompareText), which an index needs beside the equality. A value of a fixed
-// type is compared by the value its stored bytes hold, read by the one reader of that form
-// (Storage.Values.StoredScalars), never as raw bytes: an integer by its number, signed or unsigned at its
-// width; a Boolean false before true; a Float32 or a Float64 by its CompareTo, so that a NaN comes first
-// and equals a NaN, and the two zeros are equal (decision on queries, Q07.3.6); a Decimal by its value,
-// so 1.0 and 1.00 are equal; a Guid by its CompareTo; a DateTimeOffset, a TimeOnly and a TimeSpan by
-// their ticks and a DateOnly by its day number. A text is compared by the comparison its field declares,
-// the same in a UTF-8 and in a UTF-16 database (Q07.3.6, "String ordering and query overrides"): Ordinal
-// by its UTF-16 code units, and without case by the code units of the texts mapped through the case
-// table of the core (TextComparison.ToUpper; decision on strings, Q46), which keeps the number of code
-// units of every scalar value, so that the order holds two texts equal exactly where the equality above
-// does. Both texts are read a piece at a time, a stored one through StoredTextReader, a given one as it
-// is, and a text that the other begins with comes first. A null is no value here: the order of an index
-// puts it after every value of its part.
-//
-// The order of two texts of a UTF-8 database under Ordinal, from their bytes (CompareUtf8Ordinal): UTF-8
-// bytes sort as code points (RFC 3629), which is the order of the UTF-16 code units of the texts except at
-// one place. A character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, comes before one beyond U+FFFF, lead
-// byte 0xF0 or above, by code point, and after it by code unit, since UTF-16 writes the latter with
-// surrogates, which lie below 0xE000. The texts are well-formed, so the first byte that differs is the
-// lead byte of a character on both sides, or a continuation byte on both, inside characters with the same
-// lead byte. The order turns around when one of those bytes is 0xEE or 0xEF and the other 0xF0 or above:
-// two lead bytes of the two ranges. A continuation byte (0x80 to 0xBF) never meets that test, and is
-// right not to, since two characters with one lead byte lie in the same range. Text of a UTF-16 database
-// has no such path: its bytes are little-endian code units, whose order is not that of the code units, so
-// it is compared a piece at a time, as above. A comparison without case stays on the decoded form, as the
-// mapping of the case table needs it.
+// The order (CompareStored, CompareText, CompareUtf8Ordinal), which an index needs beside the equality:
+// a value of a fixed type by the value its stored bytes hold, read by the one reader of that form
+// (Storage.Values.StoredScalars), never as raw bytes; a text by the comparison its field declares, the same
+// in a UTF-8 and in a UTF-16 database, so that the order holds two texts equal exactly where the equality
+// above does. Two texts are read a piece at a time, a stored one through StoredTextReader, and a text that
+// the other begins with comes first; text of a UTF-8 database under Ordinal is compared by its bytes
+// instead (CompareUtf8Ordinal). A null is no value here. The rule for each type, with its decision, is in
+// docs/design/ordered-index.md, "Entries and their order".
 //
 // What it reserves: nothing. The buffers are pieces of 512 bytes of the stack of the comparison, those of
 // the mapping only for a comparison without case, and none of them is zeroed (SkipLocalsInit): every code
@@ -216,8 +197,17 @@ internal static class ValueComparer
         return Compare(ref storedMappedUnits, ref givenMappedUnits);
     }
 
-    // The order of two texts of a UTF-8 database under Ordinal, from their bytes (see the class): below zero
-    // when the left one comes first, the order of their UTF-16 code units. Allocates nothing.
+    // The order of two texts of a UTF-8 database under Ordinal, from their bytes: below zero when the left
+    // one comes first, the order of their UTF-16 code units. Allocates nothing. UTF-8 bytes sort as code
+    // points (RFC 3629), which is the order of the code units except at one place: a character of U+E000 to
+    // U+FFFF, lead byte 0xEE or 0xEF, comes before one beyond U+FFFF, lead byte 0xF0 or above, by code
+    // point, and after it by code unit, since UTF-16 writes the latter with surrogates, which lie below
+    // 0xE000. The texts are well-formed, so the first byte that differs is the lead byte of a character on
+    // both sides, or a continuation byte on both, inside characters with the same lead byte. The order
+    // turns around when one of those bytes is 0xEE or 0xEF and the other 0xF0 or above: two lead bytes of
+    // the two ranges. A continuation byte (0x80 to 0xBF) never meets that test, and is right not to, since
+    // two characters with one lead byte lie in the same range. Text of a UTF-16 database has no such path:
+    // its little-endian bytes are not in the order of its code units.
     public static int CompareUtf8Ordinal(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
     {
         var common = left.CommonPrefixLength(right);

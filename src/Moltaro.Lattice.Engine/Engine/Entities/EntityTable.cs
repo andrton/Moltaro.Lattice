@@ -691,13 +691,13 @@ internal sealed class EntityTable
         return true;
     }
 
-    // Steps 2 to 4 of a step of a search (IndexSearch), inside the protection: takes the entry by its
-    // stamp, as a read takes it, and copies its root only when it is live and has the key of the search.
-    // False when the step passes over it.
+    // Steps 2 to 4 of a step of a search (ordered-index.md, "The search by a full key"), inside the
+    // protection: takes the entry by its stamp, as a read takes it, and copies its root only when it is
+    // live and has the key of the search. False when the step passes over it.
     // Every entry the step meets is taken by its stamp, whatever its state, so that a write between its
     // mark and its stamp is waited for, as a read waits for it, and a step never ends at a position
-    // before a delete or a replace it passed over (IndexSearch, step 2, says why no entry it meets keeps
-    // the mark).
+    // before a delete or a replace it passed over (docs/design/ordered-index.md, "The search by a full
+    // key", step 2, says why no entry it meets keeps the mark).
     private bool TryCopyFound<TCopy, TResult>(ref RootEntry entry, SecondaryIndex index, scoped in SearchKey key, ref TCopy copy, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class

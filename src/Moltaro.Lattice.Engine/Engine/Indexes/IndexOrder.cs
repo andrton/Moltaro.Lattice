@@ -8,43 +8,20 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Engine.Indexes;
 
 // The order of the entries of one secondary index, and of a search key against them: part by part in the
-// order of the index, each part by the comparison of its field, and, when every part is equal, by the
-// identity, so that the entries of one key are a run ordered by the identity of their root entries
-// (docs/design/ordered-index.md, "Entries and their order"). Keys are compared by their values, never by
-// bytes in another order than theirs: the bytes of a part are its stored value, and their order is the
-// order of that value; the bytes of a text compared Ordinal in a UTF-8 database are compared with the one
-// turn that makes their order that of the code units (Comparison.ValueComparer.CompareUtf8Ordinal).
+// order of the index, each part by the comparison of its field, then by the identity, so that the entries
+// of one key are a run ordered by the identity of their root entries. Keys are compared by their values,
+// never by bytes in another order than theirs, through the one comparison service of the schema
+// (Comparison.ValueComparer; decisions on queries, Q07.3.6, and on strings, Q46); a null part comes after
+// every value of its part and equals another null. Equal parts need not be the same bytes, as a text under
+// another case: they are one key. A text compared Ordinal in a UTF-8 database is compared by its bytes
+// where they lie, the copy in the entry or the text entry of a shared key, against the key of a search
+// encoded once for the step (SearchKey.TryTextBytes), with the turn that makes their order that of the
+// code units (ValueComparer.CompareUtf8Ordinal); every other text is read decoded, a piece at a time on
+// the stack (Storage.Values.StoredTextReader). An index of one part never null whose stored form is a
+// signed integer of 8 bytes compares that number without the loop over the parts (OneNumber). The rules
+// and why they hold: docs/design/ordered-index.md, "Entries and their order".
 //
-// A part, by its type, by the one comparison service of the schema (Comparison.ValueComparer;
-// milestone contract, "Index preparation and traversal"), which this order needs beside the equality
-// and the hash it serves today:
-// - an integer by its value, signed or unsigned at its width; a Boolean false before true; a Float32 or
-//   Float64 by its CompareTo, NaN first and the two zeros equal (decision on queries, Q07.3.6,
-//   "Floating-point special values"); a Decimal by its value, so 1.0 and 1.00 are equal; a Guid by its
-//   CompareTo; a DateTimeOffset, a TimeOnly and a TimeSpan by their ticks and a DateOnly by its day number,
-//   each read from its stored bytes by the one reader of that form (Storage.Values.StoredScalars);
-// - a String by the comparison its field declares, in the same order in a UTF-8 and in a UTF-16
-//   database (Q07.3.6, "String ordering and query overrides"): Ordinal by the UTF-16 code units, and
-//   OrdinalIgnoreCase by the code units of the texts each scalar value of which is replaced by its
-//   mapping of the case table of the core (decision on strings, Q46), the same on every node; no .NET
-//   culture or runtime table takes part. Ordinal in a UTF-8 database compares the bytes where they lie,
-//   the copy in the entry or the text entry of a shared key, and the bytes of the key of a search, which
-//   it encodes once for the step (SearchKey.TryTextBytes); every other text, and a text the bytes of which
-//   do not lie in one place, is read a piece at a time on the stack (Storage.Values.StoredTextReader, which
-//   reads from a copy it is given as well as from a descriptor), in the encoding of the database the layout
-//   of the index holds;
-// - a null part after every value of its part, and equal to another null, so that a composite key goes
-//   on to its next part. That nulls come last in both directions of a walk is a rule of the walk.
-//
-// Equal parts that are not the same bytes exist: a text under another case, a Decimal of another scale.
-// They are one key; the entry of a root holds the bytes of its own value (SecondaryIndex, "A write").
-//
-// The comparison is chosen once for an index, when its order is made from its layout: an index of one
-// part never null whose stored form is a signed integer of 8 bytes compares that number, read where the
-// layout places it, without the loop over the parts and the comparison by type, in the same order; every
-// other index takes the loop (OneNumber).
-//
-// No state but what it is made with; a comparison allocates nothing and reads, inside the protection of
+// No state but what it is made with. A comparison allocates nothing and reads, inside the protection of
 // reads or under the lock of the writes, only the entries it is given and the text entries they
 // reference, which the node that holds them keeps from being freed.
 internal sealed class IndexOrder
