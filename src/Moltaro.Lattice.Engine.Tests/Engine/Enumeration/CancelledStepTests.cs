@@ -14,11 +14,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // session ends with the token is stated by ReadLimitsTests of Moltaro.Lattice.Tests.
 //
 // - The wait for a slot. Every slot of the epoch table is held (FullEpochTable), and the next step of a
-//   pass that has taken its first one waits for a slot; its token is cancelled after 500 ms. It ends in
-//   OperationCanceledException while every slot is still held: by class and by name, with the token
-//   given either way, without a time limit, under one it cannot reach in the test, and under one of
-//   100 ms that the wait has passed, so that the limit and the token have both been passed when the
-//   step looks.
+//   pass that has taken its first one waits for a slot; its token is cancelled once the wait has lasted
+//   longer than the time limit of ReadTimes. It ends in OperationCanceledException while every slot is
+//   still held: by class and by name, with the token given either way, without a time limit, under one
+//   it cannot reach in the test, and under that of ReadTimes, which the first step does not reach on a
+//   busy machine and the wait has passed, so that the limit and the token have both been passed when
+//   the step looks.
 // - Between the rounds of a step. A step walks the index in rounds of 256 words, each inside the
 //   protection of reads, and after a growth of the index it walks the grown table from its start. The
 //   test makes a long step: 65,536 entities, as many as the main table holds before it grows, every one
@@ -49,10 +50,8 @@ public sealed class CancelledStepTests
 
     private const ulong Seed = 0x9E3779B97F4A7C15;
 
-    private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(100);
-
     // How long a step waits for a slot before its token is cancelled.
-    private static readonly TimeSpan Wait = 5 * Limit;
+    private static readonly TimeSpan Wait = ReadTimes.BeyondTheLimit;
 
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
@@ -195,7 +194,7 @@ public sealed class CancelledStepTests
     {
         NoLimit => null,
         LimitNotReached => TimeSpan.FromHours(1),
-        _ => Limit,
+        _ => ReadTimes.Limit,
     };
 
     // A master of the engine with the stamps 0 to 3, each of the state of its own number, under the time
