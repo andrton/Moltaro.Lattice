@@ -158,9 +158,10 @@ internal sealed class ChangePublisher
         }
     }
 
-    // What the change does to the index at the place given, as its reservation decided it: below the shared
-    // bit from the masks of the change, and at the place of the shared bit or above, when that bit is set,
-    // decided again from the same two roots by the same test, which builds no entry
+    // What the change does to the index at the place given, as its reservation decided it: an insert
+    // inserts and a delete removes in every index its masks name; a replace rewrites or moves, below the
+    // shared bit as the masks of the change say, and at the place of the shared bit or above, when that bit
+    // is set, as the same two roots decide again by the same test, which builds no entry
     // (PreparedChange.IndexChanges). Replaced is the root the change replaces or deletes, null for an
     // insert.
     private IndexChangeEnum ChangeAt(in PreparedChange change, int index, ArenaAddress replaced)
@@ -172,30 +173,26 @@ internal sealed class ChangePublisher
             return IndexChangeEnum.None;
         }
 
-        if (index >= PreparedChange.SharedBit)
+        if (change.Kind == ChangeKindEnum.Insert)
         {
-            return Decide(change, change.Table.Indexes[index], replaced);
+            return IndexChangeEnum.Insert;
         }
 
-        return change.Kind switch
+        if (change.Kind == ChangeKindEnum.Delete)
         {
-            ChangeKindEnum.Insert => IndexChangeEnum.Insert,
-            ChangeKindEnum.Delete => IndexChangeEnum.Remove,
-            _ => (change.IndexRewrites & bit) != 0 ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move,
-        };
-    }
+            return IndexChangeEnum.Remove;
+        }
 
-    // What the change does to the index, decided from its roots as the reservation decides it.
-    private IndexChangeEnum Decide(in PreparedChange change, SecondaryIndex index, ArenaAddress replaced)
-    {
-        if (change.Kind != ChangeKindEnum.Replace)
+        if (index < PreparedChange.SharedBit)
         {
-            return change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
+            return (change.IndexRewrites & bit) != 0 ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
         }
 
         var layout = change.Table.Layout!;
+        var old = new RootReader(_arena, layout, replaced);
+        var current = new RootReader(_arena, layout, change.Root);
 
-        return index.ChangeOf(new RootReader(_arena, layout, replaced), new RootReader(_arena, layout, change.Root));
+        return change.Table.Indexes[index].ChangeOf(old, current);
     }
 
     // Under the lock of the writes, once every change of a write or of a transaction is prepared and has
