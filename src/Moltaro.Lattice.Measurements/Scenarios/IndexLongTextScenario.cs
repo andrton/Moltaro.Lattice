@@ -18,15 +18,19 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //   replace that keeps the key and changes Number; and an insert of an item of its own with a key of the
 //   same form between the loaded ones and its delete, 1,000 items in turn, both writes counted.
 // A line gives the searches or the writes a second, and the managed bytes for each, as index-search and
-// index-writes give them; every window is measured as in index-search (IndexSearchScenario.Measure). Before
-// the first case the process runs the first form once on WarmUpCount items, unreported: on the
-// workstation the first case of a process otherwise loaded several times slower than the others and
-// searched at a fraction of their rate, the cost of compiling the steps and growing the arena.
+// index-writes give them; every window is measured as in index-search (IndexSearchScenario.Measure). Every
+// key a step writes or searches is built before the windows, so that the bytes are the database's alone:
+// with keys of 100 bytes built in the window, an insert and a delete gave 380 bytes a write against 144,
+// and a replace a figure that moved with the items a series found moved. Before the first case the
+// process runs the first form once on WarmUpCount items, unreported: on the workstation the first case of
+// a process otherwise loaded several times slower than the others and searched at a fraction of their
+// rate, the cost of compiling the steps and growing the arena.
 //
-// The scenario of the variants of the head that series 6 of S14, part 2 compares: a prefix beside a shared
-// key against none, and the references to text entries held for a node against for an entry
-// (docs/work/epic-1-core.md, "The machine"). A run takes about a minute on the development machine, held
-// to eight logical processors as development-5 says.
+// It is the measurement the open question of a prefix beside a shared key asks for, on random and on
+// common heads, and the one of what holding text references for each node costs a write
+// (docs/design/ordered-index.md, "Text keys", "Text references"); a variant of the engine is measured by
+// running it on a build of that variant. A run takes about a minute on the development machine, held to
+// eight logical processors as development-5 says.
 internal static class IndexLongTextScenario
 {
     public const string Name = "index-long-text";
@@ -75,7 +79,9 @@ internal static class IndexLongTextScenario
     // The lines of one case of the items given: the load, the search and the three kinds of writes.
     private static IEnumerable<string> Case(int length, bool common, int count, int[] places)
     {
-        var titles = Enumerable.Range(0, count).Select(place => KeyOf(place, length, common, 'a')).ToArray();
+        var titles = Titles(count, length, common, 'a');
+        var movedTitles = Titles(count, length, common, 'z');
+        var ownTitles = Titles(OwnItems, length, common, 'm');
 
         using var items = IndexedItems.Load(0, [.. titles.Select((title, place) => IndexedItems.Item.Keyed(place + 1, 0, title))], titled: true);
 
@@ -87,10 +93,14 @@ internal static class IndexLongTextScenario
 
         yield return $"{title}: {items.Loaded}";
         yield return $"{title}, search, 1 thread: {IndexSearchScenario.Series(1, start => IndexSearchScenario.Searcher(byClass, titles, places, start, firstOnly: false), writer: null)}";
-        yield return $"{title}, 1 caller that replaces changing the key: {IndexWritesScenario.Series(1, (_, _) => Replacer(items, titles, moved, length, common, changeKeys: true))}";
-        yield return $"{title}, 1 caller that replaces keeping the key: {IndexWritesScenario.Series(1, (_, _) => Replacer(items, titles, moved, length, common, changeKeys: false))}";
-        yield return $"{title}, 1 caller that inserts and deletes: {IndexWritesScenario.Series(1, (_, _) => InserterAndDeleter(items, count, length, common))}";
+        yield return $"{title}, 1 caller that replaces changing the key: {IndexWritesScenario.Series(1, (_, _) => Replacer(items, titles, movedTitles, moved, changeKeys: true))}";
+        yield return $"{title}, 1 caller that replaces keeping the key: {IndexWritesScenario.Series(1, (_, _) => Replacer(items, titles, movedTitles, moved, changeKeys: false))}";
+        yield return $"{title}, 1 caller that inserts and deletes: {IndexWritesScenario.Series(1, (_, _) => InserterAndDeleter(items, count, ownTitles))}";
     }
+
+    // The keys of the places 0 to count - 1 with the mark given (KeyOf).
+    private static string[] Titles(int count, int length, bool common, char mark) =>
+        [.. Enumerable.Range(0, count).Select(place => KeyOf(place, length, common, mark))];
 
     // A key of the length and the form given for the place, with the mark given: a letter that orders the
     // keys of one mark against those of another, after the place in distinct heads and before it in a
@@ -108,7 +118,7 @@ internal static class IndexLongTextScenario
     // Replaces the items in turn, one a call: changing the key moves the key of an item between its loaded
     // one and its moved one, and back with the next replace of the item; keeping it writes the key the
     // item has, which moved says. Either way Number changes, so that every replace changes the item.
-    private static Func<int> Replacer(IndexedItems items, string[] titles, bool[] moved, int length, bool common, bool changeKeys)
+    private static Func<int> Replacer(IndexedItems items, string[] titles, string[] movedTitles, bool[] moved, bool changeKeys)
     {
         var item = new IndexedItems.Item();
         var place = 0;
@@ -122,7 +132,7 @@ internal static class IndexLongTextScenario
 
             item.Id = place + 1;
             item.Number++;
-            item.Title = moved[place] ? KeyOf(place, length, common, 'z') : titles[place];
+            item.Title = moved[place] ? movedTitles[place] : titles[place];
             items.Replace(item);
 
             place = place + 1 == titles.Length ? 0 : place + 1;
@@ -132,7 +142,7 @@ internal static class IndexLongTextScenario
     }
 
     // Inserts an item of its own and deletes it again: two writes.
-    private static Func<int> InserterAndDeleter(IndexedItems items, int count, int length, bool common)
+    private static Func<int> InserterAndDeleter(IndexedItems items, int count, string[] ownTitles)
     {
         var item = new IndexedItems.Item();
         var next = 0;
@@ -140,8 +150,8 @@ internal static class IndexLongTextScenario
         return () =>
         {
             item.Id = count + 1L + next;
-            item.Title = KeyOf(next, length, common, 'm');
-            next = next + 1 == OwnItems ? 0 : next + 1;
+            item.Title = ownTitles[next];
+            next = next + 1 == ownTitles.Length ? 0 : next + 1;
 
             items.Insert(item);
             items.Delete(item.Id);
