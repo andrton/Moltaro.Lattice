@@ -251,15 +251,15 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Child_opened_before_its_master_waits_for_it()
     {
-        using var address = new HeldAddress();
+        using var port = new ListeningPort();
 
-        var opening = TestData.OpenChildAsync(address.Uri).AsTask();
-        await address.EndAttemptAsync();
+        var opening = TestData.OpenChildAsync(port.Address).AsTask();
+        await port.EndAttemptAsync();
         Assert.False(opening.IsCompleted);
 
-        // The address is let go only now, for the master that opens at it.
-        address.Dispose();
-        await using var master = await TestData.OpenMasterAsync(address.Uri);
+        // The port is freed only now, for the master that opens at it.
+        port.Dispose();
+        await using var master = await TestData.OpenMasterAsync(port.Address);
         await master.Users().InsertAsync(new User { Id = 1, Name = "Ada" });
 
         await using var child = await opening;
@@ -269,11 +269,11 @@ public sealed class MasterAndChildTests
     [Fact]
     public async Task Opening_a_child_can_be_cancelled()
     {
-        using var address = new HeldAddress();
+        using var port = new ListeningPort();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await TestData.OpenChildAsync(address.Uri, cancellation.Token));
+            async () => await TestData.OpenChildAsync(port.Address, cancellation.Token));
     }
 
     [Fact]
