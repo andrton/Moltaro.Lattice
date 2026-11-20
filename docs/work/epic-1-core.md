@@ -6098,16 +6098,22 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
 
   | # | Series | Expected length | Decides |
   | --- | --- | --- | --- |
-  | 1 | The harness of B2, the old (`main` at f3d767f) and the new on the same engine, beside two builds of one commit as the gauge: read-by-key-threads at 1 and 16 threads, dictionary-reads, write-callers, index-read-by-key, and index-search at 1 and 8 readers. Owed: the workstation could not give it | about 20 minutes | that the new harness measures what the old one did |
-  | 2 | The gauge: two builds of `main` against each other | about 30 minutes | the spread against which the series below are judged |
-  | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head | about 70 minutes, three builds rotating (`main`, a second build of `main`, the head), three rounds | (a), (b), (d) |
-  | 4 | The size of a node, 1 KiB against 2 KiB, 8 readers beside a writer, on the prototype or in the engine, as the implementer provides | about 30 minutes | (e) |
-  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | about 45 minutes, eight rounds | that a type without indexes loses nothing |
-  | 6 | Text keys longer than 64 bytes, `index-search` and `index-writes` with a text key of 100 and of 200 bytes: a prefix beside the shared key against none, and text references for a node against for an entry, each as a variant of the head that the implementer provides | about 30 minutes | (e), the two questions left |
+  | 1 | The harness of B2, the old (`main` at f3d767f) and the new on the same engine, beside two builds of one commit as the gauge: read-by-key-threads at 1 and 16 threads, dictionary-reads, write-callers, index-read-by-key, and index-search at 1 and 8 readers. Owed: the workstation could not give it | about 60 minutes: for each scenario three rounds of the old and the new and one pair of the gauge, 8 runs | that the new harness measures what the old one did |
+  | 2 | The gauge: two builds of `main` against each other, over the scenarios of series 3 to 6 | about 45 minutes, three rounds | the spread against which the series below are judged |
+  | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head | about 35 minutes, three builds rotating (`main`, a second build of `main`, the head), three rounds | (a), (b), (d) |
+  | 4 | The size of a node, 1 KiB against 2 KiB, in the engine: the head against the head with nodes of 2 KiB, a variant of one constant (`IndexLayout.SmallestNodeBytes`); `index-search`, whose 8 readers beside a writer decide, `index-writes` and `index-build` | about 20 minutes, two builds rotating, three rounds | (e) |
+  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | about 40 minutes, eight rounds | that a type without indexes loses nothing |
+  | 6 | Text keys longer than 64 bytes, in the scenario `index-long-text`: search and writes with a text key of 100 and of 200 bytes, with distinct heads and with a common head. The head against two variants of it: a prefix of 8 bytes beside the shared key, and the references to a text held for each entry by its root instead of by each node again | about 10 minutes, three builds rotating, three rounds | (e), the two questions left |
 
-  The whole start is about four hours. The lengths are estimated from the start of 19
-  November 2026, where a run of one scenario of one build took a little under a minute; a
-  series is added during the start only for a reason the planner agrees to.
+  The variants are patches of the head, kept with the outputs of the start and never in the
+  repository; a variant is built without its tests, whose statements of the layout fail by
+  design. Seven builds — f3d767f, two of `main`, the head and its three variants — take
+  about 10 minutes more. The whole start is about three hours and forty minutes. The
+  lengths are estimated from the start of 19 November 2026, which took a run of
+  read-by-key-threads in about 96 seconds, of write-callers in 50 and of dictionary-reads
+  in 204, and from the workstation for the scenarios of the indexes: index-writes about 124
+  seconds, index-search 64, index-long-text 55, index-read-by-key 25 and index-build about
+  15. A series is added during the start only for a reason the planner agrees to.
 
 - **After it.** S14R holds structure only ([refactoring backlog](refactoring.md)); what the
   reviews of S14 found as cost is this sprint's. Then S15.
