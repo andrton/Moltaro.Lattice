@@ -7699,11 +7699,6 @@ within the timeout.
 
 #### S39 · Diagnostics
 
-**Carried from the architect's review after S14, part 2 (20 November 2026):**
-`OrderedTree.Height`, `Count` and `Bytes` are read today only by the tests of the engine;
-this sprint either reads them or removes them, together with the two counts the tree keeps
-for them (entry I3 of the [refactoring backlog](refactoring.md)).
-
 **Track:** full · **Needs:** S38 · **Owner:** E08 · **Closes:** R33, Q14
 
 - **Goal.** An operator sees the state of a node and, through a child, of its master,
