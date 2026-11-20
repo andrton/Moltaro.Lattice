@@ -12,9 +12,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // that order. When the link holds, after HeldLink.Passed bytes:
 // - the small pieces have been copied: they travel in the first Blocks frame, well within what the link
 //   passes (Copied);
-// - the last pieces have not been copied yet: more than 28 MiB lie before them, far more than the buffers
-//   of a connection on the loopback interface hold, so the capture waits in a send long before it
-//   reaches them (NotCopied).
+// - the last pieces have not been copied yet: more than 28 MiB lie before them, far more than the fixed
+//   receive buffer of the link (LoopbackLink.ReceiveBuffer) and the send buffer of the master hold, so
+//   the capture waits in a send long before it reaches them (NotCopied).
 // Which of the large pieces before those the capture has copied depends on those buffers, and no test
 // relies on it.
 internal sealed class HeldLoad : IAsyncDisposable
