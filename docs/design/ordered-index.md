@@ -120,7 +120,9 @@ for keys of 4, 8 and 16 bytes inserted in random order, 12.9, 17.2 and 26.5 asce
 16-byte steps, so it loses no slack of a class: 992 bytes of payload. The prototype
 searched at 1.90 million a second on one thread and 7.32 million on sixteen with nodes of
 1 KiB, and at 2.15 and 8.26 million with nodes of 4 KiB: a difference near the tenth that
-one run does not decide. A write copies and retires one node of each index it changes,
+one run does not decide; in the engine on the rented machine a node of 2 KiB read at most
+4 % faster beside a writer and wrote 2 to 3 % slower (20 November 2026), so the node stays
+at 1 KiB. A write copies and retires one node of each index it changes,
 so a node of 4 KiB would copy, and hold back under a held read, four times the bytes for
 every write. The engine measures it again. An index whose four widest entries, every text
 part a copy of 64 bytes, do not fit a leaf of 1 KiB, or four widest separators an inner
@@ -154,12 +156,12 @@ this form on 19 November 2026; the prototype measured a search by a copied key t
 five times faster than through a shared entry at 8 and 32 bytes, and sharing short values
 cost a read by the primary key 14 to 25% at 8 bytes.
 
-**Open: a prefix beside a shared key.** Whether a shared key carries its first 8 bytes
-beside the reference, so that most comparisons do not read the text entry, is decided by
-a measurement in the engine on keys with random and with common heads. On the prototype
-the prefix won on random keys and lost on keys of 32 bytes that share their first
-bytes, as numbered logins, addresses and paths do. The head byte 254 is kept for that
-form; nothing else of it is built.
+**No prefix beside a shared key.** A shared key does not carry its first 8 bytes beside
+the reference. Measured in the engine on the rented machine on 20 November 2026, with
+keys of 100 and 200 bytes, the prefix made a search 1.26 and 1.30 times as fast where the
+keys differ in their first bytes, and 0.89 and 0.93 where they share them, as numbered
+logins, addresses and paths do; long keys usually share their heads. The head byte 254
+stays kept for a form of its own; nothing of it is built.
 
 ### Text references
 
@@ -177,8 +179,11 @@ The cost is one reference taken for each shared key of each node a write copies,
 released when that copy is freed. In an index whose keys are all longer than 64 bytes a
 leaf holds up to 42 of them, about 28 at the fill random inserts leave, so a write takes
 and later releases about that many; in an index whose keys are copied, none. The rule is
-the one of every block, confirmed for index nodes; the write of an index of long keys is
-measured before it is questioned.
+the one of every block, confirmed for index nodes. Measured on the rented machine on 20
+November 2026, with keys of 100 and 200 bytes, references held for each entry by its root
+instead of for each node made a replace that changes the key 1.45 to 1.51 times as fast,
+and an insert and a delete 1.9 to 2.1, with a search unchanged; that would change the rule
+of the decision on strings, and it is an open question of the owner's.
 
 ## How a reader descends, and why it is safe
 
@@ -517,7 +522,7 @@ The design follows these, read under their licences; no code is ported, so
 | ROWEX: V. Leis, F. Scheibner, A. Kemper, T. Neumann, "The ART of Practical Synchronization", DaMoN 2016, section 4 | Readers take no lock and check no version; a node that changes is built privately and published by one atomic store of its address; the replaced node is retired to an epoch | The radix tree itself, which needs keys whose bytes compare in the order of their values: a second definition of order beside the comparison service |
 | LeanStore, `backend/leanstore/storage/btree/core/BTreeGenericIterator.hpp`, MIT, commit `fcb64bf39cf69c435173f76e062cbb305a9a998f` | The next leaf found by a new descent at the fence, the same way forwards and backwards, without links between leaves | Fences stored in each node; optimistic versions and restarts |
 | RFC 3629, UTF-8 | That the bytes of UTF-8 sort as code points, from which the one turn against the order of UTF-16 code units follows | — |
-| DuckDB `string_t`, `src/include/duckdb/common/types/string_type.hpp`, MIT, commit `aa87a115e8ad8affc3a4ee2e373525cbb2c6efd8`; the binary view of Apache Arrow, Apache-2.0 | The form measured for the open question of a prefix beside a shared key | Not decided |
+| DuckDB `string_t`, `src/include/duckdb/common/types/string_type.hpp`, MIT, commit `aa87a115e8ad8affc3a4ee2e373525cbb2c6efd8`; the binary view of Apache Arrow, Apache-2.0 | The form of a prefix beside a shared key, measured in the engine | Not taken |
 
 The study read also the skip lists of LevelDB (BSD-3-Clause) and RocksDB (Apache-2.0),
 the adaptive radix tree of DuckDB, the synchronization of ARTSynchronized (Apache-2.0),

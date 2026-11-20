@@ -28,8 +28,8 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // a process otherwise loaded several times slower than the others and searched at a fraction of their
 // rate, the cost of compiling the steps and growing the arena.
 //
-// It is the measurement the open question of a prefix beside a shared key asks for, on random and on
-// common heads, and the one of what holding text references for each node costs a write
+// It is the measurement of a prefix beside a shared key, on random and on common heads, and of what
+// holding text references for each node costs a write
 // (docs/design/ordered-index.md, "Text keys", "Text references"); a variant of the engine is measured by
 // running it on a build of that variant. A run takes about a minute on the development machine, held to
 // eight logical processors as development-5 says.

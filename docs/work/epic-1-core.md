@@ -397,10 +397,20 @@ documentation before this document is removed.
 | S14 | Read by primary key beside writes to indexes, index-read-by-key, through the class: a type with 6 indexes alone and beside a writer that changes every indexed key; the same type with no index | 1 reader: 1.53 M a second alone and 1.38 M beside the writer with 6 indexes, 1.49 M and 1.44 M with none; 8 readers: 11.9 M and 10.3 M with 6 indexes, 11.6 M and 10.7 M with none | rented-arm64-1 | 19 November 2026 |
 | S14 | The prototype of the study on the same machine, bare trees and no engine, 8 readers, three runs: the copy-on-write tree against the tree changed in place. Not a figure of the engine | exact search alone 15.6 M a second and 15.2 M; beside a writer of the same index at full speed 10.4 M against 14.5 M; ranges forwards 6.2 M and 5.8 M alone, 3.7 M against 5.4 M beside the writer. One index write beside the 8 readers, ns: an insert 840 against 525, a delete 842 against 619, a replace 1,762 against 1,197. The bare tree alone: a replace that changes the key 1.14 µs, an insert 0.52 µs, a search 2.1 M a second on a thread | rented-arm64-1 | 19 November 2026 |
 | S14 | The forms of a text key in the prototype on the same machine, 8 readers, random keys, searches a second at keys of 8, 32 and 100 bytes. Not a figure of the engine | a copy 10.1 M, 7.1 M, 4.6 M; a shared text entry 4.6 M, 4.3 M, 4.0 M; a shared entry with a prefix 9.2 M, 9.0 M, 9.2 M | rented-arm64-1 | 19 November 2026 |
+| S14, part 2 | Exact search by the full key, index-search, 1 thread, through the class, alone; three builds rotating, three rounds | Int64 796 k a second (main 464 k), text of 8 bytes 503 k (161 k), of 100 bytes 288 k (117 k); 416, 456 and 640 bytes a search (720, 760, 944). The gauge, a second build of main, 0.98 to 1.02 | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | A replace that keeps every indexed key, index-writes, 1 caller, against the same type without indexes | 0.96, 0.94 and 0.86 of its rate with 1, 3 and 6 indexes (main 0.80, 0.56, 0.39): about 30 ns an index, against about 320 on main; the type without indexes 805 k writes a second on every build | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | The upkeep of one index for a replace that changes the key, index-writes, 1 caller, against the replace of the bare tree of the prototype in the same start, 1,153 ns | 1,465 ns with 1 index, 1.27 times the bare tree (main 3,579 ns, 3.10); 1,313 and 1,258 ns an index with 3 and 6 | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | Writes and reads by key of the reference fixture's users, a type with three indexes, write-callers and read-by-key-threads, eight rounds | a replace keeping every key 1.72 times main with 1 caller, about 1.5 with 4 and 16; an insert and a delete 2.50 and about 1.96; reads by key up to 8 threads 0.96 to 1.07 of main, the gauge 0.98 to 1.04 | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | The size of a node, 2 KiB against 1 KiB, index-search, index-writes, index-build, a second build of the head as the gauge | 8 readers beside a writer: reads 1.04 (gauge 0.99), the writer 0.95 (0.94); a replace that changes the key 0.97 to 0.98 (0.99 to 1.00); 16.8 and 23.7 bytes an index entry against 17.6 and 25.1 | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | Text keys of 100 and 200 bytes, index-long-text, five rounds: a prefix of 8 bytes beside a shared key, and the references of a text held for each entry, against the head | the prefix: a search 1.26 and 1.30 with distinct heads, 0.89 and 0.93 with a common head, a replace that changes the key 1.17 and 0.98; the references for each entry: a replace that changes the key 1.45 to 1.51, an insert and a delete 1.9 to 2.1 with distinct heads, a search unchanged. The gauge 0.99 to 1.02 | rented-arm64-1 | 20 November 2026 |
+| S14, part 2 | The harness of B2, the new (main) against the old (f3d767f) on the same engine, three rounds and one pair of the gauge | read-by-key-threads up to 8 threads 0.96 to 1.05, write-callers 0.98 to 1.03, index-search 0.99 to 1.07; index-read-by-key 0.96 to 1.03 but for 0 indexes, 1 thread, alone, 0.89 [0.94 0.87 0.89], whose gauge pair is 1.07 | rented-arm64-1 | 20 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
 review; the rows of the prototype are the bare trees of its study on the same machine.
+The figures of S14, part 2 are of the head 9e34443 against `main` at 3229ba1, each series
+with a second build of the same commit rotating in its rounds as the gauge; the raw outputs
+are kept outside the repository.
 No acceptance of S14 set a target for the cost of a write or of a search; the record of
 S14 says what is weak in them, and S14, part 2 is about them.
 
@@ -1229,7 +1239,7 @@ Why this order:
 | S13R, part 1 | Refactoring that owes no measured figure | Full | Done |
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Done |
-| S14, part 2 | The cost of index upkeep and of a search | Full | In progress: the study is done and the brief is passed; no test is written yet |
+| S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Not started |
 | S15 | Ranges, order, paging and the binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -6117,7 +6127,7 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
   | 2 | Removed: the gauge is a second build of the same commit inside each series, rotating in its rounds, a stronger gauge than a spread taken earlier (the planner, 20 November 2026) | — | — |
   | 3 | `index-writes`, `index-search`, `index-read-by-key`, `index-build` over `main` and the head; and in each round once the bare tree of the prototype (`src/Prototypes/SecondaryIndexComparison`, `ordered writecost`, the copy-on-write tree, Int64, 1,000,000 entries, 500,000 writes, no reader, nodes of 1 KiB), whose replace is the denominator of (b), taken in the same start | about 35 minutes, three builds rotating (`main`, a second build of `main`, the head), three rounds | (a), (b), (d) |
   | 4 | The size of a node, 1 KiB against 2 KiB, in the engine: the head against the head with nodes of 2 KiB, a variant of one constant (`IndexLayout.SmallestNodeBytes`); `index-search`, whose 8 readers beside a writer decide, `index-writes` and `index-build` | about 30 minutes, three builds rotating (the head, a second build of the head, the variant), three rounds | (e) |
-  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | about 60 minutes, three builds rotating (`main`, a second build of `main`, the head), eight rounds | that a type without indexes loses nothing |
+  | 5 | `write-callers` and `read-by-key-threads` over `main` and the head | about 60 minutes, three builds rotating (`main`, a second build of `main`, the head), eight rounds | reads by key and writes of the fixture's users, a type with three indexes: the reads are unchanged, the writes are this sprint's gain. That a type without indexes loses nothing rests on the lines of no index of `index-writes` in series 3; neither scenario writes such a type (entry F7) |
   | 6 | Text keys longer than 64 bytes, in the scenario `index-long-text`: search and writes with a text key of 100 and of 200 bytes, with distinct heads and with a common head. The head against two variants of it: a prefix of 8 bytes beside the shared key, and the references to a text held for each entry by its root instead of by each node again | about 20 minutes, four builds rotating (the head, a second build of the head, the two variants), five rounds | (e), the two questions left |
 
   The series run in the order 3, 5, 4, 6, 1, the most decisive first, so that a start cut
@@ -6334,7 +6344,7 @@ machine 13 to 53 % busy before the runs: differences under about a tenth decide 
   text keys measured.
 
 **Carried out and reviewed on 20 November 2026.** Where a sentence above says otherwise,
-these replace it. The figures of the rented machine follow its start.
+these replace it.
 
 1. **What was built.**
    - (a) The change of each index is decided once, in the preparation, by the bytes of
@@ -6408,7 +6418,47 @@ skipped and 0 failed in both, the samples to the end.
 **Accepted and known.** The managed room of a refused reservation, F3, for S17; the need
 grows with the square of the changes waiting, for S17's linear bound. The head of
 `ValueComparer`, F4, for S14R. The top-up near the memory limit, for S24. The test of the
-sequence a search ends at, F5, for S15.
+sequence a search ends at, F5, for S15. The stored fields of an index resolved once, F6,
+for S16. A line of `write-callers` over a type without indexes, F7, for the next start. The
+references of a shared text for each entry, F8, the owner's question.
+
+**Measured on the rented machine, 20 November 2026**, the head 9e34443 against `main` at
+3229ba1, by the plan above, in the order 3, 5, 4, 6, 1. All 163 runs ended. The figures
+are in [Measured results](#measured-results).
+
+- (d) is met. Even the lowest single run of each search is above its target: Int64
+  768 k against 700 k, text of 8 bytes 492 k against 450 k, of 100 bytes 288 k against
+  200 k. The gauge on these lines is 0.96 to 1.03. So the question of a prefix for each
+  node is not put to the owner.
+- (b) is met: the upkeep of one index is 1.27 times the bare tree's replace of the same
+  start, its spread 1.23 to 1.31, against 1.5.
+- (a) is met with one index and not with three and six: 0.94 and 0.86. The owner accepted
+  it as measured (acceptance (a)).
+- A type without indexes loses nothing. This rests on the lines of no index of
+  `index-writes` in series 3: the head over `main` 1.005 to 1.037, against a gauge of
+  0.982 to 1.018. Series 5 wrote the fixture's users, which have three indexes: there
+  the reads by key are unchanged, and the writes are the gain of this sprint.
+- The questions of (e):
+  - A node stays at 1 KiB: 2 KiB read at most 4 % faster beside a writer, at the edge of
+    the gauge, and wrote slower. Nobody reopens it without a new reason.
+  - The prefix of 8 bytes beside a shared key is not taken: it wins on distinct heads
+    and loses on common ones, which long keys usually have.
+  - The references of a shared text held for each entry gain 1.45 to 2.1 on writes of
+    long keys. That changes a rule of the decision on strings, so it goes to the owner
+    after this sprint (F8).
+- The harness of B2 measures as the old one did on every line but one. index-read-by-key,
+  0 indexes, 1 thread, alone reads 0.89 of the old in all three rounds; its gauge is a
+  single pair, 1.07.
+- Not judged:
+  - the readers above 8 on 16 cores, among them 0.903 for readers of the other database
+    beside one caller that inserts and deletes, which is bimodal in both builds of `main`;
+  - insert and delete with a common head of `index-long-text`, whose gauge is bimodal;
+  - one round of 0.56 at 200 bytes.
+- Not explained:
+  - In the breakdown of (a) on the workstation, a decision costs 4 to 5 ns more inside a
+    write than alone.
+  - The rented figures of (a) do not lie on one line: 56, 28 and 33 ns an index for one,
+    three and six indexes, where the workstation's do.
 
 #### S15 · Ranges, order, paging and the binding rules
 
