@@ -294,7 +294,8 @@ counted in its prepared bytes and in the budget, and as many places in the retir
 A write withdrawn before its publication gives them back; a prepared, unpublished write
 holds them while the storage step is busy, and no reader can reach them. A reservation
 the arena cannot hold takes nothing and is refused as a write the memory budget cannot
-hold is: before its commit.
+hold is: before its commit. So is a reservation whose need the pool cannot count, more
+nodes than an Int32 holds.
 
 The writes prepared and not published share one pool for each index. While *p* inserts,
 rewrites among them, and *q* removes wait, the pool holds their *need*, the most nodes

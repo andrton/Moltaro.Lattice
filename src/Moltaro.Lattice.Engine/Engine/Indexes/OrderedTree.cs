@@ -202,14 +202,24 @@ internal sealed class OrderedTree
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
     // list for the inserts and the removes given, beside those prepared before and not published, the
     // need of them all (ordered-index.md, "The reservation"); the standing reserve is TopUp's. True when the
-    // reservation is made; false when the arena cannot hold the nodes, with nothing taken. An
-    // OutOfMemoryException of the native allocator or of the managed heap leaves nothing taken either.
+    // reservation is made; false when the arena cannot hold the nodes, or the pool cannot count them, with
+    // nothing taken. An OutOfMemoryException of the native allocator or of the managed heap leaves nothing
+    // taken either.
     public bool TryReserve(int inserts, int removes)
     {
         var waitingInserts = _inserts + inserts;
         var waitingRemoves = _removes + removes;
         var room = Room();
-        var need = (int)Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
+        var counted = Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
+
+        // The pool counts its nodes as an Int32: a need above that is a reservation that cannot be made, and
+        // it is refused as one the arena cannot hold, before anything is taken.
+        if (counted > int.MaxValue)
+        {
+            return false;
+        }
+
+        var need = (int)counted;
 
         // The managed room first, so that nothing of the arena is taken when it cannot be had; the room of
         // the pool includes the standing reserve, so that a top-up allocates nothing of the managed heap.
