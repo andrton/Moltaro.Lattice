@@ -98,7 +98,7 @@ internal static class IndexWritesScenario
 
     // The callers given, each a thread of its own with a writer of its own: writes a second, and managed
     // bytes for each write.
-    private static string Series(int callers, Func<int, int, Func<int>> writer)
+    internal static string Series(int callers, Func<int, int, Func<int>> writer)
     {
         var window = new StepWindow();
 
