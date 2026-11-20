@@ -134,12 +134,17 @@ internal sealed class IndexOrder
             else
             {
                 order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(keyOffset, part.Width));
-                keyOffset += part.Width;
             }
 
             if (order != 0)
             {
                 return false;
+            }
+
+            // A fixed part of the key has its width in the scratch, null or not (SearchKey), as in CompareKey.
+            if (!part.IsText)
+            {
+                keyOffset += part.Width;
             }
         }
 
