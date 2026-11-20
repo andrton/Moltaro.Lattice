@@ -6391,7 +6391,10 @@ For this sprint:
   traversal under concurrent change returns no identity twice and every unchanged match,
   also inside a group of equal keys. Offset skips matches and Limit bounds them without
   reading all matches first. A search over its budget fails explicitly. An unsupported
-  key or bound shape is refused.
+  key or bound shape is refused. The sequence a search ends at gets its test with its
+  first consumer: a mutant that reports the end at the sequence before the step, without
+  the check that the sequence did not move, must fail it (the planner, 20 November 2026;
+  entry F5 of the [refactoring backlog](refactoring.md)).
 - **Measured.** Reported: search time for exact and range lookups on the fixture's user
   indexes, with and without a writer.
 - **Out of scope.** Uniqueness (S16). A query language, automatic choice of an index,
