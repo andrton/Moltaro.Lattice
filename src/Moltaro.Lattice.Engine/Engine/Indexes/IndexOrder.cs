@@ -90,17 +90,6 @@ internal sealed class IndexOrder
         return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
     }
 
-    // The same, and whether the entry has the key of the search, whatever its identity: for the search of a
-    // leaf, whose last comparison so decides whether the entry it ends at has the key.
-    public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry, out bool sameKey)
-    {
-        var order = _oneNumber ? NumberOf(probe).CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
-
-        sameKey = order == 0;
-
-        return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
-    }
-
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
     public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
         _oneNumber ? NumberOf(probe) == NumberOf(entry) : CompareKey(probe, entry) == 0;

@@ -178,7 +178,7 @@ internal sealed class OrderedTree
             node = NodeAt(node.ChildAt(child));
         }
 
-        var place = FirstAtOrAfter(node, probe, out var sameKey);
+        var place = FirstAtOrAfter(node, probe);
 
         // Every entry of the leaf lies before the probe: the next leaf, whose entries are all at or above
         // the fence, which lies above the probe. A leaf of another moment may end before the fence, and
@@ -216,17 +216,14 @@ internal sealed class OrderedTree
             }
 
             place = FirstAtOrAfter(node, target);
-
-            // The leaf was searched for the fence, not the probe, so its last probe says nothing of the key.
-            sameKey = place < node.Count && _order.SameKey(probe, node.EntryAt(place));
-        }
-
-        if (!sameKey)
-        {
-            return false;
         }
 
         var entry = node.EntryAt(place);
+
+        if (!_order.SameKey(probe, entry))
+        {
+            return false;
+        }
 
         identity = IndexLayout.IdentityOf(entry);
         runEnds = place + 1 < node.Count
@@ -1082,25 +1079,19 @@ internal sealed class OrderedTree
         return low;
     }
 
-    // The place of the first entry of a leaf at or after the probe: the number of entries below it; and
-    // whether that entry has the key of the probe. The search ends at the last place it moved its upper end
-    // to, which it compared with the probe, so that comparison decides whether the key is the same, and no
-    // other is made (IndexOrder.Compare). False when every entry lies below the probe.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe, out bool sameKey)
+    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
+    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe)
     {
         var low = 0;
         var high = leaf.Count;
-
-        sameKey = false;
 
         while (low < high)
         {
             var middle = (low + high) >>> 1;
 
-            if (_order.Compare(probe, leaf.EntryAt(middle), out var sameKeyAtMiddle) <= 0)
+            if (_order.Compare(probe, leaf.EntryAt(middle)) <= 0)
             {
                 high = middle;
-                sameKey = sameKeyAtMiddle;
             }
             else
             {

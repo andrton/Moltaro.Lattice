@@ -399,9 +399,7 @@ between two steps only the key and the identity of the last entity it returned:
 1. It enters the protection of reads and descends to the first entry of the key after the
    last identity returned. If the leaf ends before such an entry, it descends once more
    at the fence of the leaf, the separator above it, at or after which every entry of the
-   next leaf lies. No entry of the key: the search ends. The search of the leaf ends at the
-   last entry it compared with the key and found at or after it, so that comparison tells
-   whether the entry has the key, and none is made again.
+   next leaf lies. No entry of the key: the search ends.
 2. It takes the root entry the identity names by its stamp, whatever its state, as a read
    by key does, so that it waits through the mark of a replace or a delete in flight and
    ends at its position or a later one, never before it. No entry the tree names keeps the
