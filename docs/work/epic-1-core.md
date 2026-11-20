@@ -1241,7 +1241,8 @@ Why this order:
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Not started |
-| S15 | Ranges, order, paging and the binding rules | Full | Not started |
+| S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
+| S15, part 2 | The binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -5863,7 +5864,12 @@ reports where it stops. The README of the repository points to it in one sentenc
 behavior of a sample changes, and `dotnet run --project Moltaro.Lattice.Samples` still
 runs to the end. It starts after S14, part 2 is merged and before S14R, on a branch of its
 own (the planner, 20 November 2026): part 2 may touch `IndexSample` through `FindAsync`,
-and two agents must not edit the project at once.
+and two agents must not edit the project at once. Done on 20 November 2026, with entry F2
+of the [refactoring backlog](refactoring.md). Sixteen samples in seven folders; where the
+content said otherwise the grouping followed it: `DynamicAccess` in `Basics`, as the twin
+of `BasicCrud`; `NestedValues` in `Schema`; `MemoryLimit` and `ReadLimits` in a folder
+`Limits` of their own. The samples program checks before its first sample that its
+`README.md` lists the same samples in the same order.
 
 **After S14, not part of any sprint: SDK 11 as a change of its own.** `src/global.json`,
 the three jobs of CI, and the same commit built by both SDKs and compared on the
@@ -6478,6 +6484,94 @@ Two mistakes of the plan:
 
 #### S15 · Ranges, order, paging and the binding rules
 
+**Added by the planner on 20 November 2026, after S14, part 2.** It comes above the text of
+17 November; where they differ, this replaces it.
+
+Why. Only six tests wait for S15: five in `IndexTests`, and `RecreatedDuringASearchTests`.
+Its acceptance lists about a dozen behaviors that no test states. That is the shape that
+made tests turn up missing in the middle of S14, part 2. The sprint is also two different
+kinds of work.
+
+1. **The split.** The acceptance is unchanged in sum; the Status table has two rows.
+   - **S15, part 1 · The walk:** leading parts, ranges, both directions, Offset and Limit,
+     the read limits, and a search that returns an entity at most once. Full track. It
+     begins with a study and is critical, since it is a traversal under concurrent change
+     on the read path: one reviewer and a breaker. Needs S14R.
+   - **S15, part 2 · The binding rules:**
+     - every scalar and key family found the same by key, by index, through a class and
+       by name;
+     - the numeric allowlist with overflow, 42.0 for an integer field, NaN and signed zero;
+     - an unsupported key or bound shape refused;
+     - enum order numeric;
+     - text by its field policy in UTF-8 and UTF-16.
+     Full track, no study, not critical: one reviewer. It needs part 1 only for bounds. Its
+     tests of exact keys may be written while part 1 is implemented, by another test author,
+     where the coordinator judges that it shortens the way.
+2. **The study of part 1** (Fable) may start on `main`, read-only, beside S14R: it reads the
+   tree, not the loops S14R merges. Its questions, beside those below:
+   - which of the three ways gives "at most once across a delete and a re-creation", each
+     with its cost in bytes for an entry and in nanoseconds for a step. A way that adds
+     bytes to every entry of an index is a question for the owner, which the planner brings
+     with the figures; the study does not decide it;
+   - whether the early end of S14, part 2, the end seen in the step that finds the entry,
+     has a form for a range, and what its sequence means there;
+   - the one descent of a reader in either direction (E6), and what it does to the exact
+     search just measured;
+   - what a traversal allocates: one object, as a search does, and nothing for each entity
+     beyond what it returns.
+3. **Tests first for part 1**, by the test author, in this order, after the study and the
+   contract step; each sentence of the acceptance gets its smallest set:
+   1. The six that wait, unskipped by the implementer, their assertions unchanged.
+   2. Order and bounds against an oracle of values:
+      - composite indexes of two to four parts with a null in every position;
+      - searches by leading parts, and ranges with inclusive and exclusive bounds;
+      - both directions, nulls last in both;
+      - UTF-8 and UTF-16.
+      The P1 of S14, part 2 was a composite key with a null before another part. This is the
+      test that would have caught it, and it is written before the code.
+   3. Under change: no identity twice and every unchanged match, also inside a run of equal
+      keys, in both directions. The paused form is deterministic, as `PausedSearchTests` is.
+   4. At most once across a delete and a re-creation: `RecreatedDuringASearchTests`, and its
+      range form.
+   5. Offset and Limit. Offset skips without returning; Limit ends the walk without reading
+      the rest. Both are stated by what is read (the nodes retired or the steps taken), not
+      by time.
+   6. The limits: over `ReadMemoryLimit` and over `ReadTimeLimit`, each an explicit failure;
+      a cancellation is reported before a limit.
+   7. The sequence a search ends at (F5 of the [refactoring backlog](refactoring.md)), with
+      the member this sprint gives it; the probe of the breaker of S14, part 2, kept with its
+      outputs, is the starting point.
+   8. Allocation: a ceiling now, pinned to bytes with its composition after the
+      implementation, as `SearchObjectAllocationTests` was.
+   9. The rule of every asynchronous member in `AGENTS.md`, for the asynchronous forms of a
+      range.
+4. **Measured,** corrected by the rules written after the starts of 19 and 20 November:
+   - "on 1 and 16 threads" becomes: 1 and 8 readers judged on 16 cores, 16 reported and not
+     judged;
+   - the exact search of S14, part 2 must not lose: index-search over `main` and the head,
+     three builds rotating, against its figures of 20 November;
+   - a range of 100 entities alone and beside a writer; a page at Offset 10,000 beside the
+     first page;
+   - one start, at the end, after the review and the breaker have closed. Every series
+     carries its second build as the gauge. The plan is written in the brief before it and
+     read by the planner and the coordinator. It also carries the line of F7, and F9 (the
+     one line of the B2 harness, three builds) unless reading has found its cause.
+   - S14R has no start of its own. What it must show unchanged in figures is checked on
+     the workstation by direction and listing, and decided at this start: its builds are
+     `main` before S14R (22b8ee1), `main` after S14R and the head, each with a second build
+     as the gauge, so that a loss is attributed to the sprint that made it.
+5. **The breaker of part 1,** its targets in order:
+   1. twice or missed under change, both directions, inside equal keys;
+   2. a delete and a re-creation;
+   3. composite keys with nulls at the bounds;
+   4. the end sequence against its mutant;
+   5. a step that holds nothing: weak references after a paused traversal, and the growth of
+      the tree between two steps;
+   6. the limits and the order of cancellation.
+6. **Unchanged** from the texts of 17 and 19 November: points 1 to 4 of "For this sprint",
+   and the carried texts of the study of S14 and of the architect's review (E6 here, E3 at
+   S14R).
+
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
 sentence above or below says otherwise, these replace it. The owner asked for this check
 of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
@@ -6587,6 +6681,15 @@ the comparison once under the loops before this sprint starts (entry E3).
 
 **Carried from S09, part 2:** a write whose unique value is held by a prepared,
 unpublished write of another entity waits behind it, as a write to the same entity does.
+
+**Carried from the architect's review after S14, part 2 (20 November 2026), for the study
+of this sprint:** `ChangePublisher.TryReserve` returns a bool whose false means "refused
+for memory", at five call sites. A unique conflict is a third outcome — a refusal that
+names the index, or a wait behind a prepared write — decided in the same loop. The study
+says where it goes before the code grows a second out parameter. The first structural
+commit of this sprint also records the replaced root once, by the reservation (entry G2
+of the [refactoring backlog](refactoring.md)), beside F6; this sprint measures the lines it
+touches anyway.
 
 **Track:** full · **Needs:** S15 · **Owners:** E04, E08
 
@@ -6862,6 +6965,11 @@ cost G1 after churn.
 
 **Carried from S09, part 2:** compaction never moves a prepared block and takes its turn
 under the lock of the writes or by the rule this sprint states.
+
+**Carried from S14, part 2, deferred here by the owner on 20 November 2026, as the planner
+relays:** before its design, the references of a shared text for each entry are decided
+with the figures of 20 November 2026 (F8 of the [refactoring backlog](refactoring.md)):
+compaction revisits the shared entries anyway.
 
 **Track:** full · **Needs:** S22 · **Owners:** E01, E03 · **Closes:** Q17
 
@@ -7520,6 +7628,11 @@ within the timeout.
 - **Out of scope.** Converting several schema versions in one step. Lazy conversion.
 
 #### S39 · Diagnostics
+
+**Carried from the architect's review after S14, part 2 (20 November 2026):**
+`OrderedTree.Height`, `Count` and `Bytes` are read today only by the tests of the engine;
+this sprint either reads them or removes them, together with the two counts the tree keeps
+for them (entry I3 of the [refactoring backlog](refactoring.md)).
 
 **Track:** full · **Needs:** S38 · **Owner:** E08 · **Closes:** R33, Q14
 

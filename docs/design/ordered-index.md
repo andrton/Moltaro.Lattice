@@ -183,7 +183,8 @@ the one of every block, confirmed for index nodes. Measured on the rented machin
 November 2026, with keys of 100 and 200 bytes, references held for each entry by its root
 instead of for each node made a replace that changes the key 1.45 to 1.51 times as fast,
 and an insert and a delete 1.9 to 2.1, with a search unchanged; that would change the rule
-of the decision on strings, and it is an open question of the owner's.
+of the decision on strings, and the owner deferred it to the sprint of compaction. The rule
+of the decision on strings is unchanged.
 
 ## How a reader descends, and why it is safe
 
