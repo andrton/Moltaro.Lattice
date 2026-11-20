@@ -453,7 +453,9 @@ a step saw; a further `GetEnumerator` is a search of its own. The search key of 
 refers to that bound key and does not copy it. A search that returns one entity so
 allocates that object and the entity: through a class 328 bytes and the entity. `FindAsync`
 runs its search to its end with the position on its stack, and allocates the list of its
-result, the result and the entities.
+result, the result and the entities; in a Release build nothing more when it needs no wait.
+A Debug build makes the state machine of an asynchronous method a class, which every call
+allocates.
 
 ### The hot key
 

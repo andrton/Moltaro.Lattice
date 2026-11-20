@@ -595,8 +595,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     }
 
     // The wait of WaitForPositionAsync for a position, once the call has checked its arguments: every
-    // failure, also one that needs no wait, comes through the task (see the class). An asynchronous method
-    // allocates nothing when it completes within its call.
+    // failure, also one that needs no wait, comes through the task (see the class). In a Release build an
+    // asynchronous method allocates nothing when it completes within its call: its state machine is a
+    // struct on the stack. A Debug build makes the state machine a class and allocates it at every call.
     private async ValueTask WaitAfterChecksAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ThrowIfNotReady();

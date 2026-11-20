@@ -91,8 +91,9 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     }
 
     // The search of a key the call checked, after the position of the session when it has one, every
-    // failure through the task (see the class). An asynchronous method allocates nothing when it completes
-    // within its call, as a search without a wait does.
+    // failure through the task (see the class). In a Release build an asynchronous method allocates nothing
+    // when it completes within its call, as a search without a wait does: its state machine is a struct on
+    // the stack. A Debug build makes the state machine a class and allocates it at every call.
     private async ValueTask<LatticeFindResult<TEntity>> FindAfterAsync(IndexKey bound, LatticeSession? session, CancellationToken cancellationToken)
     {
         if (session is not null)
