@@ -5920,10 +5920,16 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     bytes, so that one more object fails it. This answers the study's question on (c): a
     lazy `Find` holds its key between two steps, and holds it once. With it, a defect of
     consistency, fixed test first (E8): `FindAsync` delivers its failures by the rule of
-    every asynchronous member. A caller's mistake — an argument, a default key, a disposed
-    instance — is thrown when the method is called; what the database decides — a
-    `LatticeException` of any code, also one met on a path that needs no wait — comes
-    through the returned task. `ReadAsync` already does this. The test author checks every
+    every asynchronous member (the owner, 20 November 2026, on the planner's proposal): an
+    asynchronous member throws at the call only what the caller can know from its own
+    arguments — a null or invalid argument, a default key, a key or options the index
+    cannot serve; everything that depends on the state of the database comes through the
+    returned task — a `LatticeException` of any code, also on a path that needs no wait,
+    and `ObjectDisposedException` after a close. A close can come between the call and its
+    first step, so the caller handles the task's path in any case, and it is what
+    `ReadAsync`, the writes, `EnumerateAsync` and `OpenAsync` already do. Where the XML
+    documentation of `FindAsync` or `WaitForPositionAsync` says how a failure arrives, the
+    implementer corrects it in its commit. The test author checks every
     other asynchronous member that has a fast path written by hand against the same rule
     and lists what it finds. The form of `SearchKey` changes with it (E4). The list found
     the same defect in `EngineDatabase.WaitForPositionAsync`, both overloads: it joins
@@ -6442,7 +6448,9 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
   another member takes. A failing member refuses the whole batch and reports its number.
   A batch has no limit of its own: one of 10,000 small entities is executed as one, and
   so is one that is larger than an internal
-  group. A batch that the memory budget cannot hold is refused with `WriteRejected` and
+  group. `CommitAsync` delivers its failures by the rule of every asynchronous member
+  (S14, part 2, acceptance (c)): a batch committed twice is the caller's mistake, thrown
+  at the call; what the database decides comes through the task. A batch that the memory budget cannot hold is refused with `WriteRejected` and
   `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
   a batch. A child never acknowledges a part.
