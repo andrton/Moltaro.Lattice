@@ -6513,7 +6513,11 @@ transaction move beside the code that reads them in this sprint (entry D5).
 at most linearly with the number of changes prepared before a publication. As S14, part
 2 leaves it, the need grows with the square of the changes prepared and not yet
 published; [the reservation](../design/ordered-index.md#the-reservation) gives its
-formula and a figure. Candidates include a linear bound, with its proof first. A batch reserves for each index once, for the
+formula and a figure. Candidates include a linear bound, with its proof first. A
+reservation that is refused leaves no managed room behind either: the managed room of the
+pool is taken in step with what the arena gives, and a pool that grew for writes that are
+gone gives it back (the planner, 20 November 2026; entry F3 of the
+[refactoring backlog](refactoring.md)). A batch reserves for each index once, for the
 counts of the whole batch; today `ChangePublisher.TryReserve` takes one change and
 `PreparedWrite` holds one change inline, so a batch would top up each index once for each
 change. The linear reserve and this are one design.
