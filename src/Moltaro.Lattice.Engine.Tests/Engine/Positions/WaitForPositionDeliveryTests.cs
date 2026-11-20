@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 //   position of that next write is one the child never reaches.
 public sealed class WaitForPositionDeliveryTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Unavailable_once_the_database_faulted_comes_through_the_task_WaitForPositionAsync_returns()
     {
         await using var database = await PieceSchema.OpenAsync();
@@ -38,7 +38,7 @@ public sealed class WaitForPositionDeliveryTests
         await ExpectThroughTheTaskAsync(withSession, LatticeErrorEnum.Unavailable);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Timeout_of_a_child_that_lost_its_master_comes_through_the_task_WaitForPositionAsync_returns()
     {
         // Set to drop the next transaction the master sends.

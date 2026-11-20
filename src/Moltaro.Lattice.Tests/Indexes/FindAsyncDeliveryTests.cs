@@ -31,7 +31,7 @@ public sealed class FindAsyncDeliveryTests
         await database.CloseAsync();
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Search_after_a_close_is_ObjectDisposedException_through_the_task_FindAsync_returns()
     {
         var database = await MemberSchema.OpenAsync();
@@ -61,7 +61,7 @@ public sealed class FindAsyncDeliveryTests
         Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, (await Assert.ThrowsAsync<LatticeException>(() => byName.AsTask())).Error);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Refusal_the_database_decides_without_a_wait_comes_through_the_task_FindAsync_returns()
     {
         await using var database = await MemberSchema.OpenAsync();

@@ -40,7 +40,7 @@ public sealed class WaitForPositionDeliveryTests
         await ExpectThroughTheTaskAsync(withSession, LatticeErrorEnum.SynchronizationTimeout);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Unavailable_before_the_open_comes_through_the_task_WaitForPositionAsync_returns()
     {
         await using var other = await TestDatabases.OpenMasterAsync();
@@ -53,7 +53,7 @@ public sealed class WaitForPositionDeliveryTests
         await ExpectThroughTheTaskAsync(withSession, LatticeErrorEnum.Unavailable);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task HistoryMismatch_for_a_position_of_another_database_comes_through_the_task_WaitForPositionAsync_returns()
     {
         await using var database = await TestDatabases.OpenMasterAsync();
@@ -67,7 +67,7 @@ public sealed class WaitForPositionDeliveryTests
         await ExpectThroughTheTaskAsync(withSession, LatticeErrorEnum.HistoryMismatch);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Wait_after_a_close_is_ObjectDisposedException_through_the_task_WaitForPositionAsync_returns()
     {
         var database = await TestDatabases.OpenMasterAsync();
