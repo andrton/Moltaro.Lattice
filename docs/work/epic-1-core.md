@@ -5950,6 +5950,17 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
      refused replace and a refused delete of an indexed type; a refusal at a later index,
      which releases the indexes already reserved; a throw after the indexes are reserved;
      a refused forwarded write; a refused change of a child.
+     **The planner, 20 November 2026:** the standing reserve of (b) covers one write into
+     an index already touched. So these refusals, and those of `RefusedReservationTests`
+     of S14, are brought about so that they hold under either policy of the pool. The
+     refused write is the first write of its indexes wherever the scenario allows; where
+     it needs an entity that exists, it waits prepared behind enough writes to the same
+     indexes that their need together is above that of one change of key. Only how the
+     refusal is brought about changes, in a commit of the test author before step 2: every
+     assertion stays. A test that frees memory step by step asserts that the write was
+     refused at least once before it succeeded. On `main` they all pass; a throw after the
+     reservation is a cancellation, and a child that cannot hold a change stops following
+     as Q14, option A, says until the pause is built.
   2. The closed form of the reservation against the loop. Then, in a commit of its own,
      the figures of the reservation tests of S14 restated from the new formula, on the
      planner's word: the formula reserves fewer nodes.
