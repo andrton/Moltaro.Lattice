@@ -28,7 +28,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // trim, and what it lets go of, an array larger than one MiB among them, is then counted between two
 // measurements as memory the closed instance held. In a process of its own the pools hold only the small
 // arrays of the measurement.
-[Collection<WholeProcessHeapCollection>]
 public sealed class NothingHeldAfterCloseTests
 {
     private const int Places = 200_000;
