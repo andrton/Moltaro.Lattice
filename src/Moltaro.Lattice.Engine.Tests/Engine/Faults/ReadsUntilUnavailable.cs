@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
 // Readers that read one entity, each on a thread of its own, from before a fault until a read reports
@@ -12,8 +14,6 @@ internal sealed class ReadsUntilUnavailable
 {
     // What a read returns when it reported Unavailable; no state has a negative number.
     public const long Unavailable = -1;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The outcomes every reader met, gathered when the reader ends.
     private readonly HashSet<long?> _outcomes = [];

@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
 // Reads by key on many threads at once, without a writer, neither fail nor block each other, and
@@ -15,8 +17,6 @@ public sealed class ManyReadersTests
     private const int Keys = 4;
 
     private const int ReadsPerReader = 5_000;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // At least four readers, at most sixteen.
     private static int Readers => Math.Clamp(Environment.ProcessorCount, 4, 16);

@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
@@ -80,8 +81,6 @@ public sealed class RefusalResolutionTests
     private const int Rounds = 60;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // How long a write that waits for a write in flight is given to end wrongly (see the test of a write
     // resolved while the next group is formed).

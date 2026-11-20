@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.FailureCaptures;
 
@@ -55,7 +56,7 @@ public sealed class FailureCaptureTests
         using var suspension = child.SuspendApplying();
 
         var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => ApplicationWait.WithCaptureAsync(writing.WaitAsync(ReplicationNodes.Bound), child));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => ApplicationWait.WithCaptureAsync(writing.WaitAsync(Bound), child));
 
         Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, exception.Error);
         var original = Assert.IsType<LatticeException>(exception.InnerException);
@@ -86,7 +87,7 @@ public sealed class FailureCaptureTests
         }
 
         // Once the child applies again, the write it waited for returns.
-        Assert.True((await writing.WaitAsync(ReplicationNodes.Bound)).Changed);
+        Assert.True((await writing.WaitAsync(Bound)).Changed);
     }
 
     // Every part of the state of the system was read: the limit, the handles and threads of this process

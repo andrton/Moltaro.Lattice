@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 
@@ -51,14 +52,14 @@ public sealed class WaitForPositionDeliveryTests
         var pieces = master.Set<PieceSchema.Piece>();
 
         var applied = await pieces.InsertAsync(PieceSchema.Of(1, name: 10));
-        await child.WaitForPositionAsync(applied.Position, ReplicationNodes.Bound);
+        await child.WaitForPositionAsync(applied.Position, Bound);
 
         Volatile.Write(ref dropping, 1);
         await pieces.InsertAsync(PieceSchema.Of(2, name: 10));
         var unreached = (await pieces.InsertAsync(PieceSchema.Of(3, name: 10))).Position;
         await relay.ChildEndedAsync();
 
-        var withPosition = child.WaitForPositionAsync(unreached, ReplicationNodes.Bound);
+        var withPosition = child.WaitForPositionAsync(unreached, Bound);
         var withSession = child.WaitForPositionAsync(new LatticeSession(unreached));
 
         await ExpectThroughTheTaskAsync(withPosition, LatticeErrorEnum.SynchronizationTimeout);

@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -21,8 +22,6 @@ public sealed class MemoryOnlyPositionsTests
     private const int Callers = 8;
 
     private const int WritesPerCaller = 200;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Writes_of_several_callers_at_once_take_the_sequences_1_to_their_number_under_the_storage_of_MemoryOnly()

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -11,8 +12,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // millisecond; between two looks the thread waits outside every lock of the engine.
 internal static class CountersWait
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     public static async Task<EngineCounters> UntilAsync(EngineDatabase database, Func<EngineCounters, bool> condition, string awaited)
     {
         var waited = Stopwatch.StartNew();

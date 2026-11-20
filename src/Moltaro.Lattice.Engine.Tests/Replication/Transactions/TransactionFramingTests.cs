@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
@@ -66,7 +67,7 @@ public sealed class TransactionFramingTests
         var end = PositionSequence.Of(master.Position);
 
         link.Release();
-        await opening.WaitAsync(ReplicationNodes.Bound);
+        await opening.WaitAsync(Bound);
 
         for (var id = 105L; id < 108; id++)
         {

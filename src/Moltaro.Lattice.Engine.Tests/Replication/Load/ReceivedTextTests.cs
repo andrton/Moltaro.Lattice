@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 
@@ -26,8 +27,6 @@ public sealed class ReceivedTextTests
 {
     // In a Blocks frame of one root, the length of the root follows the count of the roots (RootFramer).
     private const int RootLengthAt = sizeof(uint);
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     public static IEnumerable<TheoryDataRow<string>> Damages => MarkedTextRoot.Damages;
 

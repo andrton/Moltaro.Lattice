@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.TestSupport.Replication;
 
@@ -13,8 +14,6 @@ namespace Moltaro.Lattice.TestSupport.Replication;
 // master opened at it reports the same.
 internal sealed class ListeningPort : IDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
     public ListeningPort()

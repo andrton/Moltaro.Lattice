@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Moltaro.Lattice.Engine.Writes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -34,8 +35,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // database can close. NextAsync fails when no commit comes within the bound.
 internal sealed class HeldCommitStorage : ICommitStorage
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private readonly Lock _lock = new();
 
     private readonly Channel<HeldCommit> _arrived = Channel.CreateUnbounded<HeldCommit>();

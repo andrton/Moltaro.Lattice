@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -22,8 +23,6 @@ public sealed class FailedPreparationTests
     private const int Chunked = 5 * 1024 * 1024;
 
     private static readonly ArenaOptions Arena = new() { MemoryLimit = 64L * new ArenaOptions().SegmentSize };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Preparation_that_fails_while_it_encodes_a_value_releases_everything_and_leaves_the_instance_Ready()

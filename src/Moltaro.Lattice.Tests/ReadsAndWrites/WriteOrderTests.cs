@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
@@ -27,8 +28,6 @@ public sealed class WriteOrderTests
     private const string Changed = "changed";
 
     private const string Unchanged = "unchanged";
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Writes_to_one_entity_made_without_awaiting_are_executed_in_the_order_of_their_calls()

@@ -8,6 +8,7 @@ using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Load;
 
@@ -46,8 +47,6 @@ public sealed class ReceivedRootTests
     private const string ChunkedUtf16OfOddLength = "chunked UTF-16 of an odd length";
 
     private const string InlineUtf16OfOddLength = "inline UTF-16 of an odd length";
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     public static IEnumerable<TheoryDataRow<string>> Damages =>
     [

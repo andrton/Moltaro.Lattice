@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -20,8 +21,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 public sealed class OneCloseTests
 {
     private const int Callers = 8;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The default segments, and more of them than any test here fills.
     private static readonly ArenaOptions Arena = new() { MemoryLimit = 64L * new ArenaOptions().SegmentSize };

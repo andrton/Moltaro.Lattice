@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Sessions;
 
@@ -32,7 +33,7 @@ public sealed class FixedTargetTests
         await pieces.InsertAsync(PieceSchema.Of(2, name: 8));
         await pieces.InsertAsync(PieceSchema.Of(3, name: 8));
 
-        var read = await child.Set<PieceSchema.Piece>().GetAsync(1L, session).AsTask().WaitAsync(ReplicationNodes.Bound);
+        var read = await child.Set<PieceSchema.Piece>().GetAsync(1L, session).AsTask().WaitAsync(Bound);
 
         Assert.Equal(target, PositionSequence.Of(dependedOn.Position));
         Assert.True(read.Found);

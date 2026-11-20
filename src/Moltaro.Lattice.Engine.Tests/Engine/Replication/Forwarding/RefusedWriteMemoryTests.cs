@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -20,7 +21,7 @@ public sealed class RefusedWriteMemoryTests
     {
         var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
         await using var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
-        await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await master.CloseAsync().AsTask().WaitAsync(Bound);
         using var cancellation = new CancellationTokenSource();
         var pieces = child.Set<PieceSchema.Piece>();
         var before = GC.GetTotalMemory(forceFullCollection: true);

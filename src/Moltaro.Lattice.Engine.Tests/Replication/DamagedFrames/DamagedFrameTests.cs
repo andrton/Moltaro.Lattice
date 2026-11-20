@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.DamagedFrames;
 
@@ -22,8 +23,6 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.DamagedFrames;
 //   the connection, holds nothing for it any more.
 public sealed class DamagedFrameTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     public static IEnumerable<TheoryDataRow<string>> DamagesToTheMaster =>
     [
         new("a body length over the largest"),

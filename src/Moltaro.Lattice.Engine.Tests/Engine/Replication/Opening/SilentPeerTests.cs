@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -14,8 +15,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 // (ReplicationNodes.ShortOpenTimeout).
 public sealed class SilentPeerTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     private static readonly TimeSpan OpenTimeout = ReplicationNodes.ShortOpenTimeout;
 
     // A timer of the system may fire a tick early.

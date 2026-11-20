@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -42,8 +43,6 @@ public sealed class WritersDuringEnumerationTests
 
     // The steps before which the walk waits for the first and the second growth.
     private static readonly int[] GrowthBefore = [60, 120];
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static IEnumerable<TheoryDataRow<string, string>> Cases =>
         from keyType in new[] { "Int64", "String" }

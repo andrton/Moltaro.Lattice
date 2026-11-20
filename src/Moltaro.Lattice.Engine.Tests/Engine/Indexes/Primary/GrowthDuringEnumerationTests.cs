@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // An enumeration that a growth of the primary index meets halfway returns every entity once and ends
@@ -31,8 +33,6 @@ public sealed class GrowthDuringEnumerationTests
 
     // How long the steps may take while the growth is held before the test lets it go.
     private static readonly TimeSpan Patience = TimeSpan.FromMilliseconds(200);
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Enumeration_that_a_growth_of_the_index_meets_halfway_returns_every_entity_once_and_ends()

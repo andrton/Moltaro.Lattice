@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -35,8 +36,6 @@ public sealed class HeldReadTests
     // The most keys the growth test inserts before it gives up: the main table grows by the count, so
     // the first growth comes after a few inserts.
     private const int MostKeys = 10_000;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Replace_while_a_read_of_the_entity_is_held_returns_and_the_old_root_stays_retired_until_the_read_left_and_a_drain()

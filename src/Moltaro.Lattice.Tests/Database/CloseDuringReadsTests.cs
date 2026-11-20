@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Database;
 
 // A close waits for the reads in progress before it frees the memory of the database (brief of
@@ -33,7 +35,7 @@ public sealed class CloseDuringReadsTests
                 .ToArray();
 
             // Every reader has read once before the close.
-            Assert.True(started.Wait(TimeSpan.FromMinutes(1)), "The readers did not start.");
+            Assert.True(started.Wait(Bound), "The readers did not start.");
             await database.CloseAsync();
 
             await Task.WhenAll(readers);

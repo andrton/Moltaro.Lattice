@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -13,11 +14,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // the state of the system in the message (ListenFailure).
 internal static class ReplicationNodes
 {
-    // The bound of every wait of these tests.
-    public static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
-    // An open timeout far beyond the bound: an open given it that ends within the bound did not end
-    // because its time was up.
+    // An open timeout far beyond the bound of a wait of a test (TestWait.Bound): an open given it that ends
+    // within the bound did not end because its time was up.
     public static readonly TimeSpan BeyondTheBound = TimeSpan.FromHours(1);
 
     // An open timeout short enough for a test to let it pass, and long enough that every wait of an open

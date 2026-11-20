@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -21,8 +22,6 @@ public sealed class TallyTests
     private const int Places = 24;
 
     private const int Depots = 8;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The texts of the churn: the empty text, two spellings of one word, text of every width of a
     // character, a text in a block of its own and one in chunks, in UTF-8 and in UTF-16.

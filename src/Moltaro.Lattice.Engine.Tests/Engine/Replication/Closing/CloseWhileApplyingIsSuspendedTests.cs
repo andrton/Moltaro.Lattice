@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Closing;
 
@@ -12,8 +13,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Closing;
 public sealed class CloseWhileApplyingIsSuspendedTests
 {
     private const int OneMebibyte = 1024 * 1024;
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     [Fact]
     public async Task Close_of_a_child_whose_application_is_suspended_completes_and_returns_its_native_memory()

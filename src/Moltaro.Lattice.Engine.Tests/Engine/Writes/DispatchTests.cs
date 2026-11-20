@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -50,8 +51,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // Every wait is bounded; the storage releases every commit when a test ends.
 public sealed class DispatchTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Write_cancelled_before_its_dispatch_is_withdrawn_ends_in_OperationCanceledException_and_leaves_nothing()
     {

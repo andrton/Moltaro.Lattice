@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -26,7 +27,7 @@ public sealed class IdleMasterTests
             OpenTimeout = OpenTimeout,
         };
         await using var master = (EngineDatabase)LatticeDatabase.Create(masterOptions);
-        await master.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await master.OpenAsync().AsTask().WaitAsync(Bound);
         await Pieces.InsertAsync(master, 1, 1, dataBytes: 16);
         await using var child = await ReplicationNodes.OpenChildAsync(ReplicationNodes.ChildOptions(master.ListenUri!, OpenTimeout), new EngineTestInputs());
 

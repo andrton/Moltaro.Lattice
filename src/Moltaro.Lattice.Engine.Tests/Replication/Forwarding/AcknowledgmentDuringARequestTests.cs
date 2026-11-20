@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -32,7 +33,7 @@ public sealed class AcknowledgmentDuringARequestTests
         await Eventually.AtAsync(child, meanwhile.Position);
 
         link.Release();
-        await ApplicationWait.WithCaptureAsync(writing.WaitAsync(ReplicationNodes.Bound), child);
+        await ApplicationWait.WithCaptureAsync(writing.WaitAsync(Bound), child);
 
         var frames = link.FromChild.ToList();
         var first = frames.FindIndex(frame => frame.Kind == ForwardPayload.WriteRequest);

@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 
@@ -32,7 +33,7 @@ public sealed class RetiredNodeTests
 
         using var held = await HeldRead.StartAsync(database, () => counted.Get(1L)?.Number);
 
-        await Task.Run(() => MoveAsync(counted, HeldWrites)).WaitAsync(TimeSpan.FromMinutes(1));
+        await Task.Run(() => MoveAsync(counted, HeldWrites)).WaitAsync(Bound);
 
         database.DrainRetired();
         var retiredNodes = database.Counters.Arena.RetiredBytes - (HeldWrites * IndexSchema.CountedFixedSize);
@@ -59,7 +60,7 @@ public sealed class RetiredNodeTests
 
         using var held = await HeldRead.StartAsync(database, () => counted.Get(1L)?.Number);
 
-        await Task.Run(() => MoveAsync(counted, HeldWrites)).WaitAsync(TimeSpan.FromMinutes(1));
+        await Task.Run(() => MoveAsync(counted, HeldWrites)).WaitAsync(Bound);
         var kept = database.Counters.Arena.RetiredBytes;
 
         await held.ReleaseAsync();

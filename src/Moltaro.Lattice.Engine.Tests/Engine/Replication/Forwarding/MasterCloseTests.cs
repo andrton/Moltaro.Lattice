@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -35,9 +36,9 @@ public sealed class MasterCloseTests
             var closing = master.CloseAsync().AsTask();
 
             storage.ReleaseAll();
-            await closing.WaitAsync(ReplicationNodes.Bound);
+            await closing.WaitAsync(Bound);
 
-            var written = await writing.WaitAsync(ReplicationNodes.Bound);
+            var written = await writing.WaitAsync(Bound);
 
             Assert.True(written.Changed);
             Assert.Equal(held.FirstSequence, PositionSequence.Of(written.Position));
@@ -50,7 +51,7 @@ public sealed class MasterCloseTests
         finally
         {
             storage.ReleaseAll();
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 
@@ -70,13 +71,13 @@ public sealed class MasterCloseTests
             await storage.NextAsync();
             var closing = master.CloseAsync().AsTask();
 
-            var exception = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(ReplicationNodes.Bound));
+            var exception = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
 
             storage.ReleaseAll();
-            await closing.WaitAsync(ReplicationNodes.Bound);
-            await Record.ExceptionAsync(() => dispatched.WaitAsync(ReplicationNodes.Bound));
+            await closing.WaitAsync(Bound);
+            await Record.ExceptionAsync(() => dispatched.WaitAsync(Bound));
 
             // The child, which reads, has applied everything its master executed before the end.
             Assert.NotNull(pieces.Get(1L));
@@ -85,7 +86,7 @@ public sealed class MasterCloseTests
         finally
         {
             storage.ReleaseAll();
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 
@@ -118,17 +119,17 @@ public sealed class MasterCloseTests
 
                 var closing = master.CloseAsync().AsTask();
                 storage.ReleaseAll();
-                await closing.WaitAsync(ReplicationNodes.Bound);
+                await closing.WaitAsync(Bound);
 
-                var refused = await Assert.ThrowsAsync<LatticeException>(() => second.WaitAsync(ReplicationNodes.Bound));
+                var refused = await Assert.ThrowsAsync<LatticeException>(() => second.WaitAsync(Bound));
 
-                Assert.True((await first.WaitAsync(ReplicationNodes.Bound)).Changed);
+                Assert.True((await first.WaitAsync(Bound)).Changed);
                 Assert.Equal(LatticeErrorEnum.DuplicateKey, refused.Error);
             }
             finally
             {
                 storage.ReleaseAll();
-                await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+                await master.CloseAsync().AsTask().WaitAsync(Bound);
             }
         }
     }
@@ -157,8 +158,8 @@ public sealed class MasterCloseTests
                 late = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8)).AsTask();
             }
 
-            var exception = await Assert.ThrowsAsync<LatticeException>(() => late.WaitAsync(ReplicationNodes.Bound));
-            await closing.WaitAsync(ReplicationNodes.Bound);
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => late.WaitAsync(Bound));
+            await closing.WaitAsync(Bound);
 
             Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
             Assert.NotNull(child.Set<PieceSchema.Piece>().Get(1L));
@@ -166,7 +167,7 @@ public sealed class MasterCloseTests
         }
         finally
         {
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 }

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
@@ -19,8 +20,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // the same write succeeds and is found.
 public sealed class RefusedReservationTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Write_whose_index_nodes_the_arena_cannot_hold_is_refused_for_memory_leaves_nothing_and_succeeds_once_memory_is_freed()
     {

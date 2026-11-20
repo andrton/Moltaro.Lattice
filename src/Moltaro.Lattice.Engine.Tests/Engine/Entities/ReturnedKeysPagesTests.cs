@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Entities;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
@@ -26,8 +27,6 @@ public sealed class ReturnedKeysPagesTests
     private const int Remembered = 1_100_000;
 
     private const int NeverRemembered = 100_000;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
     [InlineData("Int64")]

@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -27,8 +28,8 @@ public sealed class ReplyBeforeTransactionTests
 
         var throughTheChild = Forward(child, first: 1);
         var onTheMaster = Enumerable.Range(1_001, Writes).Select(id => master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(id, name: 8)).AsTask()).ToList();
-        var forwarded = await Task.WhenAll(throughTheChild).WaitAsync(ReplicationNodes.Bound);
-        await Task.WhenAll(onTheMaster).WaitAsync(ReplicationNodes.Bound);
+        var forwarded = await Task.WhenAll(throughTheChild).WaitAsync(Bound);
+        await Task.WhenAll(onTheMaster).WaitAsync(Bound);
 
         ExpectRepliesBeforeTheirTransactions(relay, forwarded);
     }
@@ -45,9 +46,9 @@ public sealed class ReplyBeforeTransactionTests
         var throughTheFirst = Forward(firstChild, first: 1);
         var throughTheSecond = Forward(secondChild, first: 1_001);
         var onTheMaster = Enumerable.Range(2_001, Writes).Select(id => master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(id, name: 8)).AsTask()).ToList();
-        var forwardedByTheFirst = await Task.WhenAll(throughTheFirst).WaitAsync(ReplicationNodes.Bound);
-        var forwardedByTheSecond = await Task.WhenAll(throughTheSecond).WaitAsync(ReplicationNodes.Bound);
-        await Task.WhenAll(onTheMaster).WaitAsync(ReplicationNodes.Bound);
+        var forwardedByTheFirst = await Task.WhenAll(throughTheFirst).WaitAsync(Bound);
+        var forwardedByTheSecond = await Task.WhenAll(throughTheSecond).WaitAsync(Bound);
+        await Task.WhenAll(onTheMaster).WaitAsync(Bound);
 
         var repliedToTheFirst = ExpectRepliesBeforeTheirTransactions(firstRelay, forwardedByTheFirst);
         var repliedToTheSecond = ExpectRepliesBeforeTheirTransactions(secondRelay, forwardedByTheSecond);

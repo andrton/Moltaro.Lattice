@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
@@ -27,8 +28,6 @@ internal static class FullArena
 
     // The slots of 1 KiB of one region, the size of a node and of the text entry of a filler.
     public const int SlotsOfOneKiB = Region / IndexSchema.NodeBytes;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static ArenaOptions Options { get; } = new() { SegmentSize = Region, MemoryLimit = Regions * (long)Region, ReservedSegments = 0 };
 

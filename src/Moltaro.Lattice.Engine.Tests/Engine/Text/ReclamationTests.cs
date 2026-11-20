@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -25,8 +26,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // it is released, so it returns the text of the state before the write or of the one after it.
 public sealed class ReclamationTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     public static IEnumerable<TheoryDataRow<string>> Encodings => TextSchema.Encodings;
 
     public static IEnumerable<TheoryDataRow<string>> LastReferrerEnds => [new("replace"), new("delete")];

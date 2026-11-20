@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -32,8 +33,6 @@ public sealed class ChurnTests
     // replace, delete, insert. With four keys 300 deletes and 300 inserts again of every key; with
     // sixteen, 75 of each.
     private const int Writes = 4_800;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // At least four readers, so that readers meet on a root; at most eight, beside the writers.
     private static int Readers => Math.Clamp(Environment.ProcessorCount, 4, 8);

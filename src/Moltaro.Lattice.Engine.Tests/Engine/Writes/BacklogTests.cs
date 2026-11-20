@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -17,8 +18,6 @@ public sealed class BacklogTests
     private const int Entities = 100;
 
     private const int Rounds = 100;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Ten_thousand_writes_queued_behind_a_held_commit_are_all_admitted_and_all_complete_in_the_order_of_their_calls()

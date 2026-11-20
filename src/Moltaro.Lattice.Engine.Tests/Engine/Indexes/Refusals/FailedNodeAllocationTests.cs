@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
@@ -27,8 +28,6 @@ public sealed class FailedNodeAllocationTests
     private const int Region = Arena.MaxBlockSize;
 
     private const int Regions = 5;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     private static readonly ArenaOptions Options = new() { SegmentSize = Region, MemoryLimit = Regions * (long)Region, ReservedSegments = 0 };
 

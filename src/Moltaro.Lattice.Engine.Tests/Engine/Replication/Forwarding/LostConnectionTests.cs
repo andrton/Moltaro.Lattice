@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -38,7 +39,7 @@ public sealed class LostConnectionTests
         await link.HeldAsync();
         link.Cut();
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         await NothingRegistered.ExpectAsync(master, 100);
@@ -62,7 +63,7 @@ public sealed class LostConnectionTests
             await storage.NextAsync();
             link.Cut();
 
-            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
 
@@ -96,7 +97,7 @@ public sealed class LostConnectionTests
             await storage.NextAsync();
             link.EndToChildInOrder();
 
-            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
 
             Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
 
@@ -143,7 +144,7 @@ public sealed class LostConnectionTests
         await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8));
         await relay.ChildEndedAsync();
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.SynchronizationTimeout, exception.Error);
         Assert.Equal(committed, exception.CommittedPosition);

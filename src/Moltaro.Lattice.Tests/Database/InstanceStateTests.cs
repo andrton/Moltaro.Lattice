@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Database;
 
 // The states of an instance of a MemoryOnly master and what an operation does in each (brief of
@@ -11,8 +13,6 @@ namespace Moltaro.Lattice.Tests.Database;
 // tests of the engine state it (OneCloseTests).
 public sealed class InstanceStateTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Before_the_open_every_operation_is_Unavailable()
     {

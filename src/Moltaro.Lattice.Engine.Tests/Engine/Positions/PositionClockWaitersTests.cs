@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using Moltaro.Lattice.Engine.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 
@@ -18,8 +19,6 @@ public sealed class PositionClockWaitersTests
     private const ulong History = 0x0FED_CBA9_8765_4321;
 
     private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task One_publication_completes_every_waiter_of_its_target()

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -15,8 +16,6 @@ public sealed class CancelledReadTests
     private const int Keys = 4;
 
     private static readonly TimeSpan Wait = TimeSpan.FromMilliseconds(500);
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
     [InlineData("by class")]

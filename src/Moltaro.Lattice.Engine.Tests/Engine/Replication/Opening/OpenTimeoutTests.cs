@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -31,8 +32,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 public sealed class OpenTimeoutTests
 {
     private const int Portion = 2 * 64 * 1024;
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(1);
 

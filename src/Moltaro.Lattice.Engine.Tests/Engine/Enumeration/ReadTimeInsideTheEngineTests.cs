@@ -3,6 +3,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -63,8 +64,6 @@ public sealed class ReadTimeInsideTheEngineTests
 
     // How long the steps wait for a slot at the least.
     private static readonly TimeSpan Wait = ReadTimes.BeyondTheLimit;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Step_that_waits_inside_the_engine_longer_than_the_time_limit_fails_the_enumeration_with_ReadTime()

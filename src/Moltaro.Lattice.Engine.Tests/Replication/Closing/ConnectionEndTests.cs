@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Closing;
 
@@ -47,7 +48,7 @@ public sealed class ConnectionEndTests
         var secondEnd = second.EndedInOrderAsync();
         var closing = Stopwatch.StartNew();
 
-        await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await master.CloseAsync().AsTask().WaitAsync(Bound);
         closing.Stop();
 
         Assert.True(await firstEnd, "The master reset the connection of the first child instead of ending its side in order.");
@@ -91,12 +92,12 @@ public sealed class ConnectionEndTests
             Assert.True(inOrder, "The master reset the connection instead of ending its side in order.");
 
             child.Dispose();
-            await closing.WaitAsync(ReplicationNodes.Bound);
+            await closing.WaitAsync(Bound);
         }
         finally
         {
             storage.ReleaseAll();
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 }

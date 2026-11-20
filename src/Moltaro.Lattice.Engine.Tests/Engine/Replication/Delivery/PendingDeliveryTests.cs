@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
@@ -110,7 +111,7 @@ public sealed class PendingDeliveryTests
         await Pieces.InsertAsync(master, 1, 2, dataBytes: 16);
         var child = await ReplicationNodes.OpenChildAsync(master.ListenUri!);
 
-        await child.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await child.CloseAsync().AsTask().WaitAsync(Bound);
         await NothingRegistered.ExpectAsync(master, 3);
 
         Assert.NotNull(master.Set<PieceSchema.Piece>().Get(3L));

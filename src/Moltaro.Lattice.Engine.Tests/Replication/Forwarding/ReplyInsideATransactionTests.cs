@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -69,7 +70,7 @@ public sealed class ReplyInsideATransactionTests
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
 
         var large = await master.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8, data: 200_000));
-        var forwarded = await child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(ReplicationNodes.Bound);
+        var forwarded = await child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(Bound);
 
         Assert.True(moved, "The relay did not pass the reply between the frames of the large transaction.");
         Assert.NotEqual(large.Position, forwarded.Position);

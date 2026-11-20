@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -15,8 +16,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // the next write of Counted succeeds.
 public sealed class FailedTopUpTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Write_whose_top_up_of_the_standing_reserve_meets_a_failed_native_allocation_succeeds()
     {

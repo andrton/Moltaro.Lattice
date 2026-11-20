@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
@@ -32,8 +33,6 @@ public sealed class PublicationFaultTests
     private const long Unavailable = ReadsUntilUnavailable.Unavailable;
 
     private static readonly ArenaOptions Arena = new() { MemoryLimit = 64L * new ArenaOptions().SegmentSize };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The points by name: the enum of the engine is internal, and a test method is public.
     public static IEnumerable<TheoryDataRow<string, string>> Cases =>

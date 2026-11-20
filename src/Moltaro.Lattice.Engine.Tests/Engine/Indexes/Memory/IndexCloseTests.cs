@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 
@@ -25,8 +26,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Memory;
 // that took a step and was not disposed, which weak references show.
 public sealed class IndexCloseTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private static readonly ArenaOptions Arena = new() { MemoryLimit = 64L * new ArenaOptions().SegmentSize };
 
     [Fact]

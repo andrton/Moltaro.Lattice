@@ -1,5 +1,6 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -22,8 +23,6 @@ public sealed class CountsUnderLoadTests
 
     // Per key, in cycles of four: replace, replace, delete, insert; a multiple of four.
     private const int WritesPerKey = 500;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     private static readonly string[] Shared = ["North", "South", "Жук", "a😀b"];
 

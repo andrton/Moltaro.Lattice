@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication;
 
@@ -14,8 +15,6 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // everything the relay passed, and not as the reset with which the link ends a connection otherwise.
 internal sealed class FrameRelay : IAsyncDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     // Guards what the copies keep, which a test reads from its own thread.
     private readonly Lock _lock = new();
 

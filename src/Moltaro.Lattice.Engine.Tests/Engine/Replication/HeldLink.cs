@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -23,8 +24,6 @@ internal sealed class HeldLink : IAsyncDisposable
 {
     // What a link made by Start passes from the master to the child before it holds the rest.
     public const int Passed = 256 * 1024;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The bytes from the master after which the link holds or pauses; and the pause of a paced link,
     // null for a link that holds.

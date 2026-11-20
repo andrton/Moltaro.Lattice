@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
 // Cancellation of a write through a child (brief of Epic 1, sprint S12, the planner's block of 15 November
@@ -28,11 +30,11 @@ public sealed class CancellationTests
         var waiting = pieces.InsertAsync(PieceSchema.Of(2, name: 8), cancellation.Token).AsTask();
         await cancellation.CancelAsync();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(ReplicationNodes.Bound));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(Bound));
         Assert.False(taken.IsCompleted, "The write the sender had taken completed while the link held it.");
 
         link.Release();
-        await ApplicationWait.WithCaptureAsync(taken.WaitAsync(ReplicationNodes.Bound), child);
+        await ApplicationWait.WithCaptureAsync(taken.WaitAsync(Bound), child);
 
         Assert.NotNull(master.Set<PieceSchema.Piece>().Get(1L));
         Assert.Null(master.Set<PieceSchema.Piece>().Get(2L));
@@ -52,7 +54,7 @@ public sealed class CancellationTests
         await cancellation.CancelAsync();
 
         link.Release();
-        var written = await ApplicationWait.WithCaptureAsync(taken.WaitAsync(ReplicationNodes.Bound), child);
+        var written = await ApplicationWait.WithCaptureAsync(taken.WaitAsync(Bound), child);
 
         Assert.True(written.Changed);
         Assert.Equal(ThirtyTwoMebibytes, child.Set<PieceSchema.Piece>().Get(1L)?.Data?.Length);

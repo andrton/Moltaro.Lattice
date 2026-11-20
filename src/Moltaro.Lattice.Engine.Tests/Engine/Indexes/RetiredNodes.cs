@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
@@ -13,8 +14,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // prepared memory, so the count does not depend on how many nodes the pool of an index keeps.
 internal static class RetiredNodes
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     // The nodes the write retires; the root it replaces is of the entity type given and holds inline the
     // String values of the lengths given, as StoredBytes places them.
     public static async Task<long> OfAsync(EngineDatabase database, Func<long?> heldRead, Func<Task> write, string replacedType, params int[] inlineLengths)
