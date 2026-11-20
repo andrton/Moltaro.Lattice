@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Access;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // The one entity of Optional of the tests of a null key (UpkeepSchema), on a master and on a child: its
 // record, the keys of ByValue in its walk, and what a search of ByValue finds.

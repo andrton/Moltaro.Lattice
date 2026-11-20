@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // The standing reserve of the indexes of a database as the tests state it: for each index, the need of
 // one change of key at its tree as it is now (ReservationNeed), in whole nodes of the index. While no write

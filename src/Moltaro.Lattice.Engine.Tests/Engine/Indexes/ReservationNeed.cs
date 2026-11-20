@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // The need of the writes that wait on an index, summed here one write at a time as the tree first
 // defined it: the most nodes their publications can take, and the most places in the retired list they

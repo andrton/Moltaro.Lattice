@@ -2,7 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // An arena that holds all it may beside one entity of Ranked, so that a later write of Ranked finds a place
 // for its root and its texts and none for the nodes its indexes need. The arena has segments of one region,

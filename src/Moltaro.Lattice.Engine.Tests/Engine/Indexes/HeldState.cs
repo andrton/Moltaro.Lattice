@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // What a database holds at one moment, taken after a drain, so that a test can state that a write which
 // had no effect left nothing behind (decision on write admission, Q14: a write refused before its commit

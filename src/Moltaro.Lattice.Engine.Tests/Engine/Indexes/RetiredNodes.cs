@@ -2,7 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // How many nodes of its indexes a write retires: what tells a write that leaves an entry byte for byte as it
 // was, and copies no node of its index, from one that rewrites or moves the entry, which copies at least the

@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // The schema of IndexSchema, in a UTF-8 database, with the entity types of the tests of the upkeep of an
 // index, each with one index of one part, addressed by name:

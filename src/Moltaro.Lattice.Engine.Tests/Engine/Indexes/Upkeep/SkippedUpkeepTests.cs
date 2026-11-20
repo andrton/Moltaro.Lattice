@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
 

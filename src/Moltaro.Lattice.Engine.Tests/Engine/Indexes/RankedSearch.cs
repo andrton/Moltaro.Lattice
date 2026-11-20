@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Access;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 
 // What a search of each index of Ranked finds by the keys of one state of an entity: ByNumber by its
 // Number, ByLogin by its Login, ByRegion by its Region in another case, which the index compares without
