@@ -361,13 +361,14 @@ public sealed class IndexTests
             Schema = TestData.Schema,
         });
 
-        TestData.ExpectError(LatticeErrorEnum.Unavailable, () => database.WaitForPositionAsync(new LatticeSession()));
+        var unavailable = await Assert.ThrowsAsync<LatticeException>(async () => await database.WaitForPositionAsync(new LatticeSession()));
+        Assert.Equal(LatticeErrorEnum.Unavailable, unavailable.Error);
 
         await database.OpenAsync();
         await database.WaitForPositionAsync(database.Position);
         await database.CloseAsync();
 
-        Assert.Throws<ObjectDisposedException>(() => database.WaitForPositionAsync(new LatticeSession()));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await database.WaitForPositionAsync(new LatticeSession()));
     }
 
     // Ada 36, Grace 45, Linus 36, Alan 41 without an email, Edsger without an age,
