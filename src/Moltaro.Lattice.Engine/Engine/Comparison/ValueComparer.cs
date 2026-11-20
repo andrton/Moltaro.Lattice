@@ -67,9 +67,11 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // bytes sort as code points (RFC 3629), which is the order of the UTF-16 code units of the texts except at
 // one place. A character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, comes before one beyond U+FFFF, lead
 // byte 0xF0 or above, by code point, and after it by code unit, since UTF-16 writes the latter with
-// surrogates, which lie below 0xE000. The texts are well-formed and agree up to the first byte that
-// differs, so that byte is the lead byte of the two characters where they differ, and the order turns
-// around exactly when one of them is 0xEE or 0xEF and the other 0xF0 or above. Text of a UTF-16 database
+// surrogates, which lie below 0xE000. The texts are well-formed, so the first byte that differs is the
+// lead byte of a character on both sides, or a continuation byte on both, inside characters with the same
+// lead byte. The order turns around when one of those bytes is 0xEE or 0xEF and the other 0xF0 or above:
+// two lead bytes of the two ranges. A continuation byte (0x80 to 0xBF) never meets that test, and is
+// right not to, since two characters with one lead byte lie in the same range. Text of a UTF-16 database
 // has no such path: its bytes are little-endian code units, whose order is not that of the code units, so
 // it is compared a piece at a time, as above. A comparison without case stays on the decoded form, as the
 // mapping of the case table needs it.
