@@ -5938,7 +5938,9 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     returned task — a `LatticeException` of any code, also on a path that needs no wait,
     and `ObjectDisposedException` after a close. A close can come between the call and its
     first step, so the caller handles the task's path in any case, and it is what
-    `ReadAsync`, the writes, `EnumerateAsync` and `OpenAsync` already do. Where the XML
+    `ReadAsync`, the writes, `EnumerateAsync` and `OpenAsync` already do. The rule is
+    written into `AGENTS.md`, "Shape of the public API", with this sprint (the owner,
+    20 November 2026, on the review: it lived only here and in comments). Where the XML
     documentation of `FindAsync` or `WaitForPositionAsync` says how a failure arrives, the
     implementer corrects it in its commit. The test author checks every
     other asynchronous member that has a fast path written by hand against the same rule
