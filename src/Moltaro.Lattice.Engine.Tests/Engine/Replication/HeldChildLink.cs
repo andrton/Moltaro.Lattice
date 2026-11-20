@@ -9,7 +9,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // in the middle of being sent (brief of Epic 1, sprint S12). The child is given Address as its MasterUri;
 // what the master sends passes at once. Until Hold the link passes everything the child sends; from then
 // on it holds the first bytes it reads from the child, and everything after them, until Release, so that
-// a send of the child that the buffers of the connection cannot take waits. It keeps every byte it read
+// a send of the child that the fixed receive buffer of the link (LoopbackLink.ReceiveBuffer) and the
+// send buffer of the child cannot take waits. It keeps every byte it read
 // from the child, held or passed, so that a test can read the child's frames (WireFrame). Cut ends both
 // connections with a reset, as the network does when the process of a peer is gone.
 internal sealed class HeldChildLink : IAsyncDisposable

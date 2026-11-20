@@ -32,7 +32,7 @@ public sealed class AcknowledgmentDuringARequestTests
         await Eventually.AtAsync(child, meanwhile.Position);
 
         link.Release();
-        await writing.WaitAsync(ReplicationNodes.Bound);
+        await ApplicationWait.WithCaptureAsync(writing.WaitAsync(ReplicationNodes.Bound), child);
 
         var frames = link.FromChild.ToList();
         var first = frames.FindIndex(frame => frame.Kind == ForwardPayload.WriteRequest);
