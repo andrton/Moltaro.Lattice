@@ -18,6 +18,9 @@ internal static class FullArena
 
     private const int Region = Arena.MaxBlockSize;
 
+    // The slots of 1 KiB of one region, the size of a node and of the text entry of a filler.
+    public const int SlotsOfOneKiB = Region / IndexSchema.NodeBytes;
+
     private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static ArenaOptions Options { get; } = new() { SegmentSize = Region, MemoryLimit = Regions * (long)Region, ReservedSegments = 0 };
