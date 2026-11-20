@@ -1,14 +1,15 @@
 namespace Moltaro.Lattice.Tests.Indexes;
 
-// FindAsync delivers its failures by the rule of every asynchronous member: a caller's mistake is thrown
-// when the method is called, and what the database decides comes through the task it returns, also when
-// the search meets it on a path that needs no wait (AGENTS.md, "Shape of the public API": ArgumentException
+// FindAsync delivers its failures by the rule of every asynchronous member: it throws at the call only what
+// the caller can know from its own arguments, and everything that depends on the state of the database
+// comes through the task it returns, also on a path that needs no wait, and a close as well, since a close
+// can come between the call and its first step (AGENTS.md, "Shape of the public API": ArgumentException
 // reports a caller's mistake, LatticeException with its code what the database decided). Each through a
 // class and by name:
-// - thrown by the call: no options, a key the index cannot serve, the default of IndexKey, which is no key,
-//   and a search after the database was closed;
+// - thrown by the call: no options, a key the index cannot serve, the default of IndexKey, which is no key;
 // - through the task: SynchronizationTimeout once a wait for a position ahead of the master has run out,
-//   and HistoryMismatch for a session of another database, which needs no wait.
+//   HistoryMismatch for a session of another database, which needs no wait, and ObjectDisposedException
+//   for a search after the database was closed.
 public sealed class FindAsyncDeliveryTests
 {
     private static readonly LatticeFindOptions Options = new();
@@ -28,9 +29,22 @@ public sealed class FindAsyncDeliveryTests
         Assert.Throws<ArgumentException>(() => { _ = byName.FindAsync(default, Options); });
 
         await database.CloseAsync();
+    }
 
-        Assert.Throws<ObjectDisposedException>(() => { _ = byClass.FindAsync(IndexKey.Equal(1), Options); });
-        Assert.Throws<ObjectDisposedException>(() => { _ = byName.FindAsync(IndexKey.Equal(1), Options); });
+    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    public async Task Search_after_a_close_is_ObjectDisposedException_through_the_task_FindAsync_returns()
+    {
+        var database = await MemberSchema.OpenAsync();
+        var byClass = database.Set<Member>().Index("ByGroup");
+        var byName = database.Set("Member").Index("ByGroup");
+
+        await database.CloseAsync();
+
+        var throughClass = byClass.FindAsync(IndexKey.Equal(1), Options);
+        var throughName = byName.FindAsync(IndexKey.Equal(1), Options);
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => throughClass.AsTask());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => throughName.AsTask());
     }
 
     [Fact]
