@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Replication;
 
 // A master and its read replica (child) in one process. Application code works with both
 // through the same interface and does not care about the role.

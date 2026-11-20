@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Limits;
 
 // The memory budget of an instance, MemoryLimit, bounds the memory the engine holds for the
 // database. Without it an instance takes half of the memory the runtime reports as available to the

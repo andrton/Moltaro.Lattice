@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Schema;
 
 // Text that repeats, such as the region of a customer, stored once for the whole database: the
 // schema selects StringStorage Dictionary for the field. Nothing else changes for the

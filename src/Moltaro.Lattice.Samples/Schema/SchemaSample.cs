@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Schema;
 
 // The schema: compile the JSON descriptor, save the compiled form, load it again.
 internal static class SchemaSample
@@ -11,7 +11,7 @@ internal static class SchemaSample
 
         // Compile: parse and validate the descriptor and resolve entity types, fields and keys.
         // This can be done once, for example at build or deployment time.
-        var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "directory.schema.json"));
+        var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Schema", "directory.schema.json"));
         var compiled = LatticeSchema.Compile(json);
 
         // Save the compiled schema to a file. Save(Stream) writes it to any stream.

@@ -352,7 +352,9 @@ Without a container, or to control the moment yourself, create the database firs
 open it later: `LatticeDatabase.Create(options)`, then `await database.OpenAsync()`.
 
 Runnable versions live in [src/Moltaro.Lattice.Samples](src/Moltaro.Lattice.Samples);
-the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case.
+the [tests](src/Moltaro.Lattice.Tests) show the behavior case by case. The
+[README of the samples](src/Moltaro.Lattice.Samples/README.md) orders them as a learning
+path, from simple to complex.
 
 ## Database model
 

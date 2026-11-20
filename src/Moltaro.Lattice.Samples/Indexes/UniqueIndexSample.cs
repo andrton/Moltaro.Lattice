@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Indexes;
 
 // A unique index lets a value belong to one entity only. The schema declares it with
 // "Unique": true; the master keeps the rule for every write, whichever node submits it.

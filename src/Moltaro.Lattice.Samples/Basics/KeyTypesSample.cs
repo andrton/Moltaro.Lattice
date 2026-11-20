@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Basics;
 
 // A primary key is one of the eight integer types, a String or a Guid, as the schema declares it.
 // A key is given as that type, or as an integer of another width when it fits. Anything else is

@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Limits;
 
 // The options of a database can limit how much temporary memory and how much time inside the
 // engine one enumeration may use. Neither is set by default, and without a limit an enumeration

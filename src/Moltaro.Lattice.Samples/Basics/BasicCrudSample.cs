@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Basics;
 
 // Entities as objects of a .NET class: open, create, read, update, delete, enumerate, close.
 internal static class BasicCrudSample

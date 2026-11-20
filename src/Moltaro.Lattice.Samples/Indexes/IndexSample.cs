@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Indexes;
 
 // Finding entities through the secondary indexes declared in the schema:
 //   User.ByEmail              (Email)

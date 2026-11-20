@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Basics;
 
 // Entities by name, as records: no .NET class is involved.
 internal static class DynamicAccessSample

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Moltaro.Lattice.DependencyInjection;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Hosting;
 
 // The database in an application with dependency injection: one singleton, opened when the
 // application starts, injected into services. A Web API is set up the same way:

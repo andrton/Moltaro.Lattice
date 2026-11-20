@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Samples;
+namespace Moltaro.Lattice.Samples.Writes;
 
 // Several writes that have to succeed or fail together are submitted as one write batch.
 // The master executes the whole batch at one position, or nothing of it; no reader sees
