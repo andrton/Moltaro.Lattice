@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Indexes;
 
@@ -33,6 +34,11 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // Equal parts that are not the same bytes exist: a text under another case, a Decimal of another scale.
 // They are one key; the entry of a root holds the bytes of its own value (SecondaryIndex, "A write").
 //
+// The comparison is chosen once for an index, when its order is made from its layout: an index of one
+// part never null whose stored form is a signed integer of 8 bytes compares that number, read where the
+// layout places it, without the loop over the parts and the comparison by type, in the same order; every
+// other index takes the loop (OneNumber).
+//
 // No state but what it is made with; a comparison allocates nothing and reads, inside the protection of
 // reads or under the lock of the writes, only the entries it is given and the text entries they
 // reference, which the node that holds them keeps from being freed.
@@ -42,36 +48,46 @@ internal sealed class IndexOrder
 
     private readonly Arena _arena;
 
+    // Whether the index has one part, never null, stored as a signed integer of 8 bytes in the byte order
+    // of the machine, whose order is the order of that number: an Int64 or an Enum over one, a
+    // DateTimeOffset as its UTC ticks, a TimeOnly or a TimeSpan as its ticks (Storage.Values.StoredScalars,
+    // Comparison.ValueComparer.CompareStored). Its entry is the identity and the number, with no null
+    // bitmap, and a search key holds the number at FixedStart.
+    private readonly bool _oneNumber;
+
     // The order of the entries of the layout, whose shared keys lie in the arena.
     public IndexOrder(IndexLayout layout, Arena arena)
     {
         _layout = layout;
         _arena = arena;
+        _oneNumber = OneNumber(layout);
     }
 
     // The order of two entries of the index: below zero when the first comes first. For the writer, and
     // for a reader that descends again at a fence, which is a copy of an entry.
     public int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
     {
-        var order = CompareKeys(left, right);
+        var order = _oneNumber ? NumberOf(left).CompareTo(NumberOf(right)) : CompareKeys(left, right);
 
         return order != 0 ? order : IdentityOf(left).CompareTo(IdentityOf(right));
     }
 
     // Whether two entries have equal keys by the order, whatever their identities and their bytes.
-    public bool SameKey(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => CompareKeys(left, right) == 0;
+    public bool SameKey(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) =>
+        _oneNumber ? NumberOf(left) == NumberOf(right) : CompareKeys(left, right) == 0;
 
     // The order of a search key, with the identity it starts at, against an entry: below zero when the
     // key comes first. For a reader inside the protection of reads.
     public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
-        var order = CompareKey(probe, entry);
+        var order = _oneNumber ? NumberOf(probe).CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
 
         return order != 0 ? order : IdentityOf(probe.From).CompareTo(IdentityOf(entry));
     }
 
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
-    public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) => CompareKey(probe, entry) == 0;
+    public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
+        _oneNumber ? NumberOf(probe) == NumberOf(entry) : CompareKey(probe, entry) == 0;
 
     // Whether the two roots contribute entries of equal keys by the order, read from their stored fields
     // as the entries would hold them: a copy of a text or the text entry its root references is the text
@@ -108,6 +124,25 @@ internal sealed class IndexOrder
 
         return true;
     }
+
+    // Whether the layout is that of an index of one number (_oneNumber).
+    private static bool OneNumber(IndexLayout layout)
+    {
+        var parts = layout.Parts;
+
+        if (parts.Length != 1 || parts[0].NullBit != EntryPart.NoNullBit || parts[0].Width != sizeof(long))
+        {
+            return false;
+        }
+
+        return parts[0].Type is StoredTypeEnum.SignedInteger or StoredTypeEnum.DateTimeOffset or StoredTypeEnum.TimeOnly or StoredTypeEnum.TimeSpan;
+    }
+
+    // The number of an entry of an index of one number, after its identity.
+    private static long NumberOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<long>(entry[IndexLayout.IdentityBytes..]);
+
+    // The number of a search key of an index of one number, in its scratch.
+    private static long NumberOf(scoped in SearchKey probe) => MemoryMarshal.Read<long>(probe.FixedAt(SearchKey.FixedStart, sizeof(long)));
 
     // The identity of an entry as the number the order compares: the RootHandle it begins with.
     private static ulong IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<ulong>(entry);

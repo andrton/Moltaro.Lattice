@@ -50,6 +50,13 @@ null orders after every value of its part and equals another null, so a composit
 goes on to its next part. All of it is the one comparison service of the schema, which
 gains the order beside its equality.
 
+The comparison is chosen once for an index, when its order is made from its layout. An
+index of one part that is never null and whose stored form is a signed integer of 8 bytes
+— an Int64 or an Enum over one, a DateTimeOffset as its UTC ticks, a TimeOnly or a
+TimeSpan as its ticks — compares that number, read where the layout places it, in the
+order of the comparison service, without the loop over the parts and the comparison by
+type; every other index takes the loop.
+
 Two keys can be equal and not the same bytes: a text under another case, a Decimal of
 another scale. They are one key with one place in the tree; an entry holds the bytes of
 its own root's value, and a write that changes only the bytes rewrites the entry at its

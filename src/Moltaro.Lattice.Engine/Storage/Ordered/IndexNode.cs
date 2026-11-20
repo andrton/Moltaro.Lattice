@@ -62,14 +62,15 @@ internal readonly ref struct IndexNode
     private int EntriesStart => OffsetsStart + (_layout.HasText ? _header.Count * IndexLayout.OffsetBytes : 0);
 
     // The entry of a leaf, or the separator of an inner node, at the place given, 0 to Count less one: a
-    // span over the node, valid while the node is.
-    public ReadOnlySpan<byte> EntryAt(int place)
-    {
-        if (!_layout.HasText)
-        {
-            return _payload.Slice(EntriesStart + (place * _layout.FixedEntryBytes), _layout.FixedEntryBytes);
-        }
+    // span over the node, valid while the node is. An entry of fixed width lies at its place in the array of
+    // entries; the rest is out of line, so that this small member is inlined into the binary searches of a
+    // descent, which call it at every probe (JIT listing at full optimization).
+    public ReadOnlySpan<byte> EntryAt(int place) =>
+        _layout.HasText ? TextEntryAt(place) : _payload.Slice(EntriesStart + (place * _layout.FixedEntryBytes), _layout.FixedEntryBytes);
 
+    // The entry or separator at the place given in a node of an index with a String part, behind its offset.
+    private ReadOnlySpan<byte> TextEntryAt(int place)
+    {
         // The entries follow one another in their order, so an entry ends where the next begins, and the
         // last where the bytes of the node end.
         var offsets = OffsetsStart;
