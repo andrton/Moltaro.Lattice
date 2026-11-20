@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // because the standing reserve keeps a pool above the need of the writes that wait.
 public sealed class ClosedFormTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public void Closed_form_of_the_need_of_waiting_writes_equals_the_sum_over_the_writes_at_every_height_room_and_count()
     {
         var differ = new List<string>();

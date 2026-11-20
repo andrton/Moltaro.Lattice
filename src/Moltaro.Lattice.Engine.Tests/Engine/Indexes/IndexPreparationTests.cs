@@ -57,8 +57,8 @@ public sealed class IndexPreparationTests
     public static IEnumerable<TheoryDataRow<int, int>> Waiting =>
     [
         new(1, 0),
-        new(5, 3) { Skip = SkipReason.BeforeSprint14Part2 },
-        new(150, 3) { Skip = SkipReason.BeforeSprint14Part2 },
+        new(5, 3),
+        new(150, 3),
     ];
 
     [Theory]
@@ -133,7 +133,7 @@ public sealed class IndexPreparationTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint14Part2)]
+    [Fact]
     public async Task Tree_that_grows_while_inserts_wait_keeps_its_reservation_within_the_bound_as_some_are_withdrawn_and_the_rest_published()
     {
         const int Inserts = 200;

@@ -24,24 +24,24 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // does (decision on strings, Q04.4, the settlement of 18 November 2026; Storage.Ordered.NodeStorage).
 //
 // The reservation. Nothing grows inside a publication. While p inserts, rewrites included, and q removes
-// are prepared and not published, the tree holds
+// are prepared and not published, the pool holds their need, the most nodes their publications can take
+// from the tree as it is now, as prepared blocks no reader can reach, and as many places in the retired
+// list:
 //
-//   p * (2 Hi + 1) + q * (Hr + 1) nodes, with Hi = h + ceil((p - 1) / LeastSeparators)
-//   and Hr = h + ceil(p / LeastSeparators),
+//   Need = p (2h + 1) + 2 S + q (h + G + 1),
 //
-// as prepared blocks no reader can reach, and as many places in the retired list; h is the height now.
-// An insert at height H takes at most two nodes on each level and a new root, 2H + 1, and retires at most
-// one node on each level; a remove takes at most one on each level and retires at most one more, the
-// neighbour of a merge. The height grows only when the root splits, a root made by a split holds one
-// separator and an insert adds at most one to any node, so the k-th insert finds the tree at most
-// ceil((k - 1) / LeastSeparators) levels above h, and a remove at most ceil(p / LeastSeparators): Hi and
-// Hr bound the height at the publications that wait (ordered-index.md, "The reservation"). A preparation
-// tops the pool up to the bound; a withdrawal and a publication give back to the arena what is above the
-// bound of the writes still waiting, and allocate nothing. What makes that enough, and what a Debug build
-// asserts after each of them (Need): the pool and the places hold at least what the writes still waiting
-// can take from the tree as it is now, where the k-th insert finds the height now plus the levels the
-// k - 1 inserts before it can add, given the inserts the root takes before it can split, and each remove
-// the height after every insert.
+// with h the height now, S the levels the inserts before each insert can add, summed over the inserts,
+// and G the levels all p can add (Need, in closed form). An insert at height H takes at most two nodes on
+// each level and a new root, 2H + 1, and retires at most one node on each level; a remove takes at most
+// one on each level and retires at most one more, the neighbour of a merge, H + 1. The height grows only
+// when the root splits (Growth): the root takes the inserts of its room first, a root made by a split
+// holds one separator, and an insert adds at most one to any node, so the k-th insert finds the tree at
+// most Growth(k - 1) levels above h and every remove at most Growth(p) (ordered-index.md, "The
+// reservation"). A preparation tops the pool up to the need of every write that waits, its own counted; a
+// withdrawal and a publication give back to the arena what is above the need of the writes still
+// waiting, and allocate nothing. A publication takes at most the share of the need its write was counted
+// with, and leaves the need of the writes still waiting, at the tree as it is then, no larger than what
+// is left: a Debug build asserts it after every preparation, publication and withdrawal (AssertReserved).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height and count;
@@ -218,10 +218,11 @@ internal sealed class OrderedTree
     {
         var waitingInserts = _inserts + inserts;
         var waitingRemoves = _removes + removes;
-        var nodes = (int)Bound(waitingInserts, waitingRemoves);
+        var room = Room();
+        var nodes = (int)Need(_height, room, _layout.LeastSeparators, waitingInserts, waitingRemoves);
 
         // The managed room first, so that nothing of the arena is taken when it cannot be had.
-        GrowPath(waitingInserts);
+        GrowPath(_height + Growth(waitingInserts, room, _layout.LeastSeparators));
         _pool.EnsureCapacity(nodes);
 
         var taken = 0;
@@ -422,24 +423,11 @@ internal sealed class OrderedTree
         }
     }
 
-    // The nodes the waiting publications can take (see the class, "The reservation").
-    private long Bound(int inserts, int removes)
+    // Room in the writer's path for the most levels the tree can have while the writes reserved wait, and
+    // for the nodes one publication replaces, at most one more than the levels: a remove that merges two
+    // leaves replaces both and their parent.
+    private void GrowPath(int levels)
     {
-        var separators = _layout.LeastSeparators;
-        var insertHeight = _height + CeilingOf(Math.Max(inserts - 1, 0), separators);
-        var removeHeight = _height + CeilingOf(inserts, separators);
-
-        return (inserts * ((2L * insertHeight) + 1)) + (removes * (removeHeight + 1L));
-    }
-
-    private static long CeilingOf(int dividend, int divisor) => (dividend + divisor - 1) / divisor;
-
-    // Room in the writer's path for the height the waiting inserts can reach, a new root above it
-    // included, and for the nodes one publication replaces, at most one more than the levels.
-    private void GrowPath(int inserts)
-    {
-        var levels = (int)(_height + 2 + CeilingOf(inserts, _layout.LeastSeparators));
-
         if (_path.Length < levels)
         {
             _path = new ArenaAddress[levels];
@@ -457,21 +445,21 @@ internal sealed class OrderedTree
         }
     }
 
-    // After a withdrawal or a publication: what is above the bound of the writes still waiting goes back,
+    // After a withdrawal or a publication: what is above the need of the writes still waiting goes back,
     // the nodes to the arena and the places to the retired list (see the class).
     private void Trim()
     {
-        var bound = Bound(_inserts, _removes);
+        var need = Need(_inserts, _removes);
 
-        while (_pool.Count > bound)
+        while (_pool.Count > need)
         {
             _arena.Free(_pool.Pop());
         }
 
-        if (_places > bound)
+        if (_places > need)
         {
-            _retired.Release(_places - (int)bound);
-            _places = (int)bound;
+            _retired.Release(_places - (int)need);
+            _places = (int)need;
         }
 
         AssertReserved();
@@ -482,54 +470,50 @@ internal sealed class OrderedTree
     [Conditional("DEBUG")]
     private void AssertReserved()
     {
-        var need = Need();
+        var need = Need(_inserts, _removes);
 
         Debug.Assert(_pool.Count >= need, $"The index {_layout.Index.Name} holds {_pool.Count} nodes for writes that can take {need}.");
         Debug.Assert(_places >= need, $"The index {_layout.Index.Name} holds {_places} places in the retired list for writes that can use {need}.");
     }
 
-    // The most nodes the writes still waiting can take from the tree as it is now, and the most places
-    // in the retired list they can use: the k-th insert at the height now and the levels the k - 1 inserts
-    // before it can add, 2 H + 1 at height H, and each remove, H + 1, at the height after every insert. A
-    // remove never makes the tree higher, nor its root fuller without making it lower by a level, so the
-    // order of the writes does not matter. Bound counts every insert at the height of the last, and every
-    // growth from the first insert on, so it is never below this.
-    private long Need()
-    {
-        var room = Room();
-        long need = 0;
-
-        for (var before = 0; before < _inserts; before++)
-        {
-            need += (2L * (_height + Growth(before, room))) + 1;
-        }
-
-        return need + (_removes * (_height + Growth(_inserts, room) + 1L));
-    }
+    // The need of the inserts and the removes given, waiting, at the tree as it is now (see the class).
+    private long Need(int inserts, int removes) => Need(_height, Room(), _layout.LeastSeparators, inserts, removes);
 
     // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given
-    // whose root has the room given, and the most places in the retired list they can use: the closed form
-    // of the loop of Need above (see the class, "The reservation"), which costs the same for any number of
-    // writes waiting. With h the height, r the room, L the least separators, p the inserts and q the
-    // removes, every division integer and the whole in long:
+    // whose root has the room given, and the most places in the retired list they can use (see the class,
+    // "The reservation"). The k-th insert counts 2 H + 1 at the height H = h + Growth(k - 1) it can find,
+    // and every remove H + 1 at the height h + Growth(p) after all of them. A remove never makes the tree
+    // higher, nor its root fuller without making it lower by a level, so the order of the writes does not
+    // matter. The sum over the inserts in closed form, so that it costs the same for any number of writes
+    // waiting: with r the room, L the least separators, p the inserts and q the removes, every division
+    // integer and the whole in long,
     //
-    //   m = max(0, p - 1 - r), a = m / L, b = m % L, S = m + L * a * (a - 1) / 2 + a * b,
-    //   G = 0 when p <= r, else 1 + (p - 1 - r) / L,
-    //   Need = p * (2 h + 1) + 2 S + q * (h + G + 1),
+    //   m = max(0, p - 1 - r), a = m / L, b = m % L, S = m + L a (a - 1) / 2 + a b,
+    //   Need = p (2h + 1) + 2 S + q (h + Growth(p) + 1),
     //
-    // where S is the sum of Growth over the inserts, the levels the inserts before each can add, and G is
-    // Growth of them all, the levels the removes can find added. Not implemented yet.
-    internal static long Need(int height, int room, int leastSeparators, int inserts, int removes) =>
-        throw new NotSupportedException();
+    // where S is the sum of Growth(k) for k = 0 to p - 1. Growth(k) is 0 up to k = r, and for the m terms
+    // beyond the room it is 1, and on top of that 0 for the first L of them, 1 for the next L, and so on:
+    // a whole steps of L, which add L (0 + 1 + ... + (a - 1)), and b terms more, which add a each.
+    internal static long Need(int height, int room, int leastSeparators, int inserts, int removes)
+    {
+        long least = leastSeparators;
+        var beyondRoom = Math.Max(0L, inserts - 1L - room);
+        var steps = beyondRoom / least;
+        var rest = beyondRoom % least;
+        var growths = beyondRoom + (least * steps * (steps - 1) / 2) + (steps * rest);
+
+        return (inserts * ((2L * height) + 1)) + (2 * growths) + (removes * (height + Growth(inserts, room, leastSeparators) + 1L));
+    }
 
     // The inserts the root takes before it can split: a node with fewer than LeastSeparators separators,
     // or entries, fits one more. 0 for an empty tree, whose first insert makes a root.
     private int Room() => _root == 0 ? 0 : Math.Max(0, _layout.LeastSeparators - NodeAt(LoadRoot()).Count);
 
-    // The most levels the inserts given can add to the tree: the first growth after room of them, and each
-    // further one after LeastSeparators more, since the root a growth makes holds one separator or entry.
-    private long Growth(int inserts, int room) =>
-        inserts <= room ? 0 : 1 + ((inserts - 1 - room) / _layout.LeastSeparators);
+    // The rule of growth: the most levels the inserts given can add to a tree whose root has the room
+    // given, the first after the room of the root, and each further one after LeastSeparators more, since
+    // the root a growth makes holds one separator.
+    private static int Growth(int inserts, int room, int leastSeparators) =>
+        inserts <= room ? 0 : 1 + ((inserts - 1 - room) / leastSeparators);
 
     private void TakeInsert()
     {

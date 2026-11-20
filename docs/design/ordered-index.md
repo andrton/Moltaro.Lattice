@@ -256,58 +256,56 @@ the arena cannot hold takes nothing and is refused as a write the memory budget 
 hold is: before its commit.
 
 The writes prepared and not published share one pool for each index. While *p* inserts,
-rewrites among them, and *q* removes wait, the pool holds
+rewrites among them, and *q* removes wait, the pool holds their *need*, the most nodes
+their publications can take from the tree as it is now:
 
-> *p* · (2*H*ᵢ + 1) + *q* · (*H*ᵣ + 1) nodes, with *H*ᵢ = *h* + ⌈(*p* − 1) / *I*⌉ and
-> *H*ᵣ = *h* + ⌈*p* / *I*⌉,
+> *Need* = *p* · (2*h* + 1) + 2*S* + *q* · (*h* + *G*(*p*) + 1),
 
-where *h* is the height of the tree now and *I* the separators of its widest form an
-inner node holds before it is full, at least four. *H*ᵢ bounds the height an insert finds
-when it is published, *H*ᵣ the height a remove finds; with no insert waiting the tree
-cannot grow, and removes alone are counted at the height it has. Why it is enough:
+where *h* is the height of the tree now, *G*(*k*) the most levels *k* inserts can add to
+it, and *S* = *G*(0) + … + *G*(*p* − 1), the levels the inserts before each insert can
+add. With *r* the inserts the root takes before it can split and *I* the separators of
+its widest form an inner node holds before it is full, at least four, *G*(*k*) is 0 for
+*k* ≤ *r* and 1 + ⌊(*k* − 1 − *r*) / *I*⌋ above it. The sum has a closed form, so that the
+need costs the same for any number of writes waiting: with *m* = max(0, *p* − 1 − *r*),
+*a* = ⌊*m* / *I*⌋ and *b* = *m* mod *I*, *S* = *m* + *I* · *a*(*a* − 1) / 2 + *a* · *b*
+(`OrderedTree.Need`, which a test of the engine holds against the sum). Why it is
+enough:
 
 - An insert at height *H* splits at most every level and adds a root: at most two nodes on
   each level and one more, 2*H* + 1, and it retires at most one node on each level. A
   remove copies at most one node on each level, a merge of two leaves taking one for
   both, and retires at most one more, the neighbour of that merge: *H* + 1 serves both
   counts.
-- The height grows only when the root splits. A root made by a split holds one separator,
-  and one insert adds at most one separator to any node; a leaf holds at least as many
-  of the widest entries as an inner node holds separators, so a root leaf grows no sooner.
-  So the first insert may grow the tree, and every further growth takes *I* inserts more:
-  the *k*-th insert finds the tree at most ⌈(*k* − 1) / *I*⌉ levels above *h*, and every
-  remove at most ⌈*p* / *I*⌉. A remove never grows the tree, and a tree that a remove
-  made lower grows again no sooner.
-- A preparation tops the pool up to the bound for all writes that wait, with its own
-  counted; a publication consumes at most its share and gives back to the arena what is
-  above the bound of the writes still waiting; a withdrawal does the same. Neither ever
-  takes a node. After an insert that grew the tree, the bound of the writes still
-  waiting, counted at the new height, can lie above what is left; what is left is enough
-  by an invariant, which a Debug build asserts after every preparation, publication and
-  withdrawal. The pool and the places hold at least the *need* of the writes still
-  waiting, from the tree as it is now: the *k*-th insert counted at *h* plus the levels
-  the *k* − 1 inserts before it can add, and every remove at the height after all
-  inserts, where the root takes *I* minus its separators or entries, at least none,
-  inserts before it can split, since a node with fewer than *I* fits one more, and every
-  further split *I* inserts more. The bound is never below the need. A publication takes
-  at most the first share of the need and leaves the need of the rest no larger than what
-  is left: a split makes a root of one separator, which counts its growth from there, and
-  a remove that lets a fuller child take the place of the root lowers the tree by a
-  level. A withdrawal only lowers the need.
+- The height grows only when the root splits. The root takes *I* minus its separators or
+  entries, at least none, inserts before it can split, since a node with fewer than *I*
+  fits one more; a root made by a split holds one separator, and one insert adds at most
+  one separator to any node; a leaf holds at least as many of the widest entries as an
+  inner node holds separators, so a root leaf grows no sooner. So the *k*-th insert finds
+  the tree at most *G*(*k* − 1) levels above *h*, and every remove at most *G*(*p*). A
+  remove never grows the tree, nor makes its root fuller without making it lower by a
+  level, so the order in which the waiting writes are published does not matter.
+- A preparation tops the pool up to the need of all writes that wait, with its own
+  counted; a publication gives back to the arena what is above the need of the writes
+  still waiting, at the tree as it is then, and so does a withdrawal. Neither ever takes a
+  node. A publication takes at most the first share of the need and leaves the need of the
+  rest no larger than what is left: a split makes a root of one separator, which counts
+  its growth from there, and a remove that lets a fuller child take the place of the root
+  lowers the tree by a level. A withdrawal only lowers the need. A Debug build asserts
+  after every preparation, publication and withdrawal that the pool and the places hold
+  at least the need of the writes still waiting.
 
-For one insert into an index of height 3, with nothing else waiting, the bound is 7 nodes,
-7 KiB, while a publication takes about one, and the pool is empty again after it. The
-bound first written here counted *h* + 1 + ⌊(*p* − 1) / *I*⌋, the height after the last
-insert, for every insert: two nodes more for each insert than it can take.
+For one insert into an index of height 3, with nothing else waiting, the need is 7 nodes,
+7 KiB, while a publication takes about one, and the pool is empty again after it.
 
-What it costs when many changes wait: every insert is counted at the height the last can
-find, so the pool grows with the square of the inserts prepared and not published.
-Measured with a storage step that a test held, 600 waiting writes reserved 16 to 18 MiB
-with one index and 205 to 280 MiB with seven. No mode built today lets more than one
-change wait: the storage step of MemoryOnly completes in the hold that prepares the
-write, write batches are not built, and a child prepares one root of its load, or one
-transaction of its stream, at a time. A write batch, or a transaction of many changes,
-prepared whole before its publication, will reserve by the same bound.
+What it costs when many changes wait: the *k*-th insert is counted at the height the
+inserts before it can reach, so the need grows with the square of the inserts prepared
+and not published, divided by *I*. By the formula, 600 inserts waiting on an index of one
+Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
+13 MiB. No mode built today lets more than one change wait: the storage step of
+MemoryOnly completes in the hold that prepares the write, write batches are not built,
+and a child prepares one root of its load, or one transaction of its stream, at a time. A
+write batch, or a transaction of many changes, prepared whole before its publication,
+will reserve by the same need.
 
 ### The retired node
 
