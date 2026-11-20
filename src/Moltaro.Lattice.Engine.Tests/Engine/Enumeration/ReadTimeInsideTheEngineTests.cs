@@ -20,8 +20,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // steps have waited longer than the limit it lets one held read go, and the steps get through its slot.
 // The engine checks the limit at the points of a step where it can stop safely, so the step that waited
 // may still return its entity: the pass then fails at its next step, before its end. The limit is that
-// of ReadTimes, which the first steps, which do not wait, do not reach on a busy machine, and the wait
-// passes it because the test holds the slots for longer. Before it counts, the test takes the same
+// of ReadTimes, which the first steps, which do not wait, reach only if the machine holds them up for
+// two seconds, and the wait passes it because the test holds the slots a second longer, as long as each
+// waiting step has taken its timestamp within that second. Before it counts, the test takes the same
 // passes on a database without a limit, so that the first step it times does not include compiling the
 // code of a step.
 //

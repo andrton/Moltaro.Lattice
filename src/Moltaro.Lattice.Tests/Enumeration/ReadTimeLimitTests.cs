@@ -17,10 +17,10 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // stated by the tests of the engine, which can keep a step waiting inside it
 // (ReadTimeInsideTheEngineTests in Moltaro.Lattice.Engine.Tests). Time passing is what these tests
 // state, so they are the tests of the enumeration that wait for it: the limit is one that the few
-// steps of a pass do not reach inside the engine however busy the machine is, and the pause and the
-// wait last longer than it (ReadTimes). Before it counts, a test takes every form of a pass once on a
-// database without limits, so that the first step it times does not include compiling the code of a
-// step.
+// steps of a pass reach inside the engine only if the machine holds them up for two seconds, and the
+// pause and the wait last a second longer than it (ReadTimes). Before it counts, a test takes every
+// form of a pass once on a database without limits, so that the first step it times does not include
+// compiling the code of a step.
 public sealed class ReadTimeLimitTests
 {
     private static readonly TimeSpan Pause = ReadTimes.BeyondTheLimit;

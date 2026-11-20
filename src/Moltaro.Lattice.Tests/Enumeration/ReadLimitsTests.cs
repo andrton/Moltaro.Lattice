@@ -13,8 +13,8 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 //   of the outside review it carries: a cancellation is reported before a limit is). Inside the wait of
 //   a step for a slot of the protection of reads and between the rounds of a step the tests of the
 //   engine state it (CancelledStepTests). The time limit is one that the step between the first two
-//   cases, which has to return its entity, does not reach on a busy machine, and the wait for the
-//   position lasts longer than it (ReadTimes).
+//   cases, which has to return its entity, reaches only if the machine holds it up for two seconds, and
+//   the wait for the position lasts a second longer than it (ReadTimes).
 // - Without a limit an enumeration of any length runs to its end, also under limits as large as their
 //   types allow, from which a deadline has to be computed without overflow.
 public sealed class ReadLimitsTests
