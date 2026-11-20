@@ -40,8 +40,8 @@ from one key to another in the same order. An index on the members of a collecti
 where a state would contribute a set of entries, is not built.
 
 Entries are ordered part by part in the order of the index, each part by the comparison
-of its field, and then by identity. Keys are never compared as raw bytes: an integer by
-its value, a floating-point value by `CompareTo` (NaN first, the two zeros equal), a
+of its field, and then by identity. Keys are compared by their values, never by bytes in
+another order than theirs: an integer by its value, a floating-point value by `CompareTo` (NaN first, the two zeros equal), a
 Decimal by its value, a Guid by `CompareTo`, the temporal types by their ticks or day
 numbers, text by the comparison of its field, the same in a UTF-8 and in a UTF-16
 database: Ordinal by UTF-16 code units, without case by the code units of the texts
@@ -55,7 +55,17 @@ index of one part that is never null and whose stored form is a signed integer o
 — an Int64 or an Enum over one, a DateTimeOffset as its UTC ticks, a TimeOnly or a
 TimeSpan as its ticks — compares that number, read where the layout places it, in the
 order of the comparison service, without the loop over the parts and the comparison by
-type; every other index takes the loop.
+type; every other index takes the loop. A text part compared Ordinal in a UTF-8 database is
+compared by its bytes where they lie, the copy in an entry or the text entry of a shared key,
+against the key of a search encoded to UTF-8 once for the step: UTF-8 bytes sort as code
+points, which is the order of UTF-16 code units except where, at the first byte that
+differs, one text has a character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, and the
+other one beyond U+FFFF, lead byte 0xF0 or above; there the order turns around, and the
+comparison turns it. A key whose UTF-8 bytes take more than 256 bytes, a text in chunks, a
+comparison without case and every text of a UTF-16 database, whose little-endian bytes are
+not in the order of its code units, are compared decoded, a piece at a time, the first
+piece of 32 code units. The check of an entry against its root, whether the root still has
+the key, is that same order being zero.
 
 Two keys can be equal and not the same bytes: a text under another case, a Decimal of
 another scale. They are one key with one place in the tree; an entry holds the bytes of
@@ -483,9 +493,10 @@ The design follows these, read under their licences; no code is ported, so
 
 | Source | What was taken | What was not |
 | --- | --- | --- |
-| LMDB, `libraries/liblmdb/mdb.c`, OpenLDAP Public License 2.8, commit `74dd6c3ec648c31857fe0a100f11c2a34619e2d7` | Copy a page before it changes (`mdb_page_touch`); a split that keeps the left page full when the new entry goes last (`mdb_page_split`); rebalance below a quarter of fill (`mdb_rebalance`); pages freed only after the oldest reader that could see them has left (`mdb_find_oldest`) | The copy of the whole path to the root and the meta page as the point of commit: here one aligned store of an address is the publication, so only changed nodes are copied. Its page format |
+| LMDB, `libraries/liblmdb/mdb.c`, OpenLDAP Public License 2.8, commit `74dd6c3ec648c31857fe0a100f11c2a34619e2d7` | Copy a page before it changes (`mdb_page_touch`); a split that keeps the left page full when the new entry goes last (`mdb_page_split`); rebalance below a quarter of fill (`mdb_rebalance`); pages freed only after the oldest reader that could see them has left (`mdb_find_oldest`); the comparison chosen once for a database (`mdb_default_cmp`), here once for an index | The copy of the whole path to the root and the meta page as the point of commit: here one aligned store of an address is the publication, so only changed nodes are copied. Its page format |
 | ROWEX: V. Leis, F. Scheibner, A. Kemper, T. Neumann, "The ART of Practical Synchronization", DaMoN 2016, section 4 | Readers take no lock and check no version; a node that changes is built privately and published by one atomic store of its address; the replaced node is retired to an epoch | The radix tree itself, which needs keys whose bytes compare in the order of their values: a second definition of order beside the comparison service |
 | LeanStore, `backend/leanstore/storage/btree/core/BTreeGenericIterator.hpp`, MIT, commit `fcb64bf39cf69c435173f76e062cbb305a9a998f` | The next leaf found by a new descent at the fence, the same way forwards and backwards, without links between leaves | Fences stored in each node; optimistic versions and restarts |
+| RFC 3629, UTF-8 | That the bytes of UTF-8 sort as code points, from which the one turn against the order of UTF-16 code units follows | — |
 | DuckDB `string_t`, `src/include/duckdb/common/types/string_type.hpp`, MIT, commit `aa87a115e8ad8affc3a4ee2e373525cbb2c6efd8`; the binary view of Apache Arrow, Apache-2.0 | The form measured for the open question of a prefix beside a shared key | Not decided |
 
 The study read also the skip lists of LevelDB (BSD-3-Clause) and RocksDB (Apache-2.0),

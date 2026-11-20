@@ -90,47 +90,9 @@ internal sealed class SecondaryIndex
     }
 
     // For a search inside the protection of reads: whether the root, the current state of the entity an
-    // entry of the run names, has the key of the search, by the order of the index (see the class): each
-    // part null in both, or a value in both that the comparison of its field holds equal to the key's.
-    // Allocates nothing.
-    public bool HasKey(in RootReader root, scoped in SearchKey key)
-    {
-        var parts = Layout.Parts;
-        var keyOffset = SearchKey.FixedStart;
-
-        for (var place = 0; place < parts.Length; place++)
-        {
-            ref readonly var part = ref parts[place];
-            var rootNull = root.IsNull(part.Field);
-            var keyNull = key.IsNull(place);
-
-            if (rootNull || keyNull)
-            {
-                if (rootNull != keyNull)
-                {
-                    return false;
-                }
-            }
-            else if (part.IsText)
-            {
-                if (!ValueComparer.TextEquals(root, part.Field, key.TextAt(place)))
-                {
-                    return false;
-                }
-            }
-            else if (ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(keyOffset, part.Width)) != 0)
-            {
-                return false;
-            }
-
-            if (!part.IsText)
-            {
-                keyOffset += part.Width;
-            }
-        }
-
-        return true;
-    }
+    // entry of the run names, has the key of the search: the order of the index between the two is zero
+    // (IndexOrder.HasKey), so that a hint is checked by the order the tree is ordered by. Allocates nothing.
+    public bool HasKey(in RootReader root, scoped in SearchKey key) => _order.HasKey(root, key);
 
     // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
     // does to the index, from the root the entity has and the root the write publishes, both the write's

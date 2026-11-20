@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Indexes;
@@ -530,6 +531,9 @@ internal sealed class EntityTable
     // identity, under an unchanged sequence. A write that adds an entry of the key meanwhile publishes its
     // position only after the entry (ChangePublisher.Publish): published before the check, it changed the
     // sequence and nothing ends early; not yet published, its entity has no state at before.
+    //
+    // The scratch of the search key is not zeroed: the key writes every byte the order reads of it.
+    [SkipLocalsInit]
     public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref RootHandle from, ref ulong? endsAt, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class

@@ -228,6 +228,35 @@ internal sealed class IndexLayout
             : new StoredTextReader(part.Slice(1, head), Encoding);
     }
 
+    // The bytes of a String part that is not null, which begins the span, in the encoding of the database,
+    // when they lie in one place: the copy of the part, or the text entry it references when that is not in
+    // chunks; what an Ordinal order of a UTF-8 database compares as bytes. False for a text in chunks, which
+    // is read a piece at a time (ReadText). Inside the protection of reads or under the lock of the writes.
+    public static bool TryTextBytes(Arena arena, ReadOnlySpan<byte> part, out ReadOnlySpan<byte> bytes)
+    {
+        var head = part[0];
+
+        if (head != SharedTextHead)
+        {
+            bytes = part.Slice(1, head);
+
+            return true;
+        }
+
+        var descriptor = SharedDescriptorOf(part);
+
+        if (ValueBlocks.LiesInChunks(descriptor))
+        {
+            bytes = default;
+
+            return false;
+        }
+
+        bytes = ValueBlocks.Contiguous(arena, descriptor, default);
+
+        return true;
+    }
+
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from
     // the root as its bytes lie, not written again from its value: the stored form of a value is written

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Comparison;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Values;
@@ -9,8 +10,10 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // The order of the entries of one secondary index, and of a search key against them: part by part in the
 // order of the index, each part by the comparison of its field, and, when every part is equal, by the
 // identity, so that the entries of one key are a run ordered by the identity of their root entries
-// (docs/design/ordered-index.md, "Entries and their order"). Keys are never compared as raw bytes: the
-// bytes of a part are its stored value, and their order is the order of that value.
+// (docs/design/ordered-index.md, "Entries and their order"). Keys are compared by their values, never by
+// bytes in another order than theirs: the bytes of a part are its stored value, and their order is the
+// order of that value; the bytes of a text compared Ordinal in a UTF-8 database are compared with the one
+// turn that makes their order that of the code units (Comparison.ValueComparer.CompareUtf8Ordinal).
 //
 // A part, by its type, by the one comparison service of the schema (Comparison.ValueComparer;
 // milestone contract, "Index preparation and traversal"), which this order needs beside the equality
@@ -24,10 +27,12 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   database (Q07.3.6, "String ordering and query overrides"): Ordinal by the UTF-16 code units, and
 //   OrdinalIgnoreCase by the code units of the texts each scalar value of which is replaced by its
 //   mapping of the case table of the core (decision on strings, Q46), the same on every node; no .NET
-//   culture or runtime table takes part. A copy is read from the entry, a shared key from its text entry,
-//   a given text from the search key, a piece at a time on the stack (Storage.Values.StoredTextReader,
-//   which reads from a copy it is given as well as from a descriptor), in the encoding of the database
-//   the layout of the index holds;
+//   culture or runtime table takes part. Ordinal in a UTF-8 database compares the bytes where they lie,
+//   the copy in the entry or the text entry of a shared key, and the bytes of the key of a search, which
+//   it encodes once for the step (SearchKey.TryTextBytes); every other text, and a text the bytes of which
+//   do not lie in one place, is read a piece at a time on the stack (Storage.Values.StoredTextReader, which
+//   reads from a copy it is given as well as from a descriptor), in the encoding of the database the layout
+//   of the index holds;
 // - a null part after every value of its part, and equal to another null, so that a composite key goes
 //   on to its next part. That nulls come last in both directions of a walk is a rule of the walk.
 //
@@ -125,6 +130,89 @@ internal sealed class IndexOrder
         return true;
     }
 
+    // For a search inside the protection of reads: whether the root, the current state of the entity an
+    // entry of the run names, has the key of the search: whether the order of its key against the key of the
+    // search is zero, part by part as the order compares an entry, with the stored values of the root in
+    // place of the parts of an entry. Allocates nothing.
+    public bool HasKey(in RootReader root, scoped in SearchKey key)
+    {
+        var parts = _layout.Parts;
+        var keyOffset = SearchKey.FixedStart;
+
+        for (var place = 0; place < parts.Length; place++)
+        {
+            ref readonly var part = ref parts[place];
+            var rootNull = root.IsNull(part.Field);
+            var keyNull = key.IsNull(place);
+            int order;
+
+            if (rootNull || keyNull)
+            {
+                order = rootNull == keyNull ? 0 : 1;
+            }
+            else if (part.IsText)
+            {
+                order = CompareRootText(part, root, key, place);
+            }
+            else
+            {
+                order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(keyOffset, part.Width));
+                keyOffset += part.Width;
+            }
+
+            if (order != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // The order of two String parts of entries: of their bytes, for an Ordinal part of a UTF-8 database
+    // whose texts lie in one place, and otherwise of their texts, a piece at a time (Comparison.ValueComparer).
+    private int CompareTexts(in EntryPart part, ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        if (ComparesBytes(part)
+            && IndexLayout.TryTextBytes(_arena, left, out var leftBytes)
+            && IndexLayout.TryTextBytes(_arena, right, out var rightBytes))
+        {
+            return ValueComparer.CompareUtf8Ordinal(leftBytes, rightBytes);
+        }
+
+        return ValueComparer.CompareText(_layout.ReadText(_arena, left), _layout.ReadText(_arena, right), part.Comparison!);
+    }
+
+    // The order of the String part of a search key at the place given against the part of an entry: of
+    // their bytes when the key has them (SearchKey.TryTextBytes) and the text of the entry lies in one place,
+    // and otherwise of the stored text against the given one, turned around for the key.
+    private int CompareText(in EntryPart part, scoped in SearchKey probe, int place, ReadOnlySpan<byte> entry)
+    {
+        if (probe.TryTextBytes(place, out var given) && IndexLayout.TryTextBytes(_arena, entry, out var stored))
+        {
+            return ValueComparer.CompareUtf8Ordinal(given, stored);
+        }
+
+        return -ValueComparer.CompareText(_layout.ReadText(_arena, entry), probe.TextAt(place), part.Comparison!);
+    }
+
+    // The order of the String field of a root against the part of a search key at the place given, as
+    // CompareText orders a part of an entry: the text the root stores is the text its entry holds.
+    private static int CompareRootText(in EntryPart part, in RootReader root, scoped in SearchKey key, int place)
+    {
+        var descriptor = ValueBlocks.Read(root.StoredBytes(part.Field));
+
+        if (key.TryTextBytes(place, out var given) && !ValueBlocks.LiesInChunks(descriptor))
+        {
+            return ValueComparer.CompareUtf8Ordinal(root.ValueBytes(descriptor), given);
+        }
+
+        return ValueComparer.CompareText(root.ReadText(part.Field), key.TextAt(place), part.Comparison!);
+    }
+
+    // Whether a String part is compared as bytes: Ordinal in a UTF-8 database (Comparison.ValueComparer).
+    private bool ComparesBytes(in EntryPart part) => _layout.Encoding == LatticeStringEncodingEnum.Utf8 && !part.Comparison!.IgnoresCase;
+
     // Whether the layout is that of an index of one number (_oneNumber).
     private static bool OneNumber(IndexLayout layout)
     {
@@ -168,7 +256,7 @@ internal sealed class IndexOrder
             }
             else if (part.IsText)
             {
-                order = ValueComparer.CompareText(_layout.ReadText(_arena, left[leftOffset..]), _layout.ReadText(_arena, right[rightOffset..]), part.Comparison!);
+                order = CompareTexts(part, left[leftOffset..], right[rightOffset..]);
             }
             else
             {
@@ -208,8 +296,7 @@ internal sealed class IndexOrder
             }
             else if (part.IsText)
             {
-                // The order of the stored text against the given one, turned around for the key.
-                order = -ValueComparer.CompareText(_layout.ReadText(_arena, entry[offset..]), probe.TextAt(place), part.Comparison!);
+                order = CompareText(part, probe, place, entry[offset..]);
             }
             else
             {

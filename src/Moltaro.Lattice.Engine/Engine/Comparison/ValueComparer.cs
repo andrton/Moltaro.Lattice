@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
@@ -62,18 +63,37 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // is, and a text that the other begins with comes first. A null is no value here: the order of an index
 // puts it after every value of its part.
 //
-// What it reserves: nothing. The buffer is 512 bytes of the stack of the comparison, and a comparison
-// allocates nothing, whatever the length of the text and wherever it lies. The hash without case maps
-// the text into 512 bytes of the stack as well.
+// The order of two texts of a UTF-8 database under Ordinal, from their bytes (CompareUtf8Ordinal): UTF-8
+// bytes sort as code points (RFC 3629), which is the order of the UTF-16 code units of the texts except at
+// one place. A character of U+E000 to U+FFFF, lead byte 0xEE or 0xEF, comes before one beyond U+FFFF, lead
+// byte 0xF0 or above, by code point, and after it by code unit, since UTF-16 writes the latter with
+// surrogates, which lie below 0xE000. The texts are well-formed and agree up to the first byte that
+// differs, so that byte is the lead byte of the two characters where they differ, and the order turns
+// around exactly when one of them is 0xEE or 0xEF and the other 0xF0 or above. Text of a UTF-16 database
+// has no such path: its bytes are little-endian code units, whose order is not that of the code units, so
+// it is compared a piece at a time, as above. A comparison without case stays on the decoded form, as the
+// mapping of the case table needs it.
+//
+// What it reserves: nothing. The buffers are pieces of 512 bytes of the stack of the comparison, those of
+// the mapping only for a comparison without case, and none of them is zeroed (SkipLocalsInit): every code
+// unit a comparison reads it wrote first. A comparison allocates nothing, whatever the length of the text
+// and wherever it lies. The first piece of a stored text holds FirstPieceLength code units, so that two
+// texts that differ early are decided before more of either is decoded. The hash without case maps the
+// text into 512 bytes of the stack as well.
 //
 // What a lookup costs: the hash of the given text, one pass over it; and for each key of the index
 // with the same hash, in practice the one that is looked for, one pass over its stored text, decoded
 // from UTF-8 or copied, and one pass of the rule over both. Without case a code unit that equals its
 // counterpart needs no mapping, and one that does not is looked up in the case table.
+[SkipLocalsInit]
 internal static class ValueComparer
 {
     // The code units of stored text compared at a time.
     private const int PieceLength = 256;
+
+    // The code units of the first piece of a stored text that an order reads: keys that differ mostly do
+    // so in their first characters, and a longer piece only follows while the texts are equal.
+    private const int FirstPieceLength = 32;
 
     // The hash of a text in the primary index under the comparison the String field declares and the
     // seed (see the class): texts that are equal under the comparison have the same hash under every
@@ -158,13 +178,22 @@ internal static class ValueComparer
     public static int CompareText(StoredTextReader left, StoredTextReader right, TextComparison comparison)
     {
         Span<char> leftPiece = stackalloc char[PieceLength];
-        Span<char> leftMapped = stackalloc char[PieceLength];
         Span<char> rightPiece = stackalloc char[PieceLength];
-        Span<char> rightMapped = stackalloc char[PieceLength];
-        var leftUnits = new Units(left, leftPiece, leftMapped, comparison.IgnoresCase);
-        var rightUnits = new Units(right, rightPiece, rightMapped, comparison.IgnoresCase);
 
-        return Compare(ref leftUnits, ref rightUnits);
+        if (!comparison.IgnoresCase)
+        {
+            var leftUnits = new Units(left, leftPiece, default, ignoresCase: false);
+            var rightUnits = new Units(right, rightPiece, default, ignoresCase: false);
+
+            return Compare(ref leftUnits, ref rightUnits);
+        }
+
+        Span<char> leftMapped = stackalloc char[PieceLength];
+        Span<char> rightMapped = stackalloc char[PieceLength];
+        var leftMappedUnits = new Units(left, leftPiece, leftMapped, ignoresCase: true);
+        var rightMappedUnits = new Units(right, rightPiece, rightMapped, ignoresCase: true);
+
+        return Compare(ref leftMappedUnits, ref rightMappedUnits);
     }
 
     // The order of a stored text and a given one under the comparison given: below zero when the stored
@@ -172,12 +201,51 @@ internal static class ValueComparer
     public static int CompareText(StoredTextReader stored, ReadOnlySpan<char> given, TextComparison comparison)
     {
         Span<char> storedPiece = stackalloc char[PieceLength];
+
+        if (!comparison.IgnoresCase)
+        {
+            // Both scoped to this block, the stored ones holding a piece of this frame, so that they may be
+            // compared with one another.
+            scoped var storedUnits = new Units(stored, storedPiece, default, ignoresCase: false);
+            scoped var givenUnits = new Units(given, default, ignoresCase: false);
+
+            return Compare(ref storedUnits, ref givenUnits);
+        }
+
         Span<char> storedMapped = stackalloc char[PieceLength];
         Span<char> givenMapped = stackalloc char[PieceLength];
-        var storedUnits = new Units(stored, storedPiece, storedMapped, comparison.IgnoresCase);
-        var givenUnits = new Units(given, givenMapped, comparison.IgnoresCase);
+        var storedMappedUnits = new Units(stored, storedPiece, storedMapped, ignoresCase: true);
+        var givenMappedUnits = new Units(given, givenMapped, ignoresCase: true);
 
-        return Compare(ref storedUnits, ref givenUnits);
+        return Compare(ref storedMappedUnits, ref givenMappedUnits);
+    }
+
+    // The order of two texts of a UTF-8 database under Ordinal, from their bytes (see the class): below zero
+    // when the left one comes first, the order of their UTF-16 code units. Allocates nothing.
+    public static int CompareUtf8Ordinal(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        var common = left.CommonPrefixLength(right);
+
+        if (common == left.Length || common == right.Length)
+        {
+            return left.Length.CompareTo(right.Length);
+        }
+
+        var leftByte = left[common];
+        var rightByte = right[common];
+
+        // A character beyond U+FFFF against one of U+E000 to U+FFFF: the order turns around.
+        if (leftByte >= 0xF0 && rightByte is 0xEE or 0xEF)
+        {
+            return -1;
+        }
+
+        if (rightByte >= 0xF0 && leftByte is 0xEE or 0xEF)
+        {
+            return 1;
+        }
+
+        return leftByte < rightByte ? -1 : 1;
     }
 
     // The order of the code units of two texts, read a piece at a time: the first place where they
@@ -228,6 +296,9 @@ internal static class ValueComparer
 
         private ReadOnlySpan<char> _given;
 
+        // Whether a piece of the stored text was read: the first is FirstPieceLength code units long.
+        private bool _started;
+
         public Units(StoredTextReader stored, Span<char> piece, Span<char> mapped, bool ignoresCase)
         {
             _isStored = true;
@@ -253,7 +324,10 @@ internal static class ValueComparer
 
             if (_isStored)
             {
-                units = _piece[.._stored.Read(_piece)];
+                var piece = _started ? _piece : _piece[..FirstPieceLength];
+
+                units = piece[.._stored.Read(piece)];
+                _started = true;
             }
             else
             {
