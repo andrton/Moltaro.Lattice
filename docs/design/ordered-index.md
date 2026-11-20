@@ -425,10 +425,15 @@ after the one it found, in its leaf, has another key; or that entry is the last 
 leaf, and the leaf has no fence, or a fence of another key, above which every entry of
 the next leaf lies. When the sequence read at the start of its walk is unchanged once it
 has copied the entity, that is the condition under which the next step would end at that
-sequence, so the next step ends there without a descent. A write that adds an entry of the
-key meanwhile publishes its position after the entry: published before the check, it
-changed the sequence and nothing ends early; not yet published, its entity has no state at
-that sequence. The next step still enters the protection, so that a step after a close is
+sequence, so the next step ends there without a descent. The check of the sequence is for
+a write that takes an entry of the key away: a replace that moves an entity after the
+identity to another key, or its delete, publishes its position and only then removes the
+old entry. A descent that no longer meets that entry so comes after the position, and the
+sequence has changed; without the check the end would be given at a sequence at which that
+entity still had the key. A write that adds an entry of the key needs no check: it inserts
+the entry before its position, so the descent either meets the entry, and the run does not
+end there, or does not, and the entity has no state at that sequence. The next step still
+enters the protection, so that a step after a close is
 refused as every step is. A lazy search so ends at the sequence of the step that returned
 its last entity, not at the sequence of a later call. A fence of the key says nothing:
 then the next step descends as before.

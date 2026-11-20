@@ -528,9 +528,12 @@ internal sealed class EntityTable
     // walk began, before, when the tree showed it the end of the run (OrderedTree.TryFindFirst, runEnds)
     // and the sequence of the database is still before once the entity is copied, and to null otherwise.
     // That is the condition under which the next step would end at before: no entry of the key after the
-    // identity, under an unchanged sequence. A write that adds an entry of the key meanwhile publishes its
-    // position only after the entry (ChangePublisher.Publish): published before the check, it changed the
-    // sequence and nothing ends early; not yet published, its entity has no state at before.
+    // identity, under an unchanged sequence. The check of the sequence is for a write that takes an entry of
+    // the key away, a replace that moves an entity after the identity to another key or its delete: it
+    // publishes its position and only then removes the old entry (ChangePublisher.Publish), so a descent that
+    // no longer met the entry came after that position, and an end at before would hide an entity that had
+    // the key there. A write that adds an entry inserts it before its position and needs no check: the
+    // descent met the entry, and the run did not end, or its entity has no state at before.
     //
     // The scratch of the search key is not zeroed: the key writes every byte the order reads of it.
     [SkipLocalsInit]
