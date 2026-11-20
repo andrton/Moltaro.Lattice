@@ -5910,8 +5910,11 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     before it stops following — every index gives back what its pool holds above the need
     of the writes still prepared, and the write is tried once more, taking its own need and
     no top-up. A write is refused only when that try fails. So a database with many
-    indexes and a small limit opens, and writes to it whatever fits by itself. Each entry
-    is built once for a write.
+    indexes and a small limit opens, and writes to it whatever fits by itself. A write
+    refused in its last try leaves every pool at the need of the writes still prepared,
+    which for a write resolved alone is nothing: the nodes an earlier index took for it go
+    back to the arena, not into its reserve (the planner, 20 November 2026; a refused write
+    has no effect). Each entry is built once for a write.
   - (c) One object holds a search, with the key in it once; a search for one entity
     allocates that object and its result. The allocation test pins this to a number of
     bytes, so that one more object fails it. This answers the study's question on (c): a
@@ -5922,7 +5925,12 @@ of the architect's review after S14 in the [refactoring backlog](refactoring.md)
     `LatticeException` of any code, also one met on a path that needs no wait — comes
     through the returned task. `ReadAsync` already does this. The test author checks every
     other asynchronous member that has a fast path written by hand against the same rule
-    and lists what it finds. The form of `SearchKey` changes with it (E4).
+    and lists what it finds. The form of `SearchKey` changes with it (E4). The list found
+    the same defect in `EngineDatabase.WaitForPositionAsync`, both overloads: it joins
+    this sprint, test first, and is fixed with `FindAsync` (the planner, 20 November 2026;
+    the scope of E8). Its tests: Unavailable before the open and once faulted,
+    HistoryMismatch, the lost master and a close come through the task; a timeout after a
+    wait stays as it is.
   - (d) Targets on rented-arm64-1, one thread, `index-search`: a search by an Int64 key
     at least 700 k a second (today 450 k), by a text key of 8 bytes at least 450 k
     (163 k), by one of 100 bytes at least 200 k (119 k). A target that is missed is
