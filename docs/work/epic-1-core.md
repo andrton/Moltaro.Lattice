@@ -6675,6 +6675,24 @@ about fifty-five minutes. The lengths come from the first start: a run of `index
 about 63 seconds for 5cc64c8 and 98 for the head, of `write-callers` about 50. A series is
 added during the start only for a reason the planner agrees to.
 
+Series 1 judges, in figures: the exact lines of the head against 5cc64c8 inside the gauge,
+and the three targets of S14, part 2 still met on this machine, 700,000 searches a second
+for an Int64 key, 450,000 for a text of 8 bytes and 200,000 for a text of 100 bytes, one
+thread alone. If a loss remains outside the gauge after the three groups, it is reported
+with what remains, and A6 and the lean path come back to the planner with that figure; the
+start is not extended for them (the planner, 21 November 2026).
+
+This sprint does not wait for the fix of S14R. If that fix has passed its review when the
+review round of the fixes of this sprint closes, series 2 rides on this start; if not, the
+start runs series 1 alone, about forty minutes, series 2 goes with the next start of the
+machine, and the fix of S14R is not merged before its series is taken, since merging an
+unmeasured change of the write path is how its loss got in. If the comparison of the
+listings finds the cause and it is the price of something S14R had to do, the cost is
+recorded with its reason and its figure and reported to the owner at the close as a known
+cost of 4 to 8 % on an insert and a delete of an indexed type, and series 2 drops. If the
+listings find no cause, the entry is not dropped: it goes to the planner with what was
+compared, and stays open with a place.
+
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
 read, the licence checked first:
