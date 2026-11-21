@@ -62,7 +62,7 @@ public sealed class TreeShapeTests
 
         ExpectShape(index, order, held);
 
-        Assert.True(TreeWalk.HeightOf(index) >= 3, $"{held.Count} entries made a tree of {TreeWalk.HeightOf(index)} levels.");
+        Assert.True(index.Tree.Height >= 3, $"{held.Count} entries made a tree of {index.Tree.Height} levels.");
 
         foreach (var entry in held)
         {
