@@ -50,14 +50,14 @@ public readonly struct IndexBound
     internal IndexValue Held { get; }
 
     /// <summary>A bound that includes the value: "from this value on" or "up to and including it".</summary>
-    /// <typeparam name="T">The type of the indexed field.</typeparam>
+    /// <typeparam name="T">The type of the value: the type of the indexed field, or one the remarks of <see cref="IndexKey"/> accept for it.</typeparam>
     /// <param name="value">The boundary value.</param>
     public static IndexBound Inclusive<T>(T value)
         where T : notnull =>
         new(IndexValue.Of(value), isInclusive: true);
 
     /// <summary>A bound that excludes the value: "after this value" or "before it".</summary>
-    /// <typeparam name="T">The type of the indexed field.</typeparam>
+    /// <typeparam name="T">The type of the value: the type of the indexed field, or one the remarks of <see cref="IndexKey"/> accept for it.</typeparam>
     /// <param name="value">The boundary value.</param>
     public static IndexBound Exclusive<T>(T value)
         where T : notnull =>

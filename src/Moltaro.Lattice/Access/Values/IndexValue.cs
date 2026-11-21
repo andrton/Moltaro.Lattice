@@ -5,8 +5,9 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Access.Values;
 
 // One value of an index key or of a bound as a caller gave it, held without a box: the field type
-// whose .NET type the value has, its bits and, for text, the string (the remarks of IndexKey). It is
-// what lets IndexKey and IndexBound be small values that a caller makes without allocating.
+// whose .NET type the value has, its bits and, for text, the string, and for a null the type it was
+// given as (the remarks of IndexKey). It is what lets IndexKey and IndexBound be small values that a
+// caller makes without allocating.
 //
 // A value of one of the .NET types of the scalar field types, or a Nullable of one, is taken apart by
 // its type in Of, and boxes nothing: the generic method is compiled for each value type it is called
@@ -30,15 +31,18 @@ namespace Moltaro.Lattice.Access.Values;
 // exactly, a Float32 for a Float64, and a Float64 for a Float32 when it converts back to itself, with NaN,
 // the infinities and the sign of zero kept. A converted value is written into the bits as any other, so
 // it is not boxed. The value of an Enum part, bound to the underlying type of its enum type, has to be
-// one LatticeEnumType.IsValid allows, as for a write. A null keeps the field type of the .NET type it was
-// given as, a Nullable without a value or a null string, and is accepted only where a value of that type
-// would be; a null given as an object has no type. Anything else is an ArgumentException for the
-// parameter named, with the message FieldValues gives for a value it refuses.
+// one LatticeEnumType.IsValid allows, as for a write, and is refused in the words of that validation. A
+// null keeps the field type of the .NET type it was given as, a Nullable without a value or a null
+// string, and is accepted only where a value of that type would be; a null given as an object has no
+// type, and a null given as any other type is one of a type no field has, refused for every part. Any
+// other value is an ArgumentException for the parameter named, with the message FieldValues gives for a
+// value it refuses.
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {
-    // The type of a null given as a Nullable of a type that no scalar field has, which is no field type:
-    // such a null is refused for every part, as a value of its type is.
+    // The type of a null given as a type that no scalar field has, a Nullable of one or a class other than
+    // string and object, which is no field type: such a null is refused for every part, as a value of its
+    // type is.
     private const LatticeFieldTypeEnum OtherType = (LatticeFieldTypeEnum)byte.MaxValue;
 
     // The bits; see the struct.
@@ -66,7 +70,7 @@ internal readonly struct IndexValue
         _reference = reference;
     }
 
-    // A null given as a value of the field type given.
+    // A null given as a value of the field type given; see NullOf.
     private IndexValue(LatticeFieldTypeEnum typeOfNull)
     {
         _typeOfNull = typeOfNull;
@@ -106,16 +110,16 @@ internal readonly struct IndexValue
         {
             // A reference type: the conversion through object is no box.
             return value is null
-                ? new IndexValue(LatticeFieldTypeEnum.String)
+                ? NullOf(LatticeFieldTypeEnum.String)
                 : new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
         }
 
-        // A null reference of any other type, which has no type of a field; a Nullable without a value is
-        // a null of its type in Is. A value type is not tested here, where an unoptimized build would box
-        // it.
+        // A null reference: given as an object it has no type; given as any other class, a type no
+        // scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
+        // tested here, where an unoptimized build would box it.
         if (!typeof(T).IsValueType && value is null)
         {
-            return default;
+            return typeof(T) == typeof(object) ? default : NullOf(OtherType);
         }
 
         // A value of a scalar field type or a Nullable of one; otherwise an object, which is not boxed
@@ -336,7 +340,7 @@ internal readonly struct IndexValue
 
         if (typeof(T) == typeof(TValue?))
         {
-            result = Unsafe.As<T, TValue?>(ref value) is { } held ? Fixed(type, held) : new IndexValue(type);
+            result = Unsafe.As<T, TValue?>(ref value) is { } held ? Fixed(type, held) : NullOf(type);
 
             return true;
         }
@@ -376,8 +380,11 @@ internal readonly struct IndexValue
     {
         object? held = value;
 
-        return held is null ? new IndexValue(OtherType) : OfObject(held);
+        return held is null ? NullOf(OtherType) : OfObject(held);
     }
+
+    // A null given as a value of the field type given, or of OtherType.
+    private static IndexValue NullOf(LatticeFieldTypeEnum type) => new(type);
 
     // A value held as an object: unboxed when it is of a scalar field type.
     private static IndexValue OfObject(object value) => value switch

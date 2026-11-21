@@ -2,9 +2,10 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A null that has a type, a Nullable without a value or a null string, is a value of a part only where a
 // value of that type could be, by the allowlist, and only where the part can be null; a null given as an
-// object has no type and follows the part alone (IndexKey; docs/decisions/queries.md, Q07.3.6: for nullable
-// inputs compatibility is still checked by the declared type, and a typed null does not make an otherwise
-// incompatible type valid; Q54 of docs/work/open-questions.md). The fields of Item (BindingSchema): the
+// object has no type and follows the part alone; a null given as any other class, or as a Nullable of a
+// type no scalar field has, is refused for every part (IndexKey; docs/decisions/queries.md, Q07.3.6: for
+// nullable inputs compatibility is still checked by the declared type, and a typed null does not make an
+// otherwise incompatible type valid). The fields of Item (BindingSchema): the
 // nullable Int32, Decimal, Float32, Float64 and Exact, a String; Count, an Int32 that is never null; and
 // ByTriple over Int32, Exact and Decimal.
 // - A null that binds finds the entities without a value in the part, through the class and by name, by
@@ -70,6 +71,22 @@ public sealed class TypedNullTests
 
         // A Nullable without a value given as an object is boxed to a null reference, which has no type.
         await BindingSearch.ExpectAsync(database, "Int32", IndexKey.Equal<object?>((double?)null), reverse: false, [new Stored(1, null)], "ByInt32 = (object?)(double?)null");
+    }
+
+    [Fact]
+    public async Task Null_given_as_a_class_other_than_string_and_object_is_refused_for_every_part()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        await BindingSearch.InsertAsync(database, "Int32", [new Stored(1, null)]);
+
+        // The part can be null and an entity has no value in it, yet no value of these classes is a value
+        // of any part, so neither is their null.
+        foreach (var index in new[] { "ByInt32", "ByExact", "ByLevel" })
+        {
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<Uri?>(null), $"{index} = (Uri?)null");
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<Item?>(null), $"{index} = (Item?)null");
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<int[]?>(null), $"{index} = (int[]?)null");
+        }
     }
 
     [Fact]

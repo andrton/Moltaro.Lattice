@@ -38,7 +38,8 @@ namespace Moltaro.Lattice.Access;
 /// owned value, which is absent in such an entity, see <see cref="Schema.LatticeIndexPart"/>.
 /// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>. A
 /// <see langword="null"/> that has a type, a <see cref="Nullable{T}"/> without a value or a null
-/// <see cref="string"/>, is accepted only where a value of that type would be.
+/// <see cref="string"/>, is accepted only where a value of that type would be. A null given as
+/// any other class is refused, as a null of a type no field has.
 /// </para>
 /// <para>
 /// A key is a small value. Making one allocates nothing and boxes none of its values when each
@@ -109,23 +110,23 @@ public readonly struct IndexKey
     internal IndexBound? To { get; }
 
     /// <summary>Entities whose first index field has this value.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     public static IndexKey Equal<T1>(T1 value1) =>
         new(1, IndexValue.Of(value1), default, default, default, null, null);
 
     /// <summary>Entities whose first two index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     public static IndexKey Equal<T1, T2>(T1 value1, T2 value2) =>
         new(2, IndexValue.Of(value1), IndexValue.Of(value2), default, default, null, null);
 
     /// <summary>Entities whose first three index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
-    /// <typeparam name="T3">The type of the third index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T3">The type of the value of the third index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>
@@ -133,10 +134,10 @@ public readonly struct IndexKey
         new(3, IndexValue.Of(value1), IndexValue.Of(value2), IndexValue.Of(value3), default, null, null);
 
     /// <summary>Entities whose first four index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
-    /// <typeparam name="T3">The type of the third index field.</typeparam>
-    /// <typeparam name="T4">The type of the fourth index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T3">The type of the value of the third index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T4">The type of the value of the fourth index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>
