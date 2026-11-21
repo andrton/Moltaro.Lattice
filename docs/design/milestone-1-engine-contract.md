@@ -327,7 +327,7 @@ public sort-key tie breaker or keyset-paging contract.
 
 Durable operation admission follows the [retry protocol](operation-retry-protocol.md).
 Writes are executed one at a time under one lock of the writes, with a group commit at
-the storage boundary (the owner's decision of 17 November 2026 to put the write path on a
+the persistence boundary (the owner's decision of 17 November 2026 to put the write path on a
 proven source; the study of S09, part 2 names the sources). A call takes the lock once
 and prepares its write in place: it looks the key up, checks its conditions against the
 published state, encodes its values into prepared blocks and reserves everything its
