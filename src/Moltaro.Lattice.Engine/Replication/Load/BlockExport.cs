@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;

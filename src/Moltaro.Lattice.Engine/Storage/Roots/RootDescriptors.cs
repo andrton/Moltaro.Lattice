@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // The descriptors of a root, which name everything it holds outside its root block: one for each String
 // and Binary field, in the order of the layout, 16 bytes each, closing the fixed part

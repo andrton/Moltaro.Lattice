@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Prototypes.SecondaryIndexComparison.Ordered.Text;
 //   table, whose first word is the address of the root block, read with acquire semantics;
 // - a root block in the arena: an 8-byte Id field, one descriptor of 16 bytes (kind, length,
 //   location: Storage/ValueDescriptor.cs), and a Plain text of at most 64 bytes inline after them
-//   (RootLayout.InlineLimit), a longer one in a value block of its own;
+//   (ValueBlocks.InlineLimit), a longer one in a value block of its own;
 // - for a shared text (form 3), the text in an entry of its own, one block whose payload is the text
 //   bytes (Storage/Text/TextTable.cs), which the root's descriptor names by kind Text. The managed slot
 //   of 32 bytes and the bucket word the engine's text table keeps per entry are not modelled; they are

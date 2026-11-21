@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // The control entry of one root lifetime: a lookup reaches a root through its entry, never
 // through a native address (Q16, "Stable control entry per root"). Entries live in the managed

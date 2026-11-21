@@ -26,11 +26,11 @@ internal sealed class ExportedValues
     // Keeps the value of the descriptor at the index, length bytes that the source fills.
     public void Store(int index, int length, ref ValueSource source)
     {
-        var pieces = new List<byte[]>((length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload);
+        var pieces = new List<byte[]>((length + ValueBlocks.ChunkPayload - 1) / ValueBlocks.ChunkPayload);
 
-        for (var left = length; left > 0; left -= RootLayout.ChunkPayload)
+        for (var left = length; left > 0; left -= ValueBlocks.ChunkPayload)
         {
-            var piece = new byte[Math.Min(left, RootLayout.ChunkPayload)];
+            var piece = new byte[Math.Min(left, ValueBlocks.ChunkPayload)];
 
             source.Fill(piece);
             pieces.Add(piece);

@@ -7,6 +7,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 

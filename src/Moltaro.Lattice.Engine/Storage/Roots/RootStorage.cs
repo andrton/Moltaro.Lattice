@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // Operations on one whole root in the arena, by the layout it was written with, and on one descriptor of a
 // root. What a descriptor holds outside the root block is decided here by its kind, and only here: a Block

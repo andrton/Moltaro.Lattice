@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 
 // An enumeration of any length runs to its end (brief of Epic 1, sprint S08, Acceptance): the keys a
 // pass remembers have room for every entity the table of root entries admits, fewer than 2^31
-// (Storage.RootTable), so the places of ReturnedKeys grow through every count without overflowing and
+// (Storage.Roots.RootTable), so the places of ReturnedKeys grow through every count without overflowing and
 // lie in arrays that their largest length does not cut short (review round 1 of S08, part 2). No test
 // can hold that many entities, so this one follows the counts alone, through the helpers that
 // ReturnedKeys computes its room with: from the first key to the last, at every doubling, for keys of

@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // Reads one root in place: each member reads one field from the root block, or from the blocks the
 // root owns, where its RootLayout places it. A root is written and read field by field, so that

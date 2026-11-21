@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Storage.Text;
 //
 // One count for each entry, by one rule: a block holds one reference for each Text descriptor it
 // contains, from the moment it is written (RootWriter, Replication.Load.BlockImport, through
-// TryAcquire) until it is freed (Storage.RootStorage.FreeValue, through Release). A node of a secondary
+// TryAcquire) until it is freed (Storage.Roots.RootStorage.FreeValue, through Release). A node of a secondary
 // index holds one for each key among its entries and separators that shares the entry of its root, from
 // the moment the node is written (AddReference) until it is freed (Storage.Ordered.NodeStorage, through
 // Release); an owned value and a collection will follow the same rule once they are stored. A
@@ -136,7 +136,7 @@ internal sealed class TextTable
     }
 
     // Releases one reference to the entry at the address, for the free of a block that holds it: a root
-    // through its Text descriptor (Storage.RootStorage.FreeValue) or a node of an index through a shared
+    // through its Text descriptor (Storage.Roots.RootStorage.FreeValue) or a node of an index through a shared
     // key, under the lock of the writes. An entry whose count reaches zero leaves the bucket table and its
     // blocks are freed, prepared or live, in this call (see the class).
     public void Release(ArenaAddress address)
@@ -163,7 +163,7 @@ internal sealed class TextTable
 
     // Publishes the entry at the address when it is still prepared, which the arena knows of its first
     // block (Arena.IsPrepared), for the publication of a block that refers to it: a root
-    // (Storage.RootStorage.Publish), or a node of an index whose new key shares it, which is published
+    // (Storage.Roots.RootStorage.Publish), or a node of an index whose new key shares it, which is published
     // before the root (Engine.Indexes.OrderedTree), under the lock of the writes. Its slot holds the length
     // of the entry, by which its blocks are placed. It allocates nothing and changes no count.
     public void Publish(ArenaAddress address)

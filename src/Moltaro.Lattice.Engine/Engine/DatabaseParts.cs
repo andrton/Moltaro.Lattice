@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Sets;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine;
 

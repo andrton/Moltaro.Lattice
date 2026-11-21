@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;

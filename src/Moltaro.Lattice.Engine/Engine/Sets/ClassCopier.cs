@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Sets;
 

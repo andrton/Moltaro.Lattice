@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Entities;
 

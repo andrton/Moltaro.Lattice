@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.TestSupport.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;

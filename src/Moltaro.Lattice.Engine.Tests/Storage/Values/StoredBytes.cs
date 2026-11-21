@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values;
 
@@ -30,7 +31,7 @@ internal readonly record struct StoredBytes(long LiveBytes, long ClassSlackBytes
 
         foreach (var length in valueLengths)
         {
-            if (length <= RootLayout.InlineLimit && rootBytes + length <= Arena.MaxBlockSize)
+            if (length <= ValueBlocks.InlineLimit && rootBytes + length <= Arena.MaxBlockSize)
             {
                 rootBytes += length;
             }
@@ -49,17 +50,17 @@ internal readonly record struct StoredBytes(long LiveBytes, long ClassSlackBytes
     // nothing else (brief of Epic 1, sprint S13, the planner's decision after the study, point 2).
     public static StoredBytes OutOfLine(int length)
     {
-        if (length <= RootLayout.SingleBlockLimit)
+        if (length <= ValueBlocks.SingleBlockLimit)
         {
             return Block(length);
         }
 
-        var chunks = (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
+        var chunks = (length + ValueBlocks.ChunkPayload - 1) / ValueBlocks.ChunkPayload;
         var stored = Block(16 * chunks);
 
         for (var chunk = 0; chunk < chunks; chunk++)
         {
-            stored += Block(Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload));
+            stored += Block(Math.Min(ValueBlocks.ChunkPayload, length - chunk * ValueBlocks.ChunkPayload));
         }
 
         return stored;

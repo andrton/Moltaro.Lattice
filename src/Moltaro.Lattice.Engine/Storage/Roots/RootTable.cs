@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // The control entries of the roots of one database, in managed pages of EntriesPerPage entries
 // (Q16, "Managed arrays of structs for control entries"; milestone contract, "Native layout and

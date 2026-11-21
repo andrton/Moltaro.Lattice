@@ -1,4 +1,6 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 
@@ -13,10 +15,10 @@ public sealed class RewriteTests
     // Lengths that climb through every placement and come back down.
     private static readonly int[] Climb =
     [
-        0, RootLayout.InlineLimit, RootLayout.InlineLimit + 1, RootLayout.SingleBlockLimit, RootLayout.SingleBlockLimit + 1,
-        RootLayout.ChunkPayload, RootLayout.ChunkPayload + 1, 200_000, RootLayout.ChunkPayload + 1, RootLayout.ChunkPayload,
-        RootLayout.SingleBlockLimit + 1, RootLayout.SingleBlockLimit, RootLayout.InlineLimit + 1, RootLayout.InlineLimit, 0,
-        200_000, 0, RootLayout.SingleBlockLimit + 1, RootLayout.InlineLimit,
+        0, ValueBlocks.InlineLimit, ValueBlocks.InlineLimit + 1, ValueBlocks.SingleBlockLimit, ValueBlocks.SingleBlockLimit + 1,
+        ValueBlocks.ChunkPayload, ValueBlocks.ChunkPayload + 1, 200_000, ValueBlocks.ChunkPayload + 1, ValueBlocks.ChunkPayload,
+        ValueBlocks.SingleBlockLimit + 1, ValueBlocks.SingleBlockLimit, ValueBlocks.InlineLimit + 1, ValueBlocks.InlineLimit, 0,
+        200_000, 0, ValueBlocks.SingleBlockLimit + 1, ValueBlocks.InlineLimit,
     ];
 
     [Fact]

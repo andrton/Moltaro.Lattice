@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Forwarding;
@@ -43,7 +44,7 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // 2. The request (Replication.Forwarding.ForwardEncoding): the kind, the entity type, the expected
 //    revision, the position of the session, the key, and for an insert, a replace or an upsert the root of
 //    the entity in the load format, which the root writer writes without the arena of the child
-//    (Storage.RootWriter, "A root for a forwarded write"). No timeout travels.
+//    (Storage.Roots.RootWriter, "A root for a forwarded write"). No timeout travels.
 // 3. The queue of the sender of the connection (ChildSender), unless the child has no connection to its
 //    master: then Unavailable, not executed. The sender is looked for before the request is encoded, and a
 //    call it refuses to queue leaves no registration on the token, so that a refused write keeps nothing

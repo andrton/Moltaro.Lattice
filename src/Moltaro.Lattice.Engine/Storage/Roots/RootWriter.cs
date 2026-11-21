@@ -5,7 +5,7 @@ using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // Writes one root: collects the values of its fields, validates them and allocates in the arena
 // what they need, placed as its RootLayout says. A root is written and read field by field, so
@@ -323,7 +323,7 @@ internal ref struct RootWriter
     // Sets the value of a String field: in a UTF-8 database the UTF-8 of its characters, in a UTF-16
     // database its code units, placed by its encoded length as RootLayout says for a field with Plain
     // storage; a text that lies in an entry of the text table (StoredField.LiesInTextEntry: one that is not
-    // empty of a field with Dictionary storage, and one longer than RootLayout.InlineLimit of a field that
+    // empty of a field with Dictionary storage, and one longer than ValueBlocks.InlineLimit of a field that
     // is part of an index), in the entry that holds the same bytes, found or added (PlaceText). Only
     // well-formed text is stored, in both encodings (docs/decisions/strings.md, "Input validity and
     // preservation"): text that is not well-formed UTF-16, a surrogate without its pair, is refused
@@ -588,7 +588,7 @@ internal ref struct RootWriter
         {
             // Nothing more is allocated for an entity that Complete refuses.
         }
-        else if (length <= RootLayout.InlineLimit && _rootBytes + length <= Arena.MaxBlockSize)
+        else if (length <= ValueBlocks.InlineLimit && _rootBytes + length <= Arena.MaxBlockSize)
         {
             source.Fill(Image.Slice(_rootBytes, length));
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)_rootBytes });
@@ -600,7 +600,7 @@ internal ref struct RootWriter
             _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
             ValueBlocks.Write(descriptor, new ValueDescriptor
             {
-                Kind = length <= RootLayout.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
+                Kind = length <= ValueBlocks.SingleBlockLimit ? DescriptorKindEnum.Block : DescriptorKindEnum.Chunked,
                 Length = (uint)length,
                 Location = 0,
             });

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Ordered;
@@ -53,7 +54,7 @@ internal sealed class IndexLayout
     // The most bytes of a String value an entry holds a copy of: the most a root holds inline, the same
     // number by the decision on index structures (the note of 19 November 2026), so an indexed value is
     // copied exactly when it could lie in its root, and shared exactly when it lies in a text entry.
-    public const int TextCopyLimit = RootLayout.InlineLimit;
+    public const int TextCopyLimit = ValueBlocks.InlineLimit;
 
     // The head of a String part that references a text entry. The head 254 is kept for a shared key that
     // carries its first bytes beside the reference, which the measurement of ordered-index.md, "Text

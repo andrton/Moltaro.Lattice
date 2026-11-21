@@ -11,6 +11,7 @@ using Moltaro.Lattice.Measurements.Fixture;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 

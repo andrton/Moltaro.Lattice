@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -93,7 +94,7 @@ internal sealed class ChangePublisher
     // The decision and the reservation of a change of an entity type with indexes (TryReserve). An insert
     // changes every index and a delete as well; a replace is decided for each index from its two roots
     // (Indexes.SecondaryIndex.ChangeOf), read once for all of them, since a reader finds and checks the
-    // block of its root when it is made (Storage.RootReader).
+    // block of its root when it is made (Storage.Roots.RootReader).
     private bool TryReserveWithIndexes(ref PreparedChange change)
     {
         var indexes = change.Table.Indexes;

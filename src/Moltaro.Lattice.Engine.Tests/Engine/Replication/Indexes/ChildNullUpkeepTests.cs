@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;

@@ -9,10 +9,10 @@ namespace Moltaro.Lattice.Storage.Values;
 // reading, adopting and freeing a value all start from its descriptor.
 //
 // The entry of a Dictionary text (Storage.Text.TextTable) is placed by the same rule, one block up to
-// RootLayout.SingleBlockLimit bytes and a directory with chunks above, every block of it of kind
+// SingleBlockLimit bytes and a directory with chunks above, every block of it of kind
 // SharedText, and a root names it by a descriptor of kind Text. A Text descriptor is read as a value
 // in blocks is read, by its length, but its blocks belong to the entry and not to the root: Free,
-// Publish, Retire and Adopt take a Block or a Chunked descriptor, as Storage.RootStorage decides by the
+// Publish, Retire and Adopt take a Block or a Chunked descriptor, as Storage.Roots.RootStorage decides by the
 // kind, and the text table frees and publishes the blocks of an entry (FreeText, PublishText).
 //
 // A descriptor lies in a root block, or in a directory, at an offset the packed layout gives, which
@@ -26,20 +26,30 @@ internal static class ValueBlocks
     // The bytes of a ValueDescriptor, in a root block and in a directory.
     public const int DescriptorSize = 16;
 
+    // The most encoded bytes of a value stored inline, in the root block.
+    public const int InlineLimit = 64;
+
+    // The most encoded bytes of a value stored in one block of its own. A larger value is chunked.
+    public const int SingleBlockLimit = 4 * 1024;
+
+    // The payload bytes of one chunk: the largest payload of a block, Arena.MaxBlockSize less the
+    // 32-byte header. Every chunk of a value but the last holds this many.
+    public const int ChunkPayload = 65_504;
+
     // The most chunks one directory block holds: the largest payload of a block, in descriptors.
-    public const int MostChunks = RootLayout.ChunkPayload / DescriptorSize;
+    public const int MostChunks = ChunkPayload / DescriptorSize;
 
     // The bound of one value: the most bytes of its stored encoding, MostChunks full chunks,
     // 268,173,376 bytes. A fixed rule of the format, not an option; the validation of the core states
     // it as Access.Values.ValueBound.Bytes, the same number, and RootWriter refuses a larger value as
     // the guard of the stored form.
-    public const int MostValueBytes = MostChunks * RootLayout.ChunkPayload;
+    public const int MostValueBytes = MostChunks * ChunkPayload;
 
     // The layout version in the header of the blocks of a text entry, which belong to no root layout.
     private const uint NoLayout = 0;
 
     // How many chunks a value of this many bytes takes, for a value within MostValueBytes.
-    public static int ChunkCount(int length) => (length + RootLayout.ChunkPayload - 1) / RootLayout.ChunkPayload;
+    public static int ChunkCount(int length) => (length + ChunkPayload - 1) / ChunkPayload;
 
     public static ValueDescriptor Read(ReadOnlySpan<byte> place) => MemoryMarshal.Read<ValueDescriptor>(place);
 
@@ -59,7 +69,7 @@ internal static class ValueBlocks
     // kind and the kind need not be read. Not for the descriptors in a directory, which name chunks.
     // Nor for the descriptor of a collection, whose length is a number of elements and not of bytes, so
     // that its length does not tell whether it lies in chunks.
-    public static bool LiesInChunks(in ValueDescriptor descriptor) => descriptor.Length > RootLayout.SingleBlockLimit;
+    public static bool LiesInChunks(in ValueDescriptor descriptor) => descriptor.Length > SingleBlockLimit;
 
     // Whether the descriptor names bytes out of line, in blocks the wire carries after the root payload:
     // a value of a root in blocks of its own, or the entry of a Dictionary text.
@@ -116,23 +126,23 @@ internal static class ValueBlocks
     // Frees the blocks of the entry of a Dictionary text of length bytes at the address: for the text
     // table, when the last reference to the entry went.
     public static void FreeText(Arena arena, ArenaAddress address, uint length) =>
-        FreeBlocks(arena, address, length > RootLayout.SingleBlockLimit);
+        FreeBlocks(arena, address, length > SingleBlockLimit);
 
     // The bytes of the slots that a value of this many bytes, more than lie inline, takes out of line:
     // the placement of TryStore, its value block, or its directory and its chunks, each the whole slot of
     // its size class, which a text entry follows as well.
     public static long SlotBytesOf(int length)
     {
-        if (length <= RootLayout.SingleBlockLimit)
+        if (length <= SingleBlockLimit)
         {
             return Arena.BlockSizeFor(length);
         }
 
         var chunks = ChunkCount(length);
-        var last = length - ((chunks - 1) * RootLayout.ChunkPayload);
+        var last = length - ((chunks - 1) * ChunkPayload);
 
         return Arena.BlockSizeFor(chunks * DescriptorSize)
-            + ((long)(chunks - 1) * Arena.BlockSizeFor(RootLayout.ChunkPayload))
+            + ((long)(chunks - 1) * Arena.BlockSizeFor(ChunkPayload))
             + Arena.BlockSizeFor(last);
     }
 
@@ -144,7 +154,7 @@ internal static class ValueBlocks
     // Publishes the blocks of the entry of a Dictionary text of length bytes that TryStoreText stored as
     // prepared, when the first root that refers to it is published.
     public static void PublishText(Arena arena, ArenaAddress address, uint length) =>
-        PublishBlocks(arena, address, length > RootLayout.SingleBlockLimit);
+        PublishBlocks(arena, address, length > SingleBlockLimit);
 
     // Retires every block of a value of a published root, a Block or a Chunked descriptor: its value
     // block, or its chunks and their directory (Arena.Retire). Nothing is read but the directory, which
@@ -217,7 +227,7 @@ internal static class ValueBlocks
         var directoryKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.ChunkDirectory;
         var chunkKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.Chunk;
 
-        if (length <= RootLayout.SingleBlockLimit)
+        if (length <= SingleBlockLimit)
         {
             // One block: it is allocated or, when the allocation fails, nothing is.
             if (!TryAllocate(arena, length, valueKind, owner, layoutVersion, default, 0, out var block))
@@ -251,7 +261,7 @@ internal static class ValueBlocks
         {
             for (var chunk = 0; chunk < chunks; chunk++)
             {
-                var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
+                var chunkLength = Math.Min(ChunkPayload, length - chunk * ChunkPayload);
                 var entryOffset = chunk * DescriptorSize;
 
                 if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))

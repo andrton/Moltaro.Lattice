@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 

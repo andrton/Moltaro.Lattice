@@ -30,7 +30,7 @@ internal enum DescriptorKindEnum : uint
     // database holds, not the root (brief of Epic 1, sprint S13, the planner's decision after the study,
     // points 1 and 2). Length is its encoded bytes, at least one: an empty text is inline with length 0
     // and has no entry. Location is the relative address of the entry, its one block up to
-    // RootLayout.SingleBlockLimit bytes or the directory of its chunks above, as a value of kind Block or
+    // ValueBlocks.SingleBlockLimit bytes or the directory of its chunks above, as a value of kind Block or
     // Chunked lies; the blocks belong to the entry and are of kind SharedText. The block that holds the
     // descriptor holds one reference to the entry until it is freed (Text.TextTable).
     Text = 4,

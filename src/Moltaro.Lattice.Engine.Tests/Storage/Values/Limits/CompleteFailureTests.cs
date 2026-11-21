@@ -1,5 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 
@@ -47,7 +49,7 @@ public sealed class CompleteFailureTests
 
     [Theory]
     [InlineData(1_000, 1)]
-    [InlineData(3 * RootLayout.ChunkPayload, 4)]
+    [InlineData(3 * ValueBlocks.ChunkPayload, 4)]
     public void A_native_failure_for_the_root_block_frees_the_value_blocks_written_before_it(int length, int blocks)
     {
         // The reserve holds a segment for the value block, or for the directory and each of the three

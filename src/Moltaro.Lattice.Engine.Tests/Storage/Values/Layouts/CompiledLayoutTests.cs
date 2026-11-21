@@ -1,4 +1,6 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Layouts;
 
@@ -46,11 +48,11 @@ public sealed class CompiledLayoutTests
     [Fact]
     public void The_thresholds_of_placement_are_those_of_the_specification()
     {
-        Assert.Equal(64, RootLayout.InlineLimit);
-        Assert.Equal(4 * 1024, RootLayout.SingleBlockLimit);
+        Assert.Equal(64, ValueBlocks.InlineLimit);
+        Assert.Equal(4 * 1024, ValueBlocks.SingleBlockLimit);
 
         // The largest payload of a block: the largest size class less the 32-byte header.
-        Assert.Equal(65_504, RootLayout.ChunkPayload);
-        Assert.Equal(Arena.MaxBlockSize - 32, RootLayout.ChunkPayload);
+        Assert.Equal(65_504, ValueBlocks.ChunkPayload);
+        Assert.Equal(Arena.MaxBlockSize - 32, ValueBlocks.ChunkPayload);
     }
 }

@@ -1,5 +1,7 @@
 using System.Text;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 
@@ -21,7 +23,7 @@ public sealed class ChunkBoundaryTests
         var width = Encoding.UTF8.GetByteCount(character);
         using var item = TypedItem.Open("'Type': 'String'", encoding: "Utf8");
 
-        foreach (var boundary in new[] { RootLayout.ChunkPayload, 2 * RootLayout.ChunkPayload })
+        foreach (var boundary in new[] { ValueBlocks.ChunkPayload, 2 * ValueBlocks.ChunkPayload })
         {
             // The character begins 1 to width - 1 bytes before the boundary.
             for (var before = 1; before < width; before++)
@@ -45,7 +47,7 @@ public sealed class ChunkBoundaryTests
     {
         using var item = TypedItem.Open("'Type': 'String'", encoding: "Utf16");
 
-        foreach (var boundary in new[] { RootLayout.ChunkPayload, 2 * RootLayout.ChunkPayload })
+        foreach (var boundary in new[] { ValueBlocks.ChunkPayload, 2 * ValueBlocks.ChunkPayload })
         {
             // The high surrogate takes the last two bytes before the boundary, the low one the first
             // two after it.

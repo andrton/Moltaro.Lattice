@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 
@@ -36,13 +38,13 @@ public sealed class OwnershipTests
     public void A_chunked_value_has_a_directory_owned_by_the_root_and_chunks_owned_by_the_directory()
     {
         using var item = RootArena.Of(Fields);
-        var root = Write(item, text: new string('t', 3 * RootLayout.ChunkPayload + 5), data: null, note: null);
+        var root = Write(item, text: new string('t', 3 * ValueBlocks.ChunkPayload + 5), data: null, note: null);
 
         var descriptor = DescriptorAt(item.Arena, root, TextDescriptor);
         var directory = AddressOf(descriptor.Location);
 
         Assert.Equal(DescriptorKindEnum.Chunked, descriptor.Kind);
-        Assert.Equal(3u * RootLayout.ChunkPayload + 5, descriptor.Length);
+        Assert.Equal(3u * ValueBlocks.ChunkPayload + 5, descriptor.Length);
         AssertOwned(item.Arena.Header(directory), BlockKindEnum.ChunkDirectory, parent: root, TextDescriptor);
         Assert.Equal(4 * 16u, item.Arena.Header(directory).PayloadLength);
 
@@ -54,7 +56,7 @@ public sealed class OwnershipTests
             var header = item.Arena.Header(AddressOf(entry.Location));
 
             AssertOwned(header, BlockKindEnum.Chunk, parent: directory, 32 + 16 * chunk);
-            Assert.Equal(chunk < 3 ? (uint)RootLayout.ChunkPayload : 5u, entry.Length);
+            Assert.Equal(chunk < 3 ? (uint)ValueBlocks.ChunkPayload : 5u, entry.Length);
             Assert.Equal(entry.Length, header.PayloadLength);
         }
     }

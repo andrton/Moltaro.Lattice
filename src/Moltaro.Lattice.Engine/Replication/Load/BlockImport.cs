@@ -4,6 +4,7 @@ using System.Text;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
@@ -20,10 +21,10 @@ namespace Moltaro.Lattice.Replication.Load;
 //   not has a descriptor of a value;
 // - the kind of each descriptor against its length and the storage of its field, as RootWriter places
 //   values: a text that lies in an entry of the text table (Storage.Values.StoredField.LiesInTextEntry:
-//   one that is not empty of a field with Dictionary storage, one longer than RootLayout.InlineLimit of
+//   one that is not empty of a field with Dictionary storage, one longer than ValueBlocks.InlineLimit of
 //   a field that is part of an index) of kind Text, up to ValueBlocks.MostValueBytes bytes out of line;
-//   any other value inline at most RootLayout.InlineLimit bytes, after the fixed part, in a block of its
-//   own 1 to RootLayout.SingleBlockLimit bytes, in chunks more than that and at most
+//   any other value inline at most ValueBlocks.InlineLimit bytes, after the fixed part, in a block of its
+//   own 1 to ValueBlocks.SingleBlockLimit bytes, in chunks more than that and at most
 //   ValueBlocks.MostValueBytes; no other kind, so a Text descriptor of a value that does not lie in an
 //   entry, a Text descriptor of length 0 and a text that lies in an entry of kind Inline, Block or
 //   Chunked are not valid. The location of a value out of line is 0 on the wire: nothing received is
@@ -77,7 +78,7 @@ internal sealed class BlockImport
     }
 
     // A reader of the fixed part of the root checked last, which reads its fixed fields and descriptors
-    // (Storage.RootReader, a reader of a copy).
+    // (Storage.Roots.RootReader, a reader of a copy).
     public RootReader FixedPart(in ReceivedRoot root) =>
         new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
 
@@ -276,12 +277,12 @@ internal sealed class BlockImport
 
             switch (descriptor.Kind)
             {
-                case DescriptorKindEnum.Inline when !inEntry && descriptor.Length <= RootLayout.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
+                case DescriptorKindEnum.Inline when !inEntry && descriptor.Length <= ValueBlocks.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
                     inline += descriptor.Length;
                     break;
 
-                case DescriptorKindEnum.Block when !inEntry && descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
-                case DescriptorKindEnum.Chunked when !inEntry && descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Block when !inEntry && descriptor.Length is > 0 and <= ValueBlocks.SingleBlockLimit && descriptor.Location == 0:
+                case DescriptorKindEnum.Chunked when !inEntry && descriptor.Length is > ValueBlocks.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                 case DescriptorKindEnum.Text when inEntry && descriptor.Length <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                     outOfLine += descriptor.Length;
                     break;

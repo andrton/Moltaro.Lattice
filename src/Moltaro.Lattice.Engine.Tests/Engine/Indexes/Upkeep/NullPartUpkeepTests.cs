@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
 // A null is a value of an index like any other, and in an entry the null bit decides: a null part keeps its
 // width and is zero, whatever its root holds under the null (Storage.Ordered.IndexLayout;
 // docs/design/ordered-index.md, "The entries of one write"). A root written through the public API holds
-// zeros under a null field (Storage.RootWriter clears the fixed part), as it holds zeros for the value 0,
+// zeros under a null field (Storage.Roots.RootWriter clears the fixed part), as it holds zeros for the value 0,
 // so a null and a 0 of Value, a nullable Int64 of Optional, are the same stored bytes and only the null bit
 // tells them apart. Replaces of one entity, one after the other:
 // - from null to 0, and from 0 back to null: the entry moves, a node is retired (RetiredNodes), the walk of

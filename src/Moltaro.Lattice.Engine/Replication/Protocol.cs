@@ -1,5 +1,6 @@
 using System.Text;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Replication;
 
@@ -69,7 +70,7 @@ internal static class Protocol
     public static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     // The format of the bytes of a root as the sender stores them: the layout version
-    // (Storage.RootLayout.Version) in the low 16 bits, and BigEndianLayout when the machine stores
+    // (Storage.Roots.RootLayout.Version) in the low 16 bits, and BigEndianLayout when the machine stores
     // numbers big-endian. A root travels as the bytes of the arena, so a node of another layout version
     // or of the other byte order has another layout format and is refused with Format; no conversion is
     // built.

@@ -1,4 +1,6 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 
@@ -24,14 +26,14 @@ public sealed class PlacementTests
 
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
-        writer.SetString(item.Field("Login"), Payloads.Ascii(RootLayout.InlineLimit));
+        writer.SetString(item.Field("Login"), Payloads.Ascii(ValueBlocks.InlineLimit));
         writer.SetString(item.Field("Nickname"), "");
         writer.SetBinary(item.Field("Photo"), Payloads.Bytes(10));
         writer.SetNull(item.Field("Thumbnail"));
         item.Publish(writer.Complete());
 
         // One header, the fixed part and the 74 bytes of the inline values.
-        Assert.Equal(item.Layout.FixedSize + RootLayout.InlineLimit + 10, item.Arena.Counters.LiveBytes);
+        Assert.Equal(item.Layout.FixedSize + ValueBlocks.InlineLimit + 10, item.Arena.Counters.LiveBytes);
     }
 
     [Fact]
@@ -42,10 +44,10 @@ public sealed class PlacementTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "short");
-        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.InlineLimit + 1));
+        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(ValueBlocks.InlineLimit + 1));
         item.Publish(writer.Complete());
 
-        Assert.Equal(item.Layout.FixedSize + 5 + (32 + RootLayout.InlineLimit + 1), item.Arena.Counters.LiveBytes);
+        Assert.Equal(item.Layout.FixedSize + 5 + (32 + ValueBlocks.InlineLimit + 1), item.Arena.Counters.LiveBytes);
     }
 
     [Fact]
@@ -55,11 +57,11 @@ public sealed class PlacementTests
 
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
-        writer.SetString(item.Field("Login"), Payloads.Ascii(RootLayout.SingleBlockLimit));
+        writer.SetString(item.Field("Login"), Payloads.Ascii(ValueBlocks.SingleBlockLimit));
         writer.SetBinary(item.Field("Photo"), []);
         item.Publish(writer.Complete());
 
-        Assert.Equal(item.Layout.FixedSize + (32 + RootLayout.SingleBlockLimit), item.Arena.Counters.LiveBytes);
+        Assert.Equal(item.Layout.FixedSize + (32 + ValueBlocks.SingleBlockLimit), item.Arena.Counters.LiveBytes);
     }
 
     [Fact]
@@ -70,11 +72,11 @@ public sealed class PlacementTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "");
-        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.SingleBlockLimit + 1));
+        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(ValueBlocks.SingleBlockLimit + 1));
         item.Publish(writer.Complete());
 
         // The directory holds one descriptor of 16 bytes; the chunk holds the whole value.
-        Assert.Equal(item.Layout.FixedSize + (32 + 16) + (32 + RootLayout.SingleBlockLimit + 1), item.Arena.Counters.LiveBytes);
+        Assert.Equal(item.Layout.FixedSize + (32 + 16) + (32 + ValueBlocks.SingleBlockLimit + 1), item.Arena.Counters.LiveBytes);
     }
 
     [Fact]
@@ -85,11 +87,11 @@ public sealed class PlacementTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "");
-        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.ChunkPayload + 1));
+        writer.SetBinary(item.Field("Photo"), Payloads.Bytes(ValueBlocks.ChunkPayload + 1));
         item.Publish(writer.Complete());
 
         Assert.Equal(
-            item.Layout.FixedSize + (32 + 2 * 16) + (32 + RootLayout.ChunkPayload) + (32 + 1),
+            item.Layout.FixedSize + (32 + 2 * 16) + (32 + ValueBlocks.ChunkPayload) + (32 + 1),
             item.Arena.Counters.LiveBytes);
     }
 
@@ -106,11 +108,11 @@ public sealed class PlacementTests
             """;
         using var item = RootArena.Of(ManyFields);
         var a = Payloads.Ascii(200_000, seed: 1);
-        var b = Payloads.Bytes(3 * RootLayout.ChunkPayload, seed: 2);
-        var c = Payloads.Ascii(RootLayout.InlineLimit, seed: 3);
-        var d = Payloads.Bytes(RootLayout.SingleBlockLimit, seed: 4);
-        var e = Payloads.Ascii(RootLayout.ChunkPayload + 1, seed: 5);
-        var f = Payloads.Bytes(RootLayout.InlineLimit + 1, seed: 6);
+        var b = Payloads.Bytes(3 * ValueBlocks.ChunkPayload, seed: 2);
+        var c = Payloads.Ascii(ValueBlocks.InlineLimit, seed: 3);
+        var d = Payloads.Bytes(ValueBlocks.SingleBlockLimit, seed: 4);
+        var e = Payloads.Ascii(ValueBlocks.ChunkPayload + 1, seed: 5);
+        var f = Payloads.Bytes(ValueBlocks.InlineLimit + 1, seed: 6);
 
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);

@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -34,7 +35,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    changes nothing. A replace through another spelling of a key compared without case keeps the
 //    stored one.
 // 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
-//    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
+//    blocks (Storage.Roots.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
 //    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.TryReserve): the
 //    nodes of the secondary indexes it changes, room in the primary index for an insert, which may grow it,
 //    and for a replace or a delete a place in the retired list, beside what the writes prepared before it
@@ -345,7 +346,7 @@ internal sealed class WriteExecutor
     }
 
     // Writes the values into a new root of prepared blocks for the lifetime the handle names, with the
-    // bytes of the slots the writer allocated for it (Storage.RootWriter.SlotBytes). The null address,
+    // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
     // with the refusal, when the arena has no room for the entity; then, and after any failure, the
     // writer has freed everything it allocated.
     private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[] values, out long size, out LatticeException? refusal)

@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // The compiled layout of the roots of one entity type: where each field of an entity stands in its
 // root block, and where a variable value goes (milestone contract, "Native layout and allocation";
@@ -95,7 +95,7 @@ internal sealed class RootLayout
         DescriptorOffset = descriptorOffset;
         DescriptorCount = descriptorFields.Length;
         FixedSize = fixedSize;
-        ImageCapacity = (int)Math.Min(fixedSize + (long)InlineLimit * DescriptorCount, Arena.MaxBlockSize);
+        ImageCapacity = (int)Math.Min(fixedSize + (long)ValueBlocks.InlineLimit * DescriptorCount, Arena.MaxBlockSize);
     }
 
     // Compiles the layout of an entity type of the schema; the schema gives what the entity type
@@ -208,16 +208,6 @@ internal sealed class RootLayout
 
     // The version of this layout, Version, as every layout of the node has it.
     public uint LayoutVersion => Version;
-
-    // The most encoded bytes of a value stored inline, in the root block.
-    public const int InlineLimit = 64;
-
-    // The most encoded bytes of a value stored in one block of its own. A larger value is chunked.
-    public const int SingleBlockLimit = 4 * 1024;
-
-    // The payload bytes of one chunk: the largest payload of a block, Arena.MaxBlockSize less the
-    // 32-byte header. Every chunk of a value but the last holds this many.
-    public const int ChunkPayload = 65_504;
 
     // The text encoding of the database, in which every String of these roots is stored.
     internal LatticeStringEncodingEnum StringEncoding { get; }
