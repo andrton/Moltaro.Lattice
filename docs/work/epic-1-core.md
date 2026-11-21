@@ -309,15 +309,22 @@ which grew from four planned hours to more than seven by additions:
   itself; nothing waits for a session on the workstation.
 - A start has a plan written before it: the series, their order, the expected length and
   what each decides. A series added during a start needs a reason the planner agrees to.
+  The plan names what each line really runs: the scenario, the builds and the rounds.
 - On a machine of N cores the judged case of many readers uses at most N/2 readers.
-- A suspected fall is confirmed only by a series with at least three builds rotating; the
-  lines of one run are not independent evidence. A fall of 5 to 7 % reported from two
-  builds and three rounds did not exist.
+- A suspected fall is confirmed only by a series with at least three builds rotating,
+  among them a second build of one of its commits as the gauge, and is called only where
+  three rounds agree against the gauge; the lines of one run are not independent
+  evidence. A fall of 5 to 7 % reported from two builds and three rounds did not exist.
+- A start comes after the review and the breaker of its sprint are closed.
+- A single run on the workstation selects nothing: it gives a direction and a listing,
+  and a choice between builds is made by a series.
 - Figures from a rented machine are a new series and are never compared in absolute
   terms with those of the workstation.
 - Nothing about the machine goes into the repository beyond "a rented ARM64 machine, 16
   cores". How it is reached, and the raw outputs of every start, are kept in a note
-  outside the repository, which the coordinator keeps and the planner knows of.
+  outside the repository, which the coordinator keeps and the planner knows of. The owner
+  is asked only to start the machine and to stop it; the coordinator reaches it by that
+  note and tells him at once when a queue has ended.
 - The output of every repeat of the test suite is kept, so that a failure is never
   without a name.
 
@@ -6814,9 +6821,9 @@ questions:
   Found for later: F13 (S15R), F14 (the architect's review), the rest of N3 (S15R), and F9
   still open.
 
-The order after this sprint: S15, part 2, the binding rules; then the architect's review
-after S15, part 1 and part 2; then S15R; then S16 with F6 and G2, whose start measures the
-targets of S14, part 2 again. The outputs of the three starts of the machine are kept
+The order after this sprint: the architect's review after S15, part 1, started beside S15,
+part 2, the binding rules; the architect's review after part 2; then S15R; then S16 with
+F6 and G2, whose start measures the targets of S14, part 2 again. The outputs of the three starts of the machine are kept
 outside the repository by the coordinator.
 
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
