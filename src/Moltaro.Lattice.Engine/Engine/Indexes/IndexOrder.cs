@@ -64,6 +64,7 @@ internal sealed class IndexOrder
     // when the key comes first. Only the leading parts the key gives are compared, then its identity, so a
     // key of fewer parts stands before or after every entry those parts equal, as its edge says
     // (SearchKey.From). For a reader inside the protection of reads.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
         var order = _oneNumber && probe.Parts == 1 ? probe.Number.CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
