@@ -69,7 +69,15 @@ at every turn. Both are therefore replaced when a sprint is closed.
   the owner, the mistakes not to repeat, and this rule.
 - The new planner creates the new coordinator session, with the model and effort of the
   table above, gives it its starting text and tells the owner its name.
-- The state lives in the repository. A starting text is not committed.
+- The coordinator and the planner keep what they know about the work in the documents of
+  the repository, not in files of their own: a decision, a rule the owner gave, a result,
+  a lesson, the plan of what comes next. A note outside the repository holds only what a
+  public repository must not hold — how the measurement machine is reached, raw outputs of
+  runs — and the document that needs it says that such a note exists, not what is in it.
+  What a successor could not learn from the repository is a defect of the documents, and
+  it is corrected before the change.
+- A starting text is not committed. It points to the documents and repeats nothing that
+  they say.
 
 ## The plan
 
