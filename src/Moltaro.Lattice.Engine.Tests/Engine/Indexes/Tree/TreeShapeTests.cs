@@ -91,8 +91,6 @@ public sealed class TreeShapeTests
         }
 
         Assert.Equal(nodes.Count, next);
-        Assert.Equal(held.Count, TreeWalk.CountOf(index));
-        Assert.Equal((long)nodes.Count * index.Layout.NodeBytes, TreeWalk.BytesOf(index));
 
         var expected = held.Select(Convert.ToHexString).Order(StringComparer.Ordinal);
 

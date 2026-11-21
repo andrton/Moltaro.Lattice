@@ -186,25 +186,6 @@ internal sealed class IndexLayout
         return new IndexLayout(index, parts, nullBitmapBytes, texts > 0 ? 0 : fixedEntryBytes, widestEntryBytes, nodeBytes, leastSeparators, root.StringEncoding);
     }
 
-    // The bytes of the entry that starts the span, read from its parts: the identity, the null bitmap,
-    // each part at its width, and for a String part its head and what follows it.
-    public int EntryLength(ReadOnlySpan<byte> entry)
-    {
-        if (!HasText)
-        {
-            return FixedEntryBytes;
-        }
-
-        var length = IdentityBytes + NullBitmapBytes;
-
-        foreach (ref readonly var part in Parts)
-        {
-            length += part.IsText ? TextPartBytes(entry[length]) : part.Width;
-        }
-
-        return length;
-    }
-
     // The identity an entry begins with.
     public static RootHandle IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<RootHandle>(entry);
 

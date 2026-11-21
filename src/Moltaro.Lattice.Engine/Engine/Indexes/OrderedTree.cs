@@ -27,8 +27,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // writes still waiting (AssertReserved).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
-// writer stores with release semantics and a reader loads with acquire semantics; its height and count;
-// the pool of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
+// writer stores with release semantics and a reader loads with acquire semantics; its height; the pool
+// of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
 // the protection; everything else from the writer, under the lock of the writes, which is safe because
 // only the holder of that lock changes, retires or frees what the tree holds, and all but the root is its
 // alone.
@@ -50,11 +50,6 @@ internal sealed class OrderedTree
     private ulong _root;
 
     private int _height;
-
-    private long _count;
-
-    // The live nodes of the tree.
-    private long _nodes;
 
     // The inserts and the removes reserved and not published or withdrawn, and the places in the retired
     // list the tree holds reserved for them.
@@ -85,16 +80,10 @@ internal sealed class OrderedTree
         _retired = retired;
     }
 
-    // The levels of the tree: 0 when it is empty, 1 when its root is a leaf. For the writer.
+    // The levels of the tree: 0 when it is empty, 1 when its root is a leaf. The writer computes the need
+    // of a reservation from it (Need); the tests of the engine hold that it is the height the nodes of the
+    // tree have.
     public int Height => _height;
-
-    // The entries of the tree. For the writer and the counters.
-    public long Count => _count;
-
-    // The bytes of the live nodes of the tree, slots of the arena; the nodes it retired are counted in
-    // the retired bytes of the arena, and the nodes it reserved in its prepared bytes, until they are
-    // freed. For the writer and the counters.
-    public long Bytes => _nodes * _layout.NodeBytes;
 
     // The bytes an entry takes in a leaf besides its own: its offset, in an index with a String part.
     private int OffsetBytes => _layout.HasText ? IndexLayout.OffsetBytes : 0;
@@ -345,7 +334,6 @@ internal sealed class OrderedTree
             }
         }
 
-        _count++;
         AfterPublication();
     }
 
@@ -390,7 +378,6 @@ internal sealed class OrderedTree
             }
         }
 
-        _count--;
         AfterPublication();
     }
 
@@ -564,7 +551,6 @@ internal sealed class OrderedTree
         for (var index = 0; index < _replacedCount; index++)
         {
             _retired.RetireNode(_layout, _replaced[index]);
-            _nodes--;
             _places--;
         }
 
@@ -920,8 +906,7 @@ internal sealed class OrderedTree
 
     private void Replaced(ArenaAddress node) => _replaced[_replacedCount++] = node;
 
-    // A node of the reservation, live from now on and counted with the tree; nothing reaches it before
-    // the store that publishes it.
+    // A node of the reservation, live from now on; nothing reaches it before the store that publishes it.
     private ArenaAddress TakeNode()
     {
         if (!_pool.TryPop(out var node))
@@ -930,7 +915,6 @@ internal sealed class OrderedTree
         }
 
         _arena.Publish(node);
-        _nodes++;
 
         return node;
     }
