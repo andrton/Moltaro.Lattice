@@ -41,6 +41,10 @@ internal struct ReadLimits
     // Whether the options limit the memory of a read.
     public readonly bool LimitsMemory => _options.ReadMemoryLimit is not null;
 
+    // Whether anything of the read limits is set at all: a failure the read kept, a time limit or a memory
+    // limit. With none, and with a token that cannot be cancelled, a look of a round can end nothing.
+    public readonly bool AnySet => _failed is not null || _options.ReadTimeLimit is not null || _options.ReadMemoryLimit is not null;
+
     // The start of a step, for its time: a timestamp, or 0 when there is no time limit.
     public readonly long StartStep() => _options.ReadTimeLimit is null ? 0 : Stopwatch.GetTimestamp();
 
