@@ -546,7 +546,6 @@ internal sealed class EntityTable
         Span<byte> scratch = stackalloc byte[full ? SearchKey.ScratchBytes : 2 * SearchKey.ScratchBytes];
         var entityName = EntityType.Name;
         var indexName = index.Definition.Name;
-        scoped IndexWalk walk;
 
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
@@ -564,7 +563,7 @@ internal sealed class EntityTable
                 // The keys of the walk are written on the stack outside the protection, once for the round.
                 var after = !full && search.Progress is { } walked ? walked.Last : default;
 
-                walk = new IndexWalk(index, key, search.Reverse, search.From, after, scratch);
+                var walk = new IndexWalk(index, key, search.Reverse, search.From, after, scratch);
                 var protection = EnterProtection(ref search, cancellationToken);
 
                 try

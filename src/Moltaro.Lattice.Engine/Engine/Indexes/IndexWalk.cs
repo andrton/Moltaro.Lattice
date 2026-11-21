@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
@@ -85,8 +86,10 @@ internal ref struct IndexWalk
     }
 
     // The search key of a full key, which the step checks a root against (SecondaryIndex.HasKey); for a
-    // walk of a full key only.
-    public readonly SearchKey Key => _start;
+    // walk of a full key only. Given by reference, so that the step passes it on without a copy in its
+    // frame, which every step would zero.
+    [UnscopedRef]
+    public readonly ref readonly SearchKey Key => ref _start;
 
     // Whether the key gives every part of the index and no range: a run of one key.
     public static bool IsFullKey(IndexLayout layout, in IndexKey bound) =>
