@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 
 // Puts the transactions a child receives together from their Transaction frames (TransactionFormat), one
 // at a time, and hands out each whole: its sequence and its effects. Whether the sequence follows the one
-// before, and what the effects hold, is the applier's (Engine.Following).
+// before, and what the effects hold, is the applier's (Engine.Child.Following).
 //
 // What it checks of a frame, before any of it is used:
 // - While no transaction is in progress, the frame begins one: its sequence and the length of its

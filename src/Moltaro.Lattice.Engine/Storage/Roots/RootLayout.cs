@@ -28,8 +28,9 @@ namespace Moltaro.Lattice.Storage.Roots;
 // nullable field are zero. The bytes of a fixed field that is null are zero, and so is the
 // descriptor of a null String or Binary.
 //
-// A String or Binary value is placed by its encoded length; DescriptorKindEnum says what its
-// descriptor holds in each case:
+// A String or Binary value is placed by its encoded length, by the bounds of a value that
+// Values.ValueBlocks sets, InlineLimit, SingleBlockLimit and ChunkPayload; DescriptorKindEnum says what
+// its descriptor holds in each case:
 // - at most InlineLimit bytes: inline, in the root block after the fixed part, when the root block
 //   still fits one block. An empty value is inline with length 0;
 // - any other value of at most SingleBlockLimit bytes: in one block of its own, of kind Value;

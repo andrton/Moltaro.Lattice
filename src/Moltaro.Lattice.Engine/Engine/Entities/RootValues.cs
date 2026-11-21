@@ -5,14 +5,14 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
-// Sets the fields of a root from the values a write took of an object or a record: one value for
-// each field, by LatticeField.Ordinal, in the form LatticeValueDeclaration.ValueType gives. The
-// core took them and checked them against the schema (EntityBinding.ValuesForWrite, LatticeRecord.ValuesForWrite),
+// Sets the fields of a root from the values a write took of an object or a record: one value for each
+// field, by LatticeField.Ordinal, in the form LatticeValueDeclaration.ValueType gives. The core took
+// them and checked them against the schema (EntityBinding.ValuesForWrite, LatticeRecord.ValuesForWrite),
 // so every value has the type its field needs, a field without a value is nullable, its text is
-// well-formed, its value within the bound of one value and the value of an Enum field one its enum
-// type declares. The root writer checks the text and the bound again as the guard of the stored form,
-// and reports itself what it refuses. An Enum field holds the integer of the underlying type of its
-// enum type, and is written as that integer type (LatticeValueDeclaration.ScalarType).
+// well-formed, its value within the bound of one value and the value of an Enum field one its enum type
+// declares. The root writer checks the text and the bound again as the guard of the stored form, and
+// reports itself what it refuses. An Enum field holds the integer of the underlying type of its enum
+// type, and is written as that integer type (LatticeValueDeclaration.ScalarType).
 internal static class RootValues
 {
     // The writer is passed by reference: it is never copied (RootWriter).

@@ -34,16 +34,17 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    prepared and unpublished when a write of it is prepared (WriteCoordinator). A failed condition
 //    changes nothing. A replace through another spelling of a key compared without case keeps the
 //    stored one.
-// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
-//    blocks (Storage.Roots.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
-//    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.TryReserve): the
-//    nodes of the secondary indexes it changes, room in the primary index for an insert, which may grow it,
-//    and for a replace or a delete a place in the retired list, beside what the writes prepared before it
-//    and not published yet reserved. A failure frees all of it, so nothing of a failed write is left in any
-//    counter. An entity has no size limit of its own; only the memory of the arena, the memory budget of the
-//    database, refuses one or the nodes of its indexes (docs/decisions/write-admission.md, "Configurable
-//    root-object size limit"): then TryPrepare returns false with everything freed, and the coordinator
-//    decides what the write waits for before it tries again (WriteCoordinator, "The refusal").
+// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into
+//    prepared blocks (Storage.Roots.RootWriter), whose slots the writer counts as it allocates them,
+//    which is the encoded size of the write; then what its publication uses is reserved
+//    (Entities.ChangePublisher.TryReserve): the nodes of the secondary indexes it changes, room in the
+//    primary index for an insert, which may grow it, and for a replace or a delete a place in the
+//    retired list, beside what the writes prepared before it and not published yet reserved. A failure
+//    frees all of it, so nothing of a failed write is left in any counter. An entity has no size limit
+//    of its own; only the memory of the arena, the memory budget of the database, refuses one or the
+//    nodes of its indexes (docs/decisions/write-admission.md, "Configurable root-object size limit"):
+//    then TryPrepare returns false with everything freed, and the coordinator decides what the write
+//    waits for before it tries again (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
 // A write a child forwarded brings the root the child wrote, in the load format, instead of values

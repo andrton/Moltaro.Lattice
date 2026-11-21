@@ -3,8 +3,8 @@ using Moltaro.Lattice.Storage;
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
 // An address that names no allocated block of the arena is refused before anything is read
-// through it (milestone contract: invalid addresses are rejected before any dereference; brief of
-// S04, "Refusals"). IsValid is false for it; Header, Payload and Free refuse it with
+// through it (milestone contract: invalid addresses are rejected before any dereference): the check of
+// the tests, ArenaBlocks.IsValid, is false for it; Header, Payload and Free refuse it with
 // ArgumentException, and the refusal changes nothing. Such an address is the null address, that of
 // a freed block, one in a segment the arena does not hold, one inside a block and one beyond the
 // end of its segment.

@@ -8,9 +8,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // One write as the commit stage sees it: prepared, with everything its publication needs reserved.
 //
 // EncodedSize is the bytes of the slots the write prepared in the arena: the root and every block of its
-// values, as the root writer counted them when it allocated them (Storage.Roots.RootWriter.SlotBytes). It is a
-// long, and so is every sum of it, because no rule bounds the size of an entity. A write that waits and is
-// not prepared yet holds nothing in the engine and has no PreparedWrite.
+// values, as the root writer counted them when it allocated them (Storage.Roots.RootWriter.SlotBytes).
+// It is a long, and so is every sum of it, because no rule bounds the size of an entity. A write that
+// waits and is not prepared yet holds nothing in the engine and has no PreparedWrite.
 //
 // The rest is what the publication installs (WriteExecutor.Publish): the write it belongs to and the change
 // of its entity (Entities.PreparedChange), written into the record by the preparation (WriteChange), the

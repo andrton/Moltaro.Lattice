@@ -136,9 +136,9 @@ internal sealed class TextTable
     }
 
     // Releases one reference to the entry at the address, for the free of a block that holds it: a root
-    // through its Text descriptor (Storage.Roots.RootStorage.FreeValue) or a node of an index through a shared
-    // key, under the lock of the writes. An entry whose count reaches zero leaves the bucket table and its
-    // blocks are freed, prepared or live, in this call (see the class).
+    // through its Text descriptor (Storage.Roots.RootStorage.FreeValue) or a node of an index through a
+    // shared key, under the lock of the writes. An entry whose count reaches zero leaves the bucket
+    // table and its blocks are freed, prepared or live, in this call (see the class).
     public void Release(ArenaAddress address)
     {
         AssertTheLockIsHeld();

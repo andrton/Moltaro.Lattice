@@ -248,10 +248,10 @@ internal sealed partial class EngineDatabase
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
     // that the write has to make. On a child, which admits no write, the switch runs for the next
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When hold returns the write or
-    // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
-    // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitSwitch). Unavailable
-    // before the open, ObjectDisposedException after the close.
+    // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When hold returns the
+    // write or the transaction waits as it would have. Only a write or a transaction the arena refused
+    // loads the switch: no other write and no read pays anything for it (RetiredMemory.RunWaitSwitch).
+    // Unavailable before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);

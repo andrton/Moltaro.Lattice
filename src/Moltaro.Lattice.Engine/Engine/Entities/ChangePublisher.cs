@@ -7,14 +7,15 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
-// Where prepared changes of entities become visible, for a write of a master (Writes.WriteExecutor) and for
-// what a child receives from its master (Child.Loading.ReceivedChanges) alike: it reserves what the publication of
-// a change uses, gives back what a change holds when it is not published, and publishes the changes of one
-// publication in three steps — the stores before the position (PublishBeforePosition), then the position
-// and the stores after it (PublishPositionAndAfter), which the caller makes one after the other under one
-// hold of the lock of the writes (docs/design/write-path.md, "How a publication is made"). A master passes
-// the one change of a write, or none for a delete of a key that is absent; a child the changes of a
-// transaction, or one root of its load.
+// Where prepared changes of entities become visible, for a write of a master (Writes.WriteExecutor) and
+// for what a child receives from its master (Child.Loading.ReceivedChanges) alike: it reserves what the
+// publication of a change uses, gives back what a change holds when it is not published, and publishes
+// the changes of one publication in three steps — the stores before the position
+// (PublishBeforePosition), then the position and the stores after it (PublishPositionAndAfter), which
+// the caller makes one after the other under one hold of the lock of the writes
+// (docs/design/write-path.md, "How a publication is made"). A master passes the one change of a write,
+// or none for a delete of a key that is absent; a child the changes of a transaction, or one root of its
+// load.
 //
 // The secondary indexes are kept here, for every change and every index of its entity type
 // (Indexes.SecondaryIndex), so that a master, a forwarded write, a root of a load and a transaction of a

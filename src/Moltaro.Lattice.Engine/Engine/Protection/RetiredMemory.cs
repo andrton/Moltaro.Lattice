@@ -242,8 +242,8 @@ internal sealed class RetiredMemory
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
     }
 
-    // Arms the switch of the tests for a refused write (_waitSwitch): the next one runs the action once, at the
-    // first wait of its resolution.
+    // Arms the switch of the tests for a refused write (_waitSwitch): the next one runs the action once,
+    // at the first wait of its resolution.
     public void ArmWaitSwitch(Action action) => Volatile.Write(ref _waitSwitch, action);
 
     // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a

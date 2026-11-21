@@ -1,7 +1,7 @@
 namespace Moltaro.Lattice.Engine.Writes;
 
-// A short run of prepared writes that share one commit of the persistence step. A batch is never split across two
-// (brief of Epic 1, sprint S09, "Types and members of S09").
+// A short run of prepared writes that share one commit of the persistence step. A batch is never split
+// across two (brief of Epic 1, sprint S09, "Types and members of S09").
 //
 // A group is formed from the writes that are prepared when the persistence step becomes free: at most
 // MaxOperations writes or MaxEncodedSize bytes of PreparedWrite.EncodedSize. A write larger than

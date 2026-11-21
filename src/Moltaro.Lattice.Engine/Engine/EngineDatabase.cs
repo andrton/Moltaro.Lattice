@@ -35,17 +35,17 @@ namespace Moltaro.Lattice.Engine;
 // an instance, its states, its open and its close, and hands every operation to its parts; each member says
 // what it does, the parts what they guarantee.
 //
-// What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one for each
-// entity type, with its root layout), the text entries of Dictionary strings in the arena
-// (Storage.Text.TextTable, which only writes use), the primary indexes in Indexes (PrimaryIndex), the writes
-// in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them for the persistence
-// step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is
-// retired and the barrier of the close in Protection, the history and the sequence in Positions
-// (PositionClock), the sets of the public interfaces in Sets, what a master gives its children in Children,
-// the tail of the transactions it holds for them in Delivery, how a child loads in Loading, how it follows
-// its master in Following, and how it forwards its writes in Forwarding. The parts of an open database are
-// made together and held as one (DatabaseParts); the network of a master and of a child is kept beside
-// them. What only the tests of the engine and the measurement program reach is in
+// What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one for
+// each entity type, with its root layout), the text entries of Dictionary strings in the arena
+// (Storage.Text.TextTable, which only writes use), the primary indexes in Indexes (PrimaryIndex), the
+// writes in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them for
+// the persistence step, and WriteExecutor, which prepares and publishes them), the protection of reads
+// by epochs, what is retired and the barrier of the close in Protection, the history and the sequence in
+// Positions (PositionClock), the sets of the public interfaces in Sets, what a master gives its children
+// in Children, the tail of the transactions it holds for them in Delivery, how a child loads in Loading,
+// how it follows its master in Following, and how it forwards its writes in Forwarding. The parts of an
+// open database are made together and held as one (DatabaseParts); the network of a master and of a
+// child is kept beside them. What only the tests of the engine and the measurement program reach is in
 // EngineDatabase.TestAccess.cs.
 //
 // The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
@@ -594,14 +594,15 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // Connects to the master at MasterUri (Child.MasterLink), receives the schema, builds the parts of an
-    // empty database with the history of its master, so that the revision of a loaded entity is its revision
-    // on the master, places every root it receives under its own lock of the writes (Child.Loading.ChildLoad,
-    // RootPlacement), applies the transactions of (S, R] by the same rule (Child.Loading.ReceivedChanges,
-    // Child.Following.Follower), and becomes Ready at R. It then follows its master, and tells it what it applied,
-    // until the connection ends or it cannot apply a transaction; then it stops following and stays Ready at
-    // its position (reconnection is not built yet). The task ends when the open has ended, whatever ended it,
-    // and only then: the close waits for it (_loaded).
+    // Connects to the master at MasterUri (Child.MasterLink), receives the schema, builds the parts of
+    // an empty database with the history of its master, so that the revision of a loaded entity is its
+    // revision on the master, places every root it receives under its own lock of the writes
+    // (Child.Loading.ChildLoad, RootPlacement), applies the transactions of (S, R] by the same rule
+    // (Child.Loading.ReceivedChanges, Child.Following.Follower), and becomes Ready at R. It then follows
+    // its master, and tells it what it applied, until the connection ends or it cannot apply a
+    // transaction; then it stops following and stays Ready at its position (reconnection is not built
+    // yet). The task ends when the open has ended, whatever ended it, and only then: the close waits for
+    // it (_loaded).
     private async Task LoadFromMasterAsync(CancellationToken cancellationToken)
     {
         try
@@ -781,13 +782,14 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // A publication failed (WriteCoordinator, "A fault"; on a child Child.Loading.ReceivedChanges): the instance
-    // is Faulted unless a close came first. The reads are marked first, so that a read that retries on the
-    // mark of the write that failed gives up at once, then the state, then the waits for a position end.
-    // Called after the lock of the writes, since it takes the lock of the state; a child marks the reads
-    // under the lock of the writes already (ReadEpochs.Fault, which takes no lock) and calls this after
-    // it. From then on every operation, reads included, is Unavailable, the writes in progress end as the
-    // write coordinator says, and a close works; a MemoryOnly instance that faulted has lost its data.
+    // A publication failed (WriteCoordinator, "A fault"; on a child Child.Loading.ReceivedChanges): the
+    // instance is Faulted unless a close came first. The reads are marked first, so that a read that
+    // retries on the mark of the write that failed gives up at once, then the state, then the waits for
+    // a position end. Called after the lock of the writes, since it takes the lock of the state; a child
+    // marks the reads under the lock of the writes already (ReadEpochs.Fault, which takes no lock) and
+    // calls this after it. From then on every operation, reads included, is Unavailable, the writes in
+    // progress end as the write coordinator says, and a close works; a MemoryOnly instance that faulted
+    // has lost its data.
     private void Fault()
     {
         _epochs.Fault();

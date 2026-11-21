@@ -31,12 +31,13 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 //   back.
 // So the capture needs no mark of a deletion and no slot kept from reuse.
 //
-// One changing thread: the arena of a child, as of a master, is changed only by whoever holds the lock of
-// the writes. A root of the load (Place) and a transaction of the stream (Apply) are prepared and published
-// under the child's lock of the writes, as a write is; no second way of changing an arena is built, and no
-// persistence step runs. The lock is held for synchronous work in memory, never across a receive. Each of them
-// passes the barrier of the close, as a write does, so a close frees the arena only once no placement and
-// no application is in progress, and one after the close is refused with ObjectDisposedException.
+// One changing thread: the arena of a child, as of a master, is changed only by whoever holds the lock
+// of the writes. A root of the load (Place) and a transaction of the stream (Apply) are prepared and
+// published under the child's lock of the writes, as a write is; no second way of changing an arena is
+// built, and no persistence step runs. The lock is held for synchronous work in memory, never across a
+// receive. Each of them passes the barrier of the close, as a write does, so a close frees the arena
+// only once no placement and no application is in progress, and one after the close is refused with
+// ObjectDisposedException.
 //
 // How. Under the lock of the writes, as a write on a master is: each change is checked and prepared
 // first — the root placed in prepared blocks for the lifetime it goes to, with the room its publication
