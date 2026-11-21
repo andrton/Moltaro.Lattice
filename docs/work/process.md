@@ -51,7 +51,7 @@ it says what the contract has to be able to do, and the planner writes the types
 members into those briefs before the stage begins, with what the earlier stages have
 taught. The owner approves the contract of each stage before its first sprint starts. For a
 sprint that begins with a study, its internal types and members are written in its
-contract step, after the study; before the stage the owner approves its public contract
+step 1, after the study; before the stage the owner approves its public contract
 and what each sprint must be able to do. A
 sprint never starts from a brief whose contract is not written out and approved: an
 interface designed twenty sprints ahead would be changed anyway, and every change of a
@@ -162,8 +162,9 @@ rule.
 ## Review
 
 **What the independent reviewer gets:** the sprint brief, the contract, `AGENTS.md`, the
-diff, and which commits are those of step 1. Not the implementer's explanation and not
-the coordinator's opinion: a reviewer that is handed a conclusion confirms it.
+diff, and on the full track which commits are those of step 1. Not the implementer's
+explanation and not the coordinator's opinion: a reviewer that is handed a conclusion
+confirms it.
 
 On every sprint of the full track that changes behavior, a second agent works beside the
 reviewer as a breaker: it writes probe tests against the guarantees the sprint states and
@@ -177,9 +178,11 @@ refactoring sprint, which changes no behavior, and the light track have no break
 - **The tests against the Acceptance, sentence by sentence.** For every sentence of the
   Acceptance the reviewer names the test that holds it, or reports that none does. It
   does this from the brief and the tests of step 1, before it reads the implementation.
-- **That no assertion moved after step 1.** The reviewer compares the tests as they stood
-  at the end of step 1 with the tests at the head. An assertion changed, removed or
-  loosened after step 1 without the coordinator's recorded decision is a P2.
+- **That no assertion moved after step 1,** on the full track. The reviewer compares the
+  tests as they stood at the end of step 1 with the tests at the head. An assertion that
+  the sprint's own commits changed, removed or loosened after step 1 without the
+  coordinator's recorded decision is a P2; a change that came with a merge of `main` is
+  not the sprint's.
 - The behavior against the brief and the decision records it names.
 - The architectural principles and the quality priorities of the zone, from `AGENTS.md`.
 - That every behavior the brief states has a test, and that no test was weakened.
@@ -307,10 +310,10 @@ before any code (the owner's rule of 17 November 2026). The agent reads the sour
 summaries, of two to four established systems that solve the same problem, at pinned
 commits, the licence checked first by the rule on sources below. It reports, briefly: what
 each guarantees, what it costs, what Lattice takes and why, what does not fit and why. The
-planner and the coordinator read the report before the contract step ends. A design of our
-own is made only where nothing fits, and the report says so. The study is bounded: it
-answers the questions the brief names and is not a survey. It is a step of its sprint, not
-a sprint of its own.
+planner and the coordinator read the report before the contract of step 1 is committed.
+A design of our own is made only where nothing fits, and the report says so. The study is
+bounded: it answers the questions the brief names and is not a survey. It is a step of
+its sprint, not a sprint of its own.
 
 ## Code modelled on another project
 
