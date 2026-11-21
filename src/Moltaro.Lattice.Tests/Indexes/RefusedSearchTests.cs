@@ -7,9 +7,6 @@ namespace Moltaro.Lattice.Tests.Indexes;
 //   BindingFailed, through a class and by name, also the name of an index another entity type
 //   declares, before any key is given; so no object exists through which a search could read every
 //   entity instead. A declared index is selected by its name in both forms.
-// - Offset and Limit come after the walk of an index by its leading fields, a range and in reverse; until
-//   they are built each is refused with NotSupportedException, in both forms, and is not answered by
-//   reading the entities instead.
 public sealed class RefusedSearchTests
 {
     [Fact]
@@ -28,33 +25,5 @@ public sealed class RefusedSearchTests
             TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => database.Set<User>().Index(name));
             TestData.ExpectError(LatticeErrorEnum.BindingFailed, () => database.Set("User").Index(name));
         }
-    }
-
-    public static IEnumerable<TheoryDataRow<string>> LaterOptions =>
-    [
-        new("offset"),
-        new("limit"),
-    ];
-
-    [Theory]
-    [MemberData(nameof(LaterOptions))]
-    public async Task Search_with_Offset_or_Limit_is_refused_as_not_supported_in_both_forms(string option)
-    {
-        await using var database = await OpenWithAdaAsync();
-        var options = option == "offset" ? new LatticeFindOptions { Offset = 1 } : new LatticeFindOptions { Limit = 1 };
-        var key = IndexKey.Equal(36, "Ada");
-
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set<User>().Index("ByAgeAndName").FindAsync(key, options));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set("User").Index("ByAgeAndName").FindAsync(key, options));
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await database.Set<User>().Index("ByEmail").FindAsync(IndexKey.Equal("ada@example.org"), options));
-    }
-
-    private static async Task<ILatticeDatabase> OpenWithAdaAsync()
-    {
-        var database = await TestData.OpenMasterAsync();
-
-        await database.Set<User>().InsertAsync(new User { Id = 1, Name = "Ada", Email = "ada@example.org", Age = 36 });
-
-        return database;
     }
 }

@@ -17,7 +17,7 @@ public sealed class WalkDeliveryTests
 
     private static readonly LatticeFindOptions Paged = new() { Reverse = true, Offset = 1, Limit = 2 };
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Caller_mistakes_in_the_range_are_thrown_when_FindAsync_is_called()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8");
@@ -31,7 +31,7 @@ public sealed class WalkDeliveryTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task What_the_database_decides_about_a_walk_comes_through_the_task_FindAsync_returns()
     {
         await using var other = await WalkSchema.OpenAsync("Utf8");

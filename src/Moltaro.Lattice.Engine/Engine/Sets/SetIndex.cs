@@ -64,27 +64,13 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     }
 
     public IEnumerable<TEntity> Find(IndexKey key) =>
-        new IndexMatches<TCopy, TEntity>(_operations, _index, Prepare(key, null), _prototype);
+        new IndexMatches<TCopy, TEntity>(_operations, _index, IndexCriteria.Prepare(Definition, key), _prototype);
 
     public ValueTask<LatticeFindResult<TEntity>> FindAsync(IndexKey key, LatticeFindOptions options, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        return FindAfterAsync(Prepare(key, options), options, cancellationToken);
-    }
-
-    // The key checked against the index and bound to its fields. The walk of Offset and Limit is not built
-    // yet, and is refused with NotSupportedException.
-    private IndexKey Prepare(in IndexKey key, LatticeFindOptions? options)
-    {
-        var bound = IndexCriteria.Prepare(Definition, key);
-
-        if (options is not null && (options.Offset > 0 || options.Limit is not null))
-        {
-            throw new NotSupportedException($"Index '{Definition.Name}': a search with Offset or Limit is not implemented yet.");
-        }
-
-        return bound;
+        return FindAfterAsync(IndexCriteria.Prepare(Definition, key), options, cancellationToken);
     }
 
     // The search of a key the call checked, after the position of the session when it has one, every

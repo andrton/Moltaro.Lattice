@@ -14,10 +14,6 @@ namespace Moltaro.Lattice.Samples.Limits;
 // catch is reached. A search through an index counts the same way, and FindAsync counts the result
 // it holds as well until it returns: the search of a whole department fails under the small limit,
 // while a page of it fits.
-//
-// This shows the intended use. The search by the leading field of an index is not implemented yet:
-// the search of the department throws NotSupportedException, which Program.cs reports, and the
-// sample stops there.
 internal static class ReadLimitsSample
 {
     public static async Task RunAsync(LatticeSchema schema)

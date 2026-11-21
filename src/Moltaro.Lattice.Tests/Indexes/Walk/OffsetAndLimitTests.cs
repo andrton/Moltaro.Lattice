@@ -19,7 +19,7 @@ public sealed class OffsetAndLimitTests
 {
     private const int Matches = 20_000;
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Offset_and_Limit_return_the_part_of_the_matches_the_oracle_gives_with_HasMore_in_both_directions()
     {
         await using var database = await WalkSchema.OpenWithAsync("Utf16", WalkRows.All);
@@ -42,7 +42,7 @@ public sealed class OffsetAndLimitTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Page_after_an_Offset_succeeds_under_a_read_memory_limit_that_the_search_of_every_match_exceeds()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: 64 * 1024);

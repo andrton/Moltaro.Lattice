@@ -112,7 +112,7 @@ public sealed class SearchReadLimitsTests
         ExpectReadMemory(await Record.ExceptionAsync(async () => await byABC.FindAsync(IndexKey.All.Range(IndexBound.Inclusive(2), null), new LatticeFindOptions { Reverse = true })));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Search_given_a_cancelled_token_under_a_limit_it_would_exceed_ends_in_cancellation_not_in_the_limit()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: 16);

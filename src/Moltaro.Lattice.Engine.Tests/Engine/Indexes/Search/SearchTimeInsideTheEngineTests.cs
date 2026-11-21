@@ -90,7 +90,7 @@ public sealed class SearchTimeInsideTheEngineTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task FindAsync_cancelled_while_its_step_waits_inside_the_engine_past_the_time_limit_ends_in_cancellation()
     {
         var database = await OpenWithRowsAsync(ReadTimes.Limit);

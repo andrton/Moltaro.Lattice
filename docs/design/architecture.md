@@ -105,11 +105,12 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 | Access path | Selected mechanism |
 | --- | --- |
 | Primary key | A hash table of the engine's own, read without locks while a write is published → stable root control entry |
-| Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md), [how it works](ordered-index.md)); single or composite keys; built and kept on every node, searched by the full key; the walk of leading fields, ranges, order and paging is not built yet |
+| Declared secondary index | A B+tree of the engine's own whose published nodes never change: a write copies the node it changes and publishes the copy by one store, a reader takes no lock ([index structures](../decisions/index-structures.md), [how it works](ordered-index.md)); single or composite keys; built and kept on every node; searched by the full key or walked by leading fields and a range, in its order or its exact reverse and in pages, a step at a time and holding nothing between steps |
 | Application-defined traversal | Explicit, budgeted .NET enumeration |
 
-The caller names the index. Equality on the full key is built, on a master and on a
-child; leading-key/range access and Limit/Offset are planned and not built yet. A
+The caller names the index. Equality on the full key, leading-key and range access in
+either direction, and Limit/Offset are built, on a master and on a child; a walk returns
+each entity at most once and remembers what it returned within the read limits. A
 named-index lookup never silently becomes a full scan. Every node builds
 its indexes locally before readiness and maintains them with entity changes. Indexes
 over the members of a collection, automatic index choice and keyset continuation are

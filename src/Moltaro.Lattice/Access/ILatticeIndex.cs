@@ -37,11 +37,6 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// The object is safe to keep and to share between threads.
 /// </para>
-/// <para>
-/// <b>Not implemented yet:</b> a search with <see cref="LatticeFindOptions.Offset"/> or
-/// <see cref="LatticeFindOptions.Limit"/>. Such options are refused with
-/// <see cref="NotSupportedException"/> when <see cref="FindAsync"/> is called.
-/// </para>
 /// </remarks>
 /// <typeparam name="TEntity">The entity class, or <see cref="LatticeRecord"/>.</typeparam>
 public interface ILatticeIndex<TEntity>
@@ -117,10 +112,6 @@ public interface ILatticeIndex<TEntity>
     /// </exception>
     /// <exception cref="OperationCanceledException">
     /// The token was cancelled, before a read limit is looked at; through the returned task.
-    /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// The options ask for an offset or a limit, which are not implemented yet; thrown by the
-    /// call.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
     /// The database was closed; through the returned task.

@@ -7,12 +7,9 @@ namespace Moltaro.Lattice.Samples.Indexes;
 //   User.ByEmail              (Email)
 //   User.ByDepartmentAndName  (Department, Name)
 //   Setting.BySectionAndName  (Section, Name)
-// The application names the index it wants; there is no query language behind this.
-//
-// This shows the intended use. The search by the full key of an index works, by email and by
-// department and name. The search by the leading fields of an index, with a range, in reverse
-// or in pages is not implemented yet: the search by the department alone below throws
-// NotSupportedException, which Program.cs reports, and the sample stops there.
+// The application names the index it wants; there is no query language behind this. A search
+// finds by the full key of an index, by its leading fields, with a range on the next field, in
+// reverse and in pages, and returns each entity at most once.
 internal static class IndexSample
 {
     public static async Task RunAsync(LatticeSchema schema)

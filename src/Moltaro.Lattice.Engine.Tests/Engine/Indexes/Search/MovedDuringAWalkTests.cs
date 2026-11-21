@@ -41,7 +41,7 @@ public sealed class MovedDuringAWalkTests
         Assert.Equal([10L, 9L, 8L, 7L, 6L, 5L, 4L, 3L, 2L, 1L], found.Items.Select(row => row.Id));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Row_passed_over_by_an_Offset_whose_key_then_moves_ahead_of_the_walk_is_not_counted_or_returned_again()
     {
         await using var database = await OpenWithTenAsync();
@@ -59,7 +59,7 @@ public sealed class MovedDuringAWalkTests
         Assert.Equal([3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L], found.Items.Select(row => row.Id));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Row_passed_over_by_an_Offset_and_created_again_under_its_key_is_not_counted_again()
     {
         await using var database = await OpenWithTenAsync(oneNumber: true);
