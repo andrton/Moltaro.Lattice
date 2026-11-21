@@ -940,12 +940,9 @@ internal sealed class OrderedTree
             return;
         }
 
-        Span<ValueDescriptor> texts = stackalloc ValueDescriptor[_layout.TextParts];
-        var count = _layout.SharedTexts(entry, texts);
-
-        for (var text = 0; text < count; text++)
+        foreach (var descriptor in _layout.SharedKeysOf(entry))
         {
-            _arena.Texts.Publish(ValueBlocks.AddressOf(texts[text]));
+            _arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
         }
     }
 
