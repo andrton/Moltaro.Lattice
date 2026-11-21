@@ -28,10 +28,10 @@ internal enum PendingWriteStateEnum
     WaitingForReads = 5,
 
     // Prepared, with everything its publication needs, and in the queue of the writes that wait for the
-    // storage step.
+    // persistence step.
     Prepared = 6,
 
-    // In the group handed to the storage step: from here on it gets its real outcome.
+    // In the group handed to the persistence step: from here on it gets its real outcome.
     Dispatched = 7,
 
     // It has its outcome, or is about to be given it: it holds nothing of the coordinator any more.

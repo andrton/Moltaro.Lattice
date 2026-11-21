@@ -27,8 +27,8 @@ internal sealed class EngineTestInputs
     // Null: the instance draws its own when it opens.
     public ulong? IndexSeed { get; init; }
 
-    // The storage step of the commit stage, so that a test can hold a commit until it releases it
-    // (ICommitStorage; brief of S09, "Dispatch"). Null: the storage of MemoryOnly, which completes at
+    // The persistence step of the commit stage, so that a test can hold a commit until it releases it
+    // (IPersistence; brief of S09, "Dispatch"). Null: the persistence of MemoryOnly, which completes at
     // once.
-    public ICommitStorage? CommitStorage { get; init; }
+    public IPersistence? Persistence { get; init; }
 }

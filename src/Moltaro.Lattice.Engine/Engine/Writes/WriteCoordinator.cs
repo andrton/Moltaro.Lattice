@@ -7,8 +7,8 @@ using Moltaro.Lattice.Engine.Protection;
 namespace Moltaro.Lattice.Engine.Writes;
 
 // The write coordinator of a master: it decides when each write is admitted, prepared, handed to the
-// storage step and published. Writes are executed one at a time under one lock, the lock of the writes,
-// with a group commit at the storage boundary (docs/design/write-path.md; docs/design/
+// persistence step and published. Writes are executed one at a time under one lock, the lock of the writes,
+// with a group commit at the boundary of the persistence step (docs/design/write-path.md; docs/design/
 // milestone-1-engine-contract.md, "Write coordinator and revision semantics"). The path follows
 // published designs, taken as ideas and not as code: the single writer of LMDB, which runs every write
 // under one writer mutex and checks its conditions against the current state (libraries/liblmdb/mdb.c,
@@ -17,28 +17,28 @@ namespace Moltaro.Lattice.Engine.Writes;
 // XLogFlush: whoever finds the log free writes for everyone queued behind it), with the bounds of the
 // write group of RocksDB (db/write_thread.cc).
 //
-// One write, when the storage step completes at once, as in MemoryOnly. Its call takes the lock once.
+// One write, when the persistence step completes at once, as in MemoryOnly. Its call takes the lock once.
 // Under it the write is admitted, prepared in place (WriteExecutor.TryPrepare: lookup, condition,
-// encoding, reservations), handed to the storage step as a group of one (ICommitStorage.CommitAsync,
+// encoding, reservations), handed to the persistence step as a group of one (IPersistence.CommitAsync,
 // called under the lock: it only takes the group), and, since that task is complete, published in the
 // same hold. The call releases the lock and returns the result itself: no other thread touches the
 // write, and nothing is allocated for it (see "What a write allocates").
 //
-// When the storage step is busy. A group whose storage step did not complete at once is in the
-// storage step until its task completes; the writes prepared meanwhile wait in the queue of the
-// prepared writes, and their calls return their tasks. The thread on which the storage completes takes
+// When the persistence step is busy. A group whose persistence step did not complete at once is in the
+// persistence step until its task completes; the writes prepared meanwhile wait in the queue of the
+// prepared writes, and their calls return their tasks. The thread on which the persistence step completes takes
 // the lock, publishes the group in its order, gives its writes their outcomes, prepares the writes that
-// can be prepared now (below), and hands the next group to the storage step: at most
+// can be prepared now (below), and hands the next group to the persistence step: at most
 // CommitGroup.MaxOperations writes or CommitGroup.MaxEncodedSize bytes from the head of the queue, a
-// larger write alone, never waiting to fill. Whoever holds the lock and finds no group in the storage
+// larger write alone, never waiting to fill. Whoever holds the lock and finds no group in the persistence
 // step and prepared writes in the queue hands them over before it releases the lock (StartReadyAndCommit), so no
-// prepared write is ever left with nobody to dispatch it: either a group is in the storage step, whose
+// prepared write is ever left with nobody to dispatch it: either a group is in the persistence step, whose
 // completion will dispatch the queue, or the queue is empty when the lock is released. The writes of a
 // group take consecutive positions from CommitOutcome.FirstSequence, in its order.
 //
 // The order of writes to one entity, and the wait behind an unpublished write. A call takes its place in the
 // order when it takes the lock: a call made after an earlier call returned its task takes the lock after it,
-// and the earlier write was by then published, or prepared and in the queue or in the storage step, or
+// and the earlier write was by then published, or prepared and in the queue or in the persistence step, or
 // waiting in a chain, in the deferred list or in a resolution. A write whose entity has such an earlier write,
 // one that has not completed, waits behind the latest of them, first in first out, in the chain of that
 // entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so it is prepared only once every
@@ -46,7 +46,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // writes are found in the list of the writes admitted that waited (FindLastOfEntity, and "The refusal"
 // below); when that list is empty, as in MemoryOnly except while the writes a resolution deferred are
 // started, nothing is looked at and no key is hashed for it. The wait ends: the write it waits behind
-// completes — published when its storage step completes (the storage step has no timeout yet), refused,
+// completes — published when its persistence step completes (the persistence step has no timeout yet), refused,
 // cancelled, failed, or ended by a fault — and every way a write completes starts the next write of its chain
 // under the same lock (AdvanceChain). A write with a session takes its place when the wait for its position
 // ends. It enters the barrier of the close before that wait, so that a close waits for it as for every write
@@ -57,10 +57,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (Children.Capture). It protects the arena, the table of root entries, the primary indexes, the
 // position clock, the retired list (WriteExecutor) and the tail of the children (Delivery.DeliveryTail),
 // and the state of this class: the queue of the prepared writes, the
-// group in the storage step, the chains, the list of the writes admitted that waited, the deferred list,
+// group in the persistence step, the chains, the list of the writes admitted that waited, the deferred list,
 // the write being resolved, the admission number, whether the database faulted, and the counters. It
 // is held for work in memory only: no I/O, no await, no code of the application, no wait for anything
-// but the lock itself. The storage step is called under it and only takes the group (ICommitStorage).
+// but the lock itself. The persistence step is called under it and only takes the group (IPersistence).
 // It is the only lock of the writes, and a thread that holds it takes no other lock of the database:
 // what a hold decided for other threads — the fault of the database, the outcomes of their writes, the
 // end of a resolution — is carried out after the lock is released (CarryOutDecisions). A read takes none. A write
@@ -81,7 +81,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // another thread completes is written under the lock and given after it, by its value source.
 //
 // Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
-// dispatch, the call of ICommitStorage.CommitAsync for its group, the token of a write is honored at every
+// dispatch, the call of IPersistence.CommitAsync for its group, the token of a write is honored at every
 // wait — chained, deferred, prepared and in the queue, waiting in a resolution for the writes admitted before it,
 // for the writes in flight or for the reads that hold retired memory — and when its preparation ends, also a
 // preparation the arena refused. The cancellation of a write that waits in a list or in a resolution hands
@@ -112,7 +112,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    out. It waits while any
 //    write is prepared and not published (Resolving): in the queue or in the group, all of them
 //    later than it, prepared before it became the oldest. Each of them ends: a write that holds the
-//    lock hands the queue over, and the storage step completes. When none is left the wait ends (end of
+//    lock hands the queue over, and the persistence step completes. When none is left the wait ends (end of
 //    StartReadyAndCommit).
 // 3. Then, on a thread of its own outside every lock — the thread of its call when it never had to wait
 //    before, otherwise a thread of the pool (EndResolution) — it waits for the reads then in progress
@@ -132,11 +132,11 @@ namespace Moltaro.Lattice.Engine.Writes;
 // reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it deferred
 // are prepared in one hold and published as one group, and one of them that the arena refuses
 // there may find writes before it not completed and writes prepared beside it, and goes through steps
-// 1 and 2 as in a database whose storage step is busy. Only the oldest write is resolved, so two
+// 1 and 2 as in a database whose persistence step is busy. Only the oldest write is resolved, so two
 // writes refused at the same time are resolved one after the other in the order of their admission.
 // The wait is finite (exception X6): the writes admitted before it are finite and none of them waits
 // for it; the writes it waits for in step 2 are finite, no later one begins, and each ends with its
-// storage step; a read leaves within a step; no write admitted later prolongs it. Its token ends it at
+// persistence step; a read leaves within a step; no write admitted later prolongs it. Its token ends it at
 // any step, and the deferred writes then go on. The switch of the tests runs at the first wait of the
 // resolution of a write, whichever it is (HoldNextRefusedWriteWait).
 //
@@ -153,7 +153,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // back: no other thread and no registration ever saw it, so it serves again at once, and the call
 // returns its result as a value. A write that waits keeps a record of its own, allocated then, with the
 // value source of its task, and the collector takes it once its task completed; a token that can be
-// cancelled adds its registration. A storage step that does not complete at once adds the task of its
+// cancelled adds its registration. A persistence step that does not complete at once adds the task of its
 // completion.
 //
 // Children. A master publishes every write while children are connected or loading; no write is refused or
@@ -175,11 +175,11 @@ namespace Moltaro.Lattice.Engine.Writes;
 // Delivery.RecordedReplies says ("The order that matters"). So once the barrier has drained, every forwarded
 // write admitted has its reply recorded, and nothing of one runs any more: no task of it is awaited.
 //
-// A fault. A failure of the storage step or of a publication faults the database: reads are refused from then
+// A fault. A failure of the persistence step or of a publication faults the database: reads are refused from then
 // on, a read that retries on the mark of the publication that failed gives up, and the waits for a position
 // end (EngineDatabase.Fault). The writes of the group published before the failure get their results; the
 // write whose publication failed and the writes of the group after it get IndeterminateOutcome, the first
-// with the failure as its InnerException, and when the storage step itself failed the whole group does; every
+// with the failure as its InnerException, and when the persistence step itself failed the whole group does; every
 // other write admitted gets Unavailable once it has released what it held. Every later write is Unavailable,
 // and a close works.
 internal sealed class WriteCoordinator
@@ -199,7 +199,7 @@ internal sealed class WriteCoordinator
     // The tail of the transactions for the children, whose senders are woken after a hold that appended.
     private readonly DeliveryTail _delivery;
 
-    private readonly ICommitStorage _storage;
+    private readonly IPersistence _persistence;
 
     private readonly CloseBarrier _barrier;
 
@@ -211,14 +211,14 @@ internal sealed class WriteCoordinator
     // Faults the database (EngineDatabase): its state, its reads and its waits for a position.
     private readonly Action _faultDatabase;
 
-    // The group handed to the storage step, formed anew for every dispatch.
+    // The group handed to the persistence step, formed anew for every dispatch.
     private readonly CommitGroup _group = new();
 
-    // The writes prepared and not handed to the storage step yet, in the order they were prepared.
+    // The writes prepared and not handed to the persistence step yet, in the order they were prepared.
     private WriteQueue _prepared;
 
     // Whether the group holds writes, which are prepared and not published: from the first write
-    // FormGroup takes into it, through the storage step, until it is published or the database faults.
+    // FormGroup takes into it, through the persistence step, until it is published or the database faults.
     private bool _groupPending;
 
     // The writes admitted and not completed that waited, the waiters, in the order of their admission
@@ -237,7 +237,7 @@ internal sealed class WriteCoordinator
     // The number of the last write admitted.
     private long _admitted;
 
-    // Set once the storage step or a publication failed; never cleared.
+    // Set once the persistence step or a publication failed; never cleared.
     private bool _faulted;
 
     // The counters (EngineCounters), written under the lock and read by the counters of the database.
@@ -259,7 +259,7 @@ internal sealed class WriteCoordinator
         RetiredMemory retired,
         ReadEpochs epochs,
         DeliveryTail delivery,
-        ICommitStorage storage,
+        IPersistence persistence,
         CloseBarrier barrier,
         PositionClock clock,
         TimeSpan synchronizationTimeout,
@@ -271,7 +271,7 @@ internal sealed class WriteCoordinator
         _retired = retired;
         _epochs = epochs;
         _delivery = delivery;
-        _storage = storage;
+        _persistence = persistence;
         _barrier = barrier;
         _clock = clock;
         _synchronizationTimeout = synchronizationTimeout;
@@ -293,7 +293,7 @@ internal sealed class WriteCoordinator
     // engine does not store; ObjectDisposedException after the close; for the session, HistoryMismatch,
     // SynchronizationTimeout and Unavailable; Unavailable after a fault; RevisionConflict, DuplicateKey
     // and NotFound for its condition; WriteRejected, with Limit Memory, for an entity the memory budget
-    // cannot hold; IndeterminateOutcome when a publication failed after the storage step took it.
+    // cannot hold; IndeterminateOutcome when a publication failed after the persistence step took it.
     // ValidationFailed for text that is not well-formed or a value above the bound of one value comes
     // from the guard of the root writer, only for values that the validation of the core did not check.
     public ValueTask<LatticeWriteResult> SubmitAsync(
@@ -738,8 +738,8 @@ internal sealed class WriteCoordinator
     // one not in it yet, so the list is searched, from the newest write admitted before this one back.
     // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
     // resolution. The search is linear in the writes that wait, and so is WriteQueue.Remove in the queue
-    // and the deferred list: measured with 40,000 writes waiting behind a busy storage step, an admission took
-    // 0.6 to 0.8 ms. It never runs while the storage step completes at once; whether a durable storage step
+    // and the deferred list: measured with 40,000 writes waiting behind a busy persistence step, an admission took
+    // 0.6 to 0.8 ms. It never runs while the persistence step completes at once; whether a durable persistence step
     // that is busy needs a structure that finds them faster is open until that step is built.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
@@ -1070,7 +1070,7 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: as long as a write can go on, it goes on: the writes made ready start, and the
-    // queue of the prepared writes is handed to the storage step whenever no group is in it. The loop
+    // queue of the prepared writes is handed to the persistence step whenever no group is in it. The loop
     // is left only when no write is ready (see Hold). At the end a resolved write that no longer has
     // anything to wait for goes on to step 3.
     private void StartReadyAndCommit(ref Hold hold)
@@ -1114,7 +1114,7 @@ internal sealed class WriteCoordinator
     // write was taken. A prepared write whose token is cancelled is withdrawn here instead of being
     // taken into the group, whether or not the thread of the pool its cancellation went to has run
     // (see the class, "Cancellation"); the next write of its entity becomes ready, and StartReadyAndCommit starts
-    // it. The writes taken are dispatched from here on: the group is handed to the storage step next,
+    // it. The writes taken are dispatched from here on: the group is handed to the persistence step next,
     // and no token is looked at any more. From the first of them on the group holds prepared memory
     // (_groupPending), so that a write withdrawn after it, whose end may make a refused write the one
     // being resolved, does not find nothing prepared while the group holds it (HoldsPreparedMemory).
@@ -1163,16 +1163,16 @@ internal sealed class WriteCoordinator
         return true;
     }
 
-    // Under the lock: the storage step for the group formed (the dispatch), which only takes it
-    // (ICommitStorage). A task already completed means the group is committed, and it is published in
-    // this hold; otherwise the thread on which it completes publishes it (CompleteStorageAsync).
+    // Under the lock: the persistence step for the group formed (the dispatch), which only takes it
+    // (IPersistence). A task already completed means the group is committed, and it is published in
+    // this hold; otherwise the thread on which it completes publishes it (CompletePersistenceAsync).
     private void Commit(ref Hold hold)
     {
-        ValueTask<CommitOutcome> storing;
+        ValueTask<CommitOutcome> persisting;
 
         try
         {
-            storing = _storage.CommitAsync(_group, CancellationToken.None);
+            persisting = _persistence.CommitAsync(_group, CancellationToken.None);
         }
         catch (Exception exception)
         {
@@ -1181,9 +1181,9 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        if (!storing.IsCompleted)
+        if (!persisting.IsCompleted)
         {
-            _ = CompleteStorageAsync(storing.AsTask());
+            _ = CompletePersistenceAsync(persisting.AsTask());
 
             return;
         }
@@ -1192,7 +1192,7 @@ internal sealed class WriteCoordinator
 
         try
         {
-            outcome = storing.Result;
+            outcome = persisting.Result;
         }
         catch (Exception exception)
         {
@@ -1204,16 +1204,16 @@ internal sealed class WriteCoordinator
         PublishGroup(outcome.FirstSequence, ref hold);
     }
 
-    // A storage step that did not complete at once: its group is published on the thread on which it
+    // A persistence step that did not complete at once: its group is published on the thread on which it
     // completes, never on the thread that dispatched it, which holds the lock and goes on.
-    private async Task CompleteStorageAsync(Task<CommitOutcome> storing)
+    private async Task CompletePersistenceAsync(Task<CommitOutcome> persisting)
     {
         CommitOutcome outcome = default;
         Exception? failure = null;
 
         try
         {
-            outcome = await storing.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+            outcome = await persisting.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
         }
         catch (Exception exception)
         {
@@ -1267,7 +1267,7 @@ internal sealed class WriteCoordinator
         }
     }
 
-    // Under the lock: a failure of the storage step of the group, or of the publication of its write at
+    // Under the lock: a failure of the persistence step of the group, or of the publication of its write at
     // the index published (see the class, "A fault"): the writes of the group from that index on are
     // IndeterminateOutcome, and every other write admitted ends with Unavailable, once it has released
     // what it held.

@@ -18,7 +18,7 @@ internal sealed partial class EngineDatabase
     // For the tests of the engine and the measurement program (exception X3, docs/work/exceptions.md):
     // makes an instance as LatticeDatabase.Create does, with the same refusals, that takes what the inputs
     // give instead of what an instance makes for itself: the options of its arena, the allocator of its
-    // native memory, the seed of the hashes of its primary indexes and the storage step of its commit
+    // native memory, the seed of the hashes of its primary indexes and the persistence step of its commit
     // stage, each when it is set (EngineTestInputs). When the inputs give the options of the arena,
     // MemoryLimit of the options of the database is not read. Nothing else differs, and an instance made
     // by LatticeDatabase.Create pays nothing for it.
@@ -262,7 +262,7 @@ internal sealed partial class EngineDatabase
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
     // the point throws InvalidOperationException with a message that names the point; tests only. Both points
-    // lie after the storage step, and a failure at either puts the instance into Faulted
+    // lie after the persistence step, and a failure at either puts the instance into Faulted
     // (EngineFaultPointEnum): a write of the group published before the fault gets its result; the write
     // whose publication faulted and the writes of its group after it get IndeterminateOutcome, the first of
     // them with the injected exception as its InnerException; writes not yet dispatched get Unavailable;

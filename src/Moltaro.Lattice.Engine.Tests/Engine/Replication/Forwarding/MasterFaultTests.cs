@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //
 // A master that faults and closes with forwarded writes in flight (decided at the review of S12, points
 // 2 and 3): the storage step of the master holds the first of four writes a child forwards
-// (HeldCommitStorage), two more are prepared behind it and a fourth, of the entity of the first, waits
+// (HeldPersistence), two more are prepared behind it and a fourth, of the entity of the first, waits
 // behind the first; the publication after the given number of publications faults, the master closes,
 // and the storage lets the first go. Each write then succeeds, is Unavailable or is IndeterminateOutcome:
 // every success is on the child that forwarded it and on a second child that only reads, no write
@@ -45,8 +45,8 @@ public sealed class MasterFaultTests
     [InlineData(1)]
     public async Task Master_that_faults_and_closes_with_forwarded_writes_in_flight_reports_each_as_its_children_hold_it(int publishedBeforeTheFault)
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {

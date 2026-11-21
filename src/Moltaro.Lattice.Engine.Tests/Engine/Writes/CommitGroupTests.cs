@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // The commit stage of the write coordinator (brief of Epic 1, sprint S09, Acceptance, "No wait to fill
 // a group in MemoryOnly", "A write larger than a group", "What is counted" and the answers of the
 // planner on the counters and the positions). The storage step of the test holds a commit until the
-// test releases it (HeldCommitStorage), so the commit stage is busy while the test submits more
+// test releases it (HeldPersistence), so the commit stage is busy while the test submits more
 // writes, and the test waits until they are all prepared (CountersWait) before it lets the stage go
 // on. So:
 // - While one commit is held, later writes are admitted and prepared at once and wait for the commit
@@ -37,7 +37,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   call of the test runs anything after that. The test completes the storage step from a thread of
 //   its own: the first write is published, and the eight are dispatched as the next group, which the
 //   storage holds in turn; completing that step publishes the eight. The storage of the test only takes
-//   a group in its call and never blocks there, as a storage step has to (ICommitStorage.CommitAsync).
+//   a group in its call and never blocks there, as a storage step has to (IPersistence.CommitAsync).
 //   Its completion runs what waits for it on a thread of the pool, and, as the durable storage step of
 //   S27 will, on the thread that completes its task (review round 1 of S09, part 2: a storage of the
 //   tests that completes only on the pool hid that form).
@@ -54,7 +54,7 @@ public sealed class CommitGroupTests
     [Fact]
     public async Task Writes_submitted_while_a_commit_is_held_are_admitted_and_prepared_and_wait_for_the_commit_stage()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -90,7 +90,7 @@ public sealed class CommitGroupTests
     [Fact]
     public async Task Group_holds_at_most_32_writes_and_its_writes_take_consecutive_positions_in_its_order()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -141,7 +141,7 @@ public sealed class CommitGroupTests
     [Fact]
     public async Task Group_holds_at_most_8_MiB_and_a_write_larger_than_that_forms_a_group_alone_and_completes()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -198,7 +198,7 @@ public sealed class CommitGroupTests
     [Fact]
     public async Task Publication_obtains_no_memory_grows_no_index_and_adds_no_root_entry()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
         var tally = new PieceTally();
@@ -257,7 +257,7 @@ public sealed class CommitGroupTests
     [InlineData(OnTheReleasingThread)]
     public async Task Writes_prepared_while_the_storage_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_storage_step(string completion)
     {
-        var storage = new HeldCommitStorage(inline: completion == OnTheReleasingThread);
+        var storage = new HeldPersistence(inline: completion == OnTheReleasingThread);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -304,8 +304,8 @@ public sealed class CommitGroupTests
         }
     }
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldPersistence storage) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
     // A small piece whose Note, in a block of its own, makes its encoded size differ from that of
     // every other piece of another id up to 55: blocks of 16-byte steps.

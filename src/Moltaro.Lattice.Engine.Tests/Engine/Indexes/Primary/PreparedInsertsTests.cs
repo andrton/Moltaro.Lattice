@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 // all share one hash under the seed 0 (CollidingKeys), so they fall on one chain of buckets of the
 // index: beyond the seven entries a bucket holds, every seven of them need an overflow bucket, which
 // the reservations have to provide for all of them together, and the main table, which grows by the
-// count, grows while they are prepared. The storage step of the test (HeldCommitStorage) holds a
+// count, grows while they are prepared. The storage step of the test (HeldPersistence) holds a
 // replace while 50 inserts, four replaces and three deletes of keys of that chain are prepared; ten of
 // the inserts are withdrawn before their dispatch, which gives back what they reserved. Then:
 // - every write that was not withdrawn completes, and the database stays Ready;
@@ -35,8 +35,8 @@ public sealed class PreparedInsertsTests
     [Fact]
     public async Task Inserts_of_one_chain_prepared_at_once_find_their_room_and_their_publication_obtains_nothing()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(ClashSchema.Schema, new EngineTestInputs { IndexSeed = 0, CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(ClashSchema.Schema, new EngineTestInputs { IndexSeed = 0, Persistence = storage });
         var clashes = database.Set<ClashSchema.Clash>();
         var keys = CollidingKeys.Of(Existing + Inserts);
 

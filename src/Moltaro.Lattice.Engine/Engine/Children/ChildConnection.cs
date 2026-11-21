@@ -54,7 +54,7 @@ namespace Moltaro.Lattice.Engine.Children;
 // was not executed, and none is executed after the drain. A reply the receiver records itself after the
 // sender has sent its last one, the refusal of a request that came too late, is not sent; its request was
 // not executed. The same holds for a master that faulted: its fault ended every write admitted with its
-// reply recorded, IndeterminateOutcome for those the storage step took and Unavailable for the others, and
+// reply recorded, IndeterminateOutcome for those the persistence step took and Unavailable for the others, and
 // refuses every write after it before it is executed, so it sends Closed as well.
 //
 // The waits, and how each ends. The Hello: within OpenTimeout, or the close of the master. A send: until

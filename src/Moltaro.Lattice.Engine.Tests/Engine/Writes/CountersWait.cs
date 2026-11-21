@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // Waits until the counters of a database show what a test waits for, within the bound. A write may be
 // prepared after its call has returned, on a thread of the engine, as one that waits behind a write of
 // its entity is, and nothing tells when it has been: the prepared capacity of the arena,
-// ArenaCounters.PreparedBytes, is the one sign of it (brief of Epic 1, sprint S09, "What is counted"). A test that holds the commit stage (HeldCommitStorage) waits here until the writes it
+// ArenaCounters.PreparedBytes, is the one sign of it (brief of Epic 1, sprint S09, "What is counted"). A test that holds the commit stage (HeldPersistence) waits here until the writes it
 // submitted are prepared, and the counters it waits for are exact, so the wait ends as soon as they
 // hold, and fails after the bound when they never do. It looks at the counters about once a
 // millisecond; between two looks the thread waits outside every lock of the engine.

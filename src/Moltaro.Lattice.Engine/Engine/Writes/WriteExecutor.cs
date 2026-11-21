@@ -55,7 +55,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // without case, which keeps the spelling the entity was created with, as KeepStoredKey does for a write of
 // values.
 //
-// A publication (Publish), of the writes of a group in its order, after the storage step: it only
+// A publication (Publish), of the writes of a group in its order, after the persistence step: it only
 // installs what was prepared. The change of each write is published at the sequence of the write, with
 // the stores before the position, the position and the stores after it (Entities.ChangePublisher;
 // docs/design/write-path.md, "How a publication is made"); a delete of an absent key changes no entity and

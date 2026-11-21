@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// One call of HeldCommitStorage.CommitAsync: the group the commit stage handed to the storage step,
+// One call of HeldPersistence.CommitAsync: the group the commit stage handed to the storage step,
 // as the storage saw it when the call came, with the positions the storage assigned to it. The commit
 // completes when the test releases it, or at once when the storage did not hold it; a test can also
 // make it fail, as a storage step fails that cannot tell whether it committed. Its completion runs

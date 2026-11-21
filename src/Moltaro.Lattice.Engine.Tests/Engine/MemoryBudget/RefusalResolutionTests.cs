@@ -21,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // two segments of 4 MiB (EngineTestInputs, exception X3):
 // - The case the first reviewer found: an insert of 3 MiB that waited for its entity behind a delete,
 //   and is the oldest write once the delete is published, while a later replace of 3 MiB is prepared
-//   and held in the storage step of the test (HeldCommitStorage), completes once the replace is
+//   and held in the storage step of the test (HeldPersistence), completes once the replace is
 //   published. The switch of a refused write (RefusedWriteWait) tells that it waits.
 // - Without a hook: an insert of 5 MiB into the empty arena beside an insert of 9 MiB that can never fit,
 //   both started at once on threads of their own, round after round: the 5 MiB insert always completes
@@ -89,7 +89,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Oldest_write_refused_while_a_later_write_holds_prepared_memory_completes_once_that_write_is_published()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -195,7 +195,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Refused_write_holds_back_the_preparation_of_later_writes_and_after_its_refusal_they_complete()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -238,7 +238,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Write_cancelled_during_the_wait_of_its_resolution_ends_in_OperationCanceledException_and_the_writes_it_held_back_go_on()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -280,7 +280,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Two_writes_refused_at_the_same_time_are_resolved_in_the_order_they_were_admitted()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -337,7 +337,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Later_write_of_an_entity_waits_behind_an_earlier_write_of_it_that_waits_for_the_writes_admitted_before_it()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -381,7 +381,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Cancelled_write_held_back_by_a_resolution_lets_the_later_write_of_its_entity_run()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -421,7 +421,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Cancelled_write_that_waits_for_the_writes_admitted_before_it_lets_the_later_write_of_its_entity_run()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -467,7 +467,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Fault_while_a_write_is_resolved_and_later_writes_are_held_back_ends_every_one_of_them()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -508,7 +508,7 @@ public sealed class RefusalResolutionTests
     public async Task Close_while_a_write_is_resolved_and_later_writes_are_held_back_completes_once_each_has_its_outcome()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage, allocator);
         var pieces = database.Set<PieceSchema.Piece>();
         Task? closing = null;
@@ -551,7 +551,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Refused_write_resolved_while_a_write_taken_into_the_next_group_is_prepared_waits_for_it_and_completes()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -653,7 +653,7 @@ public sealed class RefusalResolutionTests
     [Fact]
     public async Task Write_that_cannot_fit_is_refused_after_the_writes_in_flight_while_another_caller_keeps_replacing_a_small_entity()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
         var never = new PieceSchema.Piece { Id = 2, Name = "never", Data = new byte[9 * Mebibyte] };
@@ -733,7 +733,7 @@ public sealed class RefusalResolutionTests
     // and of the replace, what each writes, and the held commit of the replace. The storage holds from
     // here on.
     private static async Task<(Task<LatticeWriteResult> Insert, Task<LatticeWriteResult> Replace, PieceSchema.Piece Inserted, PieceSchema.Piece Replaced, HeldCommit HeldReplace)> RefusedBesideALaterReplaceAsync(
-        EngineDatabase database, HeldCommitStorage storage, int insertData, CancellationToken insertToken = default)
+        EngineDatabase database, HeldPersistence storage, int insertData, CancellationToken insertToken = default)
     {
         var pieces = database.Set<PieceSchema.Piece>();
         var inserted = PieceSchema.Of(2, name: 10, data: insertData);
@@ -768,8 +768,8 @@ public sealed class RefusalResolutionTests
     private static async Task CloseAsync(EngineDatabase database) =>
         await database.CloseAsync().AsTask().WaitAsync(Bound);
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage, NativeAllocator? allocator = null) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator ?? new NativeAllocator(), CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldPersistence storage, NativeAllocator? allocator = null) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator ?? new NativeAllocator(), Persistence = storage });
 
     // Two writes made at once, each on a thread of its own. Both threads spin until the test lets them
     // go together: a wait of the system that wakes one thread after the other would give the first a

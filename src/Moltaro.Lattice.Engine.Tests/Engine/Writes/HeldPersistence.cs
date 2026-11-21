@@ -4,8 +4,8 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// The storage step of a test (ICommitStorage), given to an instance through
-// EngineTestInputs.CommitStorage (exception X3; brief of Epic 1, sprint S09, "Dispatch"). While it
+// The storage step of a test (IPersistence), given to an instance through
+// EngineTestInputs.Persistence (exception X3; brief of Epic 1, sprint S09, "Dispatch"). While it
 // holds, a commit completes only when the test releases it, so that a test decides when the commit
 // stage is free again: meanwhile later writes are admitted and prepared and wait for it, and a test
 // can count them, cancel one before its dispatch and form groups of a size it knows. A test takes
@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // once and is not given there. Every call is recorded (HeldCommit), so that a test can state what
 // each group held.
 //
-// Its call only takes the group, as the storage step has to (ICommitStorage.CommitAsync; brief of S09,
+// Its call only takes the group, as the storage step has to (IPersistence.CommitAsync; brief of S09,
 // part 2): it records the group and returns a task, and never blocks or waits inside the call. A held
 // commit completes as a storage step completes that waits: its task completes later, when the test
 // releases it from a thread of its own, and whoever completes the storage step goes on from there. A
@@ -33,7 +33,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // a held commit holds back fails at the bound of its own wait, and cannot pass because the commit was
 // let go behind its back. Every test releases every commit when it ends (ReleaseAll), so that its
 // database can close. NextAsync fails when no commit comes within the bound.
-internal sealed class HeldCommitStorage : ICommitStorage
+internal sealed class HeldPersistence : IPersistence
 {
     private readonly Lock _lock = new();
 
@@ -49,7 +49,7 @@ internal sealed class HeldCommitStorage : ICommitStorage
 
     // A storage that holds every commit from the start, or one that completes every commit at once
     // until Hold is called; inline, a held commit completes on the thread that releases it.
-    public HeldCommitStorage(bool holding = true, bool inline = false)
+    public HeldPersistence(bool holding = true, bool inline = false)
     {
         _holding = holding;
         _inline = inline;

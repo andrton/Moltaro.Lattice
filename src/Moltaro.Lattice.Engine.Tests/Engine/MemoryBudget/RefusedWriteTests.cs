@@ -30,7 +30,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // - An entity that does not fit even after everything retired is freed is WriteRejected, and nothing
 //   of it is left.
 // - A write that fits only once an earlier replace, still unpublished because the storage step of the
-//   test holds it (HeldCommitStorage), has retired its old root and it was freed, waits for that
+//   test holds it (HeldPersistence), has retired its old root and it was freed, waits for that
 //   replace and completes; the switch tells that it began to wait. Its token cancels that wait too,
 //   and then it has no effect and does not run after the replace.
 // - A write that does not fit an otherwise idle database is WriteRejected with Limit Memory, has no
@@ -121,7 +121,7 @@ public sealed class RefusedWriteTests
     [Fact]
     public async Task Write_that_fits_only_once_an_earlier_unpublished_replace_has_retired_its_old_root_waits_for_it_and_completes()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -155,7 +155,7 @@ public sealed class RefusedWriteTests
     [Fact]
     public async Task Write_that_waits_for_an_earlier_write_after_the_arena_refused_it_is_cancelled_by_its_token_and_never_runs()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -194,7 +194,7 @@ public sealed class RefusedWriteTests
     [Fact]
     public async Task Write_that_does_not_fit_an_otherwise_idle_database_is_WriteRejected_with_Limit_Memory_and_never_runs_later()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         await using var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
         var large = PieceSchema.Of(2, name: 10, data: 2 * Large);
@@ -225,8 +225,8 @@ public sealed class RefusedWriteTests
         ExpectHeld(database, PieceSchema.Of(3, name: 10));
     }
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = new NativeAllocator(), CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldPersistence storage) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = new NativeAllocator(), Persistence = storage });
 
     // The write began to wait before it ended: a write that the arena refused instead of waiting, or
     // that succeeded without the memory the held read or the earlier write keeps, ends without

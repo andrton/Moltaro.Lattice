@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
 // Cancellation up to the dispatch (brief of Epic 1, sprint S09, Acceptance and the answers of the
 // planner on the dispatch and the counters; decision "Cancellation at the commit boundary"). The
-// dispatch of a write is the call of ICommitStorage.CommitAsync for the group the commit stage took it
-// into. The storage of the test holds a commit until the test releases it (HeldCommitStorage), so the
+// dispatch of a write is the call of IPersistence.CommitAsync for the group the commit stage took it
+// into. The storage of the test holds a commit until the test releases it (HeldPersistence), so the
 // commit stage stays busy while the test cancels a write that waits for it. So:
 // - A write cancelled before its dispatch is withdrawn: its call ends in OperationCanceledException
 //   while the commit stage is still busy, no group ever holds it, and nothing of it is left: neither
@@ -54,7 +54,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Write_cancelled_before_its_dispatch_is_withdrawn_ends_in_OperationCanceledException_and_leaves_nothing()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -102,7 +102,7 @@ public sealed class DispatchTests
     public async Task Write_cancelled_while_the_completion_of_the_storage_step_holds_the_lock_is_never_dispatched()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage, allocator);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -158,7 +158,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Write_behind_a_prepared_write_withdrawn_when_the_next_group_is_formed_runs_also_when_that_group_is_left_empty()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -211,7 +211,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Write_whose_token_is_cancelled_in_the_hold_that_gives_it_its_turn_ends_cancelled_and_is_not_prepared()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -253,7 +253,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Write_whose_token_is_cancelled_after_its_dispatch_returns_its_real_outcome()
     {
-        var storage = new HeldCommitStorage();
+        var storage = new HeldPersistence();
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -285,7 +285,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Write_cancelled_while_it_waits_behind_an_earlier_write_of_its_entity_has_no_effect_and_the_later_writes_of_that_entity_run_in_order()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -343,7 +343,7 @@ public sealed class DispatchTests
     [Fact]
     public async Task Replace_cancelled_before_its_dispatch_gives_back_what_it_prepared_and_the_entity_keeps_its_state()
     {
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -392,7 +392,7 @@ public sealed class DispatchTests
     public async Task Write_cancelled_while_it_is_being_prepared_is_withdrawn_when_its_preparation_ends_and_leaves_nothing()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage, allocator);
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -447,7 +447,7 @@ public sealed class DispatchTests
         const int Large = 3 * 1024 * 1024;
 
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await OpenAsync(storage, allocator, new ArenaOptions { MemoryLimit = 3L * new ArenaOptions().SegmentSize });
         var pieces = database.Set<PieceSchema.Piece>();
 
@@ -495,12 +495,12 @@ public sealed class DispatchTests
         }
     }
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage, CountingNativeAllocator allocator, ArenaOptions? arena = null) =>
+    private static async Task<EngineDatabase> OpenAsync(HeldPersistence storage, CountingNativeAllocator allocator, ArenaOptions? arena = null) =>
         await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
         {
             Arena = arena ?? new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize },
             Allocator = allocator,
-            CommitStorage = storage,
+            Persistence = storage,
         });
 
     // Entities 1 to 4 and 6 to 9, small: the first table of the primary index, of two buckets, holds
@@ -532,8 +532,8 @@ public sealed class DispatchTests
         return grown.Task;
     }
 
-    private static async Task<EngineDatabase> OpenAsync(HeldCommitStorage storage) =>
-        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+    private static async Task<EngineDatabase> OpenAsync(HeldPersistence storage) =>
+        await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
     // After a drain with no read in progress, the database holds these pieces alone.
     private static void ExpectHeld(EngineDatabase database, params PieceSchema.Piece[] pieces) =>

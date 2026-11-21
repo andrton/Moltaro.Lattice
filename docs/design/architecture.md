@@ -19,7 +19,7 @@ The same engine runs embedded in an application or in a dedicated service.
 <!-- DIAGRAM:architecture -->
 
 **Many callers, one authoritative master.** Application threads may submit writes
-concurrently. Writes are prepared and published one at a time; when the storage step is
+concurrently. Writes are prepared and published one at a time; when the persistence step is
 slow, the writes that arrive meanwhile form short bounded groups that commit and publish
 in order ([how a write is executed](write-path.md)). Children forward writes and apply the master's confirmed changes.
 A node checks the structure of what a peer sends and does not validate field values

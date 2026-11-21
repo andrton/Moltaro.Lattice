@@ -38,7 +38,7 @@ namespace Moltaro.Lattice.Engine;
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one for each
 // entity type, with its root layout), the text entries of Dictionary strings in the arena
 // (Storage.Text.TextTable, which only writes use), the primary indexes in Indexes (PrimaryIndex), the writes
-// in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them for the storage
+// in Writes (WriteCoordinator, which runs them under the lock of the writes and groups them for the persistence
 // step, and WriteExecutor, which prepares and publishes them), the protection of reads by epochs, what is
 // retired and the barrier of the close in Protection, the history and the sequence in Positions
 // (PositionClock), the sets of the public interfaces in Sets, what a master gives its children in Children,
@@ -50,7 +50,7 @@ namespace Moltaro.Lattice.Engine;
 //
 // The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
 // for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
-// what it protects), under which writes are admitted, prepared, handed to the storage step and
+// what it protects), under which writes are admitted, prepared, handed to the persistence step and
 // published, under which a drain or a count of the counters runs, under which the capture of a child
 // starts and ends and its acknowledgments release the tail on a master, and under which a root is
 // placed and a transaction applied on a child, held for synchronous work in memory only. The lock of
@@ -727,7 +727,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
                 retired,
                 _epochs,
                 delivery,
-                _testInputs?.CommitStorage ?? new MemoryOnlyStorage(),
+                _testInputs?.Persistence ?? new MemoryOnlyPersistence(),
                 _barrier,
                 clock,
                 _options.SynchronizationTimeout,

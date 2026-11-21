@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // of one change of key; with nothing waiting it holds at most the reserve (IndexReserve). Here 10 entities
 // lie in one leaf, whose room is the 40 separators of 16-byte entries an inner node holds before it is full
 // less those 10.
-// - The storage step of the test (HeldCommitStorage) holds a replace of an entity in no index while
+// - The storage step of the test (HeldPersistence) holds a replace of an entity in no index while
 //   writes of Counted wait behind it, from one insert to so many that the tree gains a level when they
 //   are published: what the arena holds prepared beyond what the same writes of Uncounted hold, which has
 //   no index, is the pool of ByNumber, whole nodes of 1 KiB, more than none and no more than the bound. A
@@ -64,12 +64,12 @@ public sealed class IndexPreparationTests
     public async Task Prepared_unpublished_writes_hold_whole_nodes_within_the_bound_and_are_published_with_no_memory_left_to_take(int inserts, int deletes)
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await EngineMaster.OpenAsync(FillerSchema, new EngineTestInputs
         {
             Arena = new ArenaOptions { SegmentSize = Arena.MaxBlockSize, MemoryLimit = (long)Regions * Arena.MaxBlockSize },
             Allocator = allocator,
-            CommitStorage = storage,
+            Persistence = storage,
         });
 
         try
@@ -136,8 +136,8 @@ public sealed class IndexPreparationTests
     {
         const int Inserts = 200;
 
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -218,8 +218,8 @@ public sealed class IndexPreparationTests
     [Fact]
     public async Task Write_withdrawn_while_it_waits_gives_back_every_node_it_reserved_and_leaves_nothing()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -268,14 +268,14 @@ public sealed class IndexPreparationTests
     public async Task Write_cancelled_while_it_is_being_prepared_gives_back_every_node_and_text_it_took()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         // No segment is kept in reserve, so that a segment the first cancelled insert emptied is returned,
         // and the second needs a new one as well.
         var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs
         {
             Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize, ReservedSegments = 0 },
             Allocator = allocator,
-            CommitStorage = storage,
+            Persistence = storage,
         });
 
         try
@@ -381,7 +381,7 @@ public sealed class IndexPreparationTests
 
     // Holds the storage step with a replace of an entity in no index, submits the writes and returns once
     // they are all admitted and prepared: the writes, and the replace that holds them.
-    private static async Task<Task[]> HoldAsync(EngineDatabase database, HeldCommitStorage storage, Func<IEnumerable<Task>> writes)
+    private static async Task<Task[]> HoldAsync(EngineDatabase database, HeldPersistence storage, Func<IEnumerable<Task>> writes)
     {
         storage.Hold();
 
@@ -398,7 +398,7 @@ public sealed class IndexPreparationTests
 
     // What the arena holds prepared while the writes wait behind the held storage step; the writes are then
     // let go and complete.
-    private static async Task<long> PreparedBytesOfAsync(EngineDatabase database, HeldCommitStorage storage, Func<IEnumerable<Task>> writes)
+    private static async Task<long> PreparedBytesOfAsync(EngineDatabase database, HeldPersistence storage, Func<IEnumerable<Task>> writes)
     {
         var pending = await HoldAsync(database, storage, writes);
         var prepared = database.Counters.Arena.PreparedBytes;

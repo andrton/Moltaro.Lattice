@@ -37,7 +37,7 @@ internal struct RootEntry
     // root through it (arena protocol, "Ownership and addresses").
     public ArenaAddress KeyDescriptor;
 
-    // The identity under which the storage provider keeps this root (milestone contract,
+    // The identity under which the provider of durable persistence keeps this root (milestone contract,
     // "Independent base, journal and recovery"). It is neither a public key nor a native handle,
     // and a reinserted entity gets a new one.
     public long StoredRootId;

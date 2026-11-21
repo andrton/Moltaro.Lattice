@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   (ReplicationNodes.ChildWaitingBeyondTheBound), so that the write cannot end by its time while the
 //   relay passes the transaction, however long that takes.
 // - A write sent whole whose reply has not arrived ends in IndeterminateOutcome. The storage step of the
-//   master holds it (HeldCommitStorage), so the master has received it whole and does not answer; the
+//   master holds it (HeldPersistence), so the master has received it whole and does not answer; the
 //   close of the child completes meanwhile.
 // - A write the sender of the child has not taken, and one it has sent only in part, end in Unavailable:
 //   not executed. A link holds what the child sends (HeldChildLink) once a write of 32 MiB has begun, so
@@ -54,8 +54,8 @@ public sealed class ChildCloseTests
     [Fact]
     public async Task Write_sent_whole_and_not_answered_ends_in_IndeterminateOutcome_and_the_close_does_not_wait_for_the_master()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {

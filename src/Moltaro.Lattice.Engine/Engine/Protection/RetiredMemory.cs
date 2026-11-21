@@ -107,7 +107,7 @@ internal sealed class RetiredMemory
     private int _capacity;
 
     // The places reserved for things that writes prepared and not published yet will retire: while a
-    // group is in the storage step, later writes are prepared and published after it, in their order
+    // group is in the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator).
     private int _reserved;
 

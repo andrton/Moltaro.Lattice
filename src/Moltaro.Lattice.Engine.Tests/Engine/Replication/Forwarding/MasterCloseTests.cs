@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
 // The close of a master with forwarded writes in flight (brief of Epic 1, sprint S12, decided on 17
 // November 2026, point 4, and after the study, points 4 and 5). The storage step of the master holds a
-// forwarded write (HeldCommitStorage), so that the master is closing while that write runs:
+// forwarded write (HeldPersistence), so that the master is closing while that write runs:
 // - The write was dispatched there, so it completes with its real outcome. At the close the sender of
 //   the master does its ordinary work to the end, the recorded replies and then what the tail holds for
 //   that child, before it shuts down its sending side (point 4 as the planner widened it with the tests
@@ -23,8 +23,8 @@ public sealed class MasterCloseTests
     [Fact]
     public async Task Write_dispatched_on_a_master_that_closes_is_applied_by_its_child_and_returns_the_success()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -58,8 +58,8 @@ public sealed class MasterCloseTests
     [Fact]
     public async Task Write_that_reaches_a_master_while_it_closes_is_answered_Unavailable_and_not_executed()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -103,8 +103,8 @@ public sealed class MasterCloseTests
 
         for (var round = 0; round < Rounds; round++)
         {
-            var storage = new HeldCommitStorage(holding: false);
-            var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+            var storage = new HeldPersistence(holding: false);
+            var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
             try
             {

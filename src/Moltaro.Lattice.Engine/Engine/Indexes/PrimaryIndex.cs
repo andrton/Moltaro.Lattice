@@ -57,7 +57,7 @@ internal sealed class PrimaryIndex
     private long _replacementBytes;
 
     // The inserts that have room reserved and are not published or withdrawn yet: while a group is in
-    // the storage step, later writes are prepared and published after it, in their order
+    // the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator). The writer's alone, under the lock of the writes.
     private int _reserved;
 

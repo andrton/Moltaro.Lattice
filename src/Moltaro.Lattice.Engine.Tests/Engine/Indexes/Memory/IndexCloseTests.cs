@@ -94,8 +94,8 @@ public sealed class IndexCloseTests
     public async Task Close_of_an_instance_that_a_write_changing_indexed_keys_faulted_returns_every_piece_of_native_memory(string point)
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Arena = Arena, Allocator = allocator, CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(IndexSchema.Utf8, new EngineTestInputs { Arena = Arena, Allocator = allocator, Persistence = storage });
 
         try
         {

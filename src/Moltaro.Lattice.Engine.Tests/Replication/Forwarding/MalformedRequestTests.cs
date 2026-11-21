@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // holds nothing for the child any more, "code" has the revision it had. So it is with the correlation id 0, which stays the load and the stream, and with the id of a
 // request of the connection that has not been answered (decided after the study, point 3); the request
 // received whole before it still runs (point 12). The master holds the commit of the earlier one
-// (HeldCommitStorage), so that it is not answered when the second arrives.
+// (HeldPersistence), so that it is not answered when the second arrives.
 public sealed class MalformedRequestTests
 {
     public static IEnumerable<TheoryDataRow<string>> Damages =>
@@ -63,8 +63,8 @@ public sealed class MalformedRequestTests
     [Fact]
     public async Task Request_with_the_correlation_id_of_a_request_not_answered_yet_ends_the_connection_and_is_not_executed()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        await using var master = await LoadedPeer.OpenMasterAsync(inputs: new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        await using var master = await LoadedPeer.OpenMasterAsync(inputs: new EngineTestInputs { Persistence = storage });
 
         try
         {

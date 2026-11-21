@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 //   being prepared fail with Unavailable: they did not run.
 // - The instance is Faulted, every later operation is Unavailable, the close works and returns every
 //   piece of native memory (CountingNativeAllocator), and with it whatever the writes held.
-// The storage step of the test (HeldCommitStorage) holds the group of three replaces while the test
+// The storage step of the test (HeldPersistence) holds the group of three replaces while the test
 // puts the other writes where it wants them: a replace prepared and waiting for the commit stage; a
 // replace of the same entity waiting behind it; an insert of 9 MiB, which an arena of two segments of
 // 4 MiB refuses, and which then waits for the writes admitted before it, as the switch of a refused
@@ -50,8 +50,8 @@ public sealed class FaultedGroupTests
     public async Task Fault_in_the_publication_of_a_group_ends_every_write_in_progress_by_how_far_it_had_come(string point)
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator, CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs { Arena = TwoSegments, Allocator = allocator, Persistence = storage });
 
         try
         {
@@ -146,12 +146,12 @@ public sealed class FaultedGroupTests
     public async Task Write_being_prepared_when_the_storage_step_fails_ends_in_Unavailable_and_the_group_is_IndeterminateOutcome()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await EngineMaster.OpenAsync(PieceSchema.Schema, new EngineTestInputs
         {
             Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize },
             Allocator = allocator,
-            CommitStorage = storage,
+            Persistence = storage,
         });
 
         try
