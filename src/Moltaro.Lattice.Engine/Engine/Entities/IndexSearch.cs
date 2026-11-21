@@ -97,22 +97,10 @@ internal struct IndexSearch
     public readonly (RootHandle From, ulong EndsAt, FirstKey? First) Place => (From, EndsAt, null);
 
     // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
-    // failure the search kept and the time limit. It is taken when anything it could end the step for is set
-    // at all, a token that can be cancelled, a kept failure or a time limit (ReadLimits.AnySet, with the
-    // token); without any, it can end nothing, and the step passes it inline. That question knows no order:
-    // the look itself, with its order, is ReadLimits.CheckRound's, out of line.
-    public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
-    {
-        if (cancellationToken.CanBeCanceled || Limits.AnySet)
-        {
-            LookAtRound(started, cancellationToken, entityName, indexName);
-        }
-    }
-
-    // The look of a round, when anything is set. On a failure of a limit it lets go of what the search
+    // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
     // remembers: a search that failed returns nothing more, and every later step fails at the failure the
     // read limits keep before it would read it.
-    private void LookAtRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
+    public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         try
         {
