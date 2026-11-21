@@ -106,9 +106,9 @@ stops and has the plan corrected before the next sprint.
 7. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
    the sprint done in the epic document. A finding is no longer open when an independent
    review found its fix sufficient, when the owner accepted it or moved it to a named
-   sprint, as [Review](#review) describes, or when it is a P3 that the coordinator moved
-   to the refactoring backlog after the third round. The next sprint starts, with another
-   implementer.
+   sprint, as [Review](#review) describes, or when it is a P3 that the limits on review
+   sent elsewhere: to the refactoring backlog after the third round of code, or, for a
+   document, to the open questions. The next sprint starts, with another implementer.
 
 **Small changes during a sprint.** A change that comes up while a sprint is open and is
 small — an answer of the owner that touches a rule, a document, a file of the
@@ -221,8 +221,8 @@ goes wrong because of it: a concrete failure or a concrete cost. Then its severi
 | Severity | Meaning | Blocks |
 | --- | --- | --- |
 | **P1** | Wrong result; data lost, applied twice or returned stale; a guarantee of the contract broken; a security problem; the build or a test fails | Yes |
-| **P2** | An accepted decision or an architectural principle is violated; a stated behavior has no test; a concurrency or lifetime hazard; the contract changed without approval | Yes |
-| **P3** | It will cost later: duplication, unclear ownership or naming, missing or misleading public documentation, needless complexity, the quality priorities of the zone ignored | Yes |
+| **P2** | An accepted decision or an architectural principle is violated; a stated behavior has no test; a concurrency or lifetime hazard; the contract changed without the approval it needs | Yes |
+| **P3** | It will cost later: duplication, unclear ownership or naming, missing or misleading public documentation, needless complexity, the quality priorities of the zone ignored | Yes, within the [limits on review](#limits-on-review-and-on-questions) |
 | **P4** | A suggestion or a matter of taste | No; listed for the coordinator |
 
 A finding that names no rule and no failure is P4. A reviewer does not widen the scope:
@@ -245,19 +245,23 @@ decides. What the coordinator cannot decide goes to the owner.
 
 **Rounds.** Review and fixes repeat within the
 [limits on review](#limits-on-review-and-on-questions). A sprint or a plan is never closed
-on its author's word that a finding was fixed: the fix is reviewed.
+on its author's word that a finding was fixed: the fix is reviewed, and the fix of a P1 or
+a P2 also after the last round. Only a P3 of a document, fixed in the same pass, needs no
+further review.
 
 A finding that comes back is another matter. When a finding is found again after its fix
 was reviewed, the coordinator settles it itself first: it decides the dispute between the
 implementer and the reviewer, or gives the fix to another implementer. The coordinator
 stops and asks the owner only when the finding comes back once more after that, or when
 it can be closed only by changing the acceptance of the brief, an accepted decision, or
-the contract after the first release. Then it reports what keeps coming back and what it
-tried, and the owner decides: the requirement changes, or the finding is accepted, or it
-is moved to a named sprint. The decision is recorded in the epic document, and in the
-[exceptions](exceptions.md) as well when it departs from a rule of `AGENTS.md`. A sprint
-is never closed with an open P1 or P2 on the coordinator's own word. The report of a
-closed sprint says how many rounds it took.
+the contract after the first release. That holds at any round: where the limits on review
+would let the work go on, a finding that comes back still stops for the owner. The
+coordinator reports what keeps coming back and what it tried, and the owner decides: the
+requirement changes, or the finding is accepted, or it is moved to a named sprint. The
+decision is recorded in the epic document, and in the [exceptions](exceptions.md) as well
+when it departs from a rule of `AGENTS.md`. A sprint is never closed with an open P1 or
+P2 on the coordinator's own word. The report of a closed sprint says how many rounds it
+took.
 
 ## The architect's review
 
