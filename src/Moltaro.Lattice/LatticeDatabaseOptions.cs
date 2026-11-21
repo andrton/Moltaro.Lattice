@@ -138,9 +138,10 @@ public sealed class LatticeDatabaseOptions
     /// <see cref="LatticeStringStorageEnum.Dictionary"/> storage by the bytes of its shared
     /// entry, once for each entity that refers to it. The lazy
     /// <see cref="ILatticeIndex{TEntity}.Find"/> counts no entity it returned. An answer of one
-    /// entity whose step saw the end of the search is not counted, as a read by key is not; from
-    /// the first step that returns an entity without seeing the end, everything the answer holds
-    /// counts, the first entity included.
+    /// entity whose step saw the end of the search and that passed over no match is not counted,
+    /// as a read by key is not; once the search remembers anything, an entity returned without
+    /// seeing the end or a match passed over by Offset, everything the answer holds counts, the
+    /// first entity included.
     /// </para>
     /// <para>
     /// An enumeration or a search that would exceed it fails with

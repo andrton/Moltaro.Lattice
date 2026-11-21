@@ -10,10 +10,13 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 //   search that would exceed the limit fails with LatticeException, ReadLimitExceeded and Limit
 //   ReadMemory. What the lazy Find returned before stays valid, and every further step fails with the
 //   same error, so it never ends as if it were complete.
-// - An answer of one entity whose step saw the end is not counted against ReadMemoryLimit, as a read by
-//   key is not; from the first step that returns an entity without seeing the end, everything the answer
-//   holds counts, the first entity included. Under a limit smaller than one entity, a search that finds
-//   exactly one succeeds, and one that finds two fails with the error of the limit.
+// - An answer of one entity whose step saw the end of the search and that passed over no match is not
+//   counted against ReadMemoryLimit, as a read by key is not; once the search remembers anything, an
+//   entity returned without seeing the end or a match passed over by Offset, everything the answer holds
+//   counts, the first entity included. Under a limit smaller than one entity, a search that finds exactly
+//   one succeeds, and one that finds two fails with the error of the limit. And by the smallest limit under
+//   which FindAsync returns one entity, for a value of that entity one byte longer: it does not move for
+//   the one match of a key, and moves by that byte for the second of two matches after an Offset of 1.
 // - ReadTimeLimit counts the time of the steps inside the engine, not the time between two of them.
 // - A cancellation is reported before a limit: a search under a limit it would exceed, given a token
 //   that is cancelled, ends in OperationCanceledException.
@@ -27,6 +30,9 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 public sealed class SearchReadLimitsTests
 {
     private const long Limit = 64 * 1024;
+
+    // The characters of a D that lies in a block of its own, outside the root block.
+    private const int DLength = 1_000;
 
     [Fact]
     public async Task Walk_that_would_remember_more_than_the_memory_limit_fails_with_ReadMemory_and_every_further_step_fails_alike()
@@ -112,6 +118,24 @@ public sealed class SearchReadLimitsTests
         ExpectReadMemory(await Record.ExceptionAsync(async () => await byABC.FindAsync(IndexKey.All.Range(IndexBound.Inclusive(2), null), new LatticeFindOptions { Reverse = true })));
     }
 
+    // The smallest limit is found by a binary search, for a D of DLength characters and of one more, which
+    // lies in a block of its own: the rest of what the search holds is the same, so the limit moves by what
+    // the answer counts of that byte.
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public async Task Answer_of_one_entity_counts_it_once_the_search_passed_over_a_match_by_Offset_and_not_otherwise(int offset, bool reverse)
+    {
+        var at = await SmallestLimitForOneAsync(offset, reverse, DLength);
+        var longer = await SmallestLimitForOneAsync(offset, reverse, DLength + 1);
+
+        Assert.True(
+            longer - at == offset,
+            $"With an Offset of {offset}, one byte more of the entity returned moves the smallest limit from {at} to {longer} bytes; it moves by {offset}.");
+    }
+
     [Fact]
     public async Task Search_given_a_cancelled_token_under_a_limit_it_would_exceed_ends_in_cancellation_not_in_the_limit()
     {
@@ -155,6 +179,43 @@ public sealed class SearchReadLimitsTests
         Assert.True(walk.MoveNext());
         Assert.True(walk.MoveNext());
         Assert.False(walk.MoveNext());
+    }
+
+    // The smallest memory limit under which FindAsync of the rows of A 1 returns one entity, with the Offset
+    // and in the direction given: one row of A 1, or two after an Offset of 1, each with a D of the length
+    // given.
+    private static async Task<long> SmallestLimitForOneAsync(int offset, bool reverse, int length)
+    {
+        var low = 1L;
+        var high = 1L << 20;
+
+        while (low < high)
+        {
+            var middle = (low + high) / 2;
+
+            await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: middle);
+            var rows = database.Set<Row>();
+
+            for (var id = 1L; id <= 1 + offset; id++)
+            {
+                await rows.InsertAsync(WalkRows.Of(id, a: 1, d: new string('d', length)));
+            }
+
+            var found = await Record.ExceptionAsync(async () =>
+                Assert.Single((await rows.Index("ByA").FindAsync(IndexKey.Equal<int?>(1), new LatticeFindOptions { Offset = offset, Reverse = reverse })).Items));
+
+            if (found is null)
+            {
+                high = middle;
+            }
+            else
+            {
+                ExpectReadMemory(found);
+                low = middle + 1;
+            }
+        }
+
+        return low;
     }
 
     private static void ExpectReadMemory(Exception? failure)

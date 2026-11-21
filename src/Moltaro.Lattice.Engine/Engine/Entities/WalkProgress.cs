@@ -8,9 +8,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // runs or one whose key moves ahead of it in the index (docs/decisions/queries.md, Q07.3.5); the entry it
 // stands after, in detached form, which owns its text (Storage.Ordered.IndexLayout.Detach), with the room
 // where a step detaches the entry it is about to return; and, for FindAsync, the bytes its answer holds
-// until it returns. A search that finds one entity or none never makes one: it is made at the first step
-// that returns an entity without seeing the end of the search, or that has to remember a key or stand at
-// an entry (IndexSearch), and from then on everything the answer holds counts, the first entity included.
+// until it returns. A search that finds one entity or none and passes over no match by Offset never makes
+// one: it is made at the first step that returns an entity without seeing the end of the search, or that
+// has to remember a key or stand at an entry (IndexSearch), and from then on everything the answer holds
+// counts, the first entity included.
 //
 // Managed memory of the search alone: the engine holds no reference to it, and it holds nothing of the
 // engine, so a search that is abandoned leaves nothing behind. What it holds counts against the memory

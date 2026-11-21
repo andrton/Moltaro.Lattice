@@ -10,11 +10,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 // direction, the matches it still skips by Offset, and whether it holds its answer, as FindAsync does
 // until it returns; no node, no address and no slot of the protection. What only a walk of more than one
 // entity needs it holds in one object, made at the first step that returns an entity without seeing the
-// end of the search (WalkProgress): the keys it returned or passed over, the entry it stands after, and
-// the bytes of its answer. So a search that finds one entity or none holds the read limits and one
-// reference more than a search did before the walk, and nothing else: 56 bytes, the identity and the end,
-// 8 bytes each, the read limits, 24, the reference, 8, and the Offset, the direction and whether it holds
-// its answer, 6, padded to 8.
+// end of the search or passes over a match by Offset (WalkProgress): the keys it returned or passed over,
+// the entry it stands after, and the bytes of its answer. So a search that finds one entity or none and
+// passes over no match holds the read limits and one reference more than a search did before the walk,
+// and nothing else: 56 bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference,
+// 8, and the Offset, the direction and whether it holds its answer, 6, padded to 8.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to

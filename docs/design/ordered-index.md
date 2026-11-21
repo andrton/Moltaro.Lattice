@@ -528,7 +528,8 @@ protection.
    as an enumeration does ([queries](../decisions/queries.md), Q07.3.5), and passes over a
    key it remembers. The set, the detached entry and its staging sit in one object
    (`WalkProgress`), made at the first step that returns an entity without seeing the end of
-   the search; a search that finds one entity or none never makes it.
+   the search, or that passes over a match by Offset; a search that finds one entity or none
+   and passes over no match never makes it.
 6. **The early end.** With the entity it returns, a step sees the end of the search when it
    can: the entry after it on the side of travel is not of the search, or the fence on that
    side lies beyond the end, or there is none. The search then keeps the sequence of that
