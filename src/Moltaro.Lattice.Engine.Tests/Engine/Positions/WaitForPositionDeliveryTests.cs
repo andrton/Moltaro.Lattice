@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Positions;
 //   exception X3) fails the publication of a write, which faults the instance;
 // - SynchronizationTimeout for a position a child has not reached once it has lost its master: a relay
 //   (FrameRelay) drops the transaction of one write, so that the next one does not follow the position of
-//   the child, which then stops following and loses its master (Following.Follower, "Stopping"); the
+//   the child, which then stops following and loses its master (Child.Following.Follower, "Stopping"); the
 //   relay tells when the child has ended its connection, after it marked itself without a master. The
 //   position of that next write is one the child never reaches.
 public sealed class WaitForPositionDeliveryTests

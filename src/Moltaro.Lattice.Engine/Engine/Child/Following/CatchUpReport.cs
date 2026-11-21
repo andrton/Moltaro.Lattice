@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Following;
+namespace Moltaro.Lattice.Engine.Child.Following;
 
 // What the catch-up of a child applied before it was Ready (Follower.CatchUpAsync), for the measurement
 // program: the capture start S and the readiness position R of its load, the roots its master sent, how

@@ -1,5 +1,5 @@
+using Moltaro.Lattice.Engine.Child.Following;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Engine.Following;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
@@ -248,7 +248,7 @@ internal sealed partial class EngineDatabase
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
     // that the write has to make. On a child, which admits no write, the switch runs for the next
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Loading.ReceivedChanges.Apply). When hold returns the write or
+    // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When hold returns the write or
     // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
     // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitHold). Unavailable
     // before the open, ObjectDisposedException after the close.

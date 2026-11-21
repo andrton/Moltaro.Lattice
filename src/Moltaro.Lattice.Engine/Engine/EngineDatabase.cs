@@ -5,12 +5,13 @@ using System.Security.Cryptography;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Batches;
 using Moltaro.Lattice.Access.Binding;
+using Moltaro.Lattice.Engine.Child;
+using Moltaro.Lattice.Engine.Child.Following;
+using Moltaro.Lattice.Engine.Child.Forwarding;
+using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Children;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Engine.Following;
-using Moltaro.Lattice.Engine.Forwarding;
-using Moltaro.Lattice.Engine.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Sets;
@@ -315,7 +316,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // admitted writes have ended, each with its reply recorded when a child forwarded it
     // (Children.ChildListener says how its connections end); on a child it ends the open in progress and the
     // following of its master, waits for their tasks, and closes the connection to the master without
-    // waiting for the master: its writes in flight end as the forwarding says (Forwarding.Forwarder). A
+    // waiting for the master: its writes in flight end as the forwarding says (Child.Forwarding.Forwarder). A
     // suspension of the application held at the close does not keep it from completing.
     //
     // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
@@ -593,11 +594,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // Connects to the master at MasterUri (Loading.MasterLink), receives the schema, builds the parts of an
+    // Connects to the master at MasterUri (Child.MasterLink), receives the schema, builds the parts of an
     // empty database with the history of its master, so that the revision of a loaded entity is its revision
-    // on the master, places every root it receives under its own lock of the writes (Loading.ChildLoad,
-    // RootPlacement), applies the transactions of (S, R] by the same rule (Loading.ReceivedChanges,
-    // Following.Follower), and becomes Ready at R. It then follows its master, and tells it what it applied,
+    // on the master, places every root it receives under its own lock of the writes (Child.Loading.ChildLoad,
+    // RootPlacement), applies the transactions of (S, R] by the same rule (Child.Loading.ReceivedChanges,
+    // Child.Following.Follower), and becomes Ready at R. It then follows its master, and tells it what it applied,
     // until the connection ends or it cannot apply a transaction; then it stops following and stays Ready at
     // its position (reconnection is not built yet). The task ends when the open has ended, whatever ended it,
     // and only then: the close waits for it (_loaded).
@@ -697,7 +698,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // What is live on a child. Its writes go to its master through the forwarder made here
     // (Sets.SetOperations) and the sender its open makes beside it; the coordinator made here admits no
     // write, and only its counters are read; what the child applies takes the lock of the writes itself
-    // (Loading.ReceivedChanges).
+    // (Child.Loading.ReceivedChanges).
     private DatabaseParts Build(LatticeSchema schema, ulong history, bool child)
     {
         // The seed of the hashes of the primary indexes and of the text table, drawn at every open from the
@@ -780,7 +781,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // A publication failed (WriteCoordinator, "A fault"; on a child Loading.ReceivedChanges): the instance
+    // A publication failed (WriteCoordinator, "A fault"; on a child Child.Loading.ReceivedChanges): the instance
     // is Faulted unless a close came first. The reads are marked first, so that a read that retries on the
     // mark of the write that failed gives up at once, then the state, then the waits for a position end.
     // Called after the lock of the writes, since it takes the lock of the state; a child marks the reads

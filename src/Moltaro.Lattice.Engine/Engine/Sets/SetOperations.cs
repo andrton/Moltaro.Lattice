@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Child.Forwarding;
 using Moltaro.Lattice.Engine.Entities;
-using Moltaro.Lattice.Engine.Forwarding;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Writes;
@@ -10,7 +10,9 @@ namespace Moltaro.Lattice.Engine.Sets;
 // What the set of a class and the set by name of one entity type do alike, for either copy: read
 // with a session, enumerate with and without one, take the steps of a search through an index, and
 // submit a write: on a master to its write coordinator, on a child to its master
-// (Forwarding.Forwarder). One of these for each entity type of an open database, shared by its sets.
+// (Child.Forwarding.Forwarder). That submission is where a master and a child part: the one place a
+// set takes another way on each, while everything else here is the same for both. One of these for each
+// entity type of an open database, shared by its sets.
 internal sealed class SetOperations
 {
     private readonly WriteCoordinator _writes;

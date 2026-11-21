@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Forwarding;
+namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // Where a write forwarded through a child stands on its way to the master (ForwardedCall).
 internal enum ForwardedCallStateEnum

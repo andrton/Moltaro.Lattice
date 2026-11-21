@@ -4,7 +4,7 @@ using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 
-namespace Moltaro.Lattice.Engine.Loading;
+namespace Moltaro.Lattice.Engine.Child.Loading;
 
 // The load of a child from its master: the steps of the open of a child that receive and place what the
 // master sends, between the steps of that open that change the state of the database

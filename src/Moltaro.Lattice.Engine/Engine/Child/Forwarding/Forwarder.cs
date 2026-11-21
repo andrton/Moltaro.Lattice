@@ -7,7 +7,7 @@ using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Engine.Forwarding;
+namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // The writes of a child: each is forwarded to its master over the one connection of the child, and the
 // call returns once the master has executed it and this child has applied it
@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // 1. The set of the child (Sets.SetOperations) calls WriteAsync, which checks the write, encodes its
 //    request and queues it (steps 1 to 3 of a call, below).
 // 2. The sender of the child's connection (ChildSender) registers the call (PendingRequests) and sends
-//    the frames of the request (Loading.MasterLink).
+//    the frames of the request (Child.MasterLink).
 // 3. On the master, the receiver of the connection (Children.ChildConnection, Children.RequestReceiver)
 //    puts the request together (Replication.Forwarding.MessageAssembler), checks it and its root
 //    (Replication.Load.BlockImport) and submits it to the write path (Writes.WriteCoordinator.Forward).

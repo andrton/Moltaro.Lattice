@@ -249,7 +249,7 @@ internal sealed class RetiredMemory
     // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
     // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
     // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
-    // before it waits (Loading.ReceivedChanges.Apply).
+    // before it waits (Child.Loading.ReceivedChanges.Apply).
     public void RunWaitHold()
     {
         if (_waitHold is not null)

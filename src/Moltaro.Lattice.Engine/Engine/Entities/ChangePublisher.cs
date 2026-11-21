@@ -8,7 +8,7 @@ using Moltaro.Lattice.Storage.Roots;
 namespace Moltaro.Lattice.Engine.Entities;
 
 // Where prepared changes of entities become visible, for a write of a master (Writes.WriteExecutor) and for
-// what a child receives from its master (Loading.ReceivedChanges) alike: it reserves what the publication of
+// what a child receives from its master (Child.Loading.ReceivedChanges) alike: it reserves what the publication of
 // a change uses, gives back what a change holds when it is not published, and publishes the changes of one
 // publication in three steps — the stores before the position (PublishBeforePosition), then the position
 // and the stores after it (PublishPositionAndAfter), which the caller makes one after the other under one

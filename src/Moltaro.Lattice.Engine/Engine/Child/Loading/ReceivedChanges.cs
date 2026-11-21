@@ -9,7 +9,7 @@ using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
 
-namespace Moltaro.Lattice.Engine.Loading;
+namespace Moltaro.Lattice.Engine.Child.Loading;
 
 // What a child does with the states of keys it receives from its master: the roots of its load and the
 // effects of the transactions of its stream, by one rule (docs/decisions/replication-and-hosting.md,

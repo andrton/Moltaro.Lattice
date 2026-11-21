@@ -161,7 +161,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (Children.Capture), and a write published in a later hold is appended to the tail of the children in the
 // hold that publishes it (WriteExecutor), so a write is either published before the capture starts or
 // delivered after it, whichever hold its preparation was in; the senders of the children are woken after the
-// hold (Finish). A child admits no write here: it forwards its writes to its master (Forwarding.Forwarder).
+// hold (Finish). A child admits no write here: it forwards its writes to its master (Child.Forwarding.Forwarder).
 //
 // Forwarded writes. The receiver of a child's connection submits each write the child forwarded, in the order
 // it received them, without awaiting one before it submits the next (Children.ChildConnection, Forward), so a
@@ -251,7 +251,7 @@ internal sealed class WriteCoordinator
     private PendingWrite? _spare;
 
     // The coordinator of a master. A child has one as well, which admits no write: its writes are
-    // forwarded to its master (Forwarding.Forwarder).
+    // forwarded to its master (Child.Forwarding.Forwarder).
     public WriteCoordinator(
         Lock writes,
         WriteExecutor executor,

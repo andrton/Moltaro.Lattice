@@ -1,13 +1,13 @@
 using System.Buffers;
 using System.Diagnostics;
-using Moltaro.Lattice.Engine.Forwarding;
-using Moltaro.Lattice.Engine.Loading;
+using Moltaro.Lattice.Engine.Child.Forwarding;
+using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 
-namespace Moltaro.Lattice.Engine.Following;
+namespace Moltaro.Lattice.Engine.Child.Following;
 
 // How a child follows its master after its load: it receives the transactions the master sends after LoadEnd,
 // puts each together whole (Replication.Transactions.TransactionAssembler), applies it under its own lock of

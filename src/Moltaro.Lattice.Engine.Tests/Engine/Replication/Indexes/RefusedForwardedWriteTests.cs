@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // A write a child forwards is executed by its master as its own (docs/design/ordered-index.md, "A child"):
 // one whose index nodes the arena of the master cannot hold is refused as a write the memory budget cannot
 // hold is, before its commit and with no effect (decision on write admission, Q14), and the call on the
-// child ends in that refusal as the master gave it, WriteRejected with Limit Memory (Forwarding.Forwarder).
+// child ends in that refusal as the master gave it, WriteRejected with Limit Memory (Child.Forwarding.Forwarder).
 // The master has an arena full but for the room of a root and its texts, whose fill ends by a refusal of a
 // filler and leaves no free slot of the class of the nodes (FullArena); its child has the default memory
 // limit. Second, inserted through the child, is refused for memory: neither node holds

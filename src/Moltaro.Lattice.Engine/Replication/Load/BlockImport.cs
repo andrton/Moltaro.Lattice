@@ -33,7 +33,7 @@ namespace Moltaro.Lattice.Replication.Load;
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
 // Each failure is a LatticeException with ValidationFailed, and nothing is allocated (Check). The child
 // then reads the key of the root from what was checked (FixedPart, Text), so that it knows whether the
-// root is the state of a key it holds before it takes anything for it (Engine.Loading.ReceivedChanges).
+// root is the state of a key it holds before it takes anything for it (Engine.Child.Loading.ReceivedChanges).
 // Then the root block is allocated, prepared, and filled with the payload, and each value out of line is
 // stored through ValueBlocks, the store the write path uses, which allocates its blocks and writes every
 // header and location itself; the root block is named as their parent (Place). The bytes of a Dictionary
@@ -84,7 +84,7 @@ internal sealed class BlockImport
 
     // The text of a String field of the root checked last, which is not null, as a new string decoded
     // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
-    // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
+    // for the key of the root (Engine.Child.Loading.ReceivedChanges), the one text of a root that is decoded on
     // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
     // is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is well-formed, since every
     // write checks its text (docs/decisions/strings.md, "Input validity and preservation"), so such a root
