@@ -511,7 +511,10 @@ internal sealed class ReceivedChanges
     {
         try
         {
-            _publisher.Publish(CollectionsMarshal.AsSpan(_prepared), stamp, publishesPosition, armedFault: null);
+            var changes = CollectionsMarshal.AsSpan(_prepared);
+
+            _publisher.PublishBeforePosition(changes, stamp);
+            _publisher.PublishPositionAndAfter(changes, stamp, publishesPosition);
         }
         catch
         {

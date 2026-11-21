@@ -61,7 +61,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // publishes only its sequence. After each write RetiredMemory frees what no read can reach any more, once
 // enough was retired since its last look, a write that retired nothing counting as one thing from a look
 // that left something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails
-// only at a fault point a test armed (Pass, FaultAt), for a defect, or when the managed heap cannot hold a
+// only at a fault point a test armed (Pass), for a defect, or when the managed heap cannot hold a
 // block of the tail of the children (below); the write that failed and those after it stay unpublished,
 // and the coordinator faults the database.
 //
@@ -494,12 +494,18 @@ internal sealed class WriteExecutor
             Deliver(prepared, sequence);
         }
 
+        var changes = prepared.Changes;
+
+        _changes.PublishBeforePosition(changes, sequence);
+
         // The fault point inside the publication lies after the stores before the position, which a delete
         // of an absent key, with no change, does not make.
-        var changes = prepared.Changes;
-        var fault = changes.IsEmpty ? null : FaultAt(EngineFaultPointEnum.DuringPublication);
+        if (!changes.IsEmpty)
+        {
+            Pass(EngineFaultPointEnum.DuringPublication);
+        }
 
-        _changes.Publish(changes, sequence, publishesPosition: true, fault);
+        _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
 
         // The reply of a write a child forwarded, before its transaction is appended, so that the child
         // takes the reply first (Delivery.RecordedReplies).
@@ -539,31 +545,20 @@ internal sealed class WriteExecutor
     // through go on, and the next one throws, once.
     private void Pass(EngineFaultPointEnum point)
     {
-        if (FaultAt(point) is { } fault)
-        {
-            throw fault;
-        }
-    }
-
-    // A pass through a fault point where another part throws: null unless a test armed this point; then
-    // the passes it lets through go on, and the next one gets the exception to throw, once. The point
-    // inside the publication lies in the publisher (Entities.ChangePublisher.Publish), between its stores.
-    private InvalidOperationException? FaultAt(EngineFaultPointEnum point)
-    {
         if (_armedPoint != point)
         {
-            return null;
+            return;
         }
 
         if (_skippedPasses > 0)
         {
             _skippedPasses--;
 
-            return null;
+            return;
         }
 
         _armedPoint = default;
 
-        return new InvalidOperationException($"The fault point {point}, armed by a test of the engine, failed this publication.");
+        throw new InvalidOperationException($"The fault point {point}, armed by a test of the engine, failed this publication.");
     }
 }
