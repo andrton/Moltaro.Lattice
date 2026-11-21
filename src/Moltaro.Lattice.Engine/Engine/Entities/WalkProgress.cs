@@ -136,7 +136,7 @@ internal sealed class WalkProgress
         Returned.Commit();
     }
 
-    // Adds bytes the answer of FindAsync holds: the capacity its list grew by.
+    // Adds bytes the answer of FindAsync holds: the capacity its list grows by, before it grows.
     public void Hold(long bytes) => Held += bytes;
 
     // The entity the last step staged was built and is returned: the walk stands after its entry, and

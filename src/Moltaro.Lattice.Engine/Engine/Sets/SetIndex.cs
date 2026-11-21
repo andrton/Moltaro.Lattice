@@ -108,14 +108,18 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
                 break;
             }
 
-            var capacity = items.Capacity;
+            // The list grows as List<T> grows it, to 4 and then by doubling, but here, so that its growth counts
+            // against the memory limit before it is made (docs/decisions/queries.md, Q07.1.1, "check before
+            // growing workspace"); Add then never grows it.
+            if (items.Count == items.Capacity)
+            {
+                var capacity = items.Capacity == 0 ? 4 : (int)Math.Min(2L * items.Capacity, Array.MaxLength);
+
+                _operations.Hold(ref search, _index, (long)(capacity - items.Capacity) * IntPtr.Size, cancellationToken);
+                items.Capacity = capacity;
+            }
 
             items.Add(found);
-
-            if (items.Capacity != capacity)
-            {
-                _operations.Hold(ref search, _index, (long)(items.Capacity - capacity) * IntPtr.Size, cancellationToken);
-            }
         }
 
         if (options.Limit is { } most && items.Count == most)

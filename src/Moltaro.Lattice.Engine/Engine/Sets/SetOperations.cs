@@ -173,7 +173,7 @@ internal sealed class SetOperations
     public bool HasMore(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
         Table.SearchHasMore(index, key, ref search, out sequence, cancellationToken);
 
-    // For FindAsync, which holds its answer until it returns: what its result holds grew by the bytes given,
+    // For FindAsync, which holds its answer until it returns: what its result holds grows by the bytes given,
     // which counts, once the search has a WalkProgress, against the memory limit of a read with what the
     // search remembers; before that, an answer of one entity whose step saw the end, nothing of it counts, as a
     // read by key does not, and nothing is counted without a memory limit. Over the limit the search fails
