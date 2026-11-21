@@ -175,8 +175,10 @@ internal sealed class SetOperations
 
     // For FindAsync, until it returns: what its result holds grew by the bytes given, which counts, once the
     // search has a WalkProgress, against the memory limit of a read with what the search remembers; over
-    // the limit the search fails with ReadLimitExceeded and lets go of what it remembers.
-    public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes)
+    // the limit the search fails with ReadLimitExceeded and lets go of what it remembers. The token is looked
+    // at first, as at every place a limit is looked at, so that a cancellation is reported before the limit
+    // is, also one the code of the application made while it built the entity just added.
+    public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes, CancellationToken cancellationToken)
     {
         search.Hold(bytes);
 
@@ -185,6 +187,7 @@ internal sealed class SetOperations
             return;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         search.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
     }
 

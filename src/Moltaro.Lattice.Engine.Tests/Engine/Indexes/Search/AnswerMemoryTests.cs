@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
+using Moltaro.Lattice.TestSupport.ApplicationCode;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
@@ -12,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 // for each entity that refers to it. An answer of one entity whose step saw the end counts nothing; from the
 // step that makes what a walk remembers, everything counts, the first entity included. So a limit of exactly
 // what an answer of n entities holds lets FindAsync return them, and a limit one byte less fails it with
-// ReadMemory.
+// ReadMemory. And a cancellation is reported before a limit: the token is looked at before the limit at every
+// place a limit is looked at, so a token cancelled by the code of the application while an entity is built
+// ends the search in OperationCanceledException, also when the check after that build would exceed the limit.
 //
 // The figures, by the rules: a search by the full key of ByNumber stands at no entry, so it holds none; its
 // keys take KeysBytes while it remembers 12 keys or fewer; the list of its answer takes 8 bytes a reference of
@@ -30,6 +33,27 @@ public sealed class AnswerMemoryTests
     private const int RankedRows = 4;
 
     private const string Login = "login";
+
+    // The entities of HookedEntity of the tests of a cancellation, and what each stores: its root block, the
+    // block header of 32 bytes, the Id, 8, the descriptor of Text, 16, and the one byte of its Text inline.
+    private const int HookedRows = 6;
+
+    private const long HookedBytes = 32 + 8 + 16 + 1;
+
+    // HookedEntity, whose set accessor of Text runs the code a test gives, with the index ByText.
+    private static readonly LatticeSchema HookedSchema = LatticeSchema.Compile($$"""
+        {
+          "StringEncoding": "Utf8",
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Hooked", "ClrType": "{{typeof(HookedEntity).FullName}}",
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" } ],
+              "PrimaryKey": [1],
+              "Indexes": [ { "Id": 1, "Name": "ByText", "Fields": [2] } ]
+            }
+          ]
+        }
+        """);
 
     [Theory]
     [InlineData(2)]
@@ -108,6 +132,46 @@ public sealed class AnswerMemoryTests
         }
 
         return (await ranked.Index("ByNumber").FindAsync(IndexKey.Equal(1L), new LatticeFindOptions())).Items;
+    }
+
+    // A set accessor of the class cancels the token while the entity given is built, under a limit one byte
+    // less than what the answer holds once that entity is added: the check after the build exceeds it.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public async Task FindAsync_cancelled_while_an_entity_is_built_ends_in_cancellation_under_a_limit_its_next_check_exceeds(int entity)
+    {
+        var limit = KeysBytes + ListBytes(entity) + (entity * HookedBytes) - 1;
+
+        await using var database = await OpenAsync(HookedSchema, limit);
+        var hooked = database.Set<HookedEntity>();
+
+        for (var id = 1L; id <= HookedRows; id++)
+        {
+            await hooked.InsertAsync(new HookedEntity { Id = id, Text = "t" });
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        var built = 0;
+
+        void CancelAtTheEntity()
+        {
+            if (++built == entity)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                HookedEntity.ArmSetText(CancelAtTheEntity);
+            }
+        }
+
+        HookedEntity.ArmSetText(CancelAtTheEntity);
+
+        var failure = await Record.ExceptionAsync(async () =>
+            await hooked.Index("ByText").FindAsync(IndexKey.Equal("t"), new LatticeFindOptions(), cancellation.Token));
+
+        Assert.True(failure is OperationCanceledException, $"The search ended in {failure?.GetType().Name}: {failure?.Message}");
     }
 
     // FindAsync of the key of ByNumber that the number of entities of Counted given have, in a database

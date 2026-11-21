@@ -114,7 +114,7 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
 
             if (items.Capacity != capacity)
             {
-                _operations.Hold(ref search, _index, (long)(items.Capacity - capacity) * IntPtr.Size);
+                _operations.Hold(ref search, _index, (long)(items.Capacity - capacity) * IntPtr.Size, cancellationToken);
             }
         }
 
