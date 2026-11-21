@@ -428,7 +428,7 @@ internal sealed class ReceivedChanges
 
         try
         {
-            root = _import.Place(received, handle);
+            root = _import.Place(received, handle, out _);
 
             if (root.IsNull)
             {

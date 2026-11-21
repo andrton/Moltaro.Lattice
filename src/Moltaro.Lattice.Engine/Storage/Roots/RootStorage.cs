@@ -144,9 +144,4 @@ internal static class RootStorage
             ValueBlocks.Adopt(arena, descriptor, root, descriptorOffset);
         }
     }
-
-    // The bytes of the slots of the blocks a root owns for the value one descriptor names: 0 for a Text
-    // descriptor, whose entry belongs to the text table, and for an Inline or a Null one.
-    public static long ValueSlotBytes(in ValueDescriptor descriptor) =>
-        descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked ? ValueBlocks.SlotBytesOf((int)descriptor.Length) : 0;
 }
