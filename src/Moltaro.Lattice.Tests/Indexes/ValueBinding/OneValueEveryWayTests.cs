@@ -1,9 +1,8 @@
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
-// A value is found the same way however it is looked for (the Acceptance of S15: for every scalar and key
-// family the same value is found by key, by index, through a class and by name), at the smallest and the
-// largest value of its type, where a value cut to another width or read with the sign of another type is
-// another value:
+// A value is found the same way however it is looked for: for every scalar and key family the same value
+// is found by key, by index, through a class and by name (IndexKey), at the smallest and the largest value
+// of its type, where a value cut to another width or read with the sign of another type is another value:
 // - for each key family, the eight integers, String and Guid, an entity of Keyed is read by its key and
 //   found by an index on its Value, a field of the same type that holds the same value: the read and the
 //   search, through the class and by name, by Find and by FindAsync, find the same entity. The smallest

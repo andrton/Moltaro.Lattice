@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 // only an integer its enum type allows is a value of it (LatticeEnumType: values compare as numbers of the
 // underlying type, with its sign, and IsValid says which may be stored; IndexKey; the milestone contract,
 // "Index preparation and traversal": invalid enum and Flags bits are rejected for lookup and bound
-// parameters alike; Q54 of docs/work/open-questions.md). The fields of Item (BindingSchema):
+// parameters alike; IndexKey: a .NET enum value is not accepted). The fields of Item (BindingSchema):
 // - Level, over Int16 with the members -300, -2, 5 and 300; Wide, over UInt64 with 1, 2^63 + 5 and the
 //   largest UInt64, so that a member lies above the largest Int64; Rights, the Flags type over Int32 with
 //   Read 1, Write 2, Delete 4 and Edit 3.

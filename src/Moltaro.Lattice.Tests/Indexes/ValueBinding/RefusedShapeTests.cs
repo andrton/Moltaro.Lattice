@@ -1,9 +1,8 @@
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A key or a bound whose shape the index cannot serve is refused before anything is searched, with the
-// ArgumentException of ILatticeIndex, through the class and by name, by Find and by FindAsync (the
-// Acceptance of S15: an unsupported key or bound shape is refused; IndexKey: a value of a type no scalar
-// field has is kept as an object, to be refused when the key is used):
+// ArgumentException of ILatticeIndex, through the class and by name, by Find and by FindAsync (IndexKey: a
+// value of a type no scalar field has is kept as an object, to be refused when the key is used):
 // - a value of a type no scalar field has, each beside the field whose type it is nearest to: an object
 //   of a class, a tuple, a char for a String, an Int128 for an Int64, a Half for a Float32; as the value
 //   and as an inclusive lower and an exclusive upper bound;
