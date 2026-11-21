@@ -6,8 +6,7 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
 // A close waits for the writes admitted before it and for a persistence step in progress, and frees the
-// arena only then (brief of Epic 1, sprint S09, and exception X6: a close waits for the writes admitted
-// and for a persistence step in progress; review round 1 of S09, part 2). The persistence step of the test
+// arena only then (exception X6). The persistence step of the test
 // (HeldPersistence) holds a replace of entity 1 while a replace of entity 1 waits behind it in the
 // chain of its entity and an insert of entity 2 is prepared and waits in the queue. A close then does
 // not complete, and a write made after it is ObjectDisposedException. Once the persistence step completes,

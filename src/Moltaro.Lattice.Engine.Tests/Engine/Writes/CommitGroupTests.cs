@@ -5,9 +5,8 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// The commit stage of the write coordinator (brief of Epic 1, sprint S09, Acceptance, "No wait to fill
-// a group in MemoryOnly", "A write larger than a group", "What is counted" and the answers of the
-// planner on the counters and the positions). The persistence step of the test holds a commit until the
+// The commit stage of the write coordinator: it waits to fill no group in MemoryOnly, takes a write
+// larger than a group, and counts its groups. The persistence step of the test holds a commit until the
 // test releases it (HeldPersistence), so the commit stage is busy while the test submits more
 // writes, and the test waits until they are all prepared (CountersWait) before it lets the stage go
 // on. So:
