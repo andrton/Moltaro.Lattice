@@ -21,7 +21,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // its end at once (Sets.SetIndex.FindAsync). The owner keeps the place of the search before a step and puts
 // it back when it cannot build the entity the step returned (Sets.SetOperations.Next), so that the next
 // step reads that entity again, while the time spent and a failure the step recorded stay; and it commits
-// what the step staged once the entity is built (Commit).
+// what the step staged once the entity is built (Commit). A read limit that fails the search makes it let go
+// of its WalkProgress (CheckTime, CheckMemory), and a lazy search lets go of it at its end and on Dispose.
 internal struct IndexSearch
 {
     // The read limits of the options and what the search has spent of them, which the step checks and
@@ -89,9 +90,26 @@ internal struct IndexSearch
         }
     }
 
+    // Fails the step that started at the timestamp when the steps, this one so far included, have spent
+    // more than the time limit, and lets go of what the search remembers: a search that failed returns
+    // nothing more, and every later step fails at the failure the read limits keep before it would read it
+    // (ReadLimits).
+    public void CheckTime(long started, string entityName, string? indexName)
+    {
+        try
+        {
+            Limits.CheckTime(started, entityName, indexName);
+        }
+        catch (LatticeException)
+        {
+            Progress = null;
+
+            throw;
+        }
+    }
+
     // Fails the step when the search would hold more bytes than the memory limit, and lets go of what it
-    // remembers: a search that failed returns nothing more (ReadLimits). Every place a search looks at the
-    // memory limit looks through here.
+    // remembers, as CheckTime does. Every place a search looks at the memory limit looks through here.
     public void CheckMemory(long bytes, string entityName, string? indexName)
     {
         try
@@ -100,7 +118,7 @@ internal struct IndexSearch
         }
         catch (LatticeException)
         {
-            Progress?.Clear();
+            Progress = null;
 
             throw;
         }

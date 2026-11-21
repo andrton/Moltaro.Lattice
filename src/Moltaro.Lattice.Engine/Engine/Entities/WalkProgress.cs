@@ -169,18 +169,6 @@ internal sealed class WalkProgress
         _stagedHeld = 0;
     }
 
-    // Lets go of everything it holds: for a search that failed and returns nothing more.
-    public void Clear()
-    {
-        Returned.Clear();
-        _last = [];
-        _staged = [];
-        _lastLength = 0;
-        _stagedLength = -1;
-        _keyStaged = false;
-        _stagedHeld = 0;
-    }
-
     // The capacity of the arrays of the entries that holds an entry of the length given: twice the present
     // one, at least FirstEntryBytes and the length.
     private int CapacityFor(int length) => Math.Max(Math.Max(FirstEntryBytes, 2 * _last.Length), length);

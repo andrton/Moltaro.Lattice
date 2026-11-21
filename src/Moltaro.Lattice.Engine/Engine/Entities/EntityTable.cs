@@ -512,7 +512,7 @@ internal sealed class EntityTable
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     search.Limits.ThrowIfFailed(entityName, indexName);
-                    search.Limits.CheckTime(started, entityName, indexName);
+                    search.CheckTime(started, entityName, indexName);
 
                     if (index is null)
                     {
