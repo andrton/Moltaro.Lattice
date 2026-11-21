@@ -178,6 +178,19 @@ internal sealed class OrderedTree
         return true;
     }
 
+    // For a read inside the protection of reads: the one descent of a reader, in either direction, from the
+    // root to the leaf whose range holds the probe, with the place of the first entry at or after the probe
+    // or of the last entry before it, as the side says, and the fences of that leaf (TreePlace). It
+    // descends once; a place beyond the leaf is the walk's to follow at the fence. The walk of ranges is not
+    // implemented yet.
+    public TreePlace Seek(scoped in SearchKey probe, SeekSideEnum side) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // The same descent by a whole entry, its identity included: a fence of a leaf, at which a walk goes on
+    // to the leaf beside, or the entry a walk stands after, in detached form (IndexLayout.Detach).
+    public TreePlace Seek(ReadOnlySpan<byte> entry, SeekSideEnum side) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
     // list for the inserts and the removes given, beside those prepared before and not published, the
     // need of them all (ordered-index.md, "The reservation"); the standing reserve is TopUp's. True when the

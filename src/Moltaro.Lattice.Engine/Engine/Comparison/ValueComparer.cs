@@ -36,6 +36,12 @@ internal static class ValueComparer
     public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed) =>
         ComparisonOf(field).IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
 
+    // The same hash of a stored text, read a piece at a time, so that the key a root stores is hashed as
+    // the text of that key a caller gives is: for the keys a search through a secondary index remembers
+    // (Entities.PrimaryKeys.StoredHash). Allocates nothing. The walk of ranges is not implemented yet.
+    public static uint TextHash(LatticeField field, StoredTextReader text, ulong seed) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // The hash without case: the text mapped a piece of PieceLength code units at a time, and the
     // pieces hashed one after the other as one text. A method of its own, so that the hash with
     // Ordinal does not set up the buffer on the stack: measured in isolation on keys of 13 characters,

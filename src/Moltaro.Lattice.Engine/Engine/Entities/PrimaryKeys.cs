@@ -271,6 +271,13 @@ internal readonly struct PrimaryKeys
     // which computes it before the read enters the protection of reads.
     public uint TextHash(ReadOnlySpan<char> text) => ValueComparer.TextHash(_entityType.Key, text, _seed);
 
+    // The hash of the key a root stores, as HashOf hashes that key, without allocating: for the keys a
+    // search through a secondary index remembers (Entities.WalkProgress), which meets its roots through
+    // that index and not through the primary one, so it has no hash of the primary index to take. Inside
+    // the protection of reads. The walk of ranges is not implemented yet.
+    public uint StoredHash(in RootReader stored) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // The 64-bit finalizer fmix64 of MurmurHash3, by Austin Appleby, which he placed in the public
     // domain: every bit of the value changes every bit of the result with a probability near one half,
     // by its published constants. Two multiplications, a few nanoseconds.

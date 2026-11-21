@@ -49,6 +49,11 @@ public interface ILatticeIndex<TEntity>
     /// </summary>
     /// <remarks>
     /// <para>
+    /// The search is not a snapshot: an entity written into the key while the matches are
+    /// enumerated may be missing from them, even when that write completed before the
+    /// enumeration ended.
+    /// </para>
+    /// <para>
     /// An entity that is deleted and created again while the enumeration runs may be returned
     /// twice; returning every entity at most once is not implemented yet.
     /// </para>

@@ -95,6 +95,13 @@ internal sealed class SecondaryIndex
     // (IndexOrder.HasKey), so that a hint is checked by the order the tree is ordered by. Allocates nothing.
     public bool HasKey(in RootReader root, scoped in SearchKey key) => _order.HasKey(root, key);
 
+    // For a walk inside the protection of reads, whose entries have different keys: whether the root, the
+    // current state of the entity an entry of the walk names, still has the key of that entry, by the order
+    // of the index, so that a walk returns an entity only at the place of its key and in the order it walks.
+    // Allocates nothing. The walk of ranges is not implemented yet.
+    public bool HasKeyOf(in RootReader root, ReadOnlySpan<byte> entry) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
     // does to the index, from the root the entity has and the root the write publishes, both the write's
     // own until it is published or withdrawn (see the class). None when they contribute entries of the same

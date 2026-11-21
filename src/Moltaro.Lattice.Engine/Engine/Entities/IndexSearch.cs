@@ -28,6 +28,25 @@ internal struct IndexSearch
     // none did.
     private ulong? _endsAt;
 
+    // The walk of ranges, which is not built yet, stands here with the read limits of the options
+    // (ReadLimits), in either direction, and with the matches it still skips by Offset; what only a walk
+    // of more than one entity needs, it holds in one object, made at the first step that returns an
+    // entity without seeing the end of the search (WalkProgress). The search of a lazy Find goes forward
+    // and skips nothing.
+    public IndexSearch(LatticeDatabaseOptions options, bool reverse, int offset) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // Whether the search walks the reverse of the index order.
+    public readonly bool Reverse => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // For FindAsync, until it returns: adds what its result holds, the capacity of its list and the stored
+    // bytes of each entity, which counts against the memory limit of a read with what the search remembers.
+    public void Hold(long bytes) => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // The entity the last step staged was built and is returned: the search moves past it
+    // (EntityTable.TrySearch stages the move).
+    public void Commit() => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // Reads the next entity of the search through the index of the table, for the key bound to it, into
     // the copy (see the type): true when there is one, with the place of the search after it, which the
     // caller takes once it has built the entity; false at the end, with the sequence under which the index

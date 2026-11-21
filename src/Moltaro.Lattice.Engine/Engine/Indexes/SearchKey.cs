@@ -116,6 +116,18 @@ internal readonly ref struct SearchKey
         _scratch = scratch;
     }
 
+    // The search key of the leading parts of the bound key, for the start or the end of a walk: its values,
+    // then at the place after them the bound of its range given, or a null when nullNext is set, and then
+    // the edge, before or after every entry those parts equal (KeyEdgeEnum). A null at that place serves
+    // one walk: a reverse walk of a range without an upper end starts at the last entry before the nulls
+    // of the part of the range, since a null is in no range. The walk of ranges is not implemented yet.
+    public SearchKey(IndexLayout layout, in IndexKey bound, scoped in IndexBound? next, bool nullNext, KeyEdgeEnum edge, Span<byte> scratch) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // How many leading parts of the index the key gives: every part for a full key with an identity, fewer
+    // for the start or the end of a walk. The walk of ranges is not implemented yet.
+    public int Parts => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // The same key with the scratch it wrote, from another identity.
     private SearchKey(IndexLayout layout, ref readonly IndexKey bound, ReadOnlySpan<byte> written, RootHandle from)
     {

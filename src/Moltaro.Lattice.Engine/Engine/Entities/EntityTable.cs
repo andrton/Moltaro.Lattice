@@ -55,6 +55,13 @@ internal sealed class EntityTable
     // the index does not grow, takes one round.
     private const int WordsPerRound = 256;
 
+    // The entries of the index a round of a step of a search walks at most inside the protection of
+    // reads, the matches it skips by Offset and the hints it passes over included, so that no round holds
+    // back what writes retire for longer than a bounded piece of work however many entries a step passes.
+    // Not measured yet: the number of words of a round of an enumeration stands for it until a
+    // measurement of the walk of ranges sets it.
+    public const int EntriesPerRound = 256;
+
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -514,6 +521,23 @@ internal sealed class EntityTable
             _epochs.Exit(protection);
         }
     }
+
+    // One step of a search through the index, from where the search stands, as the search says: by the
+    // leading parts of the key and a range on the next, in either direction, skipping the matches its
+    // Offset still skips, in rounds inside the protection of reads (EntriesPerRound). True when there is an
+    // entity, copied into the copy, with its move staged in the search, which the caller commits once it
+    // has built the entity (IndexSearch.Commit); false at the end, with the sequence under which the index
+    // showed no more match. The walk of ranges is not implemented yet.
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+        where TCopy : struct, IRootCopy<TResult>
+        where TResult : class =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // For FindAsync, once it has returned its Limit: whether a match follows where the search stands,
+    // copying nothing; false without a step when a step saw the end of the search. The sequence is that of
+    // the answer, as for a step. The walk of ranges is not implemented yet.
+    public bool SearchHasMore(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
     // itself; null when nothing of this list applies. The root layout refuses an owned value, a

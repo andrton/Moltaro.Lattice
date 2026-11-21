@@ -30,5 +30,10 @@ public readonly struct LatticeFindResult<TEntity>
     /// The position this answer is based on: the node had applied everything up to it when
     /// it searched the index.
     /// </summary>
+    /// <remarks>
+    /// The position may be later than the last time the search looked at the index, so an
+    /// entity written into the key while the search ran may be absent from an answer whose
+    /// position covers that write.
+    /// </remarks>
     public LatticePosition Position { get; }
 }

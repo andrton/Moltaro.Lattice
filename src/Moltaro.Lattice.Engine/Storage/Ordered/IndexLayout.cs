@@ -239,6 +239,21 @@ internal sealed class IndexLayout
         return true;
     }
 
+    // The bytes the detached form of the entry takes (Detach). Inside the protection of reads. The walk of
+    // ranges is not implemented yet.
+    public int DetachedBytes(Arena arena, ReadOnlySpan<byte> entry) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
+    // Writes the detached form of the entry into the destination, which has DetachedBytes, and returns its
+    // bytes: the entry as it lies, but that a String part which references a text entry holds a copy of
+    // that text, in the encoding of the database, under a head of its own, so that the form owns its bytes
+    // and points into nothing the engine may free. ReadText and TryTextBytes read such a part without the
+    // arena, so the order of the index compares a detached entry as any other. The form in which a search
+    // holds the entry it stands after between two steps; it is never stored in a node. Inside the
+    // protection of reads. The walk of ranges is not implemented yet.
+    public int Detach(Arena arena, ReadOnlySpan<byte> entry, Span<byte> destination) =>
+        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from
     // the root as its bytes lie, not written again from its value: the stored form of a value is written
