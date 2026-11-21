@@ -56,14 +56,15 @@ internal sealed class IndexedItems : IDisposable
     // The name of the index over the field Key1 to Key6.
     public static string KeyIndex(int field) => $"ByKey{field}";
 
-    // Opens a database of the schema of so many key indexes, or the titled one, and inserts the items
-    // through the class, one after the other on this thread.
-    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false)
+    // Opens a database of the schema of so many key indexes, or the titled one, under the memory limit of
+    // a read given or none, and inserts the items through the class, one after the other on this thread.
+    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false, long? readMemoryLimit = null)
     {
         var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = SchemaOf(indexes, titled),
+            ReadMemoryLimit = readMemoryLimit,
         });
 
         database.OpenAsync().AsTask().GetAwaiter().GetResult();
