@@ -315,7 +315,7 @@ internal static class IndexSearchScenario
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"Int64, distinct keys, a range of {RangeSize}, the descents, from the leaves of the tree the ranges of the first {ReadSeries.Number(CountedRanges)} places span ({leaves.Count} leaves): a range spans {perRange:F2} leaves; its steps, one for each of its {RangeSize} searched items, one for an item of the writer between them, if there is one, and one that ends at the end the last saw, make one descent at the start of each step that returns an entity, one more for the round of the first that makes what the walk remembers, and {atFences:F2} at a fence; {100 * inTheLeafBefore:F1} % of the steps after the first find their entity in the leaf of the step before");
+            $"Int64, distinct keys, a range of {RangeSize}, the descents, from the leaves of the tree the ranges of the first {ReadSeries.Number(CountedRanges)} places span ({ReadSeries.Number(leaves.Count)} leaves): a range spans {perRange:F2} leaves; its steps, one for each of its {RangeSize} searched items, one for an item of the writer between them, if there is one, and one that ends at the end the last saw, make one descent at the start of each step that returns an entity, one more for the round of the first that makes what the walk remembers, and {atFences:F2} at a fence; {100 * inTheLeafBefore:F1} % of the steps after the first find their entity in the leaf of the step before");
     }
 
     // A reader that searches the key of each place in turn from the start on (Search).
