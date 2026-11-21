@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 // read left the protection of reads (ClassCopier). A write takes the values of the object through the
 // binding of the core, which checks them against the schema at every depth and takes a byte array of a
 // field as the object holds it: the engine copies it once, into its own memory, while the write runs
-// (EntityBinding.Capture), since the application keeps the input of a write unchanged until the write
+// (EntityBinding.ValuesForWrite), since the application keeps the input of a write unchanged until the write
 // completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
 internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     where TEntity : class
@@ -130,7 +130,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
         try
         {
-            values = _binding.Capture(entity, copyBinary: false);
+            values = _binding.ValuesForWrite(entity, copyBinary: false);
         }
         catch (LatticeException exception)
         {

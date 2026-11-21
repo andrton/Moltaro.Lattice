@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Access.Binding;
 // ToRecord copies what is mutable: a byte array, at any depth, as a record holds its own. Take is the
 // same for every field but a Binary one, whose array it takes as it is, after the same check of its
 // type: the form of a write that the engine copies into its own memory while the call runs
-// (EntityBinding.Capture).
+// (EntityBinding.ValuesForWrite).
 internal readonly record struct BoundProperty(
     LatticeField Field,
     PropertyInfo Property,

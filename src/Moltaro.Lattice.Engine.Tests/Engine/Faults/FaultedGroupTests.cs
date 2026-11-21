@@ -26,7 +26,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // 4 MiB refuses, and which then waits for the writes admitted before it, as the switch of a refused
 // write tells (EngineDatabase.HoldNextRefusedWriteWait). The point, named by the test since the enum of the
 // engine is internal, is armed so that the first write of the group passes it and the second fails
-// there (EngineDatabase.ArmFault with passes to skip); each write passes BeforePublication before its
+// there (EngineDatabase.ArmFault with the times to let through); each write passes BeforePublication before its
 // own stores. Which write the group holds first is known by its encoded size, which differs from
 // every other's. For both points.
 //
@@ -99,7 +99,7 @@ public sealed class FaultedGroupTests
             Assert.Equal(6, counters.QueuedWrites);
             Assert.Equal(PieceTally.SlotBytesOf(grouped) + PieceTally.SlotBytesOf(prepared), counters.Arena.PreparedBytes);
 
-            database.ArmFault(Enum.Parse<EngineFaultPointEnum>(point), skippedPasses: 1);
+            database.ArmFault(Enum.Parse<EngineFaultPointEnum>(point), timesToLetThrough: 1);
             storage.ReleaseAll();
 
             var order = group.Sizes.Select(size => Array.FindIndex(grouped, piece => PieceTally.SlotBytesOf(piece) == size)).ToArray();

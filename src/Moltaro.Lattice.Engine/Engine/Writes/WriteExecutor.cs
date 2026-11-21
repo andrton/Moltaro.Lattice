@@ -62,7 +62,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // publishes only its sequence. After each write RetiredMemory frees what no read can reach any more, once
 // enough was retired since its last look, a write that retired nothing counting as one thing from a look
 // that left something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails
-// only at a fault point a test armed (Pass), for a defect, or when the managed heap cannot hold a
+// only at a fault point a test armed (ReachFaultPoint), for a defect, or when the managed heap cannot hold a
 // block of the tail of the children (below); the write that failed and those after it stay unpublished,
 // and the coordinator faults the database.
 //
@@ -98,11 +98,11 @@ internal sealed class WriteExecutor
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
 
-    // The fault point a test armed, with the passes it lets through first (Arm); default when none is
-    // armed, which is all a pass loads.
+    // The fault point a test armed, with the times it lets through first (Arm); default when none is
+    // armed, which is all reaching a point loads.
     private EngineFaultPointEnum _armedPoint;
 
-    private int _skippedPasses;
+    private int _timesToLetThrough;
 
     // Whether a publication appended to the tail since the coordinator last
     // looked (TakeDelivered).
@@ -205,12 +205,12 @@ internal sealed class WriteExecutor
         return delivered;
     }
 
-    // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): the given number of
-    // passes go through it, and the next one throws.
-    public void Arm(EngineFaultPointEnum point, int skippedPasses)
+    // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): it lets the given
+    // number of times through, and the next one throws.
+    public void Arm(EngineFaultPointEnum point, int timesToLetThrough)
     {
         _armedPoint = point;
-        _skippedPasses = skippedPasses;
+        _timesToLetThrough = timesToLetThrough;
     }
 
     private LatticeRevision RevisionOf(RootHandle handle) =>
@@ -487,7 +487,7 @@ internal sealed class WriteExecutor
     // to hold it leaves the write unpublished, and appended after them.
     private void PublishOne(PreparedWrite prepared, ulong sequence)
     {
-        Pass(EngineFaultPointEnum.BeforePublication);
+        ReachFaultPoint(EngineFaultPointEnum.BeforePublication);
 
         var write = prepared.Write;
         var delivers = _delivery.Retains;
@@ -505,7 +505,7 @@ internal sealed class WriteExecutor
         // of an absent key, with no change, does not make.
         if (!changes.IsEmpty)
         {
-            Pass(EngineFaultPointEnum.DuringPublication);
+            ReachFaultPoint(EngineFaultPointEnum.DuringPublication);
         }
 
         _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
@@ -544,18 +544,18 @@ internal sealed class WriteExecutor
         }
     }
 
-    // A pass through a fault point: nothing unless a test armed this point; then the passes it lets
+    // Reaching a fault point: nothing unless a test armed this point; then the times it lets
     // through go on, and the next one throws, once.
-    private void Pass(EngineFaultPointEnum point)
+    private void ReachFaultPoint(EngineFaultPointEnum point)
     {
         if (_armedPoint != point)
         {
             return;
         }
 
-        if (_skippedPasses > 0)
+        if (_timesToLetThrough > 0)
         {
-            _skippedPasses--;
+            _timesToLetThrough--;
 
             return;
         }

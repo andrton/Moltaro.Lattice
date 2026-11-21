@@ -310,7 +310,7 @@ internal sealed class EntityTable
     // "Immutable primary keys"), so a write through another spelling of a String key compared without
     // case keeps the spelling the entity was created with, and replaces every other field. A key of
     // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
-    // are those the core took for this write alone (EntityBinding.Capture, LatticeRecord.Capture): the
+    // are those the core took for this write alone (EntityBinding.ValuesForWrite, LatticeRecord.ValuesForWrite): the
     // array is the write's own, so nothing of the caller's is changed. A write being prepared calls it
     // under the lock of the writes, as it looks its key up (TryFind), and the root it reads stays the
     // current one until the write is published or withdrawn.

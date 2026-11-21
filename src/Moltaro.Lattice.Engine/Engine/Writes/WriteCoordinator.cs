@@ -39,12 +39,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // The order of writes to one entity, and the wait behind an unpublished write. A call takes its place in the
 // order when it takes the lock: a call made after an earlier call returned its task takes the lock after it,
 // and the earlier write was by then published, or prepared and in the queue or in the storage step, or
-// waiting in a chain, in the held list or in a resolution. A write whose entity has such an earlier write,
+// waiting in a chain, in the deferred list or in a resolution. A write whose entity has such an earlier write,
 // one that has not completed, waits behind the latest of them, first in first out, in the chain of that
 // entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so it is prepared only once every
 // earlier write of its entity has completed, and its condition is checked against the state they left. Those
 // writes are found in the list of the writes admitted that waited (FindLastOfEntity, and "The refusal"
-// below); when that list is empty, as in MemoryOnly except while the writes a resolution held back are
+// below); when that list is empty, as in MemoryOnly except while the writes a resolution deferred are
 // started, nothing is looked at and no key is hashed for it. The wait ends: the write it waits behind
 // completes — published when its storage step completes (the storage step has no timeout yet), refused,
 // cancelled, failed, or ended by a fault — and every way a write completes starts the next write of its chain
@@ -57,7 +57,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // (Children.Capture). It protects the arena, the table of root entries, the primary indexes, the
 // position clock, the retired list (WriteExecutor) and the tail of the children (Delivery.DeliveryTail),
 // and the state of this class: the queue of the prepared writes, the
-// group in the storage step, the chains, the list of the writes admitted that waited, the held list,
+// group in the storage step, the chains, the list of the writes admitted that waited, the deferred list,
 // the write being resolved, the admission number, whether the database faulted, and the counters. It
 // is held for work in memory only: no I/O, no await, no code of the application, no wait for anything
 // but the lock itself. The storage step is called under it and only takes the group (ICommitStorage).
@@ -82,7 +82,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
 // dispatch, the call of ICommitStorage.CommitAsync for its group, the token of a write is honored at every
-// wait — chained, held, prepared and in the queue, waiting in a resolution for the writes admitted before it,
+// wait — chained, deferred, prepared and in the queue, waiting in a resolution for the writes admitted before it,
 // for the writes in flight or for the reads that hold retired memory — and when its preparation ends, also a
 // preparation the arena refused. The cancellation of a write that waits in a list or in a resolution hands
 // its withdrawal to the thread pool (PendingWrite.Execute, Withdraw), so that the thread that cancels never
@@ -90,7 +90,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // of its chain, and its call ends in OperationCanceledException. The coordinator never makes a cancelled
 // write run before that thread of the pool runs: a prepared write whose token is cancelled is withdrawn when
 // a group is formed instead of being taken into it (FormGroup), as the work item would withdraw it, and a
-// write that waited in a chain or in the held list is ended instead of being prepared when its turn comes
+// write that waited in a chain or in the deferred list is ended instead of being prepared when its turn comes
 // (Start); either way the next write of its entity starts in the same hold, and the work item finds the write
 // ended and does nothing. A write whose resolution waits for reads looks at its token in that wait itself.
 // From the dispatch on the token is not looked at, and the call returns the real outcome.
@@ -108,7 +108,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    on to step 2 (MarkCompleted).
 // 2. It becomes the write being resolved (_resolving). From then on no write admitted after it begins
 //    to be prepared: a later write whose entity has an earlier write that has not completed waits in
-//    its chain as any write does, and every other later write waits in the held list, first in first
+//    its chain as any write does, and every other later write waits in the deferred list, first in first
 //    out. It waits while any
 //    write is prepared and not published (Resolving): in the queue or in the group, all of them
 //    later than it, prepared before it became the oldest. Each of them ends: a write that holds the
@@ -122,28 +122,28 @@ namespace Moltaro.Lattice.Engine.Writes;
 // 4. If the arena has room it goes on as any write; if not, it is refused with WriteRejected and Limit
 //    Memory, has had no effect and never runs later, and every pool is left at the need of the writes
 //    prepared, none: what an index took for it went back to the arena with its withdrawal, not into its
-//    reserve. Either way the resolution ends, and the held writes start at once, in their order.
+//    reserve. Either way the resolution ends, and the deferred writes start at once, in their order.
 // A write that is prepared otherwise tops the standing reserve of each index it changes up, once it has
 // all it needs, as far as the arena gives (Entities.ChangePublisher.TopUp); a top-up that cannot be had
 // is not a failure. So the reserves count against the memory limit and are never the reason of a refusal
 // (docs/design/ordered-index.md, "The standing reserve").
 // In MemoryOnly a write completes in the hold of its call, so a refused write is the oldest and nothing
 // is prepared and unpublished, and the resolution is the plain one: free what is retired, wait for the
-// reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it held
-// back are prepared in one hold and published as one group, and one of them that the arena refuses
+// reads that hold it, retry, refuse. The exception is the end of a resolution: the writes it deferred
+// are prepared in one hold and published as one group, and one of them that the arena refuses
 // there may find writes before it not completed and writes prepared beside it, and goes through steps
 // 1 and 2 as in a database whose storage step is busy. Only the oldest write is resolved, so two
 // writes refused at the same time are resolved one after the other in the order of their admission.
 // The wait is finite (exception X6): the writes admitted before it are finite and none of them waits
 // for it; the writes it waits for in step 2 are finite, no later one begins, and each ends with its
 // storage step; a read leaves within a step; no write admitted later prolongs it. Its token ends it at
-// any step, and the held writes then go on. The switch of the tests runs at the first wait of the
+// any step, and the deferred writes then go on. The switch of the tests runs at the first wait of the
 // resolution of a write, whichever it is (HoldNextRefusedWriteWait).
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of
 // the writes is that of a lock: it ends when the holder releases it, after work in memory alone. The
-// waits in a chain, in the held list, in the queue of the prepared writes and in steps 1 and 2 of a
+// waits in a chain, in the deferred list, in the queue of the prepared writes and in steps 1 and 2 of a
 // resolution have no timeout and have the token; each ends when the writes it waits for end, as above.
 // The wait for the reads that hold retired memory has no timeout and has the token; a read leaves within
 // one step (exception X6).
@@ -170,7 +170,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // root the child sent instead of values (ForwardedOrigin), which the executor places when it prepares the
 // write. It has no caller: its outcome is its reply, recorded for the child before the write leaves the
 // barrier of the close, whatever the outcome: a success in the hold that publishes it (WriteExecutor), a
-// refusal where its outcome is given, after the hold that decided it (Deliver, ReturnOwnOutcome), or at once when it
+// refusal where its outcome is given, after the hold that decided it (GiveOutcome, ReturnOwnOutcome), or at once when it
 // is refused before its admission; why the child takes the reply before the transaction,
 // Delivery.RecordedReplies says ("The order that matters"). So once the barrier has drained, every forwarded
 // write admitted has its reply recorded, and nothing of one runs any more: no task of it is awaited.
@@ -227,8 +227,8 @@ internal sealed class WriteCoordinator
 
     private PendingWrite? _newestWaiter;
 
-    // The writes held back while a refused write is resolved, in the order they were held.
-    private WriteQueue _held;
+    // The writes deferred while a refused write is resolved, in the order they were deferred.
+    private WriteQueue _deferred;
 
     // The write being resolved after the arena refused it twice, from step 2 of its resolution to its
     // end; null otherwise (see the class).
@@ -353,11 +353,11 @@ internal sealed class WriteCoordinator
     }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
-    public void ArmFault(EngineFaultPointEnum point, int skippedPasses)
+    public void ArmFault(EngineFaultPointEnum point, int timesToLetThrough)
     {
         lock (_writes)
         {
-            _executor.Arm(point, skippedPasses);
+            _executor.Arm(point, timesToLetThrough);
         }
     }
 
@@ -367,7 +367,7 @@ internal sealed class WriteCoordinator
     // reads, which looks at its token itself, and one that has ended are not touched.
     public void Withdraw(PendingWrite write)
     {
-        var pass = default(Pass);
+        var hold = default(Hold);
 
         lock (_writes)
         {
@@ -377,49 +377,49 @@ internal sealed class WriteCoordinator
             {
                 case PendingWriteStateEnum.Chained:
                     Unchain(write);
-                    DecideFailure(write, cancelled, ref pass);
+                    DecideFailure(write, cancelled, ref hold);
                     break;
 
-                case PendingWriteStateEnum.Held:
-                    _held.Remove(write);
-                    DecideFailureAndAdvanceChain(write, cancelled, ref pass);
+                case PendingWriteStateEnum.Deferred:
+                    _deferred.Remove(write);
+                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.Prepared:
                     _prepared.Remove(write);
                     _changes.Release(write.Prepared!.Changes);
-                    DecideFailureAndAdvanceChain(write, cancelled, ref pass);
+                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.WaitingForEarlier:
-                    DecideFailureAndAdvanceChain(write, cancelled, ref pass);
+                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.Resolving:
                     _resolving = null;
-                    DecideFailureAndAdvanceChain(write, cancelled, ref pass);
-                    ReleaseHeld(ref pass);
+                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
+                    ReleaseDeferred(ref hold);
                     break;
             }
 
-            StartReadyAndCommit(ref pass);
+            StartReadyAndCommit(ref hold);
         }
 
-        CarryOutDecisions(ref pass);
+        CarryOutDecisions(ref hold);
     }
 
     // Step 3 of the resolution of a refused write (see the class), on a thread of the pool, once the
     // writes it waited for in step 2 were published (PendingWrite.Execute).
     public void EndResolution(PendingWrite write)
     {
-        var pass = Resolve(write, own: false);
+        var hold = Resolve(write, own: false);
 
-        CarryOutDecisions(ref pass);
+        CarryOutDecisions(ref hold);
     }
 
     // A chained write leaves the chain of its entity; the writes behind it wait behind the one before
     // it. A write in the state Chained outside a hold of the lock always has the write before it: only
-    // AdvanceChain clears it, and the write it makes ready is started in the same hold (StartReadyAndCommit, Pass),
+    // AdvanceChain clears it, and the write it makes ready is started in the same hold (StartReadyAndCommit, Hold),
     // so Withdraw, the only caller, never meets a chained write without one.
     private static void Unchain(PendingWrite write)
     {
@@ -447,7 +447,7 @@ internal sealed class WriteCoordinator
     // another history, and an empty one that another database bound first, is refused before anything is
     // executed. So the session of a write that committed is of this history, and moving it to the position of
     // the write cannot fail: the result of a commit is never replaced by a failure of the session (ReturnOwnOutcome,
-    // Deliver).
+    // GiveOutcome).
     private bool TryEnter(LatticeSession? session, CancellationToken cancellationToken, out ValueTask waited, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out Exception? refusal)
     {
         waited = default;
@@ -551,7 +551,7 @@ internal sealed class WriteCoordinator
         LatticeSession? session,
         CancellationToken cancellationToken)
     {
-        var pass = default(Pass);
+        var hold = default(Hold);
         PendingWrite? write = null;
         LatticeWriteResult result = default;
         Exception? failure = null;
@@ -571,11 +571,11 @@ internal sealed class WriteCoordinator
                 _spare = null;
                 write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
                 _queued++;
-                pass.Own = write;
-                Start(write, ref pass);
-                StartReadyAndCommit(ref pass);
+                hold.Own = write;
+                Start(write, ref hold);
+                StartReadyAndCommit(ref hold);
 
-                if (!pass.OwnEnded)
+                if (!hold.OwnEnded)
                 {
                     AddWaiter(write);
                 }
@@ -593,7 +593,7 @@ internal sealed class WriteCoordinator
             }
         }
 
-        CarryOutDecisions(ref pass);
+        CarryOutDecisions(ref hold);
 
         if (write is null)
         {
@@ -601,7 +601,7 @@ internal sealed class WriteCoordinator
         }
 
         // A write refused twice with nothing to wait for is resolved on the thread of its call.
-        if (pass.ReadsHere is not null)
+        if (hold.WaitsForReadsHere is not null)
         {
             var resolved = Resolve(write, own: true);
 
@@ -611,11 +611,11 @@ internal sealed class WriteCoordinator
             {
                 result = write.Outcome;
                 failure = write.Failure;
-                pass.OwnEnded = true;
+                hold.OwnEnded = true;
             }
         }
 
-        if (pass.OwnEnded)
+        if (hold.OwnEnded)
         {
             // A write larger than a group gives its processor up once after it released the lock (see
             // the class, "The lock of the writes"), so that a caller woken by that release can take the
@@ -690,12 +690,12 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: the way of a write that may go on now — at its admission, at the end of the write
-    // before it in its chain, or at the end of a resolution that held it back.
-    private void Start(PendingWrite write, ref Pass pass)
+    // before it in its chain, or at the end of a resolution that deferred it.
+    private void Start(PendingWrite write, ref Hold hold)
     {
         if (_faulted)
         {
-            DecideFailureAndAdvanceChain(write, ReadEpochs.FaultedRefusal(), ref pass);
+            DecideFailureAndAdvanceChain(write, ReadEpochs.FaultedRefusal(), ref hold);
 
             return;
         }
@@ -704,7 +704,7 @@ internal sealed class WriteCoordinator
         // it, whether or not the thread of the pool its cancellation went to has run.
         if (write.Token.IsCancellationRequested)
         {
-            DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref pass);
+            DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref hold);
 
             return;
         }
@@ -722,23 +722,23 @@ internal sealed class WriteCoordinator
 
         if (_resolving is { } resolving && write.Admission > resolving.Admission)
         {
-            write.State = PendingWriteStateEnum.Held;
-            _held.Append(write);
+            write.State = PendingWriteStateEnum.Deferred;
+            _deferred.Append(write);
 
             return;
         }
 
-        Prepare(write, ref pass);
+        Prepare(write, ref hold);
     }
 
     // Under the lock: the latest write of the entity of the write that was admitted before it, has not
-    // completed and waited: prepared and unpublished, in a chain, held, or in a resolution; null when
+    // completed and waited: prepared and unpublished, in a chain, deferred, or in a resolution; null when
     // there is none. The write waits behind it. Every such write is in the list of the writes admitted
     // that waited (see the class, "The refusal"), and a write of the call that holds the lock is the only
     // one not in it yet, so the list is searched, from the newest write admitted before this one back.
     // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
     // resolution. The search is linear in the writes that wait, and so is WriteQueue.Remove in the queue
-    // and the held list: measured with 40,000 writes waiting behind a busy storage step, an admission took
+    // and the deferred list: measured with 40,000 writes waiting behind a busy storage step, an admission took
     // 0.6 to 0.8 ms. It never runs while the storage step completes at once; whether a durable storage step
     // that is busy needs a structure that finds them faster is open until that step is built.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
@@ -757,7 +757,7 @@ internal sealed class WriteCoordinator
     // Under the lock: prepares the write, which has no earlier write of its entity that has not
     // completed, and puts it into the queue of the prepared writes; or ends it, or begins its
     // resolution (see the class, "The refusal").
-    private void Prepare(PendingWrite write, ref Pass pass)
+    private void Prepare(PendingWrite write, ref Hold hold)
     {
         PreparedWrite? prepared;
 
@@ -765,23 +765,23 @@ internal sealed class WriteCoordinator
         {
             if (!TryPrepareTwice(write, out prepared))
             {
-                BeginResolution(write, ref pass);
+                BeginResolution(write, ref hold);
 
                 return;
             }
         }
         catch (Exception exception)
         {
-            DecideFailureAndAdvanceChain(write, exception, ref pass);
+            DecideFailureAndAdvanceChain(write, exception, ref hold);
 
             return;
         }
 
         // Once the write has all it needs, the standing reserves of the indexes it changes are topped up
         // (see the class, "The refusal").
-        if (!TryQueue(write, prepared, topsUp: true, ref pass))
+        if (!TryQueue(write, prepared, topsUp: true, ref hold))
         {
-            AdvanceChain(write, ref pass);
+            AdvanceChain(write, ref hold);
         }
     }
 
@@ -789,12 +789,12 @@ internal sealed class WriteCoordinator
     // the top-up of the standing reserves of the indexes it changes when topsUp is true; or, when its
     // token was cancelled meanwhile, it gives back what it prepared and ends cancelled: its token is
     // honored when its preparation ends, before it can be dispatched. False when it ended.
-    private bool TryQueue(PendingWrite write, PreparedWrite prepared, bool topsUp, ref Pass pass)
+    private bool TryQueue(PendingWrite write, PreparedWrite prepared, bool topsUp, ref Hold hold)
     {
         if (write.Token.IsCancellationRequested)
         {
             _changes.Release(prepared.Changes);
-            DecideFailure(write, new OperationCanceledException(write.Token), ref pass);
+            DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
             return false;
         }
@@ -838,7 +838,7 @@ internal sealed class WriteCoordinator
 
     // Under the lock: the resolution of a write refused twice begins (see the class): step 1 while a
     // write admitted before it has not completed, step 2 when it is the oldest.
-    private void BeginResolution(PendingWrite write, ref Pass pass)
+    private void BeginResolution(PendingWrite write, ref Hold hold)
     {
         // The write of the call that holds the lock enters the list of the writes that waited now: every
         // write in it was admitted before it.
@@ -847,38 +847,38 @@ internal sealed class WriteCoordinator
         if (write.Older is not null)
         {
             write.State = PendingWriteStateEnum.WaitingForEarlier;
-            OfferWaitSwitch(write, ref pass);
+            OfferWaitSwitch(write, ref hold);
 
             return;
         }
 
-        BecomeResolved(write, ref pass);
+        BecomeResolved(write, ref hold);
     }
 
     // Under the lock: the oldest write, refused twice, becomes the write being resolved (step 2), and
     // goes on to step 3 at once when no write holds prepared memory.
-    private void BecomeResolved(PendingWrite write, ref Pass pass)
+    private void BecomeResolved(PendingWrite write, ref Hold hold)
     {
         _resolving = write;
 
         if (HoldsPreparedMemory())
         {
             write.State = PendingWriteStateEnum.Resolving;
-            OfferWaitSwitch(write, ref pass);
+            OfferWaitSwitch(write, ref hold);
 
             return;
         }
 
-        ToReads(write, ref pass);
+        BeginWaitForReads(write, ref hold);
     }
 
     // Under the lock: the switch of the tests is offered to a write that begins to wait in its
     // resolution, after the lock, unless it was offered at an earlier wait.
-    private static void OfferWaitSwitch(PendingWrite write, ref Pass pass)
+    private static void OfferWaitSwitch(PendingWrite write, ref Hold hold)
     {
         if (!write.Waited)
         {
-            pass.Offer = write;
+            hold.WaitSwitch = write;
         }
     }
 
@@ -953,26 +953,26 @@ internal sealed class WriteCoordinator
 
     // Under the lock: the write being resolved goes on to step 3, which waits outside every lock: on the
     // thread of its call when that call holds the lock now, otherwise on a thread of the pool.
-    private void ToReads(PendingWrite write, ref Pass pass)
+    private void BeginWaitForReads(PendingWrite write, ref Hold hold)
     {
-        write.State = PendingWriteStateEnum.Reading;
+        write.State = PendingWriteStateEnum.WaitingForReads;
 
-        if (ReferenceEquals(write, pass.Own))
+        if (ReferenceEquals(write, hold.Own))
         {
-            pass.ReadsHere = write;
+            hold.WaitsForReadsHere = write;
         }
         else
         {
             write.ResolutionPending = 1;
-            pass.Scheduled = write;
+            hold.Scheduled = write;
         }
     }
 
     // Step 3 of a resolution and its end (see the class), outside the lock until it takes it for the
     // last try; for the write of the call that runs it when own is true.
-    private Pass Resolve(PendingWrite write, bool own)
+    private Hold Resolve(PendingWrite write, bool own)
     {
-        var pass = default(Pass);
+        var hold = default(Hold);
         long epoch;
         Exception? cancelled = null;
 
@@ -983,7 +983,7 @@ internal sealed class WriteCoordinator
 
         if (epoch != 0)
         {
-            OfferWaitHold(write);
+            RunWaitSwitch(write);
 
             try
             {
@@ -1001,39 +1001,39 @@ internal sealed class WriteCoordinator
         {
             if (own)
             {
-                pass.Own = write;
+                hold.Own = write;
             }
 
             _resolving = null;
 
             if (_faulted)
             {
-                DecideFailure(write, ReadEpochs.FaultedRefusal(), ref pass);
+                DecideFailure(write, ReadEpochs.FaultedRefusal(), ref hold);
             }
             else if (cancelled is not null)
             {
-                DecideFailure(write, cancelled, ref pass);
+                DecideFailure(write, cancelled, ref hold);
             }
             else
             {
-                TryPrepareResolved(write, ref pass);
+                TryPrepareResolved(write, ref hold);
             }
 
             if (write.State == PendingWriteStateEnum.Completed)
             {
-                AdvanceChain(write, ref pass);
+                AdvanceChain(write, ref hold);
             }
 
-            ReleaseHeld(ref pass);
-            StartReadyAndCommit(ref pass);
+            ReleaseDeferred(ref hold);
+            StartReadyAndCommit(ref hold);
         }
 
-        return pass;
+        return hold;
     }
 
     // Under the lock: the last try of a resolved write, with no other write holding prepared memory:
     // into the queue of the prepared writes, or refused for memory.
-    private void TryPrepareResolved(PendingWrite write, ref Pass pass)
+    private void TryPrepareResolved(PendingWrite write, ref Hold hold)
     {
         try
         {
@@ -1045,41 +1045,41 @@ internal sealed class WriteCoordinator
 
             if (_executor.TryPrepare(write, out var prepared, out var refusal))
             {
-                _ = TryQueue(write, prepared, topsUp: false, ref pass);
+                _ = TryQueue(write, prepared, topsUp: false, ref hold);
 
                 return;
             }
 
             // A token cancelled while it was tried ends it as cancelled, not refused.
             write.Token.ThrowIfCancellationRequested();
-            DecideFailure(write, refusal!, ref pass);
+            DecideFailure(write, refusal!, ref hold);
         }
         catch (Exception exception)
         {
-            DecideFailure(write, exception, ref pass);
+            DecideFailure(write, exception, ref hold);
         }
     }
 
-    // Under the lock: the held writes start, in their order, as the end of a resolution lets them.
-    private void ReleaseHeld(ref Pass pass)
+    // Under the lock: the deferred writes start, in their order, as the end of a resolution lets them.
+    private void ReleaseDeferred(ref Hold hold)
     {
-        while (_held.TakeFirst() is { } held)
+        while (_deferred.TakeFirst() is { } deferred)
         {
-            pass.AddReady(held);
+            hold.AddReady(deferred);
         }
     }
 
     // Under the lock: as long as a write can go on, it goes on: the writes made ready start, and the
     // queue of the prepared writes is handed to the storage step whenever no group is in it. The loop
-    // is left only when no write is ready (see Pass). At the end a resolved write that no longer has
+    // is left only when no write is ready (see Hold). At the end a resolved write that no longer has
     // anything to wait for goes on to step 3.
-    private void StartReadyAndCommit(ref Pass pass)
+    private void StartReadyAndCommit(ref Hold hold)
     {
         while (true)
         {
-            if (pass.TakeReady() is { } ready)
+            if (hold.TakeReady() is { } ready)
             {
-                Start(ready, ref pass);
+                Start(ready, ref hold);
 
                 continue;
             }
@@ -1089,16 +1089,16 @@ internal sealed class WriteCoordinator
                 break;
             }
 
-            if (FormGroup(ref pass))
+            if (FormGroup(ref hold))
             {
-                Commit(ref pass);
+                Commit(ref hold);
 
                 continue;
             }
 
             // No group was formed, and a write FormGroup withdrew may have made the next write of its
             // entity ready.
-            if (!pass.HasReady)
+            if (!hold.HasReady)
             {
                 break;
             }
@@ -1106,7 +1106,7 @@ internal sealed class WriteCoordinator
 
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving && !HoldsPreparedMemory())
         {
-            ToReads(resolving, ref pass);
+            BeginWaitForReads(resolving, ref hold);
         }
     }
 
@@ -1118,7 +1118,7 @@ internal sealed class WriteCoordinator
     // and no token is looked at any more. From the first of them on the group holds prepared memory
     // (_groupPending), so that a write withdrawn after it, whose end may make a refused write the one
     // being resolved, does not find nothing prepared while the group holds it (HoldsPreparedMemory).
-    private bool FormGroup(ref Pass pass)
+    private bool FormGroup(ref Hold hold)
     {
         _group.Clear();
 
@@ -1128,7 +1128,7 @@ internal sealed class WriteCoordinator
             {
                 _prepared.TakeFirst();
                 _changes.Release(write.Prepared!.Changes);
-                DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref pass);
+                DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref hold);
 
                 continue;
             }
@@ -1166,7 +1166,7 @@ internal sealed class WriteCoordinator
     // Under the lock: the storage step for the group formed (the dispatch), which only takes it
     // (ICommitStorage). A task already completed means the group is committed, and it is published in
     // this hold; otherwise the thread on which it completes publishes it (CompleteStorageAsync).
-    private void Commit(ref Pass pass)
+    private void Commit(ref Hold hold)
     {
         ValueTask<CommitOutcome> storing;
 
@@ -1176,7 +1176,7 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            FaultGroup(0, 0, exception, ref pass);
+            FaultGroup(0, 0, exception, ref hold);
 
             return;
         }
@@ -1196,12 +1196,12 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            FaultGroup(0, 0, exception, ref pass);
+            FaultGroup(0, 0, exception, ref hold);
 
             return;
         }
 
-        PublishGroup(outcome.FirstSequence, ref pass);
+        PublishGroup(outcome.FirstSequence, ref hold);
     }
 
     // A storage step that did not complete at once: its group is published on the thread on which it
@@ -1220,40 +1220,40 @@ internal sealed class WriteCoordinator
             failure = exception;
         }
 
-        var pass = default(Pass);
+        var hold = default(Hold);
 
         lock (_writes)
         {
             if (failure is null)
             {
-                PublishGroup(outcome.FirstSequence, ref pass);
+                PublishGroup(outcome.FirstSequence, ref hold);
             }
             else
             {
-                FaultGroup(0, 0, failure, ref pass);
+                FaultGroup(0, 0, failure, ref hold);
             }
 
-            StartReadyAndCommit(ref pass);
+            StartReadyAndCommit(ref hold);
         }
 
-        CarryOutDecisions(ref pass);
+        CarryOutDecisions(ref hold);
     }
 
     // Under the lock: publishes the group at consecutive sequences from the first, gives its writes
     // their outcomes, and starts the next write of the chain of each. When a publication failed the
     // database faults first, before a write of the group completes, so that the end of one of them
     // begins no resolution while the writes of the group after the failure still hold prepared memory.
-    private void PublishGroup(ulong firstSequence, ref Pass pass)
+    private void PublishGroup(ulong firstSequence, ref Hold hold)
     {
         var published = _executor.Publish(_group, firstSequence, out var failure);
         var writes = _group.Writes;
 
-        pass.Published = true;
-        pass.Delivered |= _executor.TakeDelivered();
+        hold.Published = true;
+        hold.Delivered |= _executor.TakeDelivered();
 
         if (failure is not null)
         {
-            FaultGroup(firstSequence, published, failure, ref pass);
+            FaultGroup(firstSequence, published, failure, ref hold);
         }
 
         _groupPending = false;
@@ -1262,8 +1262,8 @@ internal sealed class WriteCoordinator
         {
             var prepared = writes[index];
 
-            DecideSuccess(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.ChangesEntity), ref pass);
-            AdvanceChain(prepared.Write, ref pass);
+            DecideSuccess(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.ChangesEntity), ref hold);
+            AdvanceChain(prepared.Write, ref hold);
         }
     }
 
@@ -1271,11 +1271,11 @@ internal sealed class WriteCoordinator
     // the index published (see the class, "A fault"): the writes of the group from that index on are
     // IndeterminateOutcome, and every other write admitted ends with Unavailable, once it has released
     // what it held.
-    private void FaultGroup(ulong firstSequence, int published, Exception failure, ref Pass pass)
+    private void FaultGroup(ulong firstSequence, int published, Exception failure, ref Hold hold)
     {
         _faulted = true;
         _groupPending = false;
-        pass.Faulted = true;
+        hold.Faulted = true;
 
         var writes = _group.Writes;
 
@@ -1286,19 +1286,19 @@ internal sealed class WriteCoordinator
             DecideFailureAndAdvanceChain(write, new LatticeException(
                 LatticeErrorEnum.IndeterminateOutcome,
                 "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
-                index == published ? failure : null), ref pass);
+                index == published ? failure : null), ref hold);
         }
 
         while (_prepared.TakeFirst() is { } prepared)
         {
             _changes.Release(prepared.Prepared!.Changes);
-            DecideFailureAndAdvanceChain(prepared, ReadEpochs.FaultedRefusal(), ref pass);
+            DecideFailureAndAdvanceChain(prepared, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving)
         {
             _resolving = null;
-            DecideFailureAndAdvanceChain(resolving, ReadEpochs.FaultedRefusal(), ref pass);
+            DecideFailureAndAdvanceChain(resolving, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
         for (var waiter = _oldestWaiter; waiter is not null;)
@@ -1307,50 +1307,50 @@ internal sealed class WriteCoordinator
 
             if (waiter.State == PendingWriteStateEnum.WaitingForEarlier)
             {
-                DecideFailureAndAdvanceChain(waiter, ReadEpochs.FaultedRefusal(), ref pass);
+                DecideFailureAndAdvanceChain(waiter, ReadEpochs.FaultedRefusal(), ref hold);
             }
 
             waiter = newer;
         }
 
-        // The held writes and the writes of every chain start, and end with Unavailable (Start).
-        ReleaseHeld(ref pass);
+        // The deferred writes and the writes of every chain start, and end with Unavailable (Start).
+        ReleaseDeferred(ref hold);
     }
 
     // Under the lock: the next write of the chain of the write, which has ended or is published, starts.
-    private static void AdvanceChain(PendingWrite write, ref Pass pass)
+    private static void AdvanceChain(PendingWrite write, ref Hold hold)
     {
         if (write.LaterOfEntity is { } later)
         {
             write.LaterOfEntity = null;
             later.EarlierOfEntity = null;
-            pass.AddReady(later);
+            hold.AddReady(later);
         }
     }
 
     // Under the lock: the write succeeded, and its outcome is given after the lock.
-    private void DecideSuccess(PendingWrite write, LatticeWriteResult result, ref Pass pass)
+    private void DecideSuccess(PendingWrite write, LatticeWriteResult result, ref Hold hold)
     {
         write.Outcome = result;
         write.Failure = null;
-        MarkCompleted(write, ref pass);
+        MarkCompleted(write, ref hold);
     }
 
     // Under the lock: the write ends with the failure, given after the lock.
-    private void DecideFailure(PendingWrite write, Exception failure, ref Pass pass)
+    private void DecideFailure(PendingWrite write, Exception failure, ref Hold hold)
     {
         write.Failure = failure;
-        MarkCompleted(write, ref pass);
+        MarkCompleted(write, ref hold);
     }
 
     // Under the lock: the write ends with the failure, and the next write of its chain starts.
-    private void DecideFailureAndAdvanceChain(PendingWrite write, Exception failure, ref Pass pass)
+    private void DecideFailureAndAdvanceChain(PendingWrite write, Exception failure, ref Hold hold)
     {
-        DecideFailure(write, failure, ref pass);
-        AdvanceChain(write, ref pass);
+        DecideFailure(write, failure, ref hold);
+        AdvanceChain(write, ref hold);
     }
 
-    private void MarkCompleted(PendingWrite write, ref Pass pass)
+    private void MarkCompleted(PendingWrite write, ref Hold hold)
     {
         write.State = PendingWriteStateEnum.Completed;
         _queued--;
@@ -1359,16 +1359,16 @@ internal sealed class WriteCoordinator
         // of its resolution, it is resolved now (see the class, "The refusal").
         if (RemoveWaiter(write) is { State: PendingWriteStateEnum.WaitingForEarlier } oldest && !_faulted)
         {
-            BecomeResolved(oldest, ref pass);
+            BecomeResolved(oldest, ref hold);
         }
 
-        if (ReferenceEquals(write, pass.Own))
+        if (ReferenceEquals(write, hold.Own))
         {
-            pass.OwnEnded = true;
+            hold.OwnEnded = true;
         }
         else
         {
-            pass.AddEnded(write);
+            hold.AddEnded(write);
         }
     }
 
@@ -1376,40 +1376,40 @@ internal sealed class WriteCoordinator
     // waits for a position are woken after a publication; every other write that ended gets its
     // outcome; a resolution that goes on to step 3 goes to the thread pool; the switch of the tests runs
     // for a write that begins to wait in its resolution.
-    private void CarryOutDecisions(ref Pass pass)
+    private void CarryOutDecisions(ref Hold hold)
     {
-        if (pass.Faulted)
+        if (hold.Faulted)
         {
             _faultDatabase();
         }
 
-        if (pass.Published)
+        if (hold.Published)
         {
             _clock.Wake();
         }
 
-        if (pass.Delivered)
+        if (hold.Delivered)
         {
             _delivery.Wake();
         }
 
-        for (var write = pass.Ended; write is not null;)
+        for (var write = hold.Ended; write is not null;)
         {
             var next = write.NextEnded;
 
             write.NextEnded = null;
-            Deliver(write);
+            GiveOutcome(write);
             write = next;
         }
 
-        if (pass.Scheduled is { } scheduled)
+        if (hold.Scheduled is { } scheduled)
         {
             ThreadPool.UnsafeQueueUserWorkItem(scheduled, preferLocal: false);
         }
 
-        if (pass.Offer is { } offered)
+        if (hold.WaitSwitch is { } offered)
         {
-            OfferWaitHold(offered);
+            RunWaitSwitch(offered);
         }
     }
 
@@ -1418,7 +1418,7 @@ internal sealed class WriteCoordinator
     // leaves the barrier of the close last. A forwarded write has no call: its refusal is recorded as its
     // reply here, and its success was recorded by the hold that published it (see the class, "Forwarded
     // writes").
-    private void Deliver(PendingWrite write)
+    private void GiveOutcome(PendingWrite write)
     {
         write.Registration.Unregister();
 
@@ -1443,8 +1443,8 @@ internal sealed class WriteCoordinator
     }
 
     // The switch of the tests, at the first wait of the resolution of a write, outside every lock
-    // (Protection.RetiredMemory.RunWaitHold).
-    private void OfferWaitHold(PendingWrite write)
+    // (Protection.RetiredMemory.RunWaitSwitch).
+    private void RunWaitSwitch(PendingWrite write)
     {
         if (write.Waited)
         {
@@ -1452,13 +1452,13 @@ internal sealed class WriteCoordinator
         }
 
         write.Waited = true;
-        _retired.RunWaitHold();
+        _retired.RunWaitSwitch();
     }
 
     // What one hold of the lock of the writes decided, to be carried out after it (CarryOutDecisions), and the
     // writes it has to start in the hold (StartReadyAndCommit). A value on the stack of the hold: nothing is allocated
     // for it.
-    private struct Pass
+    private struct Hold
     {
         // The write of the call that holds the lock, if a call does, and whether its outcome was decided.
         public PendingWrite? Own;
@@ -1466,13 +1466,13 @@ internal sealed class WriteCoordinator
         public bool OwnEnded;
 
         // A write being resolved whose step 3 runs on the thread of its call, which holds the lock.
-        public PendingWrite? ReadsHere;
+        public PendingWrite? WaitsForReadsHere;
 
         // A write being resolved whose step 3 runs on a thread of the pool.
         public PendingWrite? Scheduled;
 
         // A write that begins to wait in step 2 of its resolution, for the switch of the tests.
-        public PendingWrite? Offer;
+        public PendingWrite? WaitSwitch;
 
         // Whether a group was published, whether its publication appended to the tail of the children, and
         // whether the database faulted.
@@ -1483,7 +1483,7 @@ internal sealed class WriteCoordinator
         public bool Faulted;
 
         // The writes to start in this hold, first in first out. A ready write keeps the state it waited
-        // in, Chained without the write before it or Held outside the held list, which only Start may
+        // in, Chained without the write before it or Deferred outside the deferred list, which only Start may
         // see; so StartReadyAndCommit starts every ready write before the hold ends, and Withdraw, which takes the lock,
         // never finds one.
         private WriteQueue _ready;
@@ -1505,7 +1505,7 @@ internal sealed class WriteCoordinator
     }
 
     // A queue of writes, first in first out, linked through PendingWrite.Next: the queue of the prepared
-    // writes, the held list, and the writes a hold has to start (Pass). A write is in one of them at
+    // writes, the deferred list, and the writes a hold has to start (Hold). A write is in one of them at
     // most. A value in a field of its owner, changed in place, under the lock of the writes. The list of
     // the writes that waited, whose writes leave it from any place, and the writes a hold ended, which
     // are only pushed and walked once, have links of their own (PendingWrite.Older, Newer, NextEnded).

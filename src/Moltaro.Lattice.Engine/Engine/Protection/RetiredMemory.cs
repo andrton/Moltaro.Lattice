@@ -118,7 +118,7 @@ internal sealed class RetiredMemory
     // lock of the writes: a test arms it from its own thread and the waiter takes it before it waits,
     // outside every lock, so it is written with release semantics and taken by an interlocked exchange,
     // which runs it once.
-    private Action? _waitHold;
+    private Action? _waitSwitch;
 
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
@@ -242,19 +242,19 @@ internal sealed class RetiredMemory
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
     }
 
-    // Arms the switch of the tests for a refused write (_waitHold): the next one runs hold once, at the
+    // Arms the switch of the tests for a refused write (_waitSwitch): the next one runs the action once, at the
     // first wait of its resolution.
-    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
+    public void ArmWaitSwitch(Action action) => Volatile.Write(ref _waitSwitch, action);
 
     // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
     // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
     // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
     // before it waits (Child.Loading.ReceivedChanges.Apply).
-    public void RunWaitHold()
+    public void RunWaitSwitch()
     {
-        if (_waitHold is not null)
+        if (_waitSwitch is not null)
         {
-            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+            Interlocked.Exchange(ref _waitSwitch, null)?.Invoke();
         }
     }
 

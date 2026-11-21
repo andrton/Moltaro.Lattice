@@ -250,14 +250,14 @@ internal sealed partial class EngineDatabase
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
     // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When hold returns the write or
     // the transaction waits as it would have. Only a write or a transaction the arena refused loads the
-    // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitHold). Unavailable
+    // switch: no other write and no read pays anything for it (RetiredMemory.RunWaitSwitch). Unavailable
     // before the open, ObjectDisposedException after the close.
     public void HoldNextRefusedWriteWait(Action hold)
     {
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        Part(_parts).Retired.HoldNextWait(hold);
+        Part(_parts).Retired.ArmWaitSwitch(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
@@ -277,12 +277,12 @@ internal sealed partial class EngineDatabase
     // point costs a pass what ArmFault(point) costs it, and a point nobody armed nothing more. A negative
     // number is ArgumentOutOfRangeException. No member of the contract lets a write of a group pass the point
     // before another faults there.
-    public void ArmFault(EngineFaultPointEnum point, int skippedPasses)
+    public void ArmFault(EngineFaultPointEnum point, int timesToLetThrough)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(skippedPasses);
+        ArgumentOutOfRangeException.ThrowIfNegative(timesToLetThrough);
         ThrowIfNotReady();
 
-        Part(_parts).Coordinator.ArmFault(point, skippedPasses);
+        Part(_parts).Coordinator.ArmFault(point, timesToLetThrough);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the internal switch that holds
