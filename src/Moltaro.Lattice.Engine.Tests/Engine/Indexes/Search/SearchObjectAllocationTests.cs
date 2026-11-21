@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search.SearchAllocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
@@ -81,33 +82,5 @@ public sealed class SearchObjectAllocationTests
         Assert.True(classNone == ClassSearch, $"A search through the class that finds nothing allocated {classNone} bytes, not the {ClassSearch} of its object.");
         Assert.True(nameOne == NameSearch + NameEntity, $"A search by name that returns one entity allocated {nameOne} bytes, not the {NameSearch} of its object and the {NameEntity} of the record.");
         Assert.True(nameNone == NameSearch, $"A search by name that finds nothing allocated {nameNone} bytes, not the {NameSearch} of its object.");
-    }
-
-    // What one call allocates on this thread, after a first call; the call returns the number of entities
-    // found.
-    private static long Measure(Func<int> call, int found)
-    {
-        Assert.Equal(found, call());
-
-        var start = GC.GetAllocatedBytesForCurrentThread();
-        var count = call();
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
-
-        Assert.Equal(found, count);
-
-        return allocated;
-    }
-
-    // Enumerates the matches as an application does, to the end, without keeping them.
-    private static int Count<TEntity>(IEnumerable<TEntity> matches)
-    {
-        var count = 0;
-
-        foreach (var _ in matches)
-        {
-            count++;
-        }
-
-        return count;
     }
 }

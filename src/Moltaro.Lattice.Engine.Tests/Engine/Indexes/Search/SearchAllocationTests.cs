@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search.SearchAllocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
@@ -171,19 +172,6 @@ public sealed class SearchAllocationTests
         "FindAsync through a class" => OwnThread.Wait(database.Set<Note>().Index("ByTitle").FindAsync(IndexKey.Equal(title), Options)).Items.Count,
         _ => OwnThread.Wait(database.Set("Note").Index("ByTitle").FindAsync(IndexKey.Equal(title), Options)).Items.Count,
     };
-
-    // Enumerates the matches as an application does, to the end, without keeping them.
-    private static int Count<TEntity>(IEnumerable<TEntity> matches)
-    {
-        var count = 0;
-
-        foreach (var _ in matches)
-        {
-            count++;
-        }
-
-        return count;
-    }
 
     // The numbers 0 to 2,999 in an order that is neither ascending nor descending.
     private static IEnumerable<int> Numbers() => Enumerable.Range(0, Entries).Select(step => (int)((step * 1_597L) % Entries));
