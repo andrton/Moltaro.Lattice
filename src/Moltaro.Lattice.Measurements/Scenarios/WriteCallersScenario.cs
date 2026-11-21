@@ -40,6 +40,11 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // beside the callers is what the callers take of the machine, and what the readers of the written
 // database lose beyond it is what the writes do to their reads inside the engine.
 //
+// The users without indexes. The same users, of the entity type User declaring none of its three indexes,
+// in a database of their own, which 16 callers replace while 16 readers read it, so that a run can state
+// on many callers and readers that a type without indexes loses nothing; the line is compared between
+// builds, not with the lines of the users with indexes.
+//
 // What a write of an entity of 32 MiB costs the other writers is the scenario large-writes
 // (LargeWritesScenario).
 //
@@ -71,6 +76,7 @@ internal static class WriteCallersScenario
     {
         using var users = UserDatabase.Load();
         using var others = UserDatabase.Load();
+        using var bare = UserDatabase.Load(withoutIndexes: true);
 
         var keys = users.Keys(ReadByKeyScenario.KeySeed, ReadSeries.Reads);
         var kinds = new (string Name, Func<int, int, Func<int>> Writer)[]
@@ -84,6 +90,7 @@ internal static class WriteCallersScenario
             users.Fixture,
             users.Loaded,
             $"The other database, which readers of the control read: {others.Loaded}",
+            $"The database of users without indexes: {bare.Fixture}; {bare.Loaded}",
             $"Series: a warm-up of {Seconds(StepWindow.WarmUp)} s, then a window of {Seconds(StepWindow.Length)} s; callers that each await every write before the next, on entities of their own; {Readers} readers through the class of keys drawn from 1 to {ReadSeries.Number(users.Count)} with seed {ReadByKeyScenario.KeySeed}, every {TimedEvery}th read timed",
             "",
         ];
@@ -106,6 +113,8 @@ internal static class WriteCallersScenario
                 lines.Add($"{Readers} readers beside {CallersOf(callers)} that {kind}, readers of the other database: {Series(users, others, keys, Readers, callers, writer)}");
             }
         }
+
+        lines.Add($"{Readers} readers beside {CallersOf(Callers[^1])} that replace, users without indexes, readers of the written database: {Series(bare, bare, keys, Readers, Callers[^1], (caller, callers) => Replacer(bare, caller, callers))}");
 
         var counters = users.Counters;
 
