@@ -164,6 +164,149 @@ of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
   no I/O, so only a fault injected by a test or a defect fails it; that faults the database,
   and a read that retries on the mark gives up with Unavailable.
 
+## The reads of an entity table
+
+The entities of one entity type are read by key, by enumeration and through a secondary
+index (`Engine/Entities/EntityTable.cs`). Every read runs inside the protection of reads,
+takes no lock and writes nothing but its slot of the protection, while the write executor
+changes the primary index and the root entries under the lock of the writes. A write being
+prepared looks its key up under that lock, outside the protection, since nothing changes
+them while it holds the lock. The search through a secondary index is described with the
+index ([the ordered index](ordered-index.md), "The search by a full key").
+
+### A read by key
+
+1. It looks the hash of the key up in the primary index, which gives the slots of the root
+   entries whose key has that hash, and compares the key with the key each of their roots
+   stores ("The comparison of a key", below). The root of a slot the index names is live
+   or retired, never freed, while the read is inside, and every root of one lifetime holds
+   the same key: the primary key is immutable, and a replace keeps the stored spelling of a
+   String key compared without case.
+2. It takes the state, the root and the sequence of the last mutation of the entry as one
+   state, by the stamp of the entry ("The stamp of a root entry", above): a write stores
+   the mark before it changes the root or the state and its own sequence after, and a read
+   that finds the mark, or another sequence after it took the rest, takes them again. It
+   writes nothing for this.
+3. A live root is copied whole, with every block it owns, into memory of the engine: the
+   blocks of a published root never change, and a root that a write replaced or deleted is
+   retired, not freed, until the read has left, so the copy is one state
+   ([memory and access](../decisions/memory-and-access.md)), never memory that was freed or
+   given to another root.
+4. It leaves the protection. The caller builds its result from the copy, and only then does
+   code of the application run. A read allocates the returned copy and nothing else.
+
+A deleted entry is released, and its slot given to another root, only after the reads that
+could have found it have left, so a read never follows an old entry to a key that was
+created again.
+
+### The position of an answer
+
+For a root it copied: the sequence of the database read between the two reads of the
+entry's sequence, or the entry's sequence when that is later, because an insert publishes
+its entry before it advances the sequence of the database; the state copied is the
+entity's at that position. For a root deleted before the read reached it: the sequence of
+its delete. For an absent key: the sequence of the database read before the lookup, when
+the lookup ended with the sequence unchanged; otherwise the read looks up again. An insert
+publishes its entry in the index before the sequence of the database and a delete the
+sequence before it removes the entry, so an absence seen at an unchanged sequence holds at
+that sequence.
+
+### An enumeration
+
+An enumeration goes a step at a time. Between two steps nothing is held but what its pass
+holds, managed memory of the enumeration. A step is made of rounds, each inside the
+protection of reads, which it enters and leaves, and each walking a bounded number of words
+of the index, so that no round holds back what writes retire for longer than a bounded piece
+of work, however many entries a step has to pass, as after a growth. A round:
+
+1. It looks at the time limit of a read, then takes the current table of the index with
+   its version. A version other than the one its position belongs to means that the index
+   grew since, and the walk starts again at the start of the new table: a growth places
+   every entry anew, so a position in the old table means nothing in the new one. Mapping
+   it, bucket b to buckets 2b and 2b + 1, would miss the entries the growth moved from the
+   overflow buckets of the old table into main buckets that the position has passed.
+2. It walks the words of the table from the position. For each entry it reads the key the
+   root of the entry stores and skips it when the pass has returned that key: that keeps a
+   key from being returned twice, after a growth, whose walk meets again what was walked,
+   and after a delete and an insert of a returned key, whose new entry the walk may meet at
+   a later word.
+3. Otherwise, when the key the entry holds has no room in the pass, the round ends before
+   the entry, before it copies anything; outside the protection the room is counted against
+   the memory limit of a read and made, and the next round reads the entry anew. So a step
+   copies the entity it returns once, the first of a pass and one whose key makes the room
+   grow included, and nothing large is allocated inside the protection. With room, it copies
+   the root as a read by key does, skips a root deleted meanwhile, and otherwise stages the
+   key and the position after the entry, which the pass takes once the entity is built
+   outside the protection. Room made for an entry that then turns out deleted is counted all
+   the same: the limit counts the capacity the pass holds, and the pass holds it whether or
+   not that key is remembered.
+4. At the end of the table, the sequence of the database read when the round began is the
+   position of the end when it is unchanged after the walk, as for an absent key; otherwise,
+   and when the round walked its words without finding an entity, the next round goes on
+   from the position.
+
+The pass counts the time of every step, its rounds and what lies between them included, and
+fails the round that would exceed a limit.
+
+Every entity that nobody changes during the pass is returned once: its entry is in the index
+throughout the pass, an entry does not move within a table, so a walk of a table meets it at
+its word, and a walk of a grown table from its start meets it too; the key it stores is the
+same in every root of its lifetime, so it is skipped only once it has been returned. Every
+returned entity is one written state, by the stamp of its entry. An insert, a replace, a
+delete or a growth never ends the pass, and a replace changes no entry of the index at all.
+
+### The comparison of a key
+
+The equality, the hash and the order of values follow the rules the schema declares, in one
+service across the indexes and direct lookups (`Engine/Comparison/ValueComparer.cs`): the
+primary index uses its equality and its hash, the secondary indexes its order, and nothing
+else in the engine compares a key with stored text.
+
+What equality is, for each type of a primary key:
+
+- An integer and a Guid are held in the index as their value, and the equality and the hash
+  of that .NET value are the key's: two integers of the key type are one key when they are
+  the same number, two Guids when their 16 bytes are the same.
+- A String follows the comparison its field declares, with the same result in a UTF-8 and in
+  a UTF-16 database: Ordinal, the equality of the UTF-16 code units, or OrdinalIgnoreCase,
+  by the case table of Lattice's own ([strings](../decisions/strings.md), Q04). The rule of
+  equality and hash for text is the schema's, `LatticeValueDeclaration.TextComparison`,
+  which the core follows for Map keys, Set elements and the keys of a write batch as well.
+
+A stored text is compared with a given one a piece at a time. The stored text is read as
+UTF-16, 256 code units at a time, into a buffer on the stack, and each piece is compared with
+the same code units of the given text by the rule; the texts are equal when every piece is
+and both end together. That is the answer of the rule for the whole texts. Both comparisons
+hold texts of different lengths different and compare them place by place: a code unit with
+the code unit at the same place, and without case a surrogate pair with a pair at the same
+place, as one scalar value, whose mapping keeps the number of code units. No piece of the
+stored text ends inside a pair, so a pair of the stored text is always compared whole; where
+the given text has the first half of a pair at the end of its piece, the stored text has
+another character at that place, which a high surrogate standing for itself equals under
+neither comparison, so both the pieces and the whole texts differ. The order of an index
+compares a text of a UTF-8 database under Ordinal by its bytes instead, with the one turn
+that makes their order that of the UTF-16 code units ([the ordered index](ordered-index.md),
+"Entries and their order"); every other comparison reads the code units. No culture is
+consulted, and nothing of the casing of the runtime is called.
+
+The hash of a key in the primary index is the engine's own, seeded with the seed of the
+instance, so that the index depends on nothing a process sets and nobody who does not know
+the seed can choose keys that share a hash: Marvin32, the hash of text of the .NET runtime,
+over the UTF-16 code units of the text, and for a comparison without case over the code units
+the case rule maps the text to, the mapping every hash without case follows. It is a hash of
+code units, so a text hashes the same in a UTF-8 and in a UTF-16 database. The engine
+computes it from the text a caller gives, when it makes the key, before the read enters the
+protection of reads, and the index keeps it in its entry, so no stored text is ever hashed.
+
+A comparison allocates nothing, whatever the length of the text and wherever it lies: its
+buffers are pieces of 512 bytes of its stack, those of the mapping only for a comparison
+without case, and none of them is zeroed, since every code unit a comparison reads it wrote
+first. A lookup costs the hash of the given text, one pass over it, and for each key of the
+index with the same hash, in practice the one that is looked for, one pass over its stored
+text, decoded from UTF-8 or copied, and one pass of the rule over both. Without case a code
+unit that equals its counterpart needs no mapping, and one that does not is looked up in the
+case table.
+
 ## Read and mutation paths
 
 An ordinary copy read claims the root, acquires protection, copies scalar fields,

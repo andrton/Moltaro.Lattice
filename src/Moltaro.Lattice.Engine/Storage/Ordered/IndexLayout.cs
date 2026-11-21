@@ -245,8 +245,7 @@ internal sealed class IndexLayout
     // in one place, Values.StoredScalars, which the root writer uses. A String part of TextCopyLimit bytes
     // or less is copied from wherever its value lies, the root or the text entry of a Dictionary field,
     // and a longer one references the text entry the root's descriptor names. Allocates nothing. For the
-    // writer under the lock of the writes, and for a reader inside the protection of reads that checks a
-    // root against a key.
+    // writer, under the lock of the writes.
     public int WriteEntry(in RootReader root, RootHandle identity, Span<byte> destination)
     {
         MemoryMarshal.Write(destination, in identity);

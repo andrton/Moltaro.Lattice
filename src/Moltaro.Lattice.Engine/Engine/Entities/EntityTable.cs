@@ -12,132 +12,47 @@ using Moltaro.Lattice.Storage.Roots;
 namespace Moltaro.Lattice.Engine.Entities;
 
 // The entities of one entity type in an open database: the root layout they are stored with, the
-// primary index that finds them, and the reads by key and by enumeration, inside the protection of
-// reads by epochs (Protection.ReadEpochs; docs/design/arena-protocol.md, "Deferred reclamation").
-// The write executor changes the index and the root entries under the lock of the writes; this class
-// says how reads read them while it does. A write being prepared looks its key up under that lock
-// (TryFind), outside the protection of reads, since nothing changes them while it holds the lock.
+// primary index that finds them, and the reads of them by key (TryRead), by enumeration (TryReadNext)
+// and through a secondary index (TrySearch, with IndexSearch). A read returns one written state of an
+// entity, copied whole into memory of the engine, with the position of its answer; an enumeration
+// returns once every entity that nobody changes during the pass, and a search every entity that has the
+// key for the whole search. Reads take no lock and run inside the protection of reads
+// (Protection.ReadEpochs), while the write executor changes the index and the root entries under the
+// lock of the writes; a read takes the state of an entry by its stamp (TakeEntry; ChangePublisher writes
+// it). A write being prepared looks its key up under that lock (TryFind), outside the protection.
+// docs/design/arena-protocol.md says how, in "The stamp of a root entry" and "The reads of an entity
+// table"; the search is in docs/design/ordered-index.md, "The search by a full key".
 //
-// The stamp of a root entry, read here (TakeEntry) and written by ChangePublisher. A read takes
-// the state, the root and the sequence of the last mutation of an entry as one state, without a lock,
-// while the one thread that holds the lock of the writes changes the entry:
-// - The stamp is the sequence of the last mutation of the entry. MutationInProgress, 0, which no
-//   published write has, is no stamp but the mark of a write in progress.
-// - A write stores the mark, then the new state or root, then its own sequence as the new stamp, each
-//   store with release semantics.
-// - A read loads the stamp with acquire semantics and backs off while it finds the mark, then loads
-//   the state and the root with acquire semantics (the members Acquire… of RootEntry), and loads the
-//   stamp again: the same stamp both times is one state; another one means that a write came between,
-//   and the read takes the entry again.
-// Sequences only grow, so no write stores a stamp a read holds. A publication that stops between its
-// stores faults the database, and a read that finds the mark then gives up with Unavailable.
-// Adapted from crossbeam (https://github.com/crossbeam-rs/crossbeam), SeqLock of
+// The stamp is adapted from crossbeam (https://github.com/crossbeam-rs/crossbeam), SeqLock of
 // crossbeam-utils/src/atomic/seq_lock.rs and the optimistic read of AtomicCell (atomic_load of
 // crossbeam-utils/src/atomic/atomic_cell.rs), at commit a28f40fdddb70bea8e5faf0efad9af0be4b9dbea, under
 // MIT, which the project offers beside Apache-2.0, Copyright (c) 2019 The Crossbeam Project Developers
-// (THIRD-PARTY-NOTICES.md); docs/design/arena-protocol.md, "The stamp of a root entry", says what differs
-// and why. The rest of the type is the engine's own.
+// (THIRD-PARTY-NOTICES.md). The rest of the type is the engine's own.
 //
-// Whether the engine stores the entity type is decided once, when the database opens: an entity
-// type the engine cannot store yet gets no layout, every write of it is refused with
-// NotSupportedException, a read of it by key finds nothing and an enumeration of it is empty. How its keys
-// are hashed and compared, and read from a root, is the business of its primary keys (PrimaryKeys).
-//
-// A read by key, in its order. It enters the protection of reads, takes no lock and writes nothing
-// but its slot of the protection:
-// 1. It looks the hash of the key up in the primary index (Indexes.PrimaryIndex), which gives the
-//    slots of the root entries whose key has that hash, and compares the key with the key each of
-//    their roots stores. The root of a slot the index names is live or retired, never freed, while
-//    the read is inside, and every root of one lifetime holds the same key: the primary key is
-//    immutable, and a replace keeps the stored spelling of a String key compared without case.
-// 2. It takes the state, the root and the sequence of the last mutation of the entry as one state,
-//    by the stamp of the entry (above): a write stores MutationInProgress before it changes the root
-//    or the state and its own sequence after, and a read that finds MutationInProgress, or another
-//    sequence after it took the rest, takes them again (TryCopy). It writes nothing for this.
-// 3. A live root is copied whole, with every block it owns, into memory of the engine
-//    (IRootCopy.Copy): the blocks of a published root never change, and a root that a write
-//    replaced or deleted is retired, not freed, until the read has left, so the copy is one state
-//    (docs/decisions/memory-and-access.md), never memory that was freed or given to another root.
-// 4. It leaves the protection. The caller builds its result from the copy (IRootCopy.Build), and
-//    only then does code of the application run. A read allocates the returned copy and nothing else.
-// A deleted entry is released, and its slot given to another root, only after the reads that could
-// have found it have left (Protection.RetiredMemory), so a read never follows an old entry to a key
-// that was created again.
-//
-// The position of an answer. For a root it copied: the sequence of the database read between the two
-// reads of the entry's sequence, or the entry's sequence when that is later, because an insert
-// publishes its entry before it advances the sequence of the database; the state copied is the
-// entity's at that position. For a root deleted before the read reached it: the sequence of its
-// delete. For an absent key: the sequence of the database read before the lookup, when the lookup
-// ended with the sequence unchanged; otherwise the read looks up again. An insert publishes its entry
-// in the index before the sequence of the database and a delete the sequence before it removes the
-// entry (ChangePublisher), so an absence seen at an unchanged sequence holds at that sequence.
-//
-// An enumeration, a step at a time (TryReadNext). Between two steps nothing is held but what its pass
-// holds (EntityPass), managed memory of the enumeration. A step is made of rounds, each inside the
-// protection of reads, which it enters and leaves, and each walking at most WordsPerRound words of
-// the index, so that no round holds back what writes retire for longer than a bounded piece of work,
-// however many entries a step has to pass, as after a growth. A round:
-// 1. It looks at the time limit of a read, then takes the current table of the index with its version.
-//    A version other than the one its position belongs to means that the index grew since, and the
-//    walk starts again at the start of the new table: a growth places every entry anew, so a position
-//    in the old table means nothing in the new one. Mapping it, bucket b to buckets 2b and 2b + 1,
-//    would miss the entries the growth moved from the overflow buckets of the old table into main
-//    buckets that the position has passed.
-// 2. It walks the words of the table from the position (IndexTable.TryFindNext). For each entry it
-//    reads the key the root of the entry stores and skips it when the pass has returned that key
-//    (ReturnedKeys): that keeps a key from being returned twice, after a growth, whose walk meets
-//    again what was walked, and after a delete and an insert of a returned key, whose new entry the
-//    walk may meet at a later word.
-// 3. Otherwise, when the key the entry holds has no room in the pass, the round ends before the entry,
-//    before it copies anything; outside the protection the room is counted against the memory limit of
-//    a read and made, and the next round reads the entry anew. So a step copies the entity it returns
-//    once, the first of a pass and one whose key makes the room grow included, and nothing large is
-//    allocated inside the protection. With room, it copies the root as a read by key does (TryCopy),
-//    skips a root deleted meanwhile, and otherwise stages the key and the position after the entry,
-//    which the pass takes once the entity is built outside the protection (EntityPass.Commit). Room
-//    made for an entry that then turns out deleted is counted all the same: the limit counts the
-//    capacity the pass holds, and the pass holds it whether or not that key is remembered.
-// 4. At the end of the table, the sequence of the database read when the round began is the position
-//    of the end when it is unchanged after the walk, as for an absent key; otherwise, and when the
-//    round walked its words without finding an entity, the next round goes on from the position.
-// The pass counts the time of every step, its rounds and what lies between them included, and fails
-// the round that would exceed a limit.
-//
-// A search through a secondary index, a step at a time (TrySearch; IndexSearch says what a step does
-// and why it is right): it enters the protection of reads, descends the tree of the index to the first
-// entry of the key from an identity on, takes the root entry the entry names as a read by key takes it,
-// and copies the root only when it is live and has the key; otherwise it passes over the entry. At the
-// end of the run the sequence of the database read when the step began is the position of the end when
-// it is unchanged after the walk, as for an absent key; otherwise the step walks again. The step that
-// copies an entity sees the end of the run too when the entry after it has another key, and then, under
-// the same condition, gives the sequence of the end with the entity, so that the next step ends there
-// without a descent.
-// Why every entity that nobody changes during the pass is returned once: its entry is in the index
-// throughout the pass, an entry does not move within a table, so a walk of a table meets it at its
-// word, and a walk of a grown table from its start meets it too; the key it stores is the same in
-// every root of its lifetime, so it is skipped only once it has been returned. Every returned entity
-// is one written state, by the stamp of its entry. An insert, a replace, a delete or a growth never
-// ends the pass, and a replace changes no entry of the index at all.
+// Whether the engine stores the entity type is decided once, when the database opens: an entity type
+// the engine cannot store yet gets no layout, every write of it is refused with NotSupportedException,
+// a read of it by key finds nothing and an enumeration of it is empty. How its keys are hashed and
+// compared, and read from a root, is the business of its primary keys (PrimaryKeys).
 internal sealed class EntityTable
 {
     // The sequence of the last mutation of a root entry while a write changes its root or its state,
-    // the mark of the stamp (see the head of the file): no published write has it, the first has 1.
+    // the mark of the stamp: no published write has it, the first has 1 (docs/design/arena-protocol.md,
+    // "The stamp of a root entry").
     public const ulong MutationInProgress = 0;
 
-    // The words of the index a round of a step of an enumeration walks at most inside the protection
-    // of reads (see the class). Measured in Release, two runs each on a loaded machine, on 1,000,000
-    // entities with an Int64 or a String key: a pass returned all but 10 of them, the index grew, and
-    // the keys inserted for the growth were deleted again, so that the 10 steps left walked the whole
-    // grown table, nearly every word an entry to skip, at 0.5 to 1 microsecond an entry. In one
-    // round each, as before this bound, the longest step stayed inside the protection 117 to 269 ms.
-    // In rounds of 256 words the longest round stayed inside 0.14 to 2.6 ms, of 1,024 words 1.9 to
-    // 3.6 ms and of 4,096 words 2.5 to 7.9 ms; an ordinary round of 256 such words takes some tens of
-    // microseconds, and the longest are rounds the machine interrupted. The 10 steps took 0.2 to 0.9 s together in
-    // rounds of 256 words and 0.4 to 1.0 s in one round each: leaving the protection and entering it
-    // again, some tens of nanoseconds, is lost in that. A round over empty words takes about a
-    // microsecond. A step that finds an entity among the first words, as every step does while the
-    // index does not grow, takes one round.
+    // The words of the index a round of a step of an enumeration walks at most inside the protection of
+    // reads (arena-protocol.md, "An enumeration"). Measured in Release, two runs each on a loaded
+    // machine, on 1,000,000 entities with an Int64 or a String key: a pass returned all but 10 of them,
+    // the index grew, and the keys inserted for the growth were deleted again, so that the 10 steps left
+    // walked the whole grown table, nearly every word an entry to skip, at 0.5 to 1 microsecond an
+    // entry. In one round each, as before this bound, the longest step stayed inside the protection 117
+    // to 269 ms. In rounds of 256 words the longest round stayed inside 0.14 to 2.6 ms, of 1,024 words
+    // 1.9 to 3.6 ms and of 4,096 words 2.5 to 7.9 ms; an ordinary round of 256 such words takes some
+    // tens of microseconds, and the longest are rounds the machine interrupted. The 10 steps took 0.2 to
+    // 0.9 s together in rounds of 256 words and 0.4 to 1.0 s in one round each: leaving the protection
+    // and entering it again, some tens of nanoseconds, is lost in that. A round over empty words takes
+    // about a microsecond. A step that finds an entity among the first words, as every step does while
+    // the index does not grow, takes one round.
     private const int WordsPerRound = 256;
 
     private readonly Arena _arena;
@@ -305,15 +220,15 @@ internal sealed class EntityTable
     // (EngineDatabase.HoldNextGrowth).
     public void HoldNextGrowth(Action hold) => _index!.HoldNextGrowth(hold);
 
-    // For a replace of a stored entity, and an upsert that replaces one: makes the key among the
-    // values the key as it is stored. The primary key is immutable (decision on mutation commands,
-    // "Immutable primary keys"), so a write through another spelling of a String key compared without
-    // case keeps the spelling the entity was created with, and replaces every other field. A key of
-    // any other type is the stored key exactly, as is a String key compared with Ordinal. The values
-    // are those the core took for this write alone (EntityBinding.ValuesForWrite, LatticeRecord.ValuesForWrite): the
-    // array is the write's own, so nothing of the caller's is changed. A write being prepared calls it
-    // under the lock of the writes, as it looks its key up (TryFind), and the root it reads stays the
-    // current one until the write is published or withdrawn.
+    // For a replace of a stored entity, and an upsert that replaces one: makes the key among the values
+    // the key as it is stored. The primary key is immutable (decision on mutation commands, "Immutable
+    // primary keys"), so a write through another spelling of a String key compared without case keeps
+    // the spelling the entity was created with, and replaces every other field. A key of any other type
+    // is the stored key exactly, as is a String key compared with Ordinal. The values are those the core
+    // took for this write alone (EntityBinding.ValuesForWrite, LatticeRecord.ValuesForWrite): the array
+    // is the write's own, so nothing of the caller's is changed. A write being prepared calls it under
+    // the lock of the writes, as it looks its key up (TryFind), and the root it reads stays the current
+    // one until the write is published or withdrawn.
     public void KeepStoredKey(RootHandle handle, object?[] values)
     {
         var key = EntityType.Key;
@@ -355,9 +270,10 @@ internal sealed class EntityTable
             var found = TryFindSlot(key, hash, out var slot);
 
             // A key it finds needs the sequence of the database once, in TryCopy. An absent key needs
-            // the sequence before a lookup that ends with the sequence unchanged (see the class), so the
-            // read looks up again between two loads of the sequence; the writer writes the sequence at
-            // every write, and a read that loads it only when it needs it misses its line less often.
+            // the sequence before a lookup that ends with the sequence unchanged (arena-protocol.md,
+            // "The position of an answer"), so the read looks up again between two loads of the
+            // sequence; the writer writes the sequence at every write, and a read that loads it only
+            // when it needs it misses its line less often.
             while (!found)
             {
                 var before = _clock.Sequence;
@@ -449,8 +365,8 @@ internal sealed class EntityTable
                     {
                         ref var entry = ref _roots.EntryOfSlot(slot);
 
-                        // Any root of the entry holds the key of its lifetime (see the class); it is
-                        // live or retired, never freed, while the round is inside.
+                        // Any root of the entry holds the key of its lifetime (arena-protocol.md, "A
+                        // read by key"); it is live or retired, never freed, while the round is inside.
                         var stored = new RootReader(_arena, Layout, entry.AcquireRoot());
 
                         if (pass.Returned.Contains(hash, stored))
@@ -515,7 +431,7 @@ internal sealed class EntityTable
     }
 
     // One step of a search of the entities of the key through the index, from the identity given on
-    // (IndexSearch; see the class): true when there is an entity, copied into the copy, with the identity
+    // (IndexSearch): true when there is an entity, copied into the copy, with the identity
     // the next step starts from and the sequence of the answer, as a read by key gives it; false at the
     // end, with the sequence under which the index showed no more entity of the key. The key is bound to
     // the fields of the index and gives a value to each. A search of an entity type the engine does not
@@ -523,18 +439,12 @@ internal sealed class EntityTable
     // close; the token ends the wait for a slot of the protection, with OperationCanceledException.
     // Allocates nothing but what the copy makes.
     //
-    // The end of the run seen by a step that copies an entity. EndsAt is the sequence at which an earlier
-    // step saw the end, null when none did; a step given one enters the protection, as every step does,
-    // and ends there without a descent. A step that copies an entity sets it to the sequence read when its
-    // walk began, before, when the tree showed it the end of the run (OrderedTree.TryFindFirst, runEnds)
-    // and the sequence of the database is still before once the entity is copied, and to null otherwise.
-    // That is the condition under which the next step would end at before: no entry of the key after the
-    // identity, under an unchanged sequence. The check of the sequence is for a write that takes an entry of
-    // the key away, a replace that moves an entity after the identity to another key or its delete: it
-    // publishes its position and only then removes the old entry (ChangePublisher.PublishPositionAndAfter),
-    // so a descent that no longer met the entry came after that position, and an end at before would hide
-    // an entity that had the key there. A write that adds an entry inserts it before its position and needs
-    // no check: the descent met the entry, and the run did not end, or its entity has no state at before.
+    // The end of the run seen by a step that copies an entity (docs/design/ordered-index.md, "The search
+    // by a full key", argues it): endsAt becomes before, the sequence read when the walk began, when the
+    // tree showed the end of the run (OrderedTree.TryFindFirst, runEnds) and the sequence is still
+    // before once the entity is copied, and null otherwise; a step given one ends there without a
+    // descent. It rests on one order: a write that takes an entry of the key away publishes its position
+    // before it removes the entry (ChangePublisher.PublishPositionAndAfter).
     //
     // The scratch of the search key is not zeroed: the key writes every byte the order reads of it.
     [SkipLocalsInit]
@@ -636,12 +546,12 @@ internal sealed class EntityTable
         return false;
     }
 
-    // Whether the root of the entry in the slot stores the key, under the comparison of its field for
-    // a String. The root is read once; any root the entry names while the caller is inside the
-    // protection, or that the writer reads, holds the key of the lifetime (see the class). The comparison
-    // is written here, in the read, with what the keys give, so that the JIT inlines it into a read by key
-    // at every tier: as a member of the keys of its own, tiered compilation leaves it out of line, behind
-    // the read of the root it inlines first.
+    // Whether the root of the entry in the slot stores the key, under the comparison of its field for a
+    // String. The root is read once; any root the entry names while the caller is inside the protection,
+    // or that the writer reads, holds the key of the lifetime (arena-protocol.md, "A read by key"). The
+    // comparison is written here, in the read, with what the keys give, so that the JIT inlines it into
+    // a read by key at every tier: as a member of the keys of its own, tiered compilation leaves it out
+    // of line, behind the read of the root it inlines first.
     private bool KeyEquals(uint slot, in EntityKey key)
     {
         var stored = new RootReader(_arena, Layout!, _roots.EntryOfSlot(slot).AcquireRoot());
@@ -655,9 +565,10 @@ internal sealed class EntityTable
         };
     }
 
-    // Steps 2 and 3 of a read, inside the protection: takes the state, the root and the sequence of
-    // the last mutation of the entry as one state, by the stamp of the entry (see the head of the
-    // file), and copies a live root. False, with the sequence of its delete, for a deleted root.
+    // Steps 2 and 3 of a read, inside the protection: takes the state, the root and the sequence of the
+    // last mutation of the entry as one state, by the stamp of the entry (arena-protocol.md, "The stamp
+    // of a root entry"), and copies a live root. False, with the sequence of its delete, for a deleted
+    // root.
     //
     // Why the triple is never torn. Every load here has acquire semantics and every store of the
     // writer release semantics (ChangePublisher), so a load that reads what a store wrote sees
@@ -670,7 +581,7 @@ internal sealed class EntityTable
     //   the stamp of a later write, never S again: every write stores a sequence greater than the
     //   entry's.
     // The sequence of the database is read between the two loads of the stamp for the position of the
-    // answer (see the class); it takes no part in the stamp.
+    // answer (arena-protocol.md, "The position of an answer"); it takes no part in the stamp.
     private bool TryCopy<TCopy, TResult>(ref RootEntry entry, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
@@ -764,8 +675,9 @@ internal sealed class EntityTable
     }
 
     // Step 2 of a read, inside the protection: the state, the root and the sequence of the last mutation
-    // of the entry as one state, by the stamp of the entry (see the head of the file), with the sequence
-    // of the database read between the two loads of the stamp; returns the stamp.
+    // of the entry as one state, by the stamp of the entry (arena-protocol.md, "The stamp of a root
+    // entry"), with the sequence of the database read between the two loads of the stamp; returns the
+    // stamp.
     private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out RootStateEnum state, out ArenaAddress root, out ulong at)
     {
         var backoff = default(SpinWait);

@@ -35,8 +35,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // step that loads the current table finds its version in it, with no second load to frame, so the
 // table and the version a step takes are always one pair (review round 1 of S08, part 1: a step had
 // applied a position of the old table to the new one). An insert or a delete changes entries of the
-// current table, which a step reads as they change, and not its version (Entities.EntityTable says
-// why a walk stays correct through both).
+// current table, which a step reads as they change, and not its version (docs/design/arena-protocol.md,
+// "An enumeration", says why a walk stays correct through both).
 //
 // Who calls what. Find and TableAndVersion from reads, inside the protection of reads; Find also from a
 // write being prepared, under the lock of the writes and outside the protection of reads, which is

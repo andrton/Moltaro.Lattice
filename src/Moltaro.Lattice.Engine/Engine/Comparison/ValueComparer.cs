@@ -10,63 +10,20 @@ namespace Moltaro.Lattice.Engine.Comparison;
 // The equality, the hash and the order of values by the rules the schema declares: the one comparison
 // and hash service of the schema that the milestone contract asks for ("Index preparation and
 // traversal"), across indexes, Map and Set and direct lookups. The primary index uses its equality and
-// its hash, the secondary indexes its order (Indexes.IndexOrder), and nothing else in the engine
-// compares a key with stored text. It knows the comparison from the declaration of the field and the
-// encoding of the database from what reads the text, so it has no state of its own and one set of rules
-// serves every database. The members of a Map and a Set are not stored yet.
+// its hash (TextHash, the seeded Marvin32 of the code units), the secondary indexes its order
+// (CompareStored, CompareText, CompareUtf8Ordinal; Indexes.IndexOrder), and nothing else in the engine
+// compares a key with stored text. A text compares the same in a UTF-8 and in a UTF-16 database, by the
+// comparison its field declares, Ordinal or OrdinalIgnoreCase by the case table of Lattice's own; a
+// stored text is read a piece of PieceLength code units at a time (StoredTextReader), so a comparison
+// allocates nothing, whatever the length of the text and wherever it lies; its buffers on the stack are
+// not zeroed (SkipLocalsInit), since every code unit a comparison reads it wrote first. It has no state
+// of its own: the comparison comes from the declaration of the field and the encoding from what reads
+// the text, so one set of rules serves every database. The members of a Map and a Set are not stored yet.
 //
-// What equality is, for each type of a primary key:
-// - an integer and a Guid are held in the index as their value, and the equality and the hash of that
-//   .NET value are the key's: two integers of the key type are one key when they are the same number,
-//   two Guids when their 16 bytes are the same (Entities.EntityTable says how each is held);
-// - a String follows the comparison its field declares, with the same result in a UTF-8 and in a
-//   UTF-16 database: Ordinal, the equality of the UTF-16 code units, or OrdinalIgnoreCase, by the case
-//   table of Lattice's own (decision on strings, Q04, the addition of 15 November 2026). The rule of
-//   equality and hash for text is the schema's, LatticeValueDeclaration.TextComparison, which the core
-//   follows for Map keys, Set elements and the keys of a write batch as well; a key is compared with
-//   stored text here, and nowhere else.
-//
-// How a stored text is compared with a given one. The stored text is read as UTF-16, a piece of
-// PieceLength code units at a time, into a buffer on the stack (StoredTextReader), and each piece is
-// compared with the same code units of the given text by the rule; the texts are equal when every
-// piece is and both end together. That is the answer of the rule for the whole texts. Both
-// comparisons hold texts of different lengths different and compare them place by place: a code unit
-// with the code unit at the same place, and without case a surrogate pair with a pair at the same
-// place, as one scalar value, whose mapping keeps the number of code units. No piece of the stored text
-// ends inside a pair, so a pair of the stored text is always compared whole; where the given text has
-// the first half of a pair at the end of its piece, the stored text has another character at that
-// place, which a high surrogate standing for itself equals under neither comparison, so both the
-// pieces and the whole texts differ. No byte order of UTF-8 stands for UTF-16, no culture is consulted,
-// and nothing of the casing of the runtime is called.
-//
-// The hash of a key in the primary index (TextHash) is the engine's own, seeded with the seed of the
-// instance, so that the index depends on nothing a process sets and nobody who does not know the seed
-// can choose keys that share a hash (the planner's answer to Q50): Marvin32, the hash of text of the
-// .NET runtime (Marvin), over the UTF-16 code units of the text, and for a comparison without case
-// over the code units the case rule maps the text to (TextComparison.ToUpper), the mapping every hash
-// without case follows. It is a hash of code units, so a text hashes the same in a UTF-8 and in a
-// UTF-16 database; the engine computes it from the text a caller gives, when it makes the key
-// (Sets.KeyArgument), before the read enters the protection of reads, and the index keeps it in its
-// entry, so no stored text is ever hashed.
-//
-// The order (CompareStored, CompareText, CompareUtf8Ordinal), which an index needs beside the equality:
-// a value of a fixed type by the value its stored bytes hold, read by the one reader of that form
-// (Storage.Values.StoredScalars), never as raw bytes; a text by the comparison its field declares, the same
-// in a UTF-8 and in a UTF-16 database, so that the order holds two texts equal exactly where the equality
-// above does. Two texts are read a piece at a time, a stored one through StoredTextReader, and a text that
-// the other begins with comes first; text of a UTF-8 database under Ordinal is compared by its bytes
-// instead (CompareUtf8Ordinal). A null is no value here. The rule for each type, with its decision, is in
-// docs/design/ordered-index.md, "Entries and their order".
-//
-// What it reserves: nothing. The buffers are pieces of 512 bytes of the stack of the comparison, those of
-// the mapping only for a comparison without case, and none of them is zeroed (SkipLocalsInit): every code
-// unit a comparison reads it wrote first. A comparison allocates nothing, whatever the length of the text
-// and wherever it lies. The hash without case maps the text into 512 bytes of the stack as well.
-//
-// What a lookup costs: the hash of the given text, one pass over it; and for each key of the index
-// with the same hash, in practice the one that is looked for, one pass over its stored text, decoded
-// from UTF-8 or copied, and one pass of the rule over both. Without case a code unit that equals its
-// counterpart needs no mapping, and one that does not is looked up in the case table.
+// docs/design/arena-protocol.md, "The comparison of a key", says what equality is for each type of a
+// primary key, how a text is compared by pieces and its surrogate pairs whole, how the hash is seeded,
+// and what a lookup costs; docs/design/ordered-index.md, "Entries and their order", gives the order of
+// each type with its decision, and the turn that orders the UTF-8 bytes of a text as its code units.
 [SkipLocalsInit]
 internal static class ValueComparer
 {
@@ -74,8 +31,8 @@ internal static class ValueComparer
     private const int PieceLength = 256;
 
     // The hash of a text in the primary index under the comparison the String field declares and the
-    // seed (see the class): texts that are equal under the comparison have the same hash under every
-    // seed. Allocates nothing.
+    // seed (arena-protocol.md, "The comparison of a key"): texts that are equal under the comparison
+    // have the same hash under every seed. Allocates nothing.
     public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed) =>
         ComparisonOf(field).IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
 
@@ -133,8 +90,9 @@ internal static class ValueComparer
         }
     }
 
-    // The order of two stored values of the fixed type given, from their places at the width of the
-    // type (see the class): below zero when the left one comes first. Allocates nothing.
+    // The order of two stored values of the fixed type given, from their places at the width of the type
+    // (ordered-index.md, "Entries and their order"): below zero when the left one comes first. Allocates
+    // nothing.
     public static int CompareStored(StoredTypeEnum type, ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => type switch
     {
         StoredTypeEnum.Boolean => left[0].CompareTo(right[0]),
@@ -151,8 +109,8 @@ internal static class ValueComparer
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type."),
     };
 
-    // The order of two stored texts under the comparison given (see the class): below zero when the left
-    // one comes first. Allocates nothing.
+    // The order of two stored texts under the comparison given (arena-protocol.md, "The comparison of a
+    // key"): below zero when the left one comes first. Allocates nothing.
     public static int CompareText(StoredTextReader left, StoredTextReader right, TextComparison comparison)
     {
         Span<char> leftPiece = stackalloc char[PieceLength];

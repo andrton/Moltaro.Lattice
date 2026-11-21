@@ -13,14 +13,12 @@ namespace Moltaro.Lattice.Engine.Entities;
 // its end at once (Sets.SetIndex.FindAsync). A step gives the value that follows it, which the owner takes
 // once it has built the entity, so that an entity whose build fails is read again by the next step.
 //
-// A step runs in the table, where the read protocol of its entities is (EntityTable.TrySearch): inside the
-// protection of reads and without a lock it descends to the first entry of the key after the last identity
-// returned (OrderedTree.TryFindFirst), takes the root entry the entry names by its stamp, as a read by key
-// does, passes over an entry that is not live or whose root does not have the key (SecondaryIndex.HasKey),
-// and copies the root; the owner builds the entity outside the protection. So every entity that has the
-// key for the whole search is returned once, and none under a key its state does not have; a step
-// allocates nothing but what the copy makes. An entity deleted and created again during a search has a new
-// identity and can be returned twice (ordered-index.md, "How a range will be walked").
+// A step runs in the table, where the read protocol of its entities is (EntityTable.TrySearch), inside the
+// protection of reads and without a lock; the owner builds the entity outside the protection. So every
+// entity that has the key for the whole search is returned once, and none under a key its state does not
+// have; a step allocates nothing but what the copy makes. An entity deleted and created again during a
+// search has a new identity and can be returned twice. ordered-index.md, "The search by a full key", says
+// what a step does and why that holds.
 internal struct IndexSearch
 {
     // The identity the next step starts from: after the last entity returned, default before the first.
