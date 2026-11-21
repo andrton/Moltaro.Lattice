@@ -6718,6 +6718,32 @@ cost of 4 to 8 % on an insert and a delete of an indexed type, and series 2 drop
 listings find no cause, the entry is not dropped: it goes to the planner with what was
 compared, and stays open with a place.
 
+**What the second start showed, and the plan of the third** (21 November 2026). Series 1:
+group 1 gave the one-entity lines 2 to 6 %, at the edge of the gauge; group 2 gave
+nothing, so A4 is taken out; group 3 with (B) gave nothing on one entity and lifted the
+first item of many from 0.52 to 0.80 to 0.89 of 5cc64c8. What remains against 5cc64c8:
+Int64 one entity 0.91, a text of 8 bytes 0.90 to 0.92; the targets of S14, part 2 at the
+head, 688,000 against 700,000 and 435,000 against 450,000, missed, with 5cc64c8 itself
+about 6 % lower on this machine than on 20 November. Series 2 and 3 chose V2 as the fix of
+S14R, merged to `main` as a040f9d and taken into this branch.
+
+The third start is the last for this fall: series 1 alone, `index-search`, three rounds,
+over 5cc64c8, the head without A4 (6c73e8d), the head with a6 (`ReadLimits` without the
+options and with a byte for its failure: the search 48 bytes, the object 352), the head
+with lean (a step of its own for a full-key search that remembers nothing, handing over to
+the walk), the head with split (the scratch of a step made apart from the loop of its
+rounds, so that both methods tier), and a second build of the head as the gauge; about
+thirty-five minutes. The variants are patches outside the repository. The rule that
+chooses (the planner, 21 November 2026): a variant is taken only if its lines stand
+outside the gauge against the head; split is taken over lean if it brings the one-entity
+lines within the gauge of 5cc64c8 or within the gauge of lean, since one form beats two at
+the same figure; lean only if it reaches the gauge of 5cc64c8 and split does not; a6 only
+if it shows outside the gauge by itself. Judged against 5cc64c8 of the same start, the
+absolute targets reported beside it. Whatever is taken gets its tests where it changes
+anything observable, one review round and the breaker's probes before it is merged. After
+this start nothing more is tried on the machine for this fall: what remains goes to the
+owner as one question with the figures.
+
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
 read, the licence checked first:
