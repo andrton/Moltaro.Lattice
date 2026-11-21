@@ -2,12 +2,12 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
-// A block of the arena (brief of S04, "What the members do"). An allocation writes the whole header,
-// also in a reused slot: the root, the kind and the payload length as given, every other field
-// zero; it checks neither the kind nor the root. Header and Payload reach the block in place, in
-// native memory. Payload spans the header's PayloadLength and never goes beyond the capacity of
-// the slot: a length that would is refused with InvalidOperationException before any byte of the
-// payload is reached. A new payload is not initialized, so these tests read only bytes they wrote.
+// A block of the arena, as Arena allocates and reaches it. An allocation writes the whole header, also
+// in a reused slot: the root, the kind and the payload length as given, every other field zero; it
+// checks neither the kind nor the root. Header and Payload reach the block in place, in native memory.
+// Payload spans the header's PayloadLength and never goes beyond the capacity of the slot: a length that
+// would is refused with InvalidOperationException before any byte of the payload is reached. A new
+// payload is not initialized, so these tests read only bytes they wrote.
 public sealed class BlockTests
 {
     [Fact]

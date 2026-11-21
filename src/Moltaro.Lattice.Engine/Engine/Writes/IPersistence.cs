@@ -1,12 +1,12 @@
 namespace Moltaro.Lattice.Engine.Writes;
 
 // The persistence step of the commit stage: groups are committed one at a time, in one order, then
-// published under the lock of the writes. It is a real boundary of the engine: a provider of
-// durable persistence plugs in here (S27), and a test of the engine gives a persistence of its own through
-// EngineDatabase.Create, one that holds a commit until the test releases it, so that later writes are
-// admitted and prepared and wait for the persistence step meanwhile. The persistence of MemoryOnly
-// completes at once (MemoryOnlyPersistence); the commit stage that calls it is WriteCoordinator's. The
-// persistence of the tests lives in the engine test project.
+// published under the lock of the writes. It is a real boundary of the engine: a provider of durable
+// persistence plugs in here once it is built, and a test of the engine gives a persistence of its own
+// through EngineDatabase.Create, one that holds a commit until the test releases it, so that later
+// writes are admitted and prepared and wait for the persistence step meanwhile. The persistence of
+// MemoryOnly completes at once (MemoryOnlyPersistence); the commit stage that calls it is
+// WriteCoordinator's. The persistence of the tests lives in the engine test project.
 internal interface IPersistence
 {
     // Makes the group durable and assigns its positions. Completes at once in MemoryOnly.
@@ -21,8 +21,8 @@ internal interface IPersistence
     // and never from inside a call of CommitAsync.
     //
     // The call is the dispatch of the writes of the group: the moment the commit stage has taken them
-    // into the group and hands it to the persistence step (decision "Cancellation at the commit
-    // boundary"; brief of S09, "Dispatch"). Before it, a write whose token is cancelled is withdrawn,
+    // into the group and hands it to the persistence step (docs/decisions/mutation-commands.md,
+    // "Cancellation at the commit boundary"). Before it, a write whose token is cancelled is withdrawn,
     // releases what it prepared and ends in OperationCanceledException. From it on, the call of the
     // write returns its real outcome and its token is not looked at. The writes of the group take
     // consecutive positions from CommitOutcome.FirstSequence, in the order of the group, which for one

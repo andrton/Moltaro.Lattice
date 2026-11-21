@@ -4,11 +4,10 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
-// A writer writes a root as a write of the database does: every block it
-// allocates is prepared until RootStorage.Publish publishes the root, and then the arena holds, live,
-// what the placement of its values gives (StoredBytes.Of; brief of Epic 1, sprint S06, the planner's
-// answer to Q30). A prepared root reads like any root. A prepared writer that is abandoned, or
-// whose Complete is refused, leaves nothing prepared.
+// A writer writes a root as a write of the database does: every block it allocates is prepared until
+// RootStorage.Publish publishes the root, and then the arena holds, live, what the placement of its
+// values gives (StoredBytes.Of). A prepared root reads like any root. A prepared writer that is
+// abandoned, or whose Complete is refused, leaves nothing prepared.
 public sealed class PreparedRootTests
 {
     private const string Fields = """

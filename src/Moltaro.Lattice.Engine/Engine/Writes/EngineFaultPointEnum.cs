@@ -1,9 +1,8 @@
 namespace Moltaro.Lattice.Engine.Writes;
 
 // The points of the path of a write at which a test of the engine can make the next write fail
-// (EngineDatabase.ArmFault; exception X3, docs/work/exceptions.md). A point does nothing unless a
-// test arms it and cannot be reached through the public API (brief of Epic 1, sprint S09, "Types and
-// members of S09", "Faulted" and the answers of the planner to the contract author).
+// (EngineDatabase.ArmFault; exception X3, docs/work/exceptions.md). A point does nothing unless a test
+// arms it and cannot be reached through the public API.
 //
 // Both points lie after the persistence step of the group of the write, and a failure at either puts the
 // instance into Faulted. An armed point throws InvalidOperationException with a message that names

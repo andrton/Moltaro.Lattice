@@ -4,29 +4,28 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// The storage step of a test (IPersistence), given to an instance through
-// EngineTestInputs.Persistence (exception X3; brief of Epic 1, sprint S09, "Dispatch"). While it
-// holds, a commit completes only when the test releases it, so that a test decides when the commit
-// stage is free again: meanwhile later writes are admitted and prepared and wait for it, and a test
-// can count them, cancel one before its dispatch and form groups of a size it knows. A test takes
-// each commit it holds from NextAsync; one that came while the storage did not hold completed at
-// once and is not given there. Every call is recorded (HeldCommit), so that a test can state what
-// each group held.
+// The persistence step of a test (IPersistence), given to an instance through
+// EngineTestInputs.Persistence (exception X3). While it holds, a commit completes only when the test
+// releases it, so that a test decides when the commit stage is free again: meanwhile later writes are
+// admitted and prepared and wait for it, and a test can count them, cancel one before its dispatch and
+// form groups of a size it knows. A test takes each commit it holds from NextAsync; one that came while
+// the persistence did not hold completed at once and is not given there. Every call is recorded
+// (HeldCommit), so that a test can state what each group held.
 //
-// Its call only takes the group, as the storage step has to (IPersistence.CommitAsync; brief of S09,
-// part 2): it records the group and returns a task, and never blocks or waits inside the call. A held
-// commit completes as a storage step completes that waits: its task completes later, when the test
-// releases it from a thread of its own, and whoever completes the storage step goes on from there. A
-// commit that is not held returns a task that has completed, as the storage step of MemoryOnly does.
-// The completion of a held commit runs what waits for it on a thread of the pool, or, in a storage made
-// inline, on the thread that releases or fails it, before the release returns, as a storage step does
-// whose task is completed by the thread that finishes its work (the shape of the durable step of S27).
-// So no commit is released while the storage holds its own lock: what the completion runs may take
-// the lock of the writes, and the engine calls CommitAsync, which takes the lock of the storage, while
+// Its call only takes the group, as the persistence step has to (IPersistence.CommitAsync): it records
+// the group and returns a task, and never blocks or waits inside the call. A held commit completes as a
+// persistence step completes that waits: its task completes later, when the test releases it from a
+// thread of its own, and whoever completes the persistence step goes on from there. A commit that is not
+// held returns a task that has completed, as the persistence step of MemoryOnly does. The completion of
+// a held commit runs what waits for it on a thread of the pool, or, in a persistence made inline, on the
+// thread that releases or fails it, before the release returns, as a persistence step does whose task is
+// completed by the thread that finishes its work (the shape a durable persistence step will have). So no
+// commit is released while the persistence holds its own lock: what the completion runs may take the
+// lock of the writes, and the engine calls CommitAsync, which takes the lock of the persistence, while
 // it holds the lock of the writes.
 //
-// It assigns positions as the storage of MemoryOnly does: the first group of a new database takes the
-// sequence 1, and every group the sequences after the last one of the group before it, one for each
+// It assigns positions as the persistence of MemoryOnly does: the first group of a new database takes
+// the sequence 1, and every group the sequences after the last one of the group before it, one for each
 // of its writes (CommitOutcome.FirstSequence).
 //
 // A held commit completes only when the test releases it, never by itself: a test that waits for what
