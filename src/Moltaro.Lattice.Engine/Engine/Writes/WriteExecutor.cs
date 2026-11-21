@@ -393,8 +393,11 @@ internal sealed class WriteExecutor
     // blocks, with the bytes of the slots it takes as the import counts them: the root block, every block
     // of its values out of line and every entry of the text table it adds, as Encode counts them for the
     // same write of values. For a replace, a key of another spelling than the stored one is written again
-    // with the stored spelling. The null address, with the refusal, when the arena has no room for the
-    // entity; then nothing of it is left allocated.
+    // with the stored spelling (Respell), and the size is then what Encode counts for that root, not what
+    // the import counted: the placed root is freed, a text entry it added is freed with it as its count
+    // reaches zero (Storage.Text.TextTable.Release), and Encode adds that entry again and counts it. The
+    // null address, with the refusal, when the arena has no room for the entity; then nothing of it is
+    // left allocated.
     private ArenaAddress PlaceForwarded(EntityTable table, RootHandle handle, ForwardedOrigin forwarded, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout!;

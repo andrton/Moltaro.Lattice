@@ -19,8 +19,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Text;
 //   either. In a UTF-8 and a UTF-16 database, where the entry holds the text in the encoding of the database.
 // - While the storage step of a master holds a first write (HeldPersistence), a child forwards an insert
 //   with a new Dictionary text of 5 MiB, and the master then takes an insert with another new text of 5 MiB.
-//   Together they take more than a group, so each forms a group of its own, which holds the size of its root
-//   and of the entry of its text. The test knows that each write is prepared before it submits the next by
+//   Each fits a group and together they take more than one, so each forms a group of its own, which holds
+//   the size of its root and of the entry of its text. The test knows that each write is prepared before it submits the next by
 //   the prepared bytes of the arena (CountersWait), which count every block the arena allocated, an entry
 //   among them, whoever sent the write.
 public sealed class ForwardedTextSizeTests
@@ -65,6 +65,8 @@ public sealed class ForwardedTextSizeTests
             var forwarded = new TextSchema.Place { Id = 2, Region = new string('f', 5 * Mebibyte), Label = "label" };
             var made = new TextSchema.Place { Id = 3, Region = new string('m', 5 * Mebibyte), Label = "label" };
 
+            Assert.True(EncodedSizeOf("Utf8", forwarded) <= CommitGroup.MaxEncodedSize, "The forwarded write is larger than a group.");
+            Assert.True(EncodedSizeOf("Utf8", made) <= CommitGroup.MaxEncodedSize, "The write made on the master is larger than a group.");
             Assert.True(EncodedSizeOf("Utf8", forwarded) + EncodedSizeOf("Utf8", made) > CommitGroup.MaxEncodedSize, "The two writes of 5 MiB fit one group.");
 
             storage.Hold();
