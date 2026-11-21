@@ -6338,6 +6338,10 @@ machine 13 to 53 % busy before the runs: differences under about a tenth decide 
   rented-arm64-1, one thread, `index-search`: an Int64 key 700 k a second or more (today 450 k);
   a text key of 8 bytes 450 k or more (163 k); of 100 bytes 200 k or more (119 k), without a
   prefix.
+  After S15, part 1 the same start reads 692 k for an Int64 key against the target of 700 k
+  and 426 k for a text key of 8 bytes against 450 k, on a machine that read 5cc64c8 itself 6
+  to 8 % lower than on 20 November (730 k and 474 k against 796 k and 503 k). The targets
+  stay; they are measured again in the start of S16 (the owner, 21 November 2026).
 - **The questions of (e):**
   - The size of a node: not answered. A descent compares about log₂ n times whatever the
     size; a larger node saves a level (a `Payload` and a miss) and doubles the copy of a leaf,
@@ -6563,8 +6567,12 @@ kinds of work.
 4. **Measured,** corrected by the rules written after the starts of 19 and 20 November:
    - "on 1 and 16 threads" becomes: 1 and 8 readers judged on 16 cores, 16 reported and not
      judged;
-   - the exact search of S14, part 2 must not lose: index-search over `main` and the head,
-     three builds rotating, against its figures of 20 November;
+   - the exact search loses no more than was measured in the third start against 5cc64c8:
+     4 % on an Int64 key, 10 % on a text key of 8 bytes, 5 % on a text key of 100 bytes and
+     17 % on the first of many, one thread alone. This is the price of the read limits and
+     of at most once on every search, accepted by the owner on 21 November 2026, in place of
+     "the exact search of S14, part 2 must not lose". Beside a writer a search of one entity
+     loses nothing;
    - a range of 100 entities alone and beside a writer; a page at Offset 10,000 beside the
      first page;
    - one start, at the end, after the review and the breaker have closed. Every series
