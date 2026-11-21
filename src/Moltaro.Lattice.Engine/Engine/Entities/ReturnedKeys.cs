@@ -185,6 +185,7 @@ internal sealed class ReturnedKeys
     // place within three quarters of the places, and for a String key room in the last chunk for its
     // text, whose bound it gives (PrimaryKeys.TextBound); the bound is 0 for any other key. Inside the
     // protection of reads.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool HasRoomFor(in RootReader stored, out int bound)
     {
         bound = _kind == KeyKindEnum.Text ? _keys.TextBound(stored) : 0;

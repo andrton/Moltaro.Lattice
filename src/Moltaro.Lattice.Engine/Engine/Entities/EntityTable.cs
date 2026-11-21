@@ -577,7 +577,6 @@ internal sealed class EntityTable
             {
                 // What the round ends for, made outside the protection: a WalkProgress, room for a key whose
                 // text takes at most keyBound code units, -1 for none, and room for an entry of entryLength.
-                var makesProgress = false;
                 var keyBound = -1;
                 var entryLength = 0;
 
@@ -602,7 +601,7 @@ internal sealed class EntityTable
                         // The bound of the work of a round: the next round goes on at this entry.
                         if (++passed > EntriesPerRound)
                         {
-                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            entryLength = StandAt(index, entry, identity, full, ref search);
                             exhausted = false;
 
                             break;
@@ -660,10 +659,8 @@ internal sealed class EntityTable
 
                         if (needsProgress && (progress is null || !progress.Returned.HasRoomFor(reader, out bound) || !progress.HasRoomFor(length)))
                         {
-                            makesProgress = progress is null;
                             keyBound = Keys.KeyKind == KeyKindEnum.Text ? Keys.TextBound(reader) : 0;
-                            entryLength = length;
-                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            entryLength = StandAt(index, entry, identity, full, ref search);
                             exhausted = false;
 
                             break;
@@ -703,10 +700,7 @@ internal sealed class EntityTable
 
                             if (!full)
                             {
-                                var staged = progress.StageEntry(length);
-
-                                index.Layout.Detach(_arena, entry, staged);
-                                IndexLayout.WriteIdentity(staged, PlaceOf(identity, search.Reverse, after: true));
+                                index.DetachAt(entry, progress.StageEntry(length), PlaceOf(identity, search.Reverse, after: true));
                             }
                         }
 
@@ -761,7 +755,7 @@ internal sealed class EntityTable
 
                 // Outside the protection: what the round ended for is counted against the memory limit, whose
                 // check looks at the token first, then made.
-                if (makesProgress)
+                if (search.Progress is null && (keyBound >= 0 || entryLength > 0))
                 {
                     search.Progress = new WalkProgress(Keys);
                 }
@@ -812,29 +806,25 @@ internal sealed class EntityTable
     // said to the step, which makes it outside the protection. The next round then walks again over the
     // entries this one passed, which is correct because the matches it skipped by Offset are remembered: it
     // passes over them by their keys and counts none of them twice.
-    private void StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search, ref bool makesProgress, ref int entryLength)
+    private int StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search)
     {
         if (full)
         {
             search.From = PlaceOf(identity, search.Reverse, after: false);
 
-            return;
+            return 0;
         }
 
         var length = index.Layout.DetachedBytes(entry);
 
         if (search.Progress is not { } progress || !progress.HasRoomFor(length))
         {
-            makesProgress |= search.Progress is null;
-            entryLength = Math.Max(entryLength, length);
-
-            return;
+            return length;
         }
 
-        var place = progress.StandAt(length);
+        index.DetachAt(entry, progress.StandAt(length), PlaceOf(identity, search.Reverse, after: false));
 
-        index.Layout.Detach(_arena, entry, place);
-        IndexLayout.WriteIdentity(place, PlaceOf(identity, search.Reverse, after: false));
+        return 0;
     }
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse

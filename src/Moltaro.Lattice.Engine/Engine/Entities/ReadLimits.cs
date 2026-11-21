@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -45,6 +46,7 @@ internal struct ReadLimits
     public readonly long StartStep() => _options.ReadTimeLimit is null ? 0 : Stopwatch.GetTimestamp();
 
     // Adds the time of the step that started at the timestamp.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EndStep(long started)
     {
         if (_options.ReadTimeLimit is not null)
