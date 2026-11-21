@@ -13,7 +13,8 @@ namespace Moltaro.Lattice.Access;
 /// default value of <see cref="IndexBound"/>, which neither makes, has no value and tells
 /// nothing: a range with it is an <see cref="ArgumentException"/> when the key is used, and
 /// reading its <see cref="Value"/> or whether it <see cref="IsInclusive"/> is an
-/// <see cref="InvalidOperationException"/>.
+/// <see cref="InvalidOperationException"/>. Its value is accepted and refused as a value of an
+/// <see cref="IndexKey"/> is.
 /// </remarks>
 public readonly struct IndexBound
 {

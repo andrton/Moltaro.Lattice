@@ -18,8 +18,15 @@ namespace Moltaro.Lattice.Access;
 /// <item><c>IndexKey.All</c> — the whole index in its order.</item>
 /// </list>
 /// <para>
-/// Values are given in the order of the index fields and have the types of those fields; an
-/// integer of another width is accepted when it fits. A String value that is not well-formed
+/// Values are given in the order of the index fields and have the types of those fields. A
+/// number of another type is accepted when it is the same number in the type of the field: an
+/// integer of another width that fits; any integer for a Decimal field; an integer that a
+/// Float32 or a Float64 field holds exactly; a Float32 for a Float64 field; a Float64 for a
+/// Float32 field when it converts back to itself, with NaN, an infinity and the sign of zero
+/// kept. Nothing else is converted: a Decimal or a floating-point value is not accepted for an
+/// integer field, 42.0 included, nor a Decimal for a floating-point field, nor the reverse. A
+/// value for an Enum field is its integer, and it has to be one the enum type allows; a .NET
+/// enum value is not accepted. A String value that is not well-formed
 /// text, with a surrogate without its pair, is an <see cref="ArgumentException"/> when the key
 /// is used, as a value of another type is. A key that an index cannot serve, such as a value
 /// for the second field without one for the first, is rejected when it is used; nothing falls
@@ -29,7 +36,9 @@ namespace Moltaro.Lattice.Access;
 /// A value may be <see langword="null"/> exactly where a value of that part of the index can
 /// be null: the indexed field is nullable, or a step of the path of the part is a nullable
 /// owned value, which is absent in such an entity, see <see cref="Schema.LatticeIndexPart"/>.
-/// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>.
+/// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>. A
+/// <see langword="null"/> that has a type, a <see cref="Nullable{T}"/> without a value or a null
+/// <see cref="string"/>, is accepted only where a value of that type would be.
 /// </para>
 /// <para>
 /// A key is a small value. Making one allocates nothing and boxes none of its values when each
