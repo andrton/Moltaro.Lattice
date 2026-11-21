@@ -1268,7 +1268,7 @@ Why this order:
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
-| S15R | Refactoring after S15 | Full | In progress ([refactoring backlog](refactoring.md), its order) |
+| S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
