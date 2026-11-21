@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -14,9 +16,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the entry it stands after, and the bytes of its answer. A lazy search by a full key of an integer or Guid
 // key makes it at its second step, and its first step keeps only the key of the entity it returned
 // (FirstKey), in the same reference. So a search that finds one entity or none and passes over no match
-// holds the read limits and one reference more than a search did before the walk, and nothing else: 56
-// bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference, 8, and the Offset, the
-// direction, whether it holds its answer and whether its key is full, 7, padded to 8.
+// holds 56 bytes and nothing else: the identity and the end, 8 bytes each, the read limits, 24, the
+// reference, 8, and the Offset, the direction, whether it holds its answer and whether its key is full, 7,
+// padded to 8.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
@@ -33,20 +35,19 @@ internal struct IndexSearch
     // moves where it lies.
     public ReadLimits Limits;
 
-    // The search of a lazy Find, by a full key or not: forward, skipping nothing, and holding nothing of its
-    // answer.
-    public IndexSearch(LatticeDatabaseOptions options, bool fullKey)
+    // The search of a lazy Find through the index, null for an entity type the engine does not store, by the
+    // key, a full key or not: forward, skipping nothing, and holding nothing of its answer.
+    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key)
     {
         Limits = new ReadLimits(options);
-        FullKey = fullKey;
+        FullKey = index is not null && IndexWalk.IsFullKey(index.Layout, key);
     }
 
-    // The search of FindAsync, by a full key or not, in the direction given, which skips the matches of its
-    // Offset and holds its answer until it returns.
-    public IndexSearch(LatticeDatabaseOptions options, bool fullKey, bool reverse, int offset)
+    // The search of FindAsync through the index by the key, a full key or not, in the direction given, which
+    // skips the matches of its Offset and holds its answer until it returns.
+    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key, bool reverse, int offset)
+        : this(options, index, key)
     {
-        Limits = new ReadLimits(options);
-        FullKey = fullKey;
         Reverse = reverse;
         Offset = offset;
         HoldsAnswer = true;
@@ -96,38 +97,30 @@ internal struct IndexSearch
     // saw, and no key kept of a first entity.
     public readonly (RootHandle From, ulong EndsAt, FirstKey? First) Place => (From, EndsAt, null);
 
-    // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
+    // The look of a round of the step that started at the timestamp (ReadLimits.FailureOfRound): the token, a
     // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
     // remembers: a search that failed returns nothing more, and every later step fails at the failure the
     // read limits keep before it would read it.
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
-        try
-        {
-            Limits.CheckRound(started, cancellationToken, entityName, indexName);
-        }
-        catch (LatticeException)
+        if (Limits.FailureOfRound(started, cancellationToken, entityName, indexName) is { } failure)
         {
             Progress = null;
 
-            throw;
+            throw failure;
         }
     }
 
-    // The look at the memory (ReadLimits.CheckMemory): the token, then whether the search would hold more
+    // The look at the memory (ReadLimits.FailureOfMemory): the token, then whether the search would hold more
     // bytes than the memory limit; on a failure of the limit it lets go of what it remembers, as CheckRound
     // does. Every place a search looks at the memory limit looks through here.
     public void CheckMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
     {
-        try
-        {
-            Limits.CheckMemory(bytes, cancellationToken, entityName, indexName);
-        }
-        catch (LatticeException)
+        if (Limits.FailureOfMemory(bytes, cancellationToken, entityName, indexName) is { } failure)
         {
             Progress = null;
 
-            throw;
+            throw failure;
         }
     }
 

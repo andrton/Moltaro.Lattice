@@ -7,7 +7,10 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 //   of a class, a tuple, a char for a String, an Int128 for an Int64, a Half for a Float32; as the value
 //   and as an inclusive lower and an exclusive upper bound;
 // - a range of which one bound has a type the allowlist refuses while the other bound is good, either way
-//   round.
+//   round;
+// - the words of the refusal of a value an Int32 part cannot take, a String or an Int64 that does not
+//   fit, which name the field, its type and the value as the refusal of a field value does
+//   (DynamicSetTests), for the parameter key.
 // IndexKeyArgumentTests holds a value of a type no field has, a key with more values than the index has
 // fields, a null for a part that is never null, the default of IndexBound and of IndexKey;
 // IndexPartTypeTests a part that ends at an owned value or a collection, and the name of an Enum member.
@@ -36,6 +39,21 @@ public sealed class RefusedShapeTests
         await BindingSearch.ExpectRefusedAsync(database, "ByDecimal", IndexKey.All.Range(IndexBound.Inclusive(1m), IndexBound.Inclusive(2.0)), "ByDecimal from 1m to 2.0");
         await BindingSearch.ExpectRefusedAsync(database, "ByFloat64", IndexKey.All.Range(IndexBound.Inclusive(1m), IndexBound.Inclusive(2.0)), "ByFloat64 from 1m to 2.0");
         await BindingSearch.ExpectRefusedAsync(database, "ByExact", IndexKey.All.Range(IndexBound.Inclusive("a"), IndexBound.Exclusive('b')), "ByExact from \"a\" to 'b'");
+    }
+
+    [Fact]
+    public async Task Value_a_part_cannot_take_is_refused_in_words_that_name_the_field_its_type_and_the_value()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        var byInt32 = database.Set("Item").Index("ByInt32");
+
+        var text = Assert.Throws<ArgumentException>(() => byInt32.Find(IndexKey.Equal("high")).ToList());
+        var tooLarge = Assert.Throws<ArgumentException>(() => byInt32.Find(IndexKey.Equal(long.MaxValue)).ToList());
+
+        Assert.Equal("key", text.ParamName);
+        Assert.Equal("Field 'Int32' is Int32; the String value 'high' cannot be used for it. (Parameter 'key')", text.Message);
+        Assert.Equal("key", tooLarge.ParamName);
+        Assert.Equal("Field 'Int32' is Int32; the Int64 value '9223372036854775807' cannot be used for it. (Parameter 'key')", tooLarge.Message);
     }
 
     private static async Task ExpectRefusedInEveryFormAsync<T>(ILatticeDatabase database, string index, T value, string shape)

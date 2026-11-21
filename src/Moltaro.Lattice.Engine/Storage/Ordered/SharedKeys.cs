@@ -1,17 +1,16 @@
-using Moltaro.Lattice.Storage.Values;
-
 namespace Moltaro.Lattice.Storage.Ordered;
 
-// The shared keys of one entry of an ordered index, one at a time: the String parts that reference a text
-// entry instead of holding a copy of their text (IndexLayout.TextCopyLimit), in the order of the parts of
-// the layout, each given as a root names its text entry, the descriptor of kind Text with the length and
-// the address of the entry. The walks over the entries of a node (NodeStorage) and the publication of the
-// texts of an entry an insert adds (Engine.Indexes.OrderedTree) take them from here; docs/design/ordered-index.md,
-// "Text references", says what the references of a node are. An entry of an index whose parts are all of fixed
-// width has no shared key, and the walk ends at its first step. A ref struct over the entry, for foreach, as
-// RootDescriptors walks a root: it allocates nothing, calls nothing virtual and reads the entry only, so it
-// is valid while the node that holds the entry is; NodeStorage.Retire says why it is a ref struct and not a
-// span filled by the caller.
+// The shared keys of one entry of an ordered index, one at a time: the String parts that reference a
+// text entry instead of holding a copy of their text (IndexLayout.TextCopyLimit), in the order of the
+// parts of the layout, each given as a root names its text entry, the descriptor of kind Text with the
+// length and the address of the entry. The walks over the entries of a node (NodeStorage) and the
+// publication of the texts of an entry an insert adds (Engine.Indexes.OrderedTree) take them from here;
+// docs/design/ordered-index.md, "Text references", says what the references of a node are. An entry of
+// an index whose parts are all of fixed width has no shared key, and the walk ends at its first step.
+//
+// A ref struct over the entry, for foreach, as RootDescriptors walks a root: it allocates nothing, calls
+// nothing virtual and reads the entry only, so it is valid while the node that holds the entry is.
+// NodeStorage.Retire says why it is a ref struct and not a span filled by the caller.
 internal ref struct SharedKeys
 {
     // The parts of the layout, none for a layout without a String part.

@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
-
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // The searches of the binding tests over an index of Item on one field, "By" and its name, and the writes

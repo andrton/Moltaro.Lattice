@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // fixes the seed of the hashes of the primary indexes, for a test of what the seed changes; the third gives the arena
 // options and the allocator of its native memory, for a test that bounds the arena or counts what it
 // obtained; the last takes every input a test of the engine can give (EngineTestInputs), such as the
-// storage step of the commit stage.
+// persistence step of the commit stage.
 internal static class EngineMaster
 {
     public static async Task<EngineDatabase> OpenAsync(LatticeSchema schema)

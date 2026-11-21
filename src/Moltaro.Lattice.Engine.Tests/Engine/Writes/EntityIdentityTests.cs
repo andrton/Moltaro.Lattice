@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // meanwhile (milestone contract, "Write coordinator and revision semantics"), and its entity is its
 // entity type and its key as the schema compares keys: two spellings of a String key compared without
 // case are one entity, so a write of one spelling waits behind a write of the other as behind any
-// write of its entity. The storage step of the test (HeldPersistence) holds an insert of "abcdef";
+// write of its entity. The persistence step of the test (HeldPersistence) holds an insert of "abcdef";
 // an insert of "ABCDEF" admitted after it is not prepared, while an insert of another key admitted
 // after both is; once the first is published, the second finds the entity and is DuplicateKey, and the
 // entity keeps the spelling it was inserted with.

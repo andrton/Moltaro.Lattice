@@ -71,15 +71,16 @@ public sealed class LatticeRecord
     /// <remarks>
     /// An integer of another width is accepted when it fits only where a value is given by
     /// itself: the value of a field here or in a <see cref="LatticeOwnedValue"/>, as a primary
-    /// key and a part of a search key are. The element, key and value types of a collection
-    /// are the declared ones and nothing is converted: a <c>List&lt;int&gt;</c> is not
-    /// accepted for a List of Int64, nor a Map with <see cref="int"/> keys for a Map of Int64
-    /// keys. An element of a class derived from the declared element type is of that type and
-    /// is accepted, also in an array. An array whose elements the runtime would read as other
-    /// values is refused, at any depth, although the runtime lets it pass for a sequence of the
-    /// declared type: an array of integers or of an enum that stands for an array of another
-    /// type of the same size, such as a <c>uint[]</c> given for a List of Int32. A Binary value
-    /// is a <c>byte[]</c> and nothing else.
+    /// key is. A part of a search key accepts that and more, see <see cref="IndexKey"/>.
+    /// The element, key and value types of a collection are the declared ones and nothing is
+    /// converted: a <c>List&lt;int&gt;</c> is not accepted for a List of Int64, nor a Map with
+    /// <see cref="int"/> keys for a Map of Int64 keys. An element of a class derived from the
+    /// declared element type is of that type and is accepted, also in an array. An array whose
+    /// elements the runtime would read as other values is refused, at any depth, although the
+    /// runtime lets it pass for a sequence of the declared type: an array of integers or of an
+    /// enum that stands for an array of another type of the same size, such as a
+    /// <c>uint[]</c> given for a List of Int32. A Binary value is a <c>byte[]</c> and nothing
+    /// else.
     /// </remarks>
     /// <param name="fieldName">The field name declared in the schema.</param>
     /// <exception cref="ArgumentException">

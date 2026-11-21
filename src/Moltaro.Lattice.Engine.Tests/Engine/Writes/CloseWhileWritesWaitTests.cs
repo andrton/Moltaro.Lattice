@@ -5,12 +5,11 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// A close waits for the writes admitted before it and for a storage step in progress, and frees the
-// arena only then (brief of Epic 1, sprint S09, and exception X6: a close waits for the writes admitted
-// and for a storage step in progress; review round 1 of S09, part 2). The storage step of the test
+// A close waits for the writes admitted before it and for a persistence step in progress, and frees the
+// arena only then (exception X6). The persistence step of the test
 // (HeldPersistence) holds a replace of entity 1 while a replace of entity 1 waits behind it in the
 // chain of its entity and an insert of entity 2 is prepared and waits in the queue. A close then does
-// not complete, and a write made after it is ObjectDisposedException. Once the storage step completes,
+// not complete, and a write made after it is ObjectDisposedException. Once the persistence step completes,
 // every write admitted before the close is published, the close completes, and every piece of native
 // memory the database obtained was returned (CountingNativeAllocator). A close while a write is
 // resolved for memory and later writes are held back is stated by RefusalResolutionTests. Every wait
@@ -18,7 +17,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 public sealed class CloseWhileWritesWaitTests
 {
     [Fact]
-    public async Task Close_while_a_group_is_held_in_the_storage_step_and_writes_wait_completes_once_every_write_is_published()
+    public async Task Close_while_a_group_is_held_in_the_persistence_step_and_writes_wait_completes_once_every_write_is_published()
     {
         var allocator = new CountingNativeAllocator();
         var storage = new HeldPersistence(holding: false);

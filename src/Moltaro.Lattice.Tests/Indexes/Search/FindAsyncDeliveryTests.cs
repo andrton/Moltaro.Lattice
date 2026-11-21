@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // FindAsync delivers its failures by the rule of every asynchronous member: it throws at the call only what
 // the caller can know from its own arguments, and everything that depends on the state of the database

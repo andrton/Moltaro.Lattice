@@ -6,13 +6,13 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
 // The close of a master with forwarded writes in flight (brief of Epic 1, sprint S12, decided on 17
-// November 2026, point 4, and after the study, points 4 and 5). The storage step of the master holds a
+// November 2026, point 4, and after the study, points 4 and 5). The persistence step of the master holds a
 // forwarded write (HeldPersistence), so that the master is closing while that write runs:
 // - The write was dispatched there, so it completes with its real outcome. At the close the sender of
 //   the master does its ordinary work to the end, the recorded replies and then what the tail holds for
 //   that child, before it shuts down its sending side (point 4 as the planner widened it with the tests
 //   of S12): the child, which reads, applies the write, and the call returns the success at the position
-//   the storage step gave it. The child waits for an application up to an hour, far beyond the bound, so
+//   the persistence step gave it. The child waits for an application up to an hour, far beyond the bound, so
 //   that only its application can end the call within it.
 // - A write that reaches the master while it closes is not executed: it is answered Unavailable, "not
 //   executed", also one that arrives after its barrier closed, and a refusal reaches its caller as it is.
@@ -92,7 +92,7 @@ public sealed class MasterCloseTests
 
     // A refusal is recorded like a success, before the write leaves the barrier of the master (decided at
     // the review of S12, point 1): a forwarded insert admitted behind an insert of the same key that the
-    // storage step holds is refused DuplicateKey once the storage lets the first go, while the master
+    // persistence step holds is refused DuplicateKey once the storage lets the first go, while the master
     // closes, and its caller gets DuplicateKey, never IndeterminateOutcome or Unavailable. Before the fix the
     // close could send its replies before the refusal was recorded, 5 times in 150, so the scenario is run
     // round after round; after it a single round is deterministic.

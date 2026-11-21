@@ -1,6 +1,6 @@
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // A search by the full key of a declared index returns exactly the entities whose current state has
 // that key (decision on index access: equality over the full key of a single-field or composite index;

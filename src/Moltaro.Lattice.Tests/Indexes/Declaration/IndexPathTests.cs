@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Declaration;
 
 // A part of an index may be a field inside an owned value. In the descriptor such a part is a
 // list of field identities, from a field of the entity type down to the indexed field, in

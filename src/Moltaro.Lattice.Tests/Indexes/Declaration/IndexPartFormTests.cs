@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Declaration;
 
 // An element of the Fields of an index is one field identity or a list of identities. A list
 // of one identity is the field itself: [[2]] and [2] declare the same part, with the same

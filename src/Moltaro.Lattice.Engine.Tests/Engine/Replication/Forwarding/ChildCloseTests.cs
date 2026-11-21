@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   (ReplyBeforeTransactionTests). The child waits for the application of a write beyond the bound
 //   (ReplicationNodes.ChildWaitingBeyondTheBound), so that the write cannot end by its time while the
 //   relay passes the transaction, however long that takes.
-// - A write sent whole whose reply has not arrived ends in IndeterminateOutcome. The storage step of the
+// - A write sent whole whose reply has not arrived ends in IndeterminateOutcome. The persistence step of the
 //   master holds it (HeldPersistence), so the master has received it whole and does not answer; the
 //   close of the child completes meanwhile.
 // - A write the sender of the child has not taken, and one it has sent only in part, end in Unavailable:

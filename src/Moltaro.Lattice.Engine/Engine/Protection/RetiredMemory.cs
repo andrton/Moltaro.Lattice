@@ -22,9 +22,9 @@ namespace Moltaro.Lattice.Engine.Protection;
 // ArenaCounters.RetiredBytes, a retired entry in RootTable.Count, and a retired table in IndexBytes.
 //
 // Who calls it, and when. Only the thread that holds the lock of the writes (Writes.WriteExecutor),
-// because the arena, the table of root entries and the indexes take no lock and have one writer.
-// A read never frees. Freeing happens on the path of the operations of the database, and no thread
-// or timer is started for it:
+// because the arena, the table of root entries and the indexes take no lock and only that thread
+// changes them. A read never frees. Freeing happens on the path of the operations of the database, and
+// no thread or timer is started for it:
 // - after every publication of a position, a write on a master or a transaction on a child, and of a
 //   root of a load, the writer looks once enough was counted since its last look (AfterWrite):
 //   as many things as ReadEpochs has slots, or as many bytes as one segment of the arena. Each look

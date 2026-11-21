@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Unique;
 
 // Unique indexes: a complete set of values of the indexed fields belongs to at most one
 // entity.

@@ -1,6 +1,6 @@
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // A search after its database was closed is ObjectDisposedException, as every operation after a close is
 // (AGENTS.md, "Shape of the public API"; Entities.IndexSearch: a step after the close is

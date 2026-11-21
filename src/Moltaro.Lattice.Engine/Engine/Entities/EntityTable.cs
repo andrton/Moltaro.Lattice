@@ -477,9 +477,10 @@ internal sealed class EntityTable
     // A step of a search that has nothing to walk: one whose step before saw its end, which ends at the
     // sequence of that step, and one of an entity type the engine does not store, which has no index and finds
     // nothing, as a read by key does. Kept apart from Step, whose frame holds the walk and the scratch of its
-    // keys, which such a step needs neither of. It still enters the protection of reads, so that a step after
-    // the close or the fault is refused as every step is and the search lets go of what it remembers, and it
-    // looks at the limits as every round does.
+    // keys, which such a step needs neither of. It reads nothing of the arena, so it takes no slot of the
+    // protection of reads; it looks at the state the protection refuses by, so that a step after the close or
+    // the fault is refused as every step is and the search lets go of what it remembers, and it looks at the
+    // limits as every round does.
     private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
     {
         next = search.Place;
@@ -489,19 +490,16 @@ internal sealed class EntityTable
 
         try
         {
-            var protection = EnterProtection(ref search, cancellationToken);
-
-            try
+            if (_epochs.Refuses)
             {
-                search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
-                sequence = index is null ? _clock.Sequence : search.EndsAt;
+                search.Progress = null;
+                _epochs.ThrowForState();
+            }
 
-                return false;
-            }
-            finally
-            {
-                _epochs.Exit(protection);
-            }
+            search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
+            sequence = index is null ? _clock.Sequence : search.EndsAt;
+
+            return false;
         }
         finally
         {
@@ -514,16 +512,13 @@ internal sealed class EntityTable
     // remembers, as when a read limit fails it.
     private int EnterProtection(ref IndexSearch search, CancellationToken cancellationToken)
     {
-        try
-        {
-            return _epochs.Enter(cancellationToken);
-        }
-        catch (Exception exception) when (exception is ObjectDisposedException or LatticeException { Error: LatticeErrorEnum.Unavailable })
+        if (!_epochs.TryEnter(cancellationToken, out var protection))
         {
             search.Progress = null;
-
-            throw;
+            _epochs.ThrowForState();
         }
+
+        return protection;
     }
 
     // A step of a search (TrySearch), or a look at whether a match follows when it copies nothing
@@ -575,9 +570,9 @@ internal sealed class EntityTable
 
             while (true)
             {
-                // What the round ends for, made outside the protection: a WalkProgress, room for a key whose
-                // text takes at most keyBound code units, -1 for none, and room for an entry of entryLength.
-                var makesProgress = false;
+                // What the round ends for, made outside the protection: room for a key whose text takes at
+                // most keyBound code units, -1 for none, and room for an entry of entryLength, 0 for none;
+                // a search without a WalkProgress makes one for either.
                 var keyBound = -1;
                 var entryLength = 0;
 
@@ -602,7 +597,7 @@ internal sealed class EntityTable
                         // The bound of the work of a round: the next round goes on at this entry.
                         if (++passed > EntriesPerRound)
                         {
-                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            entryLength = StandAt(index, entry, identity, full, ref search);
                             exhausted = false;
 
                             break;
@@ -660,10 +655,8 @@ internal sealed class EntityTable
 
                         if (needsProgress && (progress is null || !progress.Returned.HasRoomFor(reader, out bound) || !progress.HasRoomFor(length)))
                         {
-                            makesProgress = progress is null;
                             keyBound = Keys.KeyKind == KeyKindEnum.Text ? Keys.TextBound(reader) : 0;
-                            entryLength = length;
-                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            entryLength = StandAt(index, entry, identity, full, ref search);
                             exhausted = false;
 
                             break;
@@ -703,10 +696,7 @@ internal sealed class EntityTable
 
                             if (!full)
                             {
-                                var staged = progress.StageEntry(length);
-
-                                index.Layout.Detach(_arena, entry, staged);
-                                IndexLayout.WriteIdentity(staged, PlaceOf(identity, search.Reverse, after: true));
+                                index.DetachAt(entry, progress.StageEntry(length), PlaceOf(identity, search.Reverse, after: true));
                             }
                         }
 
@@ -761,7 +751,7 @@ internal sealed class EntityTable
 
                 // Outside the protection: what the round ended for is counted against the memory limit, whose
                 // check looks at the token first, then made.
-                if (makesProgress)
+                if (search.Progress is null && (keyBound >= 0 || entryLength > 0))
                 {
                     search.Progress = new WalkProgress(Keys);
                 }
@@ -809,32 +799,29 @@ internal sealed class EntityTable
     // Inside the protection, when a round ends before an entry: the search stands at it, a search by a full
     // key at its identity, any other at the entry, detached into the WalkProgress when it has room for it.
     // Without a WalkProgress or without the room the search stays where it stood, and what the round needs is
-    // said to the step, which makes it outside the protection. The next round then walks again over the
-    // entries this one passed, which is correct because the matches it skipped by Offset are remembered: it
-    // passes over them by their keys and counts none of them twice.
-    private void StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search, ref bool makesProgress, ref int entryLength)
+    // said to the step, which makes it outside the protection: the length of the entry it could not stand
+    // at is returned, 0 when it stood. The next round then walks again over the entries this one passed,
+    // which is correct because the matches it skipped by Offset are remembered: it passes over them by
+    // their keys and counts none of them twice.
+    private int StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search)
     {
         if (full)
         {
             search.From = PlaceOf(identity, search.Reverse, after: false);
 
-            return;
+            return 0;
         }
 
         var length = index.Layout.DetachedBytes(entry);
 
         if (search.Progress is not { } progress || !progress.HasRoomFor(length))
         {
-            makesProgress |= search.Progress is null;
-            entryLength = Math.Max(entryLength, length);
-
-            return;
+            return length;
         }
 
-        var place = progress.StandAt(length);
+        index.DetachAt(entry, progress.StandAt(length), PlaceOf(identity, search.Reverse, after: false));
 
-        index.Layout.Detach(_arena, entry, place);
-        IndexLayout.WriteIdentity(place, PlaceOf(identity, search.Reverse, after: false));
+        return 0;
     }
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse

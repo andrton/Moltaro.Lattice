@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   frame it did not receive is stated with a child made by hand (IncompleteRequestTests).
 // - The connection ends after the master received the whole request and before the reply: the outcome is
 //   not known to the child, IndeterminateOutcome, never Unavailable; the request, received whole, runs
-//   although its connection ended. The storage step of the master holds it (HeldPersistence) while a
+//   although its connection ended. The persistence step of the master holds it (HeldPersistence) while a
 //   link between the two (LoopbackLink) is cut; released, the master has executed it.
 // - The same, when the connection ends in order without the frame Closed: IndeterminateOutcome too.
 // - The connection ends while a write holds its reply and waits for its application: the call ends at
@@ -79,8 +79,8 @@ public sealed class LostConnectionTests
     // An end in order of the connection alone says nothing about execution: a killed process can produce
     // one, so without the frame Closed a write sent whole and not answered stays IndeterminateOutcome, never
     // Unavailable "not executed" (decided at the review of S12, point 2). The link ends its side toward
-    // the child in order, the end of the stream without a reset and without Closed, while the storage step
-    // of the master holds the write it received whole; released, the master executes it.
+    // the child in order, the end of the stream without a reset and without Closed, while the persistence
+    // step of the master holds the write it received whole; released, the master executes it.
     [Fact]
     public async Task Connection_that_ends_in_order_without_Closed_after_the_master_received_the_whole_request_gives_IndeterminateOutcome()
     {

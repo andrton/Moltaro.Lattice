@@ -1,7 +1,7 @@
 using System.Text;
 using Moltaro.Lattice.TestSupport.Text;
 
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // A String part of an index is found by its text, by the comparison its field declares, in a UTF-8 and in
 // a UTF-16 database, with Plain and with Dictionary storage (decision on strings, Q04 and Q46: Ordinal, or

@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // consistency, docs/decisions/session-consistency.md, points 4 and 7): a write with a session of another
 // history, or one whose session another database bound first, is refused with HistoryMismatch and
 // changes nothing; a write that committed returns its result, and the session is never a reason to
-// replace that result with a failure. The storage step of the first database holds its commit
+// replace that result with a failure. The persistence step of the first database holds its commit
 // (HeldPersistence), so that its write is admitted and executed while a write on another database
 // takes the same empty session. A write that completes in the hold of its own call has no test of its
 // own: the binding runs before execution on every path, and nothing can hold a write between that hold
@@ -26,7 +26,7 @@ public sealed class SessionHistoryTests
 
         try
         {
-            // Admitted and executed; its commit waits in the storage step.
+            // Admitted and executed; its commit waits in the persistence step.
             var committing = first.Set<StampSchema.Stamp>().InsertAsync(StampSchema.StampOf(1, 1), session).AsTask();
             var commit = await storage.NextAsync();
 

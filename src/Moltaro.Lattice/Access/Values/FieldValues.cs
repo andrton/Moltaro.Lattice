@@ -34,10 +34,13 @@ internal static class FieldValues
             }
         }
 
-        throw new ArgumentException(
-            $"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.",
-            parameterName);
+        throw CannotBeUsed(field, value, parameterName);
     }
+
+    // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
+    // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).
+    public static ArgumentException CannotBeUsed(LatticeField field, object value, string parameterName) =>
+        new($"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.", parameterName);
 
     public static object NormalizeKey(LatticeEntityType entityType, object key)
     {
@@ -47,8 +50,8 @@ internal static class FieldValues
 
     // A value given as an argument to look an entity up with by its primary key. Normalized as
     // above, and text that is not well-formed is refused as a value of another type is, since no
-    // stored value can be equal to it (the planner's answer to Q41). A value set into a record is not
-    // checked for it; the write checks it.
+    // stored value can be equal to it, so a lookup by it could only find nothing. A value set into a
+    // record is not checked for it; the write checks it.
     public static object NormalizeArgument(LatticeField field, object value, string parameterName)
     {
         var normalized = Normalize(field, value, parameterName);

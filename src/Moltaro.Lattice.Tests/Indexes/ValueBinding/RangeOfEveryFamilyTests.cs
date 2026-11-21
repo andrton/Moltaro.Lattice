@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
-
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A range over a part of every scalar family finds what the oracle finds, in both directions, through the

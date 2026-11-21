@@ -5,7 +5,7 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
-// Inserts prepared while the storage step holds a group, none of them published yet, each reserve room
+// Inserts prepared while the persistence step holds a group, none of them published yet, each reserve room
 // in the primary index beside the others, so that every one finds its room when it is published, in
 // whatever order, and publication obtains nothing (milestone contract, "Write coordinator and revision
 // semantics": a write reserves everything its publication needs while it is prepared, which may grow
@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 // all share one hash under the seed 0 (CollidingKeys), so they fall on one chain of buckets of the
 // index: beyond the seven entries a bucket holds, every seven of them need an overflow bucket, which
 // the reservations have to provide for all of them together, and the main table, which grows by the
-// count, grows while they are prepared. The storage step of the test (HeldPersistence) holds a
+// count, grows while they are prepared. The persistence step of the test (HeldPersistence) holds a
 // replace while 50 inserts, four replaces and three deletes of keys of that chain are prepared; ten of
 // the inserts are withdrawn before their dispatch, which gives back what they reserved. Then:
 // - every write that was not withdrawn completes, and the database stays Ready;

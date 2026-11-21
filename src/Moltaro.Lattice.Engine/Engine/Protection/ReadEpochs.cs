@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 // The protection of the reads of one database by epochs (docs/design/arena-protocol.md, "Deferred
 // reclamation"). The database has one epoch, a number that only grows, and a table of slots. A read
 // enters by writing the current epoch into a free slot and leaves by clearing it; that slot is the only
-// memory it writes, and no other read writes it while it is held. The one writer retires what a read
+// memory it writes, and no other read writes it while it is held. The publishing thread retires what a read
 // could still reach, tagged with the current epoch (RetiredMemory), and frees it once every slot is free
 // or holds a later epoch: then every read that entered before it was retired has left. The writer never
 // waits for a read; a read never waits for the writer.
@@ -117,6 +117,19 @@ internal sealed class ReadEpochs
     // for it.
     public int Enter(CancellationToken cancellationToken = default)
     {
+        if (!TryEnter(cancellationToken, out var slot))
+        {
+            ThrowForState();
+        }
+
+        return slot;
+    }
+
+    // Enters a read as Enter does, but returns false, holding no slot, where Enter refuses the read after
+    // the close or once the database is faulted, so that the caller can let go of what it holds before it
+    // reports the refusal (ThrowForState).
+    public bool TryEnter(CancellationToken cancellationToken, out int slot)
+    {
         var start = Thread.GetCurrentProcessorId();
         var spinner = default(SpinWait);
 
@@ -124,7 +137,7 @@ internal sealed class ReadEpochs
         {
             for (var probe = 0; probe < _slots.Length; probe++)
             {
-                var slot = (start + probe) & _mask;
+                slot = (start + probe) & _mask;
 
                 if (!TryClaim(slot))
                 {
@@ -134,15 +147,18 @@ internal sealed class ReadEpochs
                 if (Volatile.Read(ref _state) != 0)
                 {
                     Exit(slot);
-                    ThrowForState();
+
+                    return false;
                 }
 
-                return slot;
+                return true;
             }
 
             if (Volatile.Read(ref _state) != 0)
             {
-                ThrowForState();
+                slot = 0;
+
+                return false;
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -154,6 +170,9 @@ internal sealed class ReadEpochs
     // faulted, and the write it waits for will never store its stamp (Entities.EntityTable). Loaded
     // only on that retry, never on the ordinary path of a read.
     public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
+
+    // Whether a read that entered now would be refused: the database is closed or faulted (ThrowForState).
+    public bool Refuses => Volatile.Read(ref _state) != 0;
 
     // The refusal of a read that found the state set: ObjectDisposedException after the close, which
     // comes first, Unavailable after a fault.

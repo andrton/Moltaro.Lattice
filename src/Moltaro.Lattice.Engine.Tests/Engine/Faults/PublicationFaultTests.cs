@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // sprint S09, Acceptance, "Faulted", "A fault during publication and the reads that retry" and the
 // answers of the planner on the fault points and after a fault; the remarks of
 // LatticeDatabaseStateEnum.Faulted). A test arms a fault point of the engine (EngineDatabase.ArmFault,
-// exception X3): BeforePublication, where the storage step has completed and no store of the
+// exception X3): BeforePublication, where the persistence step has completed and no store of the
 // publication of the write has been made, and DuringPublication, which lies after the store of the
 // root for a replace, after the store of the state for a delete and after the store of the entry of
 // the index for an insert, each before the write is complete. For each point and for a replace, a

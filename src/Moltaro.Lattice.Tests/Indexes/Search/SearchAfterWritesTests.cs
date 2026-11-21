@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // An index is in step with the entities on the same node: a write and its index changes become visible
 // together (ILatticeIndex; decision on physical index lifecycle, Q19: live changes maintain the indexes

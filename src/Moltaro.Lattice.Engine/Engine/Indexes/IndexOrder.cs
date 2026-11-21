@@ -63,7 +63,10 @@ internal sealed class IndexOrder
     // The order of a search key, with the identity it starts at or its edge, against an entry: below zero
     // when the key comes first. Only the leading parts the key gives are compared, then its identity, so a
     // key of fewer parts stands before or after every entry those parts equal, as its edge says
-    // (SearchKey.From). For a reader inside the protection of reads.
+    // (SearchKey.From). For a reader inside the protection of reads. Inlined into the ends of a walk
+    // (IndexWalk) and the descent (OrderedTree), so that an index of one number makes no call for it and
+    // any other one call, CompareKey (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
         var order = _oneNumber && probe.Parts == 1 ? probe.Number.CompareTo(NumberOf(entry)) : CompareKey(probe, entry);

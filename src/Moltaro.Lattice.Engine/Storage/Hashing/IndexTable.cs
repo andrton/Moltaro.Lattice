@@ -31,16 +31,17 @@ namespace Moltaro.Lattice.Storage.Hashing;
 // one word; a lookup that selects the bucket by the hash, compares a part of the hash stored in the
 // entry, then the key where the record lives, and follows the link; the array allocated pinned and
 // its first bucket aligned to the line, as Tsavorite allocates its table in managed memory; overflow
-// buckets from an allocator of their own, apart from the main table. What differs, for one writer
-// and the root entries of this engine:
+// buckets from an allocator of their own, apart from the main table. What differs, for a table that only
+// the thread holding the lock of the writes changes, and for the root entries of this engine:
 // - The entry holds the slot of the root entry, not an address: the entry is the stable control
 //   entry of a root (docs/decisions/physical-storage.md, "Stable control entry per root"), and an
 //   address changes when a root is replaced or moved.
 // - It holds the whole 32-bit hash instead of a 15-bit tag beside a 48-bit address, so that a growth
 //   places every entry from the word alone, without reading a root.
-// - No tentative bit, no compare-and-swap and no latch: one writer changes the table, and it writes a
-//   word whole with a store that publishes it. Several entries of one bucket may have the same hash;
-//   Tsavorite keeps one entry for each tag and chains the records in its log, which roots do not do.
+// - No tentative bit, no compare-and-swap and no latch: only the thread that holds the lock of the
+//   writes changes the table, and it writes a word whole with a store that publishes it. Several entries
+//   of one bucket may have the same hash; Tsavorite keeps one entry for each tag and chains the records
+//   in its log, which roots do not do.
 // - A delete clears its word, in the main table or in an overflow bucket. An overflow bucket stays
 //   linked until the table is replaced.
 // - The bucket is taken from the high bits of the hash multiplied by 2^64 divided by the golden ratio

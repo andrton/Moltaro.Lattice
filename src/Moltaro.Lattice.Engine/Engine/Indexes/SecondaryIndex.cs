@@ -114,6 +114,14 @@ internal sealed class SecondaryIndex
         return _order.SameKey(written[..length], entry);
     }
 
+    // For a walk inside the protection of reads: writes the entry of a node in detached form into the room
+    // given (IndexLayout.Detach), with the identity given at its start, where the walk stands at or after it.
+    public void DetachAt(ReadOnlySpan<byte> entry, Span<byte> room, RootHandle identity)
+    {
+        Layout.Detach(_arena, entry, room);
+        IndexLayout.WriteIdentity(room, identity);
+    }
+
     // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
     // does to the index, from the root the entity has and the root the write publishes, both the write's
     // own until it is published or withdrawn (see the class). None when they contribute entries of the same

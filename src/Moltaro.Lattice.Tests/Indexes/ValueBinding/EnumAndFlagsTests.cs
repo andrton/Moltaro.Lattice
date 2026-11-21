@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
-
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // An Enum part of an index is ordered as the number of its underlying type and given as that integer, and

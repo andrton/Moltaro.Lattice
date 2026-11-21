@@ -11,20 +11,20 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // Index nodes are prepared before the commit, and nothing grows inside a publication (docs/design/
 // ordered-index.md, "The reservation"; milestone contract, "Index preparation and traversal"): in the hold
 // that prepares a write, each index it changes reserves the nodes its publication can take as prepared
-// blocks of the arena; a prepared, unpublished write holds them while the storage step is busy, and no
+// blocks of the arena; a prepared, unpublished write holds them while the persistence step is busy, and no
 // reader can reach them; a write withdrawn before its publication gives them back. While writes wait, the
 // pool of an index holds at most the larger of their need, the nodes their publications can take from the
 // tree as it is (ReservationNeed, whose closed form is OrderedTree.Need), and the standing reserve, the need
 // of one change of key; with nothing waiting it holds at most the reserve (IndexReserve). Here 10 entities
 // lie in one leaf, whose room is the 40 separators of 16-byte entries an inner node holds before it is full
 // less those 10.
-// - The storage step of the test (HeldPersistence) holds a replace of an entity in no index while
+// - The persistence step of the test (HeldPersistence) holds a replace of an entity in no index while
 //   writes of Counted wait behind it, from one insert to so many that the tree gains a level when they
 //   are published: what the arena holds prepared beyond what the same writes of Uncounted hold, which has
 //   no index, is the pool of ByNumber, whole nodes of 1 KiB, more than none and no more than the bound. A
 //   search finds none of the waiting inserts. Then the arena is filled to its last slot of 1 KiB, the size
 //   of a node, by entities whose fixed part takes such a slot, until it refuses one; only then does the
-//   storage step let the writes go. Every one of them is published with no memory left to take, the arena
+//   persistence step let the writes go. Every one of them is published with no memory left to take, the arena
 //   obtains nothing, nothing is left prepared beyond the reserve, and the entries are those of the writes.
 // - Inserts that wait while some of them, every third, are withdrawn: the pool stays within the bound of
 //   the writes still waiting after the withdrawals, and once the rest are published, the tree has grown and
@@ -343,8 +343,8 @@ public sealed class IndexPreparationTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
     }
 
-    // An insert of Counted 100, admitted behind the write the storage step holds and withdrawn there by its
-    // token; the counters while it waited.
+    // An insert of Counted 100, admitted behind the write the persistence step holds and withdrawn there by
+    // its token; the counters while it waited.
     private static async Task<EngineCounters> WithdrawnWhileItWaitsAsync(EngineDatabase database, ILatticeSet<IndexSchema.Counted> counted)
     {
         using var cancellation = new CancellationTokenSource();
@@ -379,7 +379,7 @@ public sealed class IndexPreparationTests
         };
     }
 
-    // Holds the storage step with a replace of an entity in no index, submits the writes and returns once
+    // Holds the persistence step with a replace of an entity in no index, submits the writes and returns once
     // they are all admitted and prepared: the writes, and the replace that holds them.
     private static async Task<Task[]> HoldAsync(EngineDatabase database, HeldPersistence storage, Func<IEnumerable<Task>> writes)
     {
@@ -396,8 +396,8 @@ public sealed class IndexPreparationTests
         return pending;
     }
 
-    // What the arena holds prepared while the writes wait behind the held storage step; the writes are then
-    // let go and complete.
+    // What the arena holds prepared while the writes wait behind the held persistence step; the writes are
+    // then let go and complete.
     private static async Task<long> PreparedBytesOfAsync(EngineDatabase database, HeldPersistence storage, Func<IEnumerable<Task>> writes)
     {
         var pending = await HoldAsync(database, storage, writes);
@@ -415,8 +415,8 @@ public sealed class IndexPreparationTests
     private static long BoundOf(int inserts, int removes, int height, int room) =>
         Math.Max(ReservationNeed.Of(height, room, Separators, inserts, removes), ReservationNeed.OfOneChangeOfKey(height, room, Separators));
 
-    // Fills the arena while the storage step holds the writes: inserts of Filler, whose fixed part takes a
-    // slot of 1 KiB, the size of a node, each prepared and waiting behind the held writes, until the arena
+    // Fills the arena while the persistence step holds the writes: inserts of Filler, whose fixed part takes
+    // a slot of 1 KiB, the size of a node, each prepared and waiting behind the held writes, until the arena
     // refuses one and that write begins to wait for memory (EngineDatabase.ArmWaitSwitch). The
     // fillers, the refused one among them.
     private static async Task<List<Task>> FillAsync(EngineDatabase database)

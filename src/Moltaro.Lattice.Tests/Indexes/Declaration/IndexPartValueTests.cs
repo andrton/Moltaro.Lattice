@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Declaration;
 
 // Every scalar type an index part can have, and an Enum, is found by the full key of an index on it
 // (decision on index access; docs/design/ordered-index.md, "Entries and their order": keys are compared

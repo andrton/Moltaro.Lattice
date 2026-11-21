@@ -1268,6 +1268,7 @@ Why this order:
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
+| S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -7370,6 +7371,15 @@ touches anyway.
 - **Out of scope.** Swaps inside a batch (S17). Activation of a new unique index over
   existing data (S38).
 
+**Added by the planner on 21 November 2026, from the architect's review after S15, part 2.**
+Two things the sprint carries beside its own work. The start of the machine has a line of
+`index-search` with a text key, for J1 of `refactoring.md`, beside the line of
+`write-callers` for H1. And the author of the tests makes one helper at the root of
+`Moltaro.Lattice.Tests/Indexes` for "this call is refused as an argument", used by
+`BindingSearch.ExpectRefusedAsync` and `IndexPartTypeTests.ExpectRefused`, that holds the
+exception to be an `ArgumentException` itself and not a type derived from it: every such
+refusal is one today.
+
 #### S17 · Atomic write batch
 
 **Carried from the architect's review after S15, part 1 (21 November 2026), for the study
@@ -7516,6 +7526,20 @@ any block; the walks over the descriptors of a root and the validation of a rece
 root are tied to the root layout, and entry A4 of the
 [refactoring backlog](refactoring.md) prepares them.
 
+**Added by the planner on 21 November 2026, from Q55 of `open-questions.md`.** The sprint
+also gives a value written by name the rule of a search: `FieldValues.Normalize` accepts
+what `IndexValue.Bind` accepts, by the same code and not a second list, for the value of a
+field of a record and of an owned value. The elements, keys and values of a collection
+stay as declared, and a primary key keeps its rule. The remarks of the indexer of
+`LatticeRecord` and of `LatticeOwnedValue` state the one rule and point to `IndexKey`.
+Tests, beside the tests of record values: each pair of the allowlist written by name and
+read back as the value of the field's type; each refused pair (a Decimal for a
+floating-point field and back, a floating-point value or a Decimal for an integer field,
+42.0 included, an integer a Float32 does not hold exactly, a Float64 that does not convert
+back) refused with the message of J2; an Enum field refuses an integer its enum type does
+not declare, as today. If this needs a sentence of the Acceptance of S18, the coordinator
+of S18 asks the owner for it.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
@@ -7541,6 +7565,10 @@ child stores received bytes through its own allocation.
 - **Measured.** Reported: bytes retained for the fixture's role and setting; lookup in a Map of
   8, 9 and 1,000 entries.
 - **Out of scope.** Element commands (S20). Shrinking after removals (S23).
+
+**Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
+given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
+a box that the keys of an index use, and its `Bind`; it does not write a second holder.
 
 #### S20 · Partial updates
 
@@ -7585,6 +7613,10 @@ during catch-up is recorded and must be resolved by a delete before R.
   complete replacement.
 - **Out of scope.** Arithmetic commands, change tracking, edits inside an element, key
   rename: all excluded by decision.
+
+**Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
+given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
+a box that the keys of an index use, and its `Bind`; it does not write a second holder.
 
 #### S21 · Protected views by name
 

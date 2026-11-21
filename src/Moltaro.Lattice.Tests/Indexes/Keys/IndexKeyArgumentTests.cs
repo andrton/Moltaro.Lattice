@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Keys;
 
 // What a key and a bound have to be for an index to use them, checked against the declaration of the
 // index before anything is searched (IndexKey, IndexBound; ILatticeIndex: anything an index cannot serve

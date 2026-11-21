@@ -23,20 +23,11 @@ namespace Moltaro.Lattice.Access.Values;
 // a TimeOnly or a TimeSpan, the 16 of a Decimal, a Guid or a DateTimeOffset. They are read back the same
 // way, so the value is the one given, bit for bit, a negative zero and a NaN payload included.
 //
-// Bind is where a value meets the schema, for a value of an index key and for a bound alike. A value
-// whose type is the .NET type of the field is taken as it is, text when it is well-formed. A value of
-// another type is converted when it is the same number in the type of the field, by the allowlist of the
-// milestone contract ("Index preparation and traversal"; docs/decisions/queries.md, Q07.3.6): an integer
-// of another width that fits, any integer for a Decimal, an integer that a Float32 or a Float64 holds
-// exactly, a Float32 for a Float64, and a Float64 for a Float32 when it converts back to itself, with NaN,
-// the infinities and the sign of zero kept. A converted value is written into the bits as any other, so
-// it is not boxed. The value of an Enum part, bound to the underlying type of its enum type, has to be
-// one LatticeEnumType.IsValid allows, as for a write, and is refused in the words of that validation. A
-// null keeps the field type of the .NET type it was given as, a Nullable without a value or a null
-// string, and is accepted only where a value of that type would be; a null given as an object has no
-// type, and a null given as any other type is one of a type no field has, refused for every part. Any
-// other value is an ArgumentException for the parameter named, with the message FieldValues gives for a
-// value it refuses.
+// Bind is where a value of an index key or of a bound meets the schema: it applies the remarks of
+// IndexKey and the allowlist of Q07.3.6 of docs/decisions/queries.md. Beyond them, a converted value is
+// written into the bits as any other, so it is not boxed; the value of an Enum part is refused in the
+// words of the validation of a write (EnumValues.Undeclared); and a value it cannot use is refused with
+// the message of a field value (FieldValues.CannotBeUsed).
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {
@@ -106,24 +97,32 @@ internal readonly struct IndexValue
     // one (see the struct).
     public static IndexValue Of<T>(T value)
     {
-        if (typeof(T) == typeof(string))
+        // A reference type, whose conversion through object is no box: a null reference is the null of a
+        // string, one without a type given as an object, or one of a type no scalar field has; a string is
+        // a String; any other object is taken by its type (OfObject). A value type is not tested here,
+        // where an unoptimized build would box it.
+        if (!typeof(T).IsValueType)
         {
-            // A reference type: the conversion through object is no box.
-            return value is null
-                ? NullOf(LatticeFieldTypeEnum.String)
-                : new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
+            if (value is null)
+            {
+                if (typeof(T) == typeof(string))
+                {
+                    return NullOf(LatticeFieldTypeEnum.String);
+                }
+
+                return typeof(T) == typeof(object) ? default : NullOf(OtherType);
+            }
+
+            if (value is string text)
+            {
+                return new IndexValue(LatticeFieldTypeEnum.String, 0, 0, text);
+            }
+
+            return OfObject(value);
         }
 
-        // A null reference: given as an object it has no type; given as any other reference type, a type
-        // no scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
-        // tested here, where an unoptimized build would box it.
-        if (!typeof(T).IsValueType && value is null)
-        {
-            return typeof(T) == typeof(object) ? default : NullOf(OtherType);
-        }
-
-        // A value of a scalar field type or a Nullable of one; otherwise an object, which is not boxed
-        // again, or a value of a type no scalar field has, which is (OfOther).
+        // A value of a scalar field type or a Nullable of one; otherwise a value of a type no scalar field
+        // has, which is boxed, or a Nullable of one without a value (OfOther).
         return Is<T, bool>(ref value, LatticeFieldTypeEnum.Boolean, out var result)
             || Is<T, sbyte>(ref value, LatticeFieldTypeEnum.Int8, out result)
             || Is<T, byte>(ref value, LatticeFieldTypeEnum.UInt8, out result)
@@ -280,9 +279,7 @@ internal readonly struct IndexValue
             return converted;
         }
 
-        throw new ArgumentException(
-            $"Field '{field.Name}' is {declaration.Type}; the {TypeName} value '{ToObject()}' cannot be used for it.",
-            parameterName);
+        throw FieldValues.CannotBeUsed(field, ToObject()!, parameterName);
     }
 
     // The value in the field type given, a pair of the allowlist with its own (Pairs), when it is the same
@@ -373,9 +370,8 @@ internal readonly struct IndexValue
         _ => Fixed(type, (ulong)value),
     };
 
-    // A value of a type no scalar field has, or an object: boxed when it is of a value type, and an object
-    // not boxed again (see the struct). A null reference was taken by Of, so a box that is null is a
-    // Nullable without a value of a type no scalar field has.
+    // A value of a value type no scalar field has, boxed (see the struct). A box that is null is a Nullable
+    // without a value of such a type.
     private static IndexValue OfOther<T>(T value)
     {
         object? held = value;
