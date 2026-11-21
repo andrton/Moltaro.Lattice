@@ -533,16 +533,20 @@ internal sealed class EntityTable
     // once, so the next round passes over it by its key and does not count it against Offset again, and the
     // entities returned before are passed over the same way.
     //
-    // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it.
+    // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it. A full key
+    // takes one search key and one scratch of SearchKey.ScratchBytes, any other key two. The walk of a round
+    // is made in one place of the frame, which every round writes anew: the frame of a step is zeroed at
+    // every call for the references in it, so each place in it costs every step.
     [SkipLocalsInit]
     private bool Step<TCopy, TResult>(SecondaryIndex index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        Span<byte> scratch = stackalloc byte[2 * SearchKey.ScratchBytes];
+        var full = IndexWalk.IsFullKey(index.Layout, key);
+        Span<byte> scratch = stackalloc byte[full ? SearchKey.ScratchBytes : 2 * SearchKey.ScratchBytes];
         var entityName = EntityType.Name;
         var indexName = index.Definition.Name;
-        var full = IndexWalk.IsFullKey(index.Layout, key);
+        scoped IndexWalk walk;
 
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
@@ -558,7 +562,9 @@ internal sealed class EntityTable
                 var entryLength = 0;
 
                 // The keys of the walk are written on the stack outside the protection, once for the round.
-                var walk = new IndexWalk(index, key, search.Reverse, search.From, !full && search.Progress is { } walked ? walked.Last : default, scratch);
+                var after = !full && search.Progress is { } walked ? walked.Last : default;
+
+                walk = new IndexWalk(index, key, search.Reverse, search.From, after, scratch);
                 var protection = EnterProtection(ref search, cancellationToken);
 
                 try
