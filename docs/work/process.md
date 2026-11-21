@@ -47,6 +47,7 @@ its mistake; work that is mechanical, or that an independent check follows, runs
 | Light track: documents, samples, comments, small fixes | Opus 5.5, high |
 | Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high |
 | Architect's review, a study before a critical sprint, the planner | Fable |
+| An investigation of read scaling in which three or four rounds found no cause | Fable, xhigh |
 
 The rows at high effort are a trial that begins with S15, part 2 of Epic 1: the record of
 that sprint states the number of review rounds and of findings by severity beside those of
@@ -61,12 +62,13 @@ at every turn. Both are therefore replaced when a sprint is closed.
 - The change happens only at a boundary: the sprint is merged, no agent is running and no
   investigation is open. Unfinished work is not handed to another session.
 - Before the merge the coordinator checks that every decision of the sprint is in the
-  documents — the epic document, the briefs, `refactoring.md`, `open-questions.md`, this
-  file — and names to the planner what could not be put there. After the merge it stops
+  documents — the epic document, the briefs, [refactoring.md](refactoring.md),
+  [open-questions.md](open-questions.md), this file — and names to the planner what could not be put there. After the merge it stops
   and does not start the next sprint.
 - The outgoing planner writes one starting text, for the new planner, and gives it to the
-  owner. It states the role, the state of `main`, the next work in order, what is owed to
-  the owner, the mistakes not to repeat, and this rule.
+  owner. It names the role, the state of `main`, the next work in order, what is owed to
+  the owner and the mistakes not to repeat, each with the document that holds it, and
+  this rule.
 - The new planner creates the new coordinator session, with the model and effort of the
   table above, gives it its starting text and tells the owner its name.
 - The coordinator and the planner keep what they know about the work in the documents of
@@ -111,6 +113,20 @@ For a sprint on an engine mechanism that has no public surface, the contract is 
 internal types its tests address; they are named in the brief and put into code in the
 same way.
 
+**A brief names its boundary tests.** Where the Acceptance states a limit, the brief names
+the case one under it and the case one over it, the figure computed from the layout and
+not from the code, for an entity in every storage form, and the token cancelled at each
+place where the limit is looked at, not only before the call. Where it states a composite
+key, the brief names a null in every position of the key. A check or a counter that is
+kept only for a test compares two independent things, never a value with itself. In S14,
+part 2 and in S15, part 1 a blocking defect passed the tests written from the brief,
+because another mechanism decided the cases those tests set.
+
+**A platform call is named as a source only after it was checked.** A brief or a decision
+says that a value is what a call returns only when the documentation of the call was read
+or the call was run in the conditions that matter. Otherwise the text says what is wanted
+and leaves the source to the sprint, marked as unverified.
+
 Before any sprint starts:
 
 1. An independent reviewer reviews the plan the way a sprint is reviewed, and once more
@@ -140,7 +156,10 @@ stops and has the plan corrected before the next sprint.
    add tests. It does not change the assertions of the tests of step 1, and it does not
    change the contract. If either looks wrong, it stops and reports to the coordinator.
 3. **Verification.** The coordinator runs the checks itself: build, format, all tests, the
-   samples. An agent's report that the checks passed is not a check.
+   samples. An agent's report that the checks passed is not a check. It builds every head
+   before it hands it to a reviewer, to a breaker or to a start of the machine. It runs no
+   check while an agent builds in the same checkout, and agents that write at the same
+   time work in worktrees of their own.
 4. **Review.** The coordinator reviews, and an independent reviewer reviews; on a sprint
    that changes behavior the breaker works beside it.
 5. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
@@ -462,6 +481,18 @@ put down to what the problem costs in the industry, and a requirement of the pro
 missed; the question then comes with the cause, the evidence, the alternatives tried with
 their figures and the requirement that is missed. A fall that has a known cause and stays
 within the requirements is reported at the close.
+
+Reads have to scale with the number of reading threads (the owner's answer to
+[Q42](open-questions.md), and his word of 21 November 2026). What is judged is the total:
+when more threads read fewer entities a second in total than fewer threads did, it is a
+defect and the work on that path does not go on as if nothing had happened. A rate of
+each thread that is lower than the rate of one thread alone, while the total grows, is
+acceptable. Stopping is not the answer by itself: the cause is looked for first, by the
+three steps above, and how a read is protected is decided as that answer says. When three
+or four rounds have found no cause, a separate agent is given the question, with
+everything that was tried and its figures, at the model and effort of
+[the table](#models-and-effort-by-role). Only when that agent has no idea either does the
+work stop for the owner.
 
 ## Where the state lives
 
