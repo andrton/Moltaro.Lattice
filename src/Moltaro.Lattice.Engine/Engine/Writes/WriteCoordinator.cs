@@ -386,22 +386,22 @@ internal sealed class WriteCoordinator
 
                 case PendingWriteStateEnum.Deferred:
                     _deferred.Remove(write);
-                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
+                    DecideFailure(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.Prepared:
                     _prepared.Remove(write);
                     _changes.Release(write.Prepared!.Changes);
-                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
+                    DecideFailure(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.WaitingForEarlier:
-                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
+                    DecideFailure(write, cancelled, ref hold);
                     break;
 
                 case PendingWriteStateEnum.Resolving:
                     _resolving = null;
-                    DecideFailureAndAdvanceChain(write, cancelled, ref hold);
+                    DecideFailure(write, cancelled, ref hold);
                     ReleaseDeferred(ref hold);
                     break;
             }
@@ -700,7 +700,7 @@ internal sealed class WriteCoordinator
     {
         if (_faulted)
         {
-            DecideFailureAndAdvanceChain(write, ReadEpochs.FaultedRefusal(), ref hold);
+            DecideFailure(write, ReadEpochs.FaultedRefusal(), ref hold);
 
             return;
         }
@@ -709,7 +709,7 @@ internal sealed class WriteCoordinator
         // it, whether or not the thread of the pool its cancellation went to has run.
         if (write.Token.IsCancellationRequested)
         {
-            DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref hold);
+            DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
             return;
         }
@@ -778,24 +778,23 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            DecideFailureAndAdvanceChain(write, exception, ref hold);
+            DecideFailure(write, exception, ref hold);
 
             return;
         }
 
         // Once the write has all it needs, the standing reserves of the indexes it changes are topped up
         // (see the class, "The refusal").
-        if (!TryQueue(write, prepared, topsUp: true, ref hold))
+        if (TryQueue(write, prepared, ref hold))
         {
-            AdvanceChain(write, ref hold);
+            _changes.TopUp(prepared.Changes);
         }
     }
 
-    // Under the lock: a write whose preparation ended goes into the queue of the prepared writes, after
-    // the top-up of the standing reserves of the indexes it changes when topsUp is true; or, when its
-    // token was cancelled meanwhile, it gives back what it prepared and ends cancelled: its token is
-    // honored when its preparation ends, before it can be dispatched. False when it ended.
-    private bool TryQueue(PendingWrite write, PreparedWrite prepared, bool topsUp, ref Hold hold)
+    // Under the lock: a write whose preparation ended goes into the queue of the prepared writes; or,
+    // when its token was cancelled meanwhile, it gives back what it prepared and ends cancelled: its
+    // token is honored when its preparation ends, before it can be dispatched. False when it ended.
+    private bool TryQueue(PendingWrite write, PreparedWrite prepared, ref Hold hold)
     {
         if (write.Token.IsCancellationRequested)
         {
@@ -803,11 +802,6 @@ internal sealed class WriteCoordinator
             DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
             return false;
-        }
-
-        if (topsUp)
-        {
-            _changes.TopUp(prepared.Changes);
         }
 
         write.Prepared = prepared;
@@ -1025,11 +1019,6 @@ internal sealed class WriteCoordinator
                 TryPrepareResolved(write, ref hold);
             }
 
-            if (write.State == PendingWriteStateEnum.Completed)
-            {
-                AdvanceChain(write, ref hold);
-            }
-
             ReleaseDeferred(ref hold);
             StartReadyAndCommit(ref hold);
         }
@@ -1051,7 +1040,7 @@ internal sealed class WriteCoordinator
 
             if (_executor.TryPrepare(write, out var prepared, out var refusal))
             {
-                _ = TryQueue(write, prepared, topsUp: false, ref hold);
+                _ = TryQueue(write, prepared, ref hold);
 
                 return;
             }
@@ -1134,7 +1123,7 @@ internal sealed class WriteCoordinator
             {
                 _prepared.TakeFirst();
                 _changes.Release(write.Prepared!.Changes);
-                DecideFailureAndAdvanceChain(write, new OperationCanceledException(write.Token), ref hold);
+                DecideFailure(write, new OperationCanceledException(write.Token), ref hold);
 
                 continue;
             }
@@ -1269,7 +1258,6 @@ internal sealed class WriteCoordinator
             var prepared = writes[index];
 
             DecideSuccess(prepared.Write, new LatticeWriteResult(_clock.At(firstSequence + (ulong)index), prepared.ChangesEntity), ref hold);
-            AdvanceChain(prepared.Write, ref hold);
         }
     }
 
@@ -1289,7 +1277,7 @@ internal sealed class WriteCoordinator
         {
             var write = writes[index].Write;
 
-            DecideFailureAndAdvanceChain(write, new LatticeException(
+            DecideFailure(write, new LatticeException(
                 LatticeErrorEnum.IndeterminateOutcome,
                 "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
                 index == published ? failure : null), ref hold);
@@ -1298,13 +1286,13 @@ internal sealed class WriteCoordinator
         while (_prepared.TakeFirst() is { } prepared)
         {
             _changes.Release(prepared.Prepared!.Changes);
-            DecideFailureAndAdvanceChain(prepared, ReadEpochs.FaultedRefusal(), ref hold);
+            DecideFailure(prepared, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving)
         {
             _resolving = null;
-            DecideFailureAndAdvanceChain(resolving, ReadEpochs.FaultedRefusal(), ref hold);
+            DecideFailure(resolving, ReadEpochs.FaultedRefusal(), ref hold);
         }
 
         for (var waiter = _oldestWaiter; waiter is not null;)
@@ -1313,7 +1301,7 @@ internal sealed class WriteCoordinator
 
             if (waiter.State == PendingWriteStateEnum.WaitingForEarlier)
             {
-                DecideFailureAndAdvanceChain(waiter, ReadEpochs.FaultedRefusal(), ref hold);
+                DecideFailure(waiter, ReadEpochs.FaultedRefusal(), ref hold);
             }
 
             waiter = newer;
@@ -1349,13 +1337,6 @@ internal sealed class WriteCoordinator
         MarkCompleted(write, ref hold);
     }
 
-    // Under the lock: the write ends with the failure, and the next write of its chain starts.
-    private void DecideFailureAndAdvanceChain(PendingWrite write, Exception failure, ref Hold hold)
-    {
-        DecideFailure(write, failure, ref hold);
-        AdvanceChain(write, ref hold);
-    }
-
     private void MarkCompleted(PendingWrite write, ref Hold hold)
     {
         write.State = PendingWriteStateEnum.Completed;
@@ -1376,6 +1357,8 @@ internal sealed class WriteCoordinator
         {
             hold.AddEnded(write);
         }
+
+        AdvanceChain(write, ref hold);
     }
 
     // After the lock: what the hold decided. The database faults first, so that the reads give up; the
