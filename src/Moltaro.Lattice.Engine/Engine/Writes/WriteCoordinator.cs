@@ -215,9 +215,7 @@ internal sealed class WriteCoordinator
     private readonly CommitGroup _group = new();
 
     // The writes prepared and not handed to the storage step yet, in the order they were prepared.
-    private PendingWrite? _preparedFirst;
-
-    private PendingWrite? _preparedLast;
+    private WriteQueue _prepared;
 
     // Whether the group holds writes, which are prepared and not published: from the first write
     // FormGroup takes into it, through the storage step, until it is published or the database faults.
@@ -230,9 +228,7 @@ internal sealed class WriteCoordinator
     private PendingWrite? _newestWaiter;
 
     // The writes held back while a refused write is resolved, in the order they were held.
-    private PendingWrite? _heldFirst;
-
-    private PendingWrite? _heldLast;
+    private WriteQueue _held;
 
     // The write being resolved after the arena refused it twice, from step 2 of its resolution to its
     // end; null otherwise (see the class).
@@ -385,27 +381,23 @@ internal sealed class WriteCoordinator
                     break;
 
                 case PendingWriteStateEnum.Held:
-                    Unlink(ref _heldFirst, ref _heldLast, write);
-                    End(write, cancelled, ref pass);
-                    AdvanceChain(write, ref pass);
+                    _held.Remove(write);
+                    EndAndAdvanceChain(write, cancelled, ref pass);
                     break;
 
                 case PendingWriteStateEnum.Prepared:
-                    Unlink(ref _preparedFirst, ref _preparedLast, write);
+                    _prepared.Remove(write);
                     _changes.Release(write.Prepared!.Changes);
-                    End(write, cancelled, ref pass);
-                    AdvanceChain(write, ref pass);
+                    EndAndAdvanceChain(write, cancelled, ref pass);
                     break;
 
                 case PendingWriteStateEnum.WaitingForEarlier:
-                    End(write, cancelled, ref pass);
-                    AdvanceChain(write, ref pass);
+                    EndAndAdvanceChain(write, cancelled, ref pass);
                     break;
 
                 case PendingWriteStateEnum.Resolving:
                     _resolving = null;
-                    End(write, cancelled, ref pass);
-                    AdvanceChain(write, ref pass);
+                    EndAndAdvanceChain(write, cancelled, ref pass);
                     ReleaseHeld(ref pass);
                     break;
             }
@@ -423,57 +415,6 @@ internal sealed class WriteCoordinator
         var pass = Resolve(write, own: false);
 
         Finish(ref pass);
-    }
-
-    // Takes the write out of a list linked by Next, which holds it; linear in the list (see
-    // FindLastOfEntity).
-    private static void Unlink(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
-    {
-        PendingWrite? before = null;
-
-        for (var current = first; current is not null; current = current.Next)
-        {
-            if (!ReferenceEquals(current, write))
-            {
-                before = current;
-
-                continue;
-            }
-
-            if (before is null)
-            {
-                first = write.Next;
-            }
-            else
-            {
-                before.Next = write.Next;
-            }
-
-            if (ReferenceEquals(last, write))
-            {
-                last = before;
-            }
-
-            write.Next = null;
-
-            return;
-        }
-    }
-
-    private static void Append(ref PendingWrite? first, ref PendingWrite? last, PendingWrite write)
-    {
-        write.Next = null;
-
-        if (last is null)
-        {
-            first = write;
-        }
-        else
-        {
-            last.Next = write;
-        }
-
-        last = write;
     }
 
     // A chained write leaves the chain of its entity; the writes behind it wait behind the one before
@@ -754,8 +695,7 @@ internal sealed class WriteCoordinator
     {
         if (_faulted)
         {
-            End(write, ReadEpochs.FaultedRefusal(), ref pass);
-            AdvanceChain(write, ref pass);
+            EndAndAdvanceChain(write, ReadEpochs.FaultedRefusal(), ref pass);
 
             return;
         }
@@ -764,8 +704,7 @@ internal sealed class WriteCoordinator
         // it, whether or not the thread of the pool its cancellation went to has run.
         if (write.Token.IsCancellationRequested)
         {
-            End(write, new OperationCanceledException(write.Token), ref pass);
-            AdvanceChain(write, ref pass);
+            EndAndAdvanceChain(write, new OperationCanceledException(write.Token), ref pass);
 
             return;
         }
@@ -784,7 +723,7 @@ internal sealed class WriteCoordinator
         if (_resolving is { } resolving && write.Admission > resolving.Admission)
         {
             write.State = PendingWriteStateEnum.Held;
-            Append(ref _heldFirst, ref _heldLast, write);
+            _held.Append(write);
 
             return;
         }
@@ -798,10 +737,10 @@ internal sealed class WriteCoordinator
     // that waited (see the class, "The refusal"), and a write of the call that holds the lock is the only
     // one not in it yet, so the list is searched, from the newest write admitted before this one back.
     // Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly outside a
-    // resolution. The search is linear in the writes that wait, and so is Unlink in the queue and the
-    // held list: measured with 40,000 writes waiting behind a busy storage step, an admission took 0.6 to
-    // 0.8 ms. It never runs while the storage step completes at once; whether a durable storage step that
-    // is busy needs a structure that finds them faster is open until that step is built.
+    // resolution. The search is linear in the writes that wait, and so is WriteQueue.Remove in the queue
+    // and the held list: measured with 40,000 writes waiting behind a busy storage step, an admission took
+    // 0.6 to 0.8 ms. It never runs while the storage step completes at once; whether a durable storage step
+    // that is busy needs a structure that finds them faster is open until that step is built.
     private PendingWrite? FindLastOfEntity(PendingWrite write)
     {
         for (var waiter = write.IsWaiter ? write.Older : _newestWaiter; waiter is not null; waiter = waiter.Older)
@@ -833,28 +772,43 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            End(write, exception, ref pass);
-            AdvanceChain(write, ref pass);
-
-            return;
-        }
-
-        // Its token is honored when its preparation ends, before it can be dispatched.
-        if (write.Token.IsCancellationRequested)
-        {
-            _changes.Release(prepared.Changes);
-            End(write, new OperationCanceledException(write.Token), ref pass);
-            AdvanceChain(write, ref pass);
+            EndAndAdvanceChain(write, exception, ref pass);
 
             return;
         }
 
         // Once the write has all it needs, the standing reserves of the indexes it changes are topped up
         // (see the class, "The refusal").
-        _changes.TopUp(prepared.Changes);
+        if (!TryQueue(write, prepared, topsUp: true, ref pass))
+        {
+            AdvanceChain(write, ref pass);
+        }
+    }
+
+    // Under the lock: a write whose preparation ended goes into the queue of the prepared writes, after
+    // the top-up of the standing reserves of the indexes it changes when topsUp is true; or, when its
+    // token was cancelled meanwhile, it gives back what it prepared and ends cancelled: its token is
+    // honored when its preparation ends, before it can be dispatched. False when it ended.
+    private bool TryQueue(PendingWrite write, PreparedWrite prepared, bool topsUp, ref Pass pass)
+    {
+        if (write.Token.IsCancellationRequested)
+        {
+            _changes.Release(prepared.Changes);
+            End(write, new OperationCanceledException(write.Token), ref pass);
+
+            return false;
+        }
+
+        if (topsUp)
+        {
+            _changes.TopUp(prepared.Changes);
+        }
+
         write.Prepared = prepared;
         write.State = PendingWriteStateEnum.Prepared;
-        Append(ref _preparedFirst, ref _preparedLast, write);
+        _prepared.Append(write);
+
+        return true;
     }
 
     // Under the lock: the preparation of a write with the first two tries of a refusal of the arena
@@ -995,7 +949,7 @@ internal sealed class WriteCoordinator
     // to its publication. Every prepared write that is not published is in one of the two, so the
     // answer is that of the whole state at every moment of a hold, also while a group is formed and a
     // write withdrawn there ends.
-    private bool HoldsPreparedMemory() => _preparedFirst is not null || _groupPending;
+    private bool HoldsPreparedMemory() => !_prepared.IsEmpty || _groupPending;
 
     // Under the lock: the write being resolved goes on to step 3, which waits outside every lock: on the
     // thread of its call when that call holds the lock now, otherwise on a thread of the pool.
@@ -1091,17 +1045,7 @@ internal sealed class WriteCoordinator
 
             if (_executor.TryPrepare(write, out var prepared, out var refusal))
             {
-                if (write.Token.IsCancellationRequested)
-                {
-                    _changes.Release(prepared.Changes);
-                    End(write, new OperationCanceledException(write.Token), ref pass);
-
-                    return;
-                }
-
-                write.Prepared = prepared;
-                write.State = PendingWriteStateEnum.Prepared;
-                Append(ref _preparedFirst, ref _preparedLast, write);
+                _ = TryQueue(write, prepared, topsUp: false, ref pass);
 
                 return;
             }
@@ -1119,14 +1063,10 @@ internal sealed class WriteCoordinator
     // Under the lock: the held writes start, in their order, as the end of a resolution lets them.
     private void ReleaseHeld(ref Pass pass)
     {
-        while (_heldFirst is { } held)
+        while (_held.TakeFirst() is { } held)
         {
-            _heldFirst = held.Next;
-            held.Next = null;
             pass.AddReady(held);
         }
-
-        _heldLast = null;
     }
 
     // Under the lock: as long as a write can go on, it goes on: the writes made ready start, and the
@@ -1182,15 +1122,13 @@ internal sealed class WriteCoordinator
     {
         _group.Clear();
 
-        while (_preparedFirst is { } write)
+        while (_prepared.First is { } write)
         {
             if (write.Token.IsCancellationRequested)
             {
-                _preparedFirst = write.Next;
-                write.Next = null;
+                _prepared.TakeFirst();
                 _changes.Release(write.Prepared!.Changes);
-                End(write, new OperationCanceledException(write.Token), ref pass);
-                AdvanceChain(write, ref pass);
+                EndAndAdvanceChain(write, new OperationCanceledException(write.Token), ref pass);
 
                 continue;
             }
@@ -1202,13 +1140,7 @@ internal sealed class WriteCoordinator
 
             _groupPending = true;
             write.State = PendingWriteStateEnum.Dispatched;
-            _preparedFirst = write.Next;
-            write.Next = null;
-        }
-
-        if (_preparedFirst is null)
-        {
-            _preparedLast = null;
+            _prepared.TakeFirst();
         }
 
         var count = _group.Writes.Count;
@@ -1351,29 +1283,22 @@ internal sealed class WriteCoordinator
         {
             var write = writes[index].Write;
 
-            End(write, new LatticeException(
+            EndAndAdvanceChain(write, new LatticeException(
                 LatticeErrorEnum.IndeterminateOutcome,
                 "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
                 index == published ? failure : null), ref pass);
-            AdvanceChain(write, ref pass);
         }
 
-        while (_preparedFirst is { } prepared)
+        while (_prepared.TakeFirst() is { } prepared)
         {
-            _preparedFirst = prepared.Next;
-            prepared.Next = null;
             _changes.Release(prepared.Prepared!.Changes);
-            End(prepared, ReadEpochs.FaultedRefusal(), ref pass);
-            AdvanceChain(prepared, ref pass);
+            EndAndAdvanceChain(prepared, ReadEpochs.FaultedRefusal(), ref pass);
         }
-
-        _preparedLast = null;
 
         if (_resolving is { State: PendingWriteStateEnum.Resolving } resolving)
         {
             _resolving = null;
-            End(resolving, ReadEpochs.FaultedRefusal(), ref pass);
-            AdvanceChain(resolving, ref pass);
+            EndAndAdvanceChain(resolving, ReadEpochs.FaultedRefusal(), ref pass);
         }
 
         for (var waiter = _oldestWaiter; waiter is not null;)
@@ -1382,8 +1307,7 @@ internal sealed class WriteCoordinator
 
             if (waiter.State == PendingWriteStateEnum.WaitingForEarlier)
             {
-                End(waiter, ReadEpochs.FaultedRefusal(), ref pass);
-                AdvanceChain(waiter, ref pass);
+                EndAndAdvanceChain(waiter, ReadEpochs.FaultedRefusal(), ref pass);
             }
 
             waiter = newer;
@@ -1417,6 +1341,13 @@ internal sealed class WriteCoordinator
     {
         write.Failure = failure;
         Complete(write, ref pass);
+    }
+
+    // Under the lock: the write ends with the failure, and the next write of its chain starts.
+    private void EndAndAdvanceChain(PendingWrite write, Exception failure, ref Pass pass)
+    {
+        End(write, failure, ref pass);
+        AdvanceChain(write, ref pass);
     }
 
     private void Complete(PendingWrite write, ref Pass pass)
@@ -1551,43 +1482,111 @@ internal sealed class WriteCoordinator
 
         public bool Faulted;
 
-        // The writes to start in this hold, first in first out, linked by Next. A ready write keeps
-        // the state it waited in, Chained without the write before it or Held outside the held list,
-        // which only Start may see; so Drive starts every ready write before the hold ends, and
-        // Withdraw, which takes the lock, never finds one.
-        private PendingWrite? _ready;
-
-        private PendingWrite? _readyLast;
+        // The writes to start in this hold, first in first out. A ready write keeps the state it waited
+        // in, Chained without the write before it or Held outside the held list, which only Start may
+        // see; so Drive starts every ready write before the hold ends, and Withdraw, which takes the lock,
+        // never finds one.
+        private WriteQueue _ready;
 
         // The writes another thread's call waits for whose outcome this hold decided, linked by NextEnded.
         public PendingWrite? Ended;
 
-        public readonly bool HasReady => _ready is not null;
+        public readonly bool HasReady => !_ready.IsEmpty;
 
-        public void AddReady(PendingWrite write) => Append(ref _ready, ref _readyLast, write);
+        public void AddReady(PendingWrite write) => _ready.Append(write);
 
-        public PendingWrite? TakeReady()
+        public PendingWrite? TakeReady() => _ready.TakeFirst();
+
+        public void AddEnded(PendingWrite write)
         {
-            var write = _ready;
+            write.NextEnded = Ended;
+            Ended = write;
+        }
+    }
+
+    // A queue of writes, first in first out, linked through PendingWrite.Next: the queue of the prepared
+    // writes, the held list, and the writes a hold has to start (Pass). A write is in one of them at
+    // most. A value in a field of its owner, changed in place, under the lock of the writes. The list of
+    // the writes that waited, whose writes leave it from any place, and the writes a hold ended, which
+    // are only pushed and walked once, have links of their own (PendingWrite.Older, Newer, NextEnded).
+    private struct WriteQueue
+    {
+        private PendingWrite? _first;
+
+        private PendingWrite? _last;
+
+        public readonly bool IsEmpty => _first is null;
+
+        // The first write, which stays in the queue; null when it is empty.
+        public readonly PendingWrite? First => _first;
+
+        public void Append(PendingWrite write)
+        {
+            write.Next = null;
+
+            if (_last is null)
+            {
+                _first = write;
+            }
+            else
+            {
+                _last.Next = write;
+            }
+
+            _last = write;
+        }
+
+        // Takes the first write out; null when the queue is empty.
+        public PendingWrite? TakeFirst()
+        {
+            var write = _first;
 
             if (write is not null)
             {
-                _ready = write.Next;
+                _first = write.Next;
                 write.Next = null;
 
-                if (_ready is null)
+                if (_first is null)
                 {
-                    _readyLast = null;
+                    _last = null;
                 }
             }
 
             return write;
         }
 
-        public void AddEnded(PendingWrite write)
+        // Takes the write out, which the queue holds; linear in the queue (see FindLastOfEntity).
+        public void Remove(PendingWrite write)
         {
-            write.NextEnded = Ended;
-            Ended = write;
+            PendingWrite? before = null;
+
+            for (var current = _first; current is not null; current = current.Next)
+            {
+                if (!ReferenceEquals(current, write))
+                {
+                    before = current;
+
+                    continue;
+                }
+
+                if (before is null)
+                {
+                    _first = write.Next;
+                }
+                else
+                {
+                    before.Next = write.Next;
+                }
+
+                if (ReferenceEquals(_last, write))
+                {
+                    _last = before;
+                }
+
+                write.Next = null;
+
+                return;
+            }
         }
     }
 }
