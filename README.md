@@ -174,7 +174,11 @@ falls back to reading every entity. An index answers equality on all of its fiel
 the leading ones followed by a range on the next, in its order, where an entity without a
 value in a field comes after those with one, or in the exact reverse of it. A search is not
 a snapshot; it returns each entity at most once, also one deleted and created again while
-it runs, and every entity that keeps its indexed values for the whole search:
+it runs, and every entity that keeps its indexed values for the whole search. A value is
+given in the type of its field, or as the same number in another type, such as an `int`
+for a `Decimal` field; a value that would have to be rounded is refused, and so is a
+floating-point or `Decimal` value for an integer field, 42.0 included, and a `Decimal`
+for a floating-point field or the reverse:
 
 ```csharp
 var byEmail = users.Index("ByEmail");                             // keep and reuse

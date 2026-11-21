@@ -57,15 +57,14 @@ internal static class IndexCriteria
         }
 
         // A part can be null when its field is nullable or when an owned value on its path is, which
-        // is then absent. A Reference is given as the key of its target.
+        // is then absent; a null that can stand there is bound as a value is, by the type it was given
+        // as. A Reference is given as the key of its target.
         var part = index.Parts[place];
         var value = key.ValueAt(place);
 
-        if (value.IsNull)
+        if (value.IsNull && !part.CanBeNull)
         {
-            return part.CanBeNull
-                ? value
-                : throw new ArgumentException($"Index '{index.Name}': field '{part.Field.Name}' is never null.", nameof(key));
+            throw new ArgumentException($"Index '{index.Name}': field '{part.Field.Name}' is never null.", nameof(key));
         }
 
         return value.Bind(part.Field, nameof(key));

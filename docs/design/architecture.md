@@ -111,10 +111,13 @@ entity. Several reads, an enumeration or a graph walk do not create a shared sna
 The caller names the index. Equality on the full key, leading-key and range access in
 either direction, and Limit/Offset are built, on a master and on a child; a walk returns
 each entity at most once and remembers what it returned within the read limits. A
-named-index lookup never silently becomes a full scan. Every node builds
-its indexes locally before readiness and maintains them with entity changes. Indexes
-over the members of a collection, automatic index choice and keyset continuation are
-not in this milestone.
+named-index lookup never silently becomes a full scan. A value of a key or a bound is
+bound once to the type of its field by the allowlist of
+[Q07.3.6](../decisions/queries.md): the same number given in another type is accepted,
+nothing is rounded, no floating-point or Decimal value binds to an integer field, a
+Decimal never binds to a floating-point field or the reverse, and an Enum value has to be one its enum type allows. Every node builds its indexes locally
+before readiness and maintains them with entity changes. Indexes over the members of a
+collection, automatic index choice and keyset continuation are not in this milestone.
 
 **Unique is explicit.** The master validates the final state before effects commit.
 A conflict rejects the whole operation or WriteBatch. Keys with any null component

@@ -57,7 +57,10 @@ a usage limit is not retried in a loop; the owner is told.
 ## New sessions at a sprint boundary
 
 The coordinator and the planner are sessions, and a session reads its whole history again
-at every turn. Both are therefore replaced when a sprint is closed.
+at every turn. The coordinator is therefore replaced when a sprint is closed. The planner,
+whose history grows more slowly because the coordinator and its agents do the work, stays
+for several sprints and is replaced after five closed sprints or three days, whichever
+comes first (the owner, 21 November 2026).
 
 - The change happens only at a boundary: the sprint is merged, no agent is running and no
   investigation is open. Unfinished work is not handed to another session.
@@ -65,12 +68,14 @@ at every turn. Both are therefore replaced when a sprint is closed.
   documents — the epic document, the briefs, [refactoring.md](refactoring.md),
   [open-questions.md](open-questions.md), this file — and names to the planner what could not be put there. After the merge it stops
   and does not start the next sprint.
-- The outgoing planner writes one starting text, for the new planner, and gives it to the
-  owner. It names the role, the state of `main`, the next work in order, what is owed to
-  the owner and the mistakes not to repeat, each with the document that holds it, and
-  this rule.
-- The new planner creates the new coordinator session, with the model and effort of the
-  table above, gives it its starting text and tells the owner its name.
+- At every boundary the planner creates the new coordinator session, with the model and
+  effort of the table above, gives it its starting text and tells the owner its name. The
+  text names the role, the state of `main`, the next work in order, what is owed to the
+  owner and the mistakes not to repeat, each with the document that holds it, and this
+  rule.
+- At a boundary where the planner itself is due, it first writes a starting text of the
+  same form for the new planner and gives it to the owner; the new planner then creates
+  the new coordinator.
 - The coordinator and the planner keep what they know about the work in the documents of
   the repository, not in files of their own: a decision, a rule the owner gave, a result,
   a lesson, the plan of what comes next. A note outside the repository holds only what a

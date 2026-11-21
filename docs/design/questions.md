@@ -42,7 +42,7 @@ to infrastructure and do not block engine implementation planning.
 
 | ID | Specified area | Implementation / verification remaining |
 | --- | --- | --- |
-| Q07.3.6 | [Typed binding and comparison](milestone-1-engine-contract.md#index-preparation-and-traversal) | Implement shared comparers and the explicit numeric allowlist; verify all key families; OQL stays deferred |
+| Q07.3.6 | [Typed binding and comparison](milestone-1-engine-contract.md#index-preparation-and-traversal) | The shared comparers exist and the direct-index facade binds keys and bounds by the explicit numeric allowlist, every key family verified; OQL stays deferred |
 | Q08.1.3 | [Replication and session consistency](milestone-1-engine-contract.md#replication-transport-and-initial-loading) | Implement framing, capture, applied ACK, bounded RAM tail/reload and fixed-position waits; validate actual multi-process behavior |
 | Q09.2 | [Durable base/journal](milestone-1-engine-contract.md#independent-base-journal-and-recovery) and [operation protocol](operation-retry-protocol.md) | Integrate exact codecs, 256-byte units, receipts/expiry and recovery; fault and resource tests |
 | Q09.4 | [Restore/deployment boundary](milestone-1-engine-contract.md#diagnostics-backup-and-deployment-boundary) | Exercise isolated restore/activation and history change; infrastructure owns backup scheduling/retention |

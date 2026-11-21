@@ -13,7 +13,8 @@ namespace Moltaro.Lattice.Access;
 /// default value of <see cref="IndexBound"/>, which neither makes, has no value and tells
 /// nothing: a range with it is an <see cref="ArgumentException"/> when the key is used, and
 /// reading its <see cref="Value"/> or whether it <see cref="IsInclusive"/> is an
-/// <see cref="InvalidOperationException"/>.
+/// <see cref="InvalidOperationException"/>. Its value is accepted and refused as a value of an
+/// <see cref="IndexKey"/> is.
 /// </remarks>
 public readonly struct IndexBound
 {
@@ -49,14 +50,14 @@ public readonly struct IndexBound
     internal IndexValue Held { get; }
 
     /// <summary>A bound that includes the value: "from this value on" or "up to and including it".</summary>
-    /// <typeparam name="T">The type of the indexed field.</typeparam>
+    /// <typeparam name="T">The type of the value: the type of the indexed field, or one the remarks of <see cref="IndexKey"/> accept for it.</typeparam>
     /// <param name="value">The boundary value.</param>
     public static IndexBound Inclusive<T>(T value)
         where T : notnull =>
         new(IndexValue.Of(value), isInclusive: true);
 
     /// <summary>A bound that excludes the value: "after this value" or "before it".</summary>
-    /// <typeparam name="T">The type of the indexed field.</typeparam>
+    /// <typeparam name="T">The type of the value: the type of the indexed field, or one the remarks of <see cref="IndexKey"/> accept for it.</typeparam>
     /// <param name="value">The boundary value.</param>
     public static IndexBound Exclusive<T>(T value)
         where T : notnull =>

@@ -18,8 +18,15 @@ namespace Moltaro.Lattice.Access;
 /// <item><c>IndexKey.All</c> — the whole index in its order.</item>
 /// </list>
 /// <para>
-/// Values are given in the order of the index fields and have the types of those fields; an
-/// integer of another width is accepted when it fits. A String value that is not well-formed
+/// Values are given in the order of the index fields and have the types of those fields. A
+/// number of another type is accepted when it is the same number in the type of the field: an
+/// integer of another width that fits; any integer for a Decimal field; an integer that a
+/// Float32 or a Float64 field holds exactly; a Float32 for a Float64 field; a Float64 for a
+/// Float32 field when it converts back to itself, with NaN, an infinity and the sign of zero
+/// kept. Nothing else is converted: a Decimal or a floating-point value is not accepted for an
+/// integer field, 42.0 included, nor a Decimal for a floating-point field, nor the reverse. A
+/// value for an Enum field is its integer, and it has to be one the enum type allows; a .NET
+/// enum value is not accepted. A String value that is not well-formed
 /// text, with a surrogate without its pair, is an <see cref="ArgumentException"/> when the key
 /// is used, as a value of another type is. A key that an index cannot serve, such as a value
 /// for the second field without one for the first, is rejected when it is used; nothing falls
@@ -29,7 +36,10 @@ namespace Moltaro.Lattice.Access;
 /// A value may be <see langword="null"/> exactly where a value of that part of the index can
 /// be null: the indexed field is nullable, or a step of the path of the part is a nullable
 /// owned value, which is absent in such an entity, see <see cref="Schema.LatticeIndexPart"/>.
-/// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>.
+/// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>. A
+/// <see langword="null"/> that has a type, a <see cref="Nullable{T}"/> without a value or a null
+/// <see cref="string"/>, is accepted only where a value of that type would be. A null given as
+/// any other reference type is refused, as a null of a type no field has.
 /// </para>
 /// <para>
 /// A key is a small value. Making one allocates nothing and boxes none of its values when each
@@ -100,23 +110,23 @@ public readonly struct IndexKey
     internal IndexBound? To { get; }
 
     /// <summary>Entities whose first index field has this value.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     public static IndexKey Equal<T1>(T1 value1) =>
         new(1, IndexValue.Of(value1), default, default, default, null, null);
 
     /// <summary>Entities whose first two index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     public static IndexKey Equal<T1, T2>(T1 value1, T2 value2) =>
         new(2, IndexValue.Of(value1), IndexValue.Of(value2), default, default, null, null);
 
     /// <summary>Entities whose first three index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
-    /// <typeparam name="T3">The type of the third index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T3">The type of the value of the third index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>
@@ -124,10 +134,10 @@ public readonly struct IndexKey
         new(3, IndexValue.Of(value1), IndexValue.Of(value2), IndexValue.Of(value3), default, null, null);
 
     /// <summary>Entities whose first four index fields have these values.</summary>
-    /// <typeparam name="T1">The type of the first index field.</typeparam>
-    /// <typeparam name="T2">The type of the second index field.</typeparam>
-    /// <typeparam name="T3">The type of the third index field.</typeparam>
-    /// <typeparam name="T4">The type of the fourth index field.</typeparam>
+    /// <typeparam name="T1">The type of the value of the first index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T2">The type of the value of the second index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T3">The type of the value of the third index field: the type of that field, or one the remarks accept for it.</typeparam>
+    /// <typeparam name="T4">The type of the value of the fourth index field: the type of that field, or one the remarks accept for it.</typeparam>
     /// <param name="value1">The value of the first index field.</param>
     /// <param name="value2">The value of the second index field.</param>
     /// <param name="value3">The value of the third index field.</param>

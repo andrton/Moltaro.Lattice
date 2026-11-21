@@ -88,6 +88,16 @@ in the meantime.
 | **Until answered** | Each answer is true at the position it reports; nothing is changed |
 | **Decides** | The planner, with S17, whose means of exposing a batch whole most likely closes it |
 
+### Q54. What the binding of an index value does where the documents do not say
+
+| | |
+| --- | --- |
+| **Found** | 21 November 2026, the coordinator's inventory for Epic 1, sprint S15, part 2 |
+| **Question** | Three points that neither the engine contract nor Q07.3.6 decides. (1) Is a .NET enum value accepted for an Enum part? (2) Is an integer the enum type does not declare refused as a bound of a range as well as an exact value? (3) Is a null given as `string` a null with a type? |
+| **Answer** | Taken by the planner, 21 November 2026, for the owner to read at the close of the sprint. (1) No: an Enum part is given as its integer; accepting the .NET enum would need a rule of agreement at every search and can be added later. (2) Yes: the contract rejects invalid enum and Flags bits for "lookup/bound parameters" alike. (3) Yes: Q07.3.6 checks a null by its declared type, and `string` is one; a null given as `object` has none. Taken by the coordinator, 21 November 2026, after the review of the sprint, from the same rule: a null given as any other class has a type no scalar field has and is refused for every part, as a `Nullable` without a value of such a type is |
+| **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
+| **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

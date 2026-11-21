@@ -1267,7 +1267,7 @@ Why this order:
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
-| S15, part 2 | The binding rules | Full | Not started |
+| S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -6513,6 +6513,213 @@ Two mistakes of the plan:
 
 #### S15 · Ranges, order, paging and the binding rules
 
+**Added by the planner on 21 November 2026, for S15, part 2 · The binding rules.** The
+Acceptance below is unchanged. Full track, not critical, no study; one implementer (Opus
+5.5, high: the first sprint of the effort trial), one reviewer, a breaker. Branch
+`epic-1/sprint-15-binding`.
+
+Where the code stands at 5f1907d. `IndexValue.Bind` takes the type of the field exactly or
+an integer of another width that fits. The rest of the accepted allowlist is not built, an
+integer that the enum type of an Enum part does not declare binds and finds nothing, and a
+`Nullable` without a value loses its type in `IndexValue.Of`, so a null of an incompatible
+type is accepted. Reference parts and parts behind an owned value cannot be stored before
+S18: their binding is stated by the acceptance of the key, as `IndexPartTypeTests` does
+today, and nothing is added for them.
+
+1. **What is built.** One place, `IndexValue.Bind`, used for a value of `Equal` and for a
+   bound alike:
+   - integer to Decimal, always;
+   - integer to Float32 and to Float64 when the field type holds exactly that integer;
+   - Float32 to Float64;
+   - Float64 to Float32 when the finite value converts back to itself; NaN, each infinity
+     and the sign of zero are kept across both widths;
+   - refused, with the `ArgumentException` of today: Decimal to floating point and back;
+     Decimal or floating point to any integer, 42.0 included; overflow; anything not
+     numeric for a numeric field;
+   - an Enum part: after the integer is bound to the underlying type,
+     `LatticeEnumType.IsValid` decides, as it does for a write; an integer it does not
+     allow is refused, as a value and as a bound, with the words of `EnumValues.Undeclared`;
+   - a null that has a type — a `Nullable<T>` without a value, or a null given as
+     `string` — is accepted only where a value of that type could be, by the pairs above,
+     and only where the part can be null; a null given as `object` has no type and follows
+     the part alone. `IndexValue` keeps the type of such a null without growing:
+     `IndexKey` and `IndexBound` keep their size, which a test states. If it cannot, it
+     comes to the planner with the figure.
+
+   The same-type branch of `Bind` stays first and makes the calls it makes today. A value
+   that is converted is not boxed. Not built: the same conversions for a value set into a
+   record or written (`FieldValues.Normalize`): the decision speaks of query binding, not
+   of stored data. A primary key is an integer, a String or a Guid, so the rules a read by
+   key has today are already the whole allowlist for it.
+2. **Decided sentences of documentation**, written by the implementer in step 1
+   ([development process](process.md), "A sentence of documentation needs no step of its
+   own"):
+   - `IndexKey`, remarks, the sentence "Values are given in the order of the index fields
+     and have the types of those fields; an integer of another width is accepted when it
+     fits." becomes: "Values are given in the order of the index fields and have the types
+     of those fields. A number of another type is accepted when it is the same number in
+     the type of the field: an integer of another width that fits; any integer for a
+     Decimal field; an integer that a Float32 or a Float64 field holds exactly; a Float32
+     for a Float64 field; a Float64 for a Float32 field when it converts back to itself,
+     with NaN, an infinity and the sign of zero kept. Nothing else is converted: a Decimal
+     or a floating-point value is not accepted for an integer field, 42.0 included, nor a
+     Decimal for a floating-point field, nor the reverse. A value for an Enum field is its
+     integer, and it has to be one the enum type allows; a .NET enum value is not
+     accepted."
+   - The same remarks, the paragraph on null, gain: "A <see langword="null"/> that has a
+     type, a <see cref="Nullable{T}"/> without a value or a null <see cref="string"/>, is
+     accepted only where a value of that type would be."
+   - `IndexBound`, remarks, gains: "Its value is accepted and refused as a value of an
+     <see cref="IndexKey"/> is."
+   - The last sentence of the head comment of `IndexValue` ("… is not taken here yet")
+     goes, and the head says the rule in its own words.
+3. **Tests first**, by the implementer in step 1, in
+   `Moltaro.Lattice.Tests/Indexes/ValueBinding` (a folder of its own; nothing more is added
+   to the root of `Indexes`), with their schema beside them. Every case runs through a
+   class and by name; a refusal is stated for `Find` and `FindAsync` as
+   `IndexKeyArgumentTests` does. An accepted value is proven by the entity it finds, never
+   by the absence of an exception. A case an existing test already holds is named in the
+   record, not written twice. Groups, in order:
+   1. **One value, every way.** For each key family — the eight integers, String, Guid —
+      an entity is read by its key and found by an index on a field of the same type
+      holding the same value, at the smallest and the largest value of the type. For each
+      other family an index part may end at and the engine stores — Boolean, Float32,
+      Float64, Decimal, DateTimeOffset, DateOnly, TimeOnly, TimeSpan, Enum, Flags — the
+      entity is found by an index, at the smallest and the largest value.
+   2. **The allowlist at its boundaries**, one theory of (field type, value given, bound or
+      refused), the same rows as a value of `Equal`, as a lower and as an upper bound:
+      - integer to integer, for each target one under and one over each end: UInt8 from
+        -1, 0, 255, 256; Int64 from UInt64 2^63-1 and 2^63; UInt64 from -1; Int8 from
+        -129, -128, 127, 128;
+      - integer to Decimal: Int64.MinValue and UInt64.MaxValue, each found;
+      - integer to Float32: 16,777,216 bound, 16,777,217 refused, 16,777,218 bound;
+        Int64.MinValue bound, Int64.MaxValue and UInt64.MaxValue refused;
+      - integer to Float64: 9,007,199,254,740,992 bound, …993 refused, …994 bound (the
+        cases of Q07.3.6);
+      - Float32 to Float64: 0.1f finds the entity that holds (double)0.1f and not the one
+        that holds 0.1; NaN, both infinities, -0f;
+      - Float64 to Float32: 0.5 bound; 0.1 refused; (double)float.MaxValue bound; 3.5e38
+        refused, not bound as an infinity; double.Epsilon refused, not bound as zero; NaN,
+        both infinities and -0.0 bound;
+      - refused: Decimal 0.5 and Decimal 42 for Float32 and Float64; Float32 and Float64
+        for Decimal; 42.0, 42f and 42.0m for every integer type; a Boolean, a String, a
+        Guid and each temporal type for a numeric field, and a number for each of them;
+        DateTime for DateTimeOffset.
+   3. **Floating-point values as keys and bounds**, Float32 and Float64, against an oracle
+      ordered by `CompareTo`: an exact search of NaN finds the entities that hold NaN; of
+      0.0 and of -0.0 each finds both zeros, every entity returned with its own sign; the
+      walk in both directions; NaN, each infinity and -0.0 as an inclusive and as an
+      exclusive bound, lower and upper.
+   4. **Enum and Flags.** The order is numeric against an oracle: an enum over a signed
+      type with negative members, one over UInt64 with a member above Int64.MaxValue, a
+      Flags type with combinations, both directions, and a range. An integer the enum type
+      does not declare is refused as a value and as a bound; for Flags a bit no member
+      declares is refused, a combination of declared bits that no member names is bound,
+      and zero is what `IsValid` says of it. An integer of another width that fits binds.
+      A .NET enum value is refused.
+   5. **A null with a type.** `Nullable<double>` without a value for a nullable Int32 part
+      refused; `Nullable<long>` for it bound and finds the entities without a value;
+      `Nullable<int>` for a nullable Decimal, Float32 and Float64 part bound; a null
+      `string` for a nullable Int32 part refused and for a nullable String part bound; a
+      null `object` bound for every nullable part; each of them refused for a part that is
+      never null. A null in every position of a composite key of three parts, typed and
+      untyped.
+   6. **Shapes that are refused**, beside what `IndexKeyArgumentTests` and
+      `IndexPartTypeTests` hold: a value of a type no scalar field has — a class, a tuple,
+      a `char`, an `Int128`, a `Half` — as a value and as a bound; a bound whose type the
+      allowlist refuses while the other bound is good.
+   7. **A range for every family** not yet held (Int32, Int64 and String are): inclusive
+      and exclusive bounds against the oracle, with the smallest and the largest value of
+      the type as a bound, and for one family a bound given in another type of the
+      allowlist.
+   8. **Text by its field policy, in a UTF-8 and in a UTF-16 database**, the same
+      assertions on both: equality and order of Ordinal and of OrdinalIgnoreCase; a bound
+      that differs from stored values only by case; and the pair U+FF5E and U+10000, whose
+      order differs between UTF-16 code units and UTF-8 bytes, in a walk and at a bound.
+      Where `TextKeySearchTests` already holds one of these, it is named, not repeated.
+   9. **Allocation and size.** A search whose value is converted (an Int32 for a Decimal
+      part, a Float32 for a Float64 part) allocates what the same search with the type of
+      the field allocates, in the collection of the allocation tests; `Unsafe.SizeOf` of
+      `IndexKey` and of `IndexBound` is what it is at 5f1907d.
+
+   The sample of the indexes gains one search by a number of another type and one by an
+   Enum part.
+4. **The breaker** takes the Acceptance as its list, within the bound the coordinator
+   sets, in this order:
+   1. a value that is accepted and finds nothing or the wrong entity — silent rounding
+      near 2^24 and 2^53, subnormals, Decimal values equal at different scales (1.0 and
+      1.00), UInt64 above Int64.MaxValue;
+   2. NaN, infinities and the two zeros at bounds, in both directions and inside a
+      composite key;
+   3. Enum and Flags: undeclared integers, the high bit, the order;
+   4. values given as `object` and as a boxed `Nullable`, against the same value given by
+      its type;
+   5. the same key through a class and by name, by `Find` and by `FindAsync`, in a UTF-8
+      and in a UTF-16 database, and through a child;
+   6. a box or a larger key on any accepted path.
+5. **Measured.** Nothing reported by this part. The allocation tests of group 9 are
+   asserted. On the workstation the implementer shows by the JIT listing that the
+   same-type path of `IndexCriteria.Prepare` makes the calls it made. The start of S16
+   takes `main` before this part as one of its builds for `index-search`.
+6. **The record of the sprint** states the review rounds and the findings by severity
+   beside those of part 1 (the effort trial, [development process](process.md)).
+
+**The record of S15, part 2** (closed on 21 November 2026). Step 1 ended at 8fe7288, its
+documentation sentences (9e8a001) and its tests written by the implementer from the brief
+before the implementation; no assertion of a test of step 1 changed after it, and the
+skips went with the implementation. The cases the brief names that an existing test
+already held are named in the heads of the new tests: `IndexPartValueTests`,
+`KeyTypeTests`, `IndexKeyArgumentTests`, `IndexPartTypeTests`, `TextKeySearchTests`,
+`OrderAndBoundsTests` and `ExactSearchTests`. The allocation test of group 9 stands in
+`Moltaro.Lattice.Engine.Tests/Engine/Indexes/Search`, where the collection of the
+allocation tests is. The JIT listing on the workstation: `IndexCriteria.Prepare` makes the
+calls it made at 5f1907d, and `Bind` is now inlined into `Equal` and `Range`, so a value
+of the type of its field makes one call fewer; nothing was timed.
+
+Taken by the coordinator from the implementer's report, as following from the brief: a
+null keeps its type in a byte of the padding of `IndexValue`, so `IndexKey` and
+`IndexBound` keep their 232 and 40 bytes; a `Nullable` without a value of a type no scalar
+field has is refused for every part; for a part that is never null the error of a null
+comes before the binding; the check of an Enum part sits in the branch of the same type
+and calls `IsValid` only for an Enum part; the sample opens a small database of its own.
+After the review the same rule was taken for a null given as any reference type other than
+`string` and `object` (Q54 of the [open questions](open-questions.md)).
+
+Review: two rounds and a last look at the documents. Round 1 found no P1, one P2 (a null
+given as a class was accepted as a null without a type), five P3 (comments that cited the
+brief and the Acceptance; the row of Q07.3.6 in `docs/design/questions.md`; the comment of
+`FieldValues` on a search key; two builders of a bound; the ends of each type written
+three times) and six P4; round 2 found nothing above P4, and three P4; the last look found
+one P3 of a document, a sentence of `README.md` and of the architecture that did not say a
+Decimal and a floating-point value never bind to each other, fixed in the same pass. The
+breaker wrote 37 probes in its first round and 46 in its second, the new rule of a null
+included, and none failed; a fault put in by hand failed 8 of the first and 3 of the new
+ones. The hardest part to follow, by the reviewer: how a null reaches `IndexValue`, by
+four paths in `IndexValue.Of`.
+
+The effort trial (the [development process](process.md), "Models and effort by role"):
+this part, implemented at Opus 5.5 high, took two rounds of review, with 1 P2 and 5 P3 in
+the first and nothing above P4 in the second, a P3 of a document at the last look, and no
+failure of the breaker. S15, part 1, critical and implemented at xhigh, took three rounds
+and one on the fixes of its fall, with 1 P1, 3 P2 and 5 P3 in the first round and 3 P3 in
+the second, and five failures of its breaker, three in its first round and two in its
+second. The two parts are not of the same difficulty: part 1 was a traversal under
+concurrent change on the read path, part 2 the binding of a value.
+
+Small changes made in this branch while the sprint was open: the architect's review after
+S15, part 1, gone through by the planner and the coordinator (the [refactoring
+backlog](refactoring.md)); the term of the planner in [the development
+process](process.md), "New sessions at a sprint boundary", on the owner's word of 21
+November 2026; Q54.
+
+Listed for the owner at the close, under the rule on a draft contract and the limits on
+questions:
+- The remarks of `IndexKey` and `IndexBound`: which numbers of another type are accepted,
+  that a .NET enum value is not, and which nulls have a type.
+- Q54: a .NET enum value refused for an Enum part; an undeclared integer refused as a
+  bound as well as a value; a null given as `string` has a type, one given as `object` has
+  none, and one given as any other reference type is refused.
+
 **Added by the planner on 20 November 2026, after S14, part 2.** It comes above the text of
 17 November; where they differ, this replaces it.
 
@@ -7164,6 +7371,12 @@ touches anyway.
   existing data (S38).
 
 #### S17 · Atomic write batch
+
+**Carried from the architect's review after S15, part 1 (21 November 2026), for the study
+of this sprint:** the position of an answer, the larger of the sequence of a step and the
+stamp of the entity, is written at three places of `EntityTable`, and the end at an
+unchanged sequence at three more; `TakeEntry` is the one home of the stamp. What "exposed
+whole or not at all" changes for a read has these places to change, all in one file.
 
 **Carried from the review of S11:** a child applies a transaction of several effects in
 three steps (every insert installed and every replace or delete marked; the position

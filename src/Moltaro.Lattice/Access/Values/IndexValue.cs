@@ -5,8 +5,9 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Access.Values;
 
 // One value of an index key or of a bound as a caller gave it, held without a box: the field type
-// whose .NET type the value has, its bits and, for text, the string (the remarks of IndexKey). It is
-// what lets IndexKey and IndexBound be small values that a caller makes without allocating.
+// whose .NET type the value has, its bits and, for text, the string, and for a null the type it was
+// given as (the remarks of IndexKey). It is what lets IndexKey and IndexBound be small values that a
+// caller makes without allocating.
 //
 // A value of one of the .NET types of the scalar field types, or a Nullable of one, is taken apart by
 // its type in Of, and boxes nothing: the generic method is compiled for each value type it is called
@@ -22,14 +23,28 @@ namespace Moltaro.Lattice.Access.Values;
 // a TimeOnly or a TimeSpan, the 16 of a Decimal, a Guid or a DateTimeOffset. They are read back the same
 // way, so the value is the one given, bit for bit, a negative zero and a NaN payload included.
 //
-// Bind is where a value meets the schema, by the rules FieldValues applies to a value given as an
-// object: the type of the field exactly, or an integer of another width whose value the field type
-// holds, and text that is well-formed; anything else is the ArgumentException of FieldValues, with its
-// message. The extended allowlist of the milestone contract ("Index preparation and traversal": exact
-// integer to Decimal and to floating point, exact Float32 and Float64 widening) is not taken here yet.
+// Bind is where a value meets the schema, for a value of an index key and for a bound alike. A value
+// whose type is the .NET type of the field is taken as it is, text when it is well-formed. A value of
+// another type is converted when it is the same number in the type of the field, by the allowlist of the
+// milestone contract ("Index preparation and traversal"; docs/decisions/queries.md, Q07.3.6): an integer
+// of another width that fits, any integer for a Decimal, an integer that a Float32 or a Float64 holds
+// exactly, a Float32 for a Float64, and a Float64 for a Float32 when it converts back to itself, with NaN,
+// the infinities and the sign of zero kept. A converted value is written into the bits as any other, so
+// it is not boxed. The value of an Enum part, bound to the underlying type of its enum type, has to be
+// one LatticeEnumType.IsValid allows, as for a write, and is refused in the words of that validation. A
+// null keeps the field type of the .NET type it was given as, a Nullable without a value or a null
+// string, and is accepted only where a value of that type would be; a null given as an object has no
+// type, and a null given as any other type is one of a type no field has, refused for every part. Any
+// other value is an ArgumentException for the parameter named, with the message FieldValues gives for a
+// value it refuses.
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {
+    // The type of a null given as a type that no scalar field has, a Nullable of one or a reference type
+    // other than string and object, which is no field type: such a null is refused for every part, as a
+    // value of its type is.
+    private const LatticeFieldTypeEnum OtherType = (LatticeFieldTypeEnum)byte.MaxValue;
+
     // The bits; see the struct.
     private readonly ulong _low;
 
@@ -42,6 +57,11 @@ internal readonly struct IndexValue
     // object of another type.
     private readonly LatticeFieldTypeEnum _type;
 
+    // For a null, the field type of the .NET type it was given as, or OtherType; 0 for a null given as an
+    // object, which has no type, and for a value. It lies in the padding after _type: a value is 32 bytes
+    // with it as without it.
+    private readonly LatticeFieldTypeEnum _typeOfNull;
+
     private IndexValue(LatticeFieldTypeEnum type, ulong low, ulong high, object? reference)
     {
         _type = type;
@@ -50,10 +70,16 @@ internal readonly struct IndexValue
         _reference = reference;
     }
 
+    // A null given as a value of the field type given; see NullOf.
+    private IndexValue(LatticeFieldTypeEnum typeOfNull)
+    {
+        _typeOfNull = typeOfNull;
+    }
+
     // The field type whose .NET type the value has; 0 for null and for a value of another type.
     public LatticeFieldTypeEnum Type => _type;
 
-    // Whether the value is null: given as null, or as a Nullable without a value.
+    // Whether the value is null: given as null, as a null string or as a Nullable without a value.
     public bool IsNull => _type == 0 && _reference is null;
 
     // The text of a String value; null for any other.
@@ -80,23 +106,24 @@ internal readonly struct IndexValue
     // one (see the struct).
     public static IndexValue Of<T>(T value)
     {
-        // A null reference; a Nullable without a value is null in Is. A value type is not tested here,
-        // where an unoptimized build would box it.
-        if (!typeof(T).IsValueType && value is null)
-        {
-            return default;
-        }
-
         if (typeof(T) == typeof(string))
         {
-            // A reference type, not null here: the conversion through object is no box.
-            return new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value!);
+            // A reference type: the conversion through object is no box.
+            return value is null
+                ? NullOf(LatticeFieldTypeEnum.String)
+                : new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
+        }
+
+        // A null reference: given as an object it has no type; given as any other reference type, a type
+        // no scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
+        // tested here, where an unoptimized build would box it.
+        if (!typeof(T).IsValueType && value is null)
+        {
+            return typeof(T) == typeof(object) ? default : NullOf(OtherType);
         }
 
         // A value of a scalar field type or a Nullable of one; otherwise an object, which is not boxed
-        // again, or a value of a type no scalar field has, which is. A reference that is null was taken
-        // above, and the tests take the value by reference without changing it, so it is not null for
-        // OfObject.
+        // again, or a value of a type no scalar field has, which is (OfOther).
         return Is<T, bool>(ref value, LatticeFieldTypeEnum.Boolean, out var result)
             || Is<T, sbyte>(ref value, LatticeFieldTypeEnum.Int8, out result)
             || Is<T, byte>(ref value, LatticeFieldTypeEnum.UInt8, out result)
@@ -115,35 +142,32 @@ internal readonly struct IndexValue
             || Is<T, TimeOnly>(ref value, LatticeFieldTypeEnum.TimeOnly, out result)
             || Is<T, TimeSpan>(ref value, LatticeFieldTypeEnum.TimeSpan, out result)
                 ? result
-                : OfObject(value!);
+                : OfOther(value);
     }
 
-    // The value as the field holds it: the value itself when its type is the .NET type of the field,
-    // an integer of another width converted when the field type holds it, after the rules of
-    // FieldValues.NormalizeArgument (see the struct). The value is not null. ArgumentException, for the
-    // parameter named, with the message FieldValues gives for a value it refuses.
+    // The value as the field holds it, by the rules of the struct. The value of the .NET type of the field
+    // is taken first, with no call for a fixed-width value of a field that is not an Enum; anything else
+    // is BindOther's. ArgumentException, for the parameter named, for a value the rules refuse. A null
+    // given as an object is returned as it is: whether the part can be null is the caller's check.
     public IndexValue Bind(LatticeField field, string parameterName)
     {
-        var expected = field.Declaration.ScalarType;
+        var declaration = field.Declaration;
 
-        if (_type == expected)
+        if (_type == declaration.ScalarType)
         {
             if (_type == LatticeFieldTypeEnum.String)
             {
                 FieldValues.ThrowIfNotWellFormed(field, (string)_reference!, parameterName);
             }
+            else if (declaration.EnumType is { } enumType)
+            {
+                ThrowIfNotAllowed(enumType, field, parameterName);
+            }
 
             return this;
         }
 
-        if (FieldTypes.IsInteger(expected) && FieldTypes.IsInteger(_type) && IntegerRange.Of(expected).Contains(Integer))
-        {
-            return OfInteger(expected, Integer);
-        }
-
-        throw new ArgumentException(
-            $"Field '{field.Name}' is {field.Declaration.Type}; the {TypeName} value '{ToObject()}' cannot be used for it.",
-            parameterName);
+        return BindOther(field, parameterName);
     }
 
     // The value of a fixed-width type, read back from the bits.
@@ -180,9 +204,129 @@ internal readonly struct IndexValue
         _ => As<TimeSpan>(),
     };
 
+    // Whether a value of the field type from can be bound to a field of the field type to: a pair of the
+    // allowlist, for which TryConvert decides by the value, and by which a null with a type is checked.
+    private static bool Pairs(LatticeFieldTypeEnum from, LatticeFieldTypeEnum to)
+    {
+        if (from == to)
+        {
+            return true;
+        }
+
+        if (FieldTypes.IsInteger(from))
+        {
+            return FieldTypes.IsInteger(to) || to is LatticeFieldTypeEnum.Decimal or LatticeFieldTypeEnum.Float32 or LatticeFieldTypeEnum.Float64;
+        }
+
+        return (from, to) is (LatticeFieldTypeEnum.Float32, LatticeFieldTypeEnum.Float64) or (LatticeFieldTypeEnum.Float64, LatticeFieldTypeEnum.Float32);
+    }
+
+    // An integer in the field type given, when it is the same number there: in the range of an integer
+    // type; any integer for a Decimal, which holds every one of the eight types; for a Float32 or a Float64
+    // one that converts back to itself, which an integer the conversion rounds does not.
+    private static bool TryConvertInteger(Int128 integer, LatticeFieldTypeEnum type, out IndexValue converted)
+    {
+        switch (type)
+        {
+            case LatticeFieldTypeEnum.Decimal:
+                converted = Fixed(type, (decimal)integer);
+
+                return true;
+            case LatticeFieldTypeEnum.Float32:
+                var single = (float)integer;
+                converted = Fixed(type, single);
+
+                return (Int128)single == integer;
+            case LatticeFieldTypeEnum.Float64:
+                var number = (double)integer;
+                converted = Fixed(type, number);
+
+                return (Int128)number == integer;
+            default:
+                var fits = IntegerRange.Of(type).Contains(integer);
+                converted = fits ? OfInteger(type, integer) : default;
+
+                return fits;
+        }
+    }
+
+    // After the type of the field (Bind): a value of another type converted by the allowlist, and checked
+    // when its part is an Enum; a null with a type accepted where a value of its type would be, and one
+    // without a type as it is. ArgumentException for anything else.
+    private IndexValue BindOther(LatticeField field, string parameterName)
+    {
+        var declaration = field.Declaration;
+        var expected = declaration.ScalarType;
+
+        if (IsNull)
+        {
+            if (_typeOfNull == 0 || Pairs(_typeOfNull, expected))
+            {
+                return this;
+            }
+
+            var givenAs = _typeOfNull == OtherType ? "a type no field has" : FieldTypes.ValueType(_typeOfNull).Name;
+
+            throw new ArgumentException($"Field '{field.Name}' is {declaration.Type}; a null given as {givenAs} cannot be used for it.", parameterName);
+        }
+
+        if (Pairs(_type, expected) && TryConvert(expected, out var converted))
+        {
+            if (declaration.EnumType is { } enumType)
+            {
+                converted.ThrowIfNotAllowed(enumType, field, parameterName);
+            }
+
+            return converted;
+        }
+
+        throw new ArgumentException(
+            $"Field '{field.Name}' is {declaration.Type}; the {TypeName} value '{ToObject()}' cannot be used for it.",
+            parameterName);
+    }
+
+    // The value in the field type given, a pair of the allowlist with its own (Pairs), when it is the same
+    // number there.
+    private bool TryConvert(LatticeFieldTypeEnum type, out IndexValue converted)
+    {
+        if (FieldTypes.IsInteger(_type))
+        {
+            return TryConvertInteger(Integer, type, out converted);
+        }
+
+        if (_type == LatticeFieldTypeEnum.Float32)
+        {
+            // Every Float32 is a Float64: a NaN, an infinity and a zero with its sign as well.
+            converted = Fixed(type, (double)As<float>());
+
+            return true;
+        }
+
+        // A Float64 for a Float32. The conversion rounds, and it turns a value beyond the range of a
+        // Float32 into an infinity and a subnormal Float64 into a zero, none of which converts back to the
+        // value given. A NaN, never equal to itself, is taken by its class.
+        var number = As<double>();
+        var narrowed = (float)number;
+        converted = Fixed(type, narrowed);
+
+        return double.IsNaN(number) || narrowed == number;
+    }
+
+    // For an integer in the underlying type of the enum type of an Enum part: refused when the enum type
+    // does not allow it, in the words of the validation of a write (EnumValues.Undeclared).
+    private void ThrowIfNotAllowed(LatticeEnumType enumType, LatticeField field, string parameterName)
+    {
+        if (!enumType.IsValid(Integer))
+        {
+            throw new ArgumentException(
+                $"Field '{field.Name}' is {field.Declaration.Type}; {EnumValues.Undeclared(enumType, ToObject()!)}, cannot be used for it.",
+                parameterName);
+        }
+    }
+
     // Whether T is TValue or a Nullable of it, with the value, of the field type given, when it is, and
-    // null for a Nullable without a value. Decided when the method is compiled for T and TValue, so a
-    // test that fails costs nothing for a value type T.
+    // a null of that type for a Nullable without a value. Decided when the method is compiled for T and
+    // TValue, so a test that fails costs nothing for a value type T.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Is<T, TValue>(ref T value, LatticeFieldTypeEnum type, out IndexValue result)
         where TValue : unmanaged
@@ -196,7 +340,7 @@ internal readonly struct IndexValue
 
         if (typeof(T) == typeof(TValue?))
         {
-            result = Unsafe.As<T, TValue?>(ref value) is { } held ? Fixed(type, held) : default;
+            result = Unsafe.As<T, TValue?>(ref value) is { } held ? Fixed(type, held) : NullOf(type);
 
             return true;
         }
@@ -228,6 +372,19 @@ internal readonly struct IndexValue
         LatticeFieldTypeEnum.Int64 => Fixed(type, (long)value),
         _ => Fixed(type, (ulong)value),
     };
+
+    // A value of a type no scalar field has, or an object: boxed when it is of a value type, and an object
+    // not boxed again (see the struct). A null reference was taken by Of, so a box that is null is a
+    // Nullable without a value of a type no scalar field has.
+    private static IndexValue OfOther<T>(T value)
+    {
+        object? held = value;
+
+        return held is null ? NullOf(OtherType) : OfObject(held);
+    }
+
+    // A null given as a value of the field type given, or of OtherType.
+    private static IndexValue NullOf(LatticeFieldTypeEnum type) => new(type);
 
     // A value held as an object: unboxed when it is of a scalar field type.
     private static IndexValue OfObject(object value) => value switch
