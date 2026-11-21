@@ -43,9 +43,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // faults the child (OrderedTree.Insert, Remove).
 //
 // Memory. The nodes are blocks of the arena, counted in its live, prepared and retired bytes and so in
-// the budget of the instance. The close frees them with the arena. An entry of a write is made in scratch of the writer that the index holds, of the widest entry,
-// allocated when the database opens. Readers take no lock; only the holder of the lock of the writes
-// calls the members of a write.
+// the budget of the instance. The close frees them with the arena. An entry of a write is made in
+// scratch of the writer that the index holds, of the widest entry, allocated when the database opens.
+// Readers take no lock; only the holder of the lock of the writes calls the members of a write.
 internal sealed class SecondaryIndex
 {
     private readonly RootLayout _roots;

@@ -850,6 +850,8 @@ internal sealed class OrderedTree
         var parentAddress = _path[level];
         var parent = NodeAt(parentAddress);
         var separator = gone > 0 ? gone - 1 : 0;
+        // The child beside the one that goes, at which the merged node goes after a merge, and the child a
+        // root left with one child keeps. In a removal kept is that child itself, written over itself.
         var beside = gone > 0 ? gone - 1 : 1;
         var kept = merged.IsNull ? parent.ChildAt(beside) : merged;
 
@@ -977,8 +979,9 @@ internal sealed class OrderedTree
     // need an interface, a generic or a delegate.
     private int EntriesBelow(scoped in IndexNode node, scoped in SearchKey probe, bool equalBelow)
     {
-        // The least order of the probe against an entry that counts the entry below it: one, which is
-        // above zero, or zero as well.
+        // An entry counts below the probe when the order of the probe against it is at least this: 1, the
+        // probe after the entry, or 0 when an entry equal to the probe counts below as well. A threshold, so
+        // that each probe of the search tests the order once (JIT listing at full optimization).
         var least = equalBelow ? 0 : 1;
         var low = 0;
         var high = node.Count;
