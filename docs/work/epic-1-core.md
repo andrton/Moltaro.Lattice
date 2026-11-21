@@ -7205,8 +7205,8 @@ structure, so the refactoring sprint after S13 did not take it.
 **The word for the durable store**, a note of the planner of 21 November 2026 until the
 contracts of the stage are written: the engine says "persistence" for what makes a write
 durable and "storage" for the form of the entities in memory, while the public contract
-says "storage" for the durable store of a provider:
-`LatticeDatabaseOptions.StorageConnectionString` and the documentation of `ILatticeSet`,
+says "storage" for the durable store of a provider: `LatticeDatabaseOptions` with its
+`StorageConnectionString`, and the documentation of `ILatticeSet`,
 `LatticeDatabaseStateEnum`, `LatticeErrorEnum` and `LatticePersistenceModeEnum`. The
 contract of the stage, before S26, changes it and lists it, or keeps it with its reason.
 
