@@ -453,20 +453,77 @@ internal sealed class EntityTable
     public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class =>
-        Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, cancellationToken);
+        index is null || search.EndsAt != 0
+            ? StepWithoutWalk(index, ref search, out sequence, cancellationToken)
+            : Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, cancellationToken);
 
     // For FindAsync, once it has returned its Limit: whether a match follows where the search stands, by a
     // step that copies nothing and moves nothing; false without a descent when a step saw the end of the
     // search. The sequence is that of the answer, as for a step.
     public bool SearchHasMore(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
     {
+        if (index is null || search.EndsAt != 0)
+        {
+            return StepWithoutWalk(index, ref search, out sequence, cancellationToken);
+        }
+
         var none = default(NoCopy);
 
         return Step<NoCopy, object>(index, key, ref search, ref none, copies: false, out sequence, cancellationToken);
     }
 
+    // A step of a search that has nothing to walk: one whose step before saw its end, which ends at the
+    // sequence of that step, and one of an entity type the engine does not store, which has no index and finds
+    // nothing, as a read by key does. Kept apart from Step, whose frame holds the walk and the scratch of its
+    // keys, which such a step needs neither of. It still enters the protection of reads, so that a step after
+    // the close or the fault is refused as every step is and the search lets go of what it remembers, and it
+    // looks at the limits as every round does.
+    private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
+    {
+        // The time of the step begins before the protection, whose slot it may wait for.
+        var started = search.Limits.StartStep();
+
+        try
+        {
+            var protection = EnterProtection(ref search, cancellationToken);
+
+            try
+            {
+                search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
+                sequence = index is null ? _clock.Sequence : search.EndsAt;
+
+                return false;
+            }
+            finally
+            {
+                _epochs.Exit(protection);
+            }
+        }
+        finally
+        {
+            search.Limits.EndStep(started);
+        }
+    }
+
+    // Enters the protection of reads for a round of a step of the search. After the close, and once the
+    // database is faulted, every step fails here, so the search is over for good and lets go of what it
+    // remembers, as when a read limit fails it.
+    private int EnterProtection(ref IndexSearch search, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return _epochs.Enter(cancellationToken);
+        }
+        catch (Exception exception) when (exception is ObjectDisposedException or LatticeException { Error: LatticeErrorEnum.Unavailable })
+        {
+            search.Progress = null;
+
+            throw;
+        }
+    }
+
     // A step of a search (TrySearch), or a look at whether a match follows when it copies nothing
-    // (SearchHasMore). Each round enters the protection of reads, walks at most EntriesPerRound entries of the
+    // (SearchHasMore), through an index, of a search whose end no step has seen. Each round enters the protection of reads, walks at most EntriesPerRound entries of the
     // index (IndexWalk) and leaves it. A round ends before an entry when what the step needs to go on is not
     // there: a WalkProgress, room for a key to remember or for an entry to stand at or after; it then stands
     // at that entry, when it can write it, and the room is counted against the memory limit and made outside
@@ -478,14 +535,14 @@ internal sealed class EntityTable
     //
     // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it.
     [SkipLocalsInit]
-    private bool Step<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, CancellationToken cancellationToken)
+    private bool Step<TCopy, TResult>(SecondaryIndex index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         Span<byte> scratch = stackalloc byte[2 * SearchKey.ScratchBytes];
         var entityName = EntityType.Name;
-        var indexName = index?.Definition.Name;
-        var full = index is not null && IndexWalk.IsFullKey(index.Layout, key);
+        var indexName = index.Definition.Name;
+        var full = IndexWalk.IsFullKey(index.Layout, key);
 
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
@@ -501,41 +558,12 @@ internal sealed class EntityTable
                 var entryLength = 0;
 
                 // The keys of the walk are written on the stack outside the protection, once for the round.
-                var walk = index is null || search.EndsAt != 0
-                    ? default
-                    : new IndexWalk(index, key, search.Reverse, search.From, !full && search.Progress is { } walked ? walked.Last : default, scratch);
-                int protection;
-
-                try
-                {
-                    protection = _epochs.Enter(cancellationToken);
-                }
-                catch (Exception exception) when (exception is ObjectDisposedException or LatticeException { Error: LatticeErrorEnum.Unavailable })
-                {
-                    // After the close, and once the database is faulted, every step fails here, so the search
-                    // is over for good and lets go of what it remembers, as when a read limit fails it.
-                    search.Progress = null;
-
-                    throw;
-                }
+                var walk = new IndexWalk(index, key, search.Reverse, search.From, !full && search.Progress is { } walked ? walked.Last : default, scratch);
+                var protection = EnterProtection(ref search, cancellationToken);
 
                 try
                 {
                     search.CheckRound(started, cancellationToken, entityName, indexName);
-
-                    if (index is null)
-                    {
-                        sequence = _clock.Sequence;
-
-                        return false;
-                    }
-
-                    if (search.EndsAt != 0)
-                    {
-                        sequence = search.EndsAt;
-
-                        return false;
-                    }
 
                     var before = _clock.Sequence;
                     var passed = 0;
