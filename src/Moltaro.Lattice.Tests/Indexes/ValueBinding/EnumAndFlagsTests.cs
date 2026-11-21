@@ -74,6 +74,22 @@ public sealed class EnumAndFlagsTests
     }
 
     [Fact]
+    public async Task Refusal_of_an_integer_the_enum_type_does_not_allow_says_so_in_the_words_of_the_validation_of_a_write()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        var byLevel = database.Set<Item>().Index("ByLevel");
+        var byRights = database.Set("Item").Index("ByRights");
+
+        // The integer given as an Int32 is named in the underlying type it was bound to.
+        var level = Assert.Throws<ArgumentException>(() => byLevel.Find(IndexKey.Equal(0)).ToList());
+        var rights = Assert.Throws<ArgumentException>(() => byRights.Find(IndexKey.All.Range(IndexBound.Inclusive(8L), null)).ToList());
+
+        Assert.Equal("key", level.ParamName);
+        Assert.Contains("the value 0, which the enum type 'Level' does not declare", level.Message, StringComparison.Ordinal);
+        Assert.Contains("the value 8, which has a bit that no member of the Flags enum type 'Rights' declares", rights.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Combination_of_declared_bits_that_no_member_names_and_zero_as_IsValid_says_are_values_of_a_Flags_part()
     {
         await using var database = await BindingSchema.OpenAsync();

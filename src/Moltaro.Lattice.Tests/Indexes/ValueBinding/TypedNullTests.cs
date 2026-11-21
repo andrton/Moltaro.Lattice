@@ -55,6 +55,24 @@ public sealed class TypedNullTests
     }
 
     [Fact]
+    public async Task Null_given_as_a_Nullable_of_a_type_no_field_has_is_refused_for_every_part_and_a_boxed_null_has_no_type()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        await BindingSearch.InsertAsync(database, "Int32", [new Stored(1, null)]);
+
+        // No value of these types is a value of any part, so neither is their null.
+        foreach (var index in new[] { "ByInt32", "ByLevel", "ByDateTimeOffset", "ByExact" })
+        {
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<DateTime?>(null), $"{index} = (DateTime?)null");
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<DotNetLevelEnum?>(null), $"{index} = (DotNetLevelEnum?)null");
+            await BindingSearch.ExpectRefusedAsync(database, index, IndexKey.Equal<char?>(null), $"{index} = (char?)null");
+        }
+
+        // A Nullable without a value given as an object is boxed to a null reference, which has no type.
+        await BindingSearch.ExpectAsync(database, "Int32", IndexKey.Equal<object?>((double?)null), reverse: false, [new Stored(1, null)], "ByInt32 = (object?)(double?)null");
+    }
+
+    [Fact]
     public async Task Null_of_any_type_and_as_an_object_is_refused_for_a_part_that_is_never_null()
     {
         await using var database = await BindingSchema.OpenAsync();
