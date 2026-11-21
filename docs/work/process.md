@@ -47,7 +47,7 @@ its mistake; work that is mechanical, or that an independent check follows, runs
 | Light track: documents, samples, comments, small fixes | Opus 5.5, high |
 | Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high |
 | Architect's review, a study before a critical sprint, the planner | Fable |
-| An investigation of a fall in which three or four rounds found no cause | Fable, xhigh |
+| An investigation of read scaling in which three or four rounds found no cause | Fable, xhigh |
 
 The rows at high effort are a trial that begins with S15, part 2 of Epic 1: the record of
 that sprint states the number of review rounds and of findings by severity beside those of
@@ -482,16 +482,17 @@ missed; the question then comes with the cause, the evidence, the alternatives t
 their figures and the requirement that is missed. A fall that has a known cause and stays
 within the requirements is reported at the close.
 
-Reads have to scale with the number of reading threads (the owner, 15 and 21 November
-2026). What is judged is the total: when more threads read fewer entities a second in
-total than fewer threads did, it is a defect and the work on that path does not go on as
-if nothing had happened. A rate of each thread that is lower than the rate of one thread
-alone, while the total grows, is acceptable. Stopping is not the answer by itself: the
-cause is looked for first, by the three steps above, with few coarse protections and the
-mechanisms of established systems preferred and the choice made by measurement. When
-three or four rounds of that have found no cause, a separate agent on the strongest model
-at its highest effort is given the question, with everything that was tried and its
-figures. Only when that agent has no idea either does the work stop for the owner.
+Reads have to scale with the number of reading threads (the owner's answer to
+[Q42](open-questions.md), and his word of 21 November 2026). What is judged is the total:
+when more threads read fewer entities a second in total than fewer threads did, it is a
+defect and the work on that path does not go on as if nothing had happened. A rate of
+each thread that is lower than the rate of one thread alone, while the total grows, is
+acceptable. Stopping is not the answer by itself: the cause is looked for first, by the
+three steps above, and how a read is protected is decided as that answer says. When three
+or four rounds have found no cause, a separate agent is given the question, with
+everything that was tried and its figures, at the model and effort of
+[the table](#models-and-effort-by-role). Only when that agent has no idea either does the
+work stop for the owner.
 
 ## Where the state lives
 

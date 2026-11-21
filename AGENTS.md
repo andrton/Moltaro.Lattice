@@ -215,9 +215,9 @@ Naming:
 - Private fields are `_camelCase`.
 - Name things for what they do for the user, not for the framework mechanism inside.
 - Words: a stored object is an *entity*; a replica is a *child*; the per-type access
-  object is a *set*. Many threads write and what is single is publication: it is *the
-  publishing thread*, and changes are published one at a time; Lattice is never said to
-  have a single writer.
+  object is a *set*. Any number of threads may write, and writes are prepared and
+  published one at a time: the thread that does it is *the publishing thread*, and
+  Lattice is never said to have a single writer.
 
 Shape of the public API:
 
@@ -347,7 +347,7 @@ dotnet run --project Moltaro.Lattice.Samples
   in the conversation. Do not create report, audit or plan files unless the user asks for
   that document. What an epic decides, measures or learns is not a working note: it goes
   into the documents of the epic, as the
-  [development process](docs/work/process.md#where-the-state-lives) says.
+  [development process](docs/work/process.md#new-sessions-at-a-sprint-boundary) says.
 - Never revert the user's changes or unrelated work.
 - Do not commit or push unless asked. Stage only the files of the task. No secrets,
   tokens, machine paths, build output or run output in Git.
