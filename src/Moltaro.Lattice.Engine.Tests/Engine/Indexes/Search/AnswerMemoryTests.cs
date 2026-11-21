@@ -8,18 +8,18 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // What FindAsync counts of its answer against the memory limit of a read
 // (LatticeDatabaseOptions.ReadMemoryLimit; docs/decisions/queries.md, Q07.1.1), in bytes: until it returns,
-// everything the search holds, checked at every moment it grows: the keys it remembers, the list of its answer by its
-// capacity, and each entity, checked when it is added, by everything stored for it: its root block and every
-// value kept outside it, by their stored lengths, a text of Dictionary storage by the bytes of its entry once
-// for each entity that refers to it. An answer of one entity whose step saw the end and that passed over no
-// match by Offset counts nothing; from the step that makes what a walk remembers, everything counts, the
-// first entity included. So a limit of exactly
-// what an answer of n entities holds lets FindAsync return them, and a limit one byte less fails it with
-// ReadMemory. And a cancellation is reported before a limit: the token is looked at before the limit at every
-// place a limit is looked at, so a token cancelled by the code of the application while an entity is built,
-// or by another thread while a round of a step is inside, ends the search in OperationCanceledException, also
-// when the check after it would exceed the limit. A round is held at a root it takes through the switch of the
-// engine (EngineDatabase.ArmReadSwitch), which cancels the token there, as another thread could.
+// everything the search holds, checked at every moment it grows: the keys it remembers, the list of its
+// answer by its capacity, and each entity, checked when it is added, by everything stored for it: its root
+// block and every value kept outside it, by their stored lengths, a text of Dictionary storage by the bytes
+// of its entry once for each entity that refers to it. An answer of one entity whose step saw the end and
+// that passed over no match by Offset counts nothing; from the step that makes what a walk remembers,
+// everything counts, the first entity included. So a limit of exactly what an answer of n entities holds
+// lets FindAsync return them, and a limit one byte less fails it with ReadMemory. And a cancellation is
+// reported before a limit: the token is looked at before the limit at every place a limit is looked at, so
+// a token cancelled by the code of the application while an entity is built, or by another thread while a
+// round of a step is inside, ends the search in OperationCanceledException, also when the check after it
+// would exceed the limit. A round is held at a root it takes through the switch of the engine
+// (EngineDatabase.ArmReadSwitch), which cancels the token there, as another thread could.
 //
 // The figures, by the rules: a search by the full key of ByNumber stands at no entry, so it holds none; its
 // keys take KeysBytes while it remembers 12 keys or fewer; the list of its answer takes 8 bytes a reference of

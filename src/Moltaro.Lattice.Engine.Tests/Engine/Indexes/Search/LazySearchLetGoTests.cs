@@ -16,9 +16,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 // key of ByNumber of Counted (IndexSchema), takes a weak reference to what the search remembers once it has
 // returned two of them, ends the search one of the six ways, and collects the garbage while it holds the
 // enumerable: what the search remembered is collected. The database faults at a write whose publication a
-// fault point of the engine fails (EngineDatabase.ArmFault, BeforePublication). ReadTime is spent inside a step held at a root it takes, through the switch of the
-// engine (EngineDatabase.ArmReadSwitch), for longer than the limit of ReadTimes; that step still returns its
-// entity, and the next one fails.
+// fault point of the engine fails (EngineDatabase.ArmFault, BeforePublication). ReadTime is spent inside a
+// step held at a root it takes, through the switch of the engine (EngineDatabase.ArmReadSwitch), for longer
+// than the limit of ReadTimes; that step still returns its entity, and the next one fails.
 public sealed class LazySearchLetGoTests
 {
     private const int Rows = 50;
