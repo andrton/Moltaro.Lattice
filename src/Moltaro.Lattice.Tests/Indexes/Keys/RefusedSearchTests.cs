@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Keys;
 
 // What a search refuses instead of answering it some other way (decision on index access: the
 // direct-index API rejects absent indexes and unsupported key shapes and does not fall back to a full

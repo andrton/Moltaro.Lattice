@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Declaration;
 
 // What a search shows of a key its index accepts, on an entity type the engine cannot store yet, such as
 // one with owned values. The contract checks a key against the index before anything is searched and

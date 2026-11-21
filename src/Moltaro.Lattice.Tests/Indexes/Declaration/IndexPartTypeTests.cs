@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Declaration;
 
 // The field a part of an index ends at, which for a plain part is the field itself, is one of
 // three: a scalar that is not Binary, an Enum, a Reference. A Reference is compared as the key

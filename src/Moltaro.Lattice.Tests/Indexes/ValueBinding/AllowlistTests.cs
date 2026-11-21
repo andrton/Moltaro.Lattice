@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
-
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A value of a key and of a bound is bound to the type of its field by the accepted allowlist, at its

@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
 using Moltaro.Lattice.TestSupport.Text;
 
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;

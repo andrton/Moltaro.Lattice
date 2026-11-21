@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Engine;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // A child builds its indexes itself, from what it loads, before it is ready, and keeps them while it
 // follows its master (decision on physical index lifecycle, Q19: every node rebuilds its own indexes

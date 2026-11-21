@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // An entity deleted and created again while a search of its key runs. Three members of one group are
 // searched; after the search returned the first of them, that member is deleted and inserted again in the

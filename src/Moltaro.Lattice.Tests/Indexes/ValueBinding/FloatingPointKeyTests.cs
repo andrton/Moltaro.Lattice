@@ -1,5 +1,3 @@
-using Moltaro.Lattice.Tests.Indexes.Walk;
-
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // NaN, the infinities and the two zeros of a Float32 and a Float64 as the value of a key and as a bound,

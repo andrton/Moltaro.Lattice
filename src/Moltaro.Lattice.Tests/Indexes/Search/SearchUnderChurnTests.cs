@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Moltaro.Lattice.Tests.Indexes;
+namespace Moltaro.Lattice.Tests.Indexes.Search;
 
 // A write changes the entity and all its index entries in one publication, and a reader never finds an
 // entity under a key it no longer has (docs/design/ordered-index.md, "An entry is a hint": a search
