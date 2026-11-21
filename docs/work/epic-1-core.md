@@ -1267,7 +1267,7 @@ Why this order:
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
-| S15, part 2 | The binding rules | Full | In progress |
+| S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -6663,6 +6663,58 @@ today, and nothing is added for them.
    takes `main` before this part as one of its builds for `index-search`.
 6. **The record of the sprint** states the review rounds and the findings by severity
    beside those of part 1 (the effort trial, [development process](process.md)).
+
+**The record of S15, part 2** (closed on 21 November 2026). Step 1 ended at 8fe7288, its
+documentation sentences (9e8a001) and its tests written by the implementer from the brief
+before the implementation; no test of step 1 was changed after it, and the skips went
+with the implementation. The cases the brief names that an existing test already held
+are named in the heads of the new tests: `IndexPartValueTests`, `KeyTypeTests`,
+`IndexKeyArgumentTests`, `IndexPartTypeTests`, `TextKeySearchTests`, `OrderAndBoundsTests`
+and `ExactSearchTests`. The allocation test of group 9 stands in
+`Moltaro.Lattice.Engine.Tests/Engine/Indexes/Search`, where the collection of the
+allocation tests is. The JIT listing on the workstation: `IndexCriteria.Prepare` makes the
+calls it made at 5f1907d, and `Bind` is now inlined into `Equal` and `Range`, so a value of
+the type of its field makes one call fewer; nothing was timed.
+
+Taken by the coordinator from the implementer's report, as following from the brief: a
+null keeps its type in a byte of the padding of `IndexValue`, so `IndexKey` and
+`IndexBound` keep their 232 and 40 bytes; a `Nullable` without a value of a type no scalar
+field has is refused for every part; for a part that is never null the error of a null
+comes before the binding; the check of an Enum part sits in the branch of the same type
+and calls `IsValid` only for an Enum part; the sample opens a small database of its own.
+After the review the same rule was taken for a null given as any reference type other
+than `string` and `object` (Q54 of the [open questions](open-questions.md)).
+
+Review: two rounds. Round 1 found no P1, one P2 (a null given as a class was accepted as
+a null without a type) and five P3 (comments that cited the brief and the Acceptance; the
+row of Q07.3.6 in `docs/design/questions.md`; the comment of `FieldValues` on a search key;
+two builders of a bound; the ends of each type written three times); round 2 found
+nothing above P4. The breaker wrote 37 probes in its first round and 46 in its second,
+the new rule of a null included, and none failed; a fault put in by hand failed 8 of the
+first and 3 of the new ones. The hardest part to follow, by the reviewer: how a null
+reaches `IndexValue`, by four paths in `IndexValue.Of`.
+
+The effort trial (the [development process](process.md), "Models and effort by role"):
+this part, implemented at Opus 5.5 high, took two rounds of review, with 1 P2 and 5 P3 in
+the first and nothing above P4 in the second, and no failure of the breaker. S15, part 1,
+critical and implemented at xhigh, took three rounds and one on the fixes of its fall,
+with 1 P1, 3 P2 and 5 P3 in the first round and 3 P3 in the second, and five failures of
+its breaker, three in its first round and two in its second. The two parts are not of the same difficulty: part 1 was a
+traversal under concurrent change on the read path, part 2 the binding of a value.
+
+Small changes made in this branch while the sprint was open: the architect's review after
+S15, part 1, gone through by the planner and the coordinator (the
+[refactoring backlog](refactoring.md)); the term of the planner in
+[the development process](process.md), "New sessions at a sprint boundary", on the
+owner's word of 21 November 2026; Q54.
+
+Listed for the owner at the close, under the rule on a draft contract and the limits on
+questions:
+- The remarks of `IndexKey` and `IndexBound`: which numbers of another type are accepted,
+  that a .NET enum value is not, and which nulls have a type.
+- Q54: a .NET enum value refused for an Enum part; an undeclared integer refused as a
+  bound as well as a value; a null given as `string` has a type, one given as `object`
+  has none, and one given as any other reference type is refused.
 
 **Added by the planner on 20 November 2026, after S14, part 2.** It comes above the text of
 17 November; where they differ, this replaces it.
