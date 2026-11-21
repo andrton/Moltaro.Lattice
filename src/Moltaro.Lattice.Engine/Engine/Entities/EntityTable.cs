@@ -59,8 +59,9 @@ internal sealed class EntityTable
     // The entries of the index a round of a step of a search walks at most inside the protection of
     // reads, the matches it skips by Offset and the hints it passes over included, so that no round holds
     // back what writes retire for longer than a bounded piece of work however many entries a step passes.
-    // Not measured yet: the number of words of a round of an enumeration stands for it until a
-    // measurement of the walk of ranges sets it.
+    // 64, 256 and 1,024 were measured on a rented ARM64 machine of 16 cores, by the walk lines of
+    // index-search: no difference outside the spread of two builds of one commit, and 64 about 3 % lower at
+    // Offset 10,000; a larger round holds retired memory longer for nothing shown.
     public const int EntriesPerRound = 256;
 
     private readonly Arena _arena;
