@@ -103,7 +103,9 @@ public sealed class SearchTimeInsideTheEngineTests
 
             await HoldEverySlotAsync(database, held);
 
-            var search = byNumber.FindAsync(Walk, new LatticeFindOptions { Reverse = true, Limit = 2 }, cancellation.Token).AsTask();
+            // On a thread of its own: a search without a session takes its steps inside the call, which
+            // waits there for a slot.
+            var search = OwnThread.Run(() => OwnThread.Wait(byNumber.FindAsync(Walk, new LatticeFindOptions { Reverse = true, Limit = 2 }, cancellation.Token)));
 
             await Task.Delay(ReadTimes.BeyondTheLimit);
             Assert.False(search.IsCompleted, "The search ended while every slot of the epoch table was held.");
