@@ -6682,8 +6682,16 @@ Decided by the planner on 20 November 2026, on the study:
 - The tests of group 4 above add the range form and the moving key, forwards and
   backwards, returned and in the skipped prefix; it is the second target of the breaker.
 - The read limits count what the search holds: until `FindAsync` returns, its list by the
-  capacity of its array and each entity by the stored bytes of its root (Q07.1.1); the lazy
-  `Find` counts none. The documentation of `ReadMemoryLimit` says what is counted. Before
+  capacity of its array and each entity by everything stored for it (Q07.1.1); the lazy
+  `Find` counts none. Corrected on 21 November 2026, after the breaker of this sprint:
+  everything stored for an entity is its root block and every value kept outside it,
+  values in blocks, chunked values with their directory, and a text kept as a shared or a
+  Dictionary entry by the bytes of that entry, once for each entity that refers to it,
+  since each copy in the answer holds its own text. It is a measure from the stored
+  lengths a step already reads, not an account of the heap, and nothing of it is computed
+  when no memory limit is set. Every entity added to what the answer holds is checked when
+  it is added, and the token is looked at before the limit at every place a limit is
+  looked at. The documentation of `ReadMemoryLimit` says what is counted. Before
   the implementer writes group 6, it checks the default of `ReadMemoryLimit` against an
   ordinary `FindAsync`, such as 10,000 entities of the fixture; a default that would refuse
   ordinary load comes to the planner first.
