@@ -53,6 +53,32 @@ that sprint states the number of review rounds and of findings by severity besid
 S15, part 1, and the owner decides from that whether the rows stay. An agent that stops on
 a usage limit is not retried in a loop; the owner is told.
 
+## New sessions at a sprint boundary
+
+The coordinator and the planner are sessions, and a session reads its whole history again
+at every turn. Both are therefore replaced when a sprint is closed.
+
+- The change happens only at a boundary: the sprint is merged, no agent is running and no
+  investigation is open. Unfinished work is not handed to another session.
+- Before the merge the coordinator checks that every decision of the sprint is in the
+  documents — the epic document, the briefs, `refactoring.md`, `open-questions.md`, this
+  file — and names to the planner what could not be put there. After the merge it stops
+  and does not start the next sprint.
+- The outgoing planner writes one starting text, for the new planner, and gives it to the
+  owner. It states the role, the state of `main`, the next work in order, what is owed to
+  the owner, the mistakes not to repeat, and this rule.
+- The new planner creates the new coordinator session, with the model and effort of the
+  table above, gives it its starting text and tells the owner its name.
+- The coordinator and the planner keep what they know about the work in the documents of
+  the repository, not in files of their own: a decision, a rule the owner gave, a result,
+  a lesson, the plan of what comes next. A note outside the repository holds only what a
+  public repository must not hold — how the measurement machine is reached, raw outputs of
+  runs — and the document that needs it says that such a note exists, not what is in it.
+  What a successor could not learn from the repository is a defect of the documents, and
+  it is corrected before the change.
+- A starting text is not committed. It points to the documents and repeats nothing that
+  they say.
+
 ## The plan
 
 The planner delivers an epic document in the form described in [README.md](README.md),
@@ -288,11 +314,12 @@ took.
 
 ## The architect's review
 
-After every merged sprint the coordinator starts one more agent, in the role of the
-architect of the system. It is not a reviewer of the sprint: the reviewers of a sprint
-look for defects in a change, the architect looks at what the system has become. Its
-concern is the cleanliness of the code and whether the system stays manageable and
-extensible.
+After every merged sprint one more agent is started, in the role of the architect of the
+system: the coordinator of the next sprint starts it as its first task, before that sprint
+begins, since the coordinator of the merged sprint stops at the boundary. It is not a
+reviewer of the sprint: the reviewers of a sprint look for defects in a change, the
+architect looks at what the system has become. Its concern is the cleanliness of the code
+and whether the system stays manageable and extensible.
 
 - **Who.** A separate agent that took no part in the sprint, on the strongest model in
   use, with the whole repository to read and nothing to write. Its brief says, every

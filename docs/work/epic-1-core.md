@@ -316,7 +316,8 @@ which grew from four planned hours to more than seven by additions:
 - Figures from a rented machine are a new series and are never compared in absolute
   terms with those of the workstation.
 - Nothing about the machine goes into the repository beyond "a rented ARM64 machine, 16
-  cores".
+  cores". How it is reached, and the raw outputs of every start, are kept in a note
+  outside the repository, which the coordinator keeps and the planner knows of.
 - The output of every repeat of the test suite is kept, so that a failure is never
   without a name.
 
@@ -762,6 +763,10 @@ tag, the rulesets and the settings of the repository stay the owner's. *Not chos
 relay between two steps that need no decision; a merge commit for a sprint on the full
 track. [Branches and releases](branches.md#who-does-what) has the rule. Shapes every
 sprint from S02 on.
+*Note of 21 November 2026:* by the owner's word of that day, a coordinator no longer goes on
+to the next sprint after a merge: it stops at the boundary, and a new coordinator session
+takes the next sprint, as the [development process](process.md#new-sessions-at-a-sprint-boundary)
+says.
 
 **O15. A .NET enum that does not agree with the schema is refused, as a class is.**
 Decided while S02 was carried out; the question is Q1 of the
