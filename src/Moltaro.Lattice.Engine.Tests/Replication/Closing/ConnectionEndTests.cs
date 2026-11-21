@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Closing;
 // What a closing master sends on a connection, in its order (decided at the review of S12, point 2): the
 // replies it recorded, then what the tail holds for that child, then exactly one frame Closed, then the
 // end of its sending side; a request that arrives after Closed is read and dropped, with no reply. A child
-// made by hand (LoadedPeer) forwards an upsert that the storage step of the master holds
+// made by hand (LoadedPeer) forwards an upsert that the persistence step of the master holds
 // (HeldPersistence) while the master begins to close, and reads to the end.
 //
 // Slow: the first test waits out the constant of 5 seconds, which is not a setting and cannot be

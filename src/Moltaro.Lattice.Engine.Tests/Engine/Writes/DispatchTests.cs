@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   while the commit stage is still busy, no group ever holds it, and nothing of it is left: neither
 //   its prepared capacity (PreparedBytes) nor its place among the writes admitted (QueuedWrites), and
 //   after a drain the counters equal the tally of the writes that ran. That holds also when the
-//   cancellation comes while the thread that completes the storage step holds the lock of the writes
+//   cancellation comes while the thread that completes the persistence step holds the lock of the writes
 //   and goes on to form the next group before the withdrawal can run (review round 1 of S09, part 2):
 //   the cancellation returned before the dispatch, so the write is never dispatched. The test keeps
 //   that thread inside its hold, between the publication and the next group, by the preparation of a
@@ -42,7 +42,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   (brief of S09, "Cancellation before dispatch"): the write is withdrawn before it can be dispatched,
 //   what it prepared is freed, and it ends in OperationCanceledException while the commit stage is still
 //   busy. When that preparation is refused by the arena, the write does not go on to wait for the
-//   writes admitted before it: it ends at once, also while an earlier write is held in the storage step.
+//   writes admitted before it: it ends at once, also while an earlier write is held in the persistence step.
 //   The write is held while it is being prepared by the allocator of the test (HeldPreparation), at the
 //   moment its values need a new segment of the arena. The test asks for the cancellation while the
 //   preparation is held and lets the preparation go before it waits for the callbacks of the
@@ -99,7 +99,7 @@ public sealed class DispatchTests
     }
 
     [Fact]
-    public async Task Write_cancelled_while_the_completion_of_the_storage_step_holds_the_lock_is_never_dispatched()
+    public async Task Write_cancelled_while_the_completion_of_the_persistence_step_holds_the_lock_is_never_dispatched()
     {
         var allocator = new CountingNativeAllocator();
         var storage = new HeldPersistence(holding: false);
@@ -112,7 +112,7 @@ public sealed class DispatchTests
             await pieces.InsertAsync(PieceSchema.Of(1, name: 10));
             storage.Hold();
 
-            // A replace of entity 1 in the storage step, a replace of 5 MiB of it waiting behind it, and
+            // A replace of entity 1 in the persistence step, a replace of 5 MiB of it waiting behind it, and
             // the write with the token, prepared and in the queue, whose call has returned its task.
             var first = PieceSchema.Of(1, name: 26);
             var firstWrite = pieces.ReplaceAsync(first).AsTask();
@@ -125,7 +125,7 @@ public sealed class DispatchTests
 
             await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(first) + PieceTally.SlotBytesOf(withdrawn));
 
-            // The thread that completes the storage step publishes the first replace and prepares the
+            // The thread that completes the persistence step publishes the first replace and prepares the
             // one behind it, in one hold of the lock of the writes; the cancellation comes there.
             using var preparation = HeldPreparation.Arm(allocator);
 
@@ -167,7 +167,7 @@ public sealed class DispatchTests
             await InsertEightAsync(pieces);
             storage.Hold();
 
-            // A delete of the absent entity 5 in the storage step, and behind it an insert of entity 5
+            // A delete of the absent entity 5 in the persistence step, and behind it an insert of entity 5
             // with the token; a replace of entity 1 with the token, prepared and in the queue, and a
             // replace of entity 1 without one behind it.
             using var cancellation = new CancellationTokenSource();
@@ -180,7 +180,7 @@ public sealed class DispatchTests
 
             await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf(withdrawn));
 
-            // The thread that completes the storage step publishes the delete and prepares the insert,
+            // The thread that completes the persistence step publishes the delete and prepares the insert,
             // whose growth of the index cancels the token; the next group then finds the cancelled
             // replace alone.
             var grown = ArmCancellationAtTheNextGrowth(database, pieces, cancellation);
@@ -220,7 +220,7 @@ public sealed class DispatchTests
             await InsertEightAsync(pieces);
             storage.Hold();
 
-            // A delete of the absent entity 5 in the storage step; behind it an insert of entity 5 with
+            // A delete of the absent entity 5 in the persistence step; behind it an insert of entity 5 with
             // the token, and behind that a replace of entity 5 with the token, which, were it prepared,
             // would find no entity 5 and be NotFound.
             using var cancellation = new CancellationTokenSource();
@@ -418,7 +418,7 @@ public sealed class DispatchTests
             held.Release();
             await cancelling.WaitAsync(Bound);
 
-            // Ended while the earlier write is still held in the storage step.
+            // Ended while the earlier write is still held in the persistence step.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.WaitAsync(Bound));
             Assert.False(earlierWrite.IsCompleted, "The write held in the storage step completed before the cancelled write ended.");
 
@@ -456,7 +456,7 @@ public sealed class DispatchTests
             await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
             storage.Hold();
 
-            // An earlier replace, prepared into the second segment and held in the storage step.
+            // An earlier replace, prepared into the second segment and held in the persistence step.
             var earlier = PieceSchema.Of(1, name: 11, data: Large);
             var earlierWrite = pieces.ReplaceAsync(earlier).AsTask();
             await storage.NextAsync();

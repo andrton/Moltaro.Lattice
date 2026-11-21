@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
 // The commit stage of the write coordinator (brief of Epic 1, sprint S09, Acceptance, "No wait to fill
 // a group in MemoryOnly", "A write larger than a group", "What is counted" and the answers of the
-// planner on the counters and the positions). The storage step of the test holds a commit until the
+// planner on the counters and the positions). The persistence step of the test holds a commit until the
 // test releases it (HeldPersistence), so the commit stage is busy while the test submits more
 // writes, and the test waits until they are all prepared (CountersWait) before it lets the stage go
 // on. So:
@@ -25,20 +25,20 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   a write larger than that, an entity of 32 MiB here, forms a group alone and completes with the
 //   small writes around it. It counts in both maxima, which are taken independently of each other.
 // - Publication only installs what was prepared (brief of S09, "Gates"; Acceptance: publication
-//   performs no allocation of pool capacity): from the moment the storage step holds a write, which
+//   performs no allocation of pool capacity): from the moment the persistence step holds a write, which
 //   is prepared then with everything its publication needs, to the moment its call has returned, the
 //   arena obtains no segment and holds no more capacity, the primary index does not grow, and the
 //   table of root entries gains no entry. Inserts that grow the primary index several times, replaces
 //   and deletes.
 // - No prepared write is left without a commit stage (Acceptance: writes submitted at once all
 //   complete; milestone contract, "Write coordinator and revision semantics": whoever completes the
-//   storage step publishes its group and hands over the next). While the storage step holds the group
+//   persistence step publishes its group and hands over the next). While the persistence step holds the group
 //   of one write, eight writes of other entities are prepared and their calls return their tasks; no
-//   call of the test runs anything after that. The test completes the storage step from a thread of
+//   call of the test runs anything after that. The test completes the persistence step from a thread of
 //   its own: the first write is published, and the eight are dispatched as the next group, which the
 //   storage holds in turn; completing that step publishes the eight. The storage of the test only takes
-//   a group in its call and never blocks there, as a storage step has to (IPersistence.CommitAsync).
-//   Its completion runs what waits for it on a thread of the pool, and, as the durable storage step of
+//   a group in its call and never blocks there, as a persistence step has to (IPersistence.CommitAsync).
+//   Its completion runs what waits for it on a thread of the pool, and, as the durable persistence step of
 //   S27 will, on the thread that completes its task (review round 1 of S09, part 2: a storage of the
 //   tests that completes only on the pool hid that form).
 // Every wait is bounded; the storage releases every commit when a test ends.
@@ -46,7 +46,7 @@ public sealed class CommitGroupTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    // Where the completion of a held storage step runs what waits for it.
+    // Where the completion of a held persistence step runs what waits for it.
     private const string OnThePool = "on a thread of the pool";
 
     private const string OnTheReleasingThread = "on the thread that completes its task";
@@ -255,7 +255,7 @@ public sealed class CommitGroupTests
     [Theory]
     [InlineData(OnThePool)]
     [InlineData(OnTheReleasingThread)]
-    public async Task Writes_prepared_while_the_storage_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_storage_step(string completion)
+    public async Task Writes_prepared_while_the_persistence_step_holds_a_group_are_dispatched_and_published_by_whoever_completes_the_persistence_step(string completion)
     {
         var storage = new HeldPersistence(inline: completion == OnTheReleasingThread);
         var database = await OpenAsync(storage);
@@ -263,12 +263,12 @@ public sealed class CommitGroupTests
 
         try
         {
-            // The group of the first write is in the storage step; its call has returned its task.
+            // The group of the first write is in the persistence step; its call has returned its task.
             var first = PieceSchema.Of(0, name: 10);
             var firstWrite = pieces.InsertAsync(first).AsTask();
             var held = await storage.NextAsync();
 
-            // Prepared while the storage step holds that group; each call returns its task.
+            // Prepared while the persistence step holds that group; each call returns its task.
             PieceSchema.Piece[] later = [.. Enumerable.Range(1, 8).Select(SmallOf)];
             var writes = later.Select(piece => pieces.InsertAsync(piece).AsTask()).ToArray();
             var counters = await CountersWait.PreparedAsync(database, PieceTally.SlotBytesOf([first, .. later]));
@@ -278,7 +278,7 @@ public sealed class CommitGroupTests
             Assert.False(firstWrite.IsCompleted, "The write whose commit is held completed.");
             Assert.DoesNotContain(writes, write => write.IsCompleted);
 
-            // Completing the storage step publishes the first write and dispatches the eight.
+            // Completing the persistence step publishes the first write and dispatches the eight.
             held.Release();
 
             Assert.True((await firstWrite.WaitAsync(Bound)).Changed);

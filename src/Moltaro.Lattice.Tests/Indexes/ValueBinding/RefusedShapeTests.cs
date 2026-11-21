@@ -7,7 +7,10 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 //   of a class, a tuple, a char for a String, an Int128 for an Int64, a Half for a Float32; as the value
 //   and as an inclusive lower and an exclusive upper bound;
 // - a range of which one bound has a type the allowlist refuses while the other bound is good, either way
-//   round.
+//   round;
+// - the words of the refusal of a value an Int32 part cannot take, a String or an Int64 that does not
+//   fit, which name the field, its type and the value as the refusal of a field value does
+//   (DynamicSetTests), for the parameter key.
 // IndexKeyArgumentTests holds a value of a type no field has, a key with more values than the index has
 // fields, a null for a part that is never null, the default of IndexBound and of IndexKey;
 // IndexPartTypeTests a part that ends at an owned value or a collection, and the name of an Enum member.

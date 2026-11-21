@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // Writes.WriteCoordinator, "Cancellation"). Apart from a fault of the database and the managed heap
 // running out, a cancellation is the one failure a write of a master meets after its indexes are reserved
 // and before its publication. A replace and a delete of entities of Ranked wait prepared behind a write of
-// an entity in no index that the storage step of the test holds (HeldPersistence): the replace moves the
+// an entity in no index that the persistence step of the test holds (HeldPersistence): the replace moves the
 // entry of its entity in ByNumber, keeps it in ByLogin, whose long key it shares with the text entry, and
 // rewrites it in ByRegion, its Region now in another case; the delete takes the entries of its entity out
 // of all three. Both are prepared and cancelled twice, and the state the test compares with is taken

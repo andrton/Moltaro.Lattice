@@ -29,13 +29,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 //   left.
 // - An entity that does not fit even after everything retired is freed is WriteRejected, and nothing
 //   of it is left.
-// - A write that fits only once an earlier replace, still unpublished because the storage step of the
+// - A write that fits only once an earlier replace, still unpublished because the persistence step of the
 //   test holds it (HeldPersistence), has retired its old root and it was freed, waits for that
 //   replace and completes; the switch tells that it began to wait. Its token cancels that wait too,
 //   and then it has no effect and does not run after the replace.
 // - A write that does not fit an otherwise idle database is WriteRejected with Limit Memory, has no
 //   effect, leaves the instance Ready and nothing of it among the writes admitted (QueuedWrites), and
-//   does not run once memory is freed: no group of the storage step ever holds it.
+//   does not run once memory is freed: no group of the persistence step ever holds it.
 // Every wait is bounded.
 public sealed class RefusedWriteTests
 {
@@ -130,7 +130,7 @@ public sealed class RefusedWriteTests
             await pieces.InsertAsync(PieceSchema.Of(1, name: 10, data: Large));
             storage.Hold();
 
-            // The replace is prepared and held by the storage step: the arena holds its new state and
+            // The replace is prepared and held by the persistence step: the arena holds its new state and
             // the live one, and the insert fits only once the live one is retired and freed.
             var replace = pieces.ReplaceAsync(PieceSchema.Of(1, name: 11, data: Large)).AsTask();
             await storage.NextAsync();

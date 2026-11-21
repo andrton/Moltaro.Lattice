@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Text;
 //   commit group, LargestCommitGroupBytes, the slots of its root and of the entry of the text: the same
 //   figure whether it was made on that master or forwarded by a child of another master that holds no text
 //   either. In a UTF-8 and a UTF-16 database, where the entry holds the text in the encoding of the database.
-// - While the storage step of a master holds a first write (HeldPersistence), a child forwards an insert
+// - While the persistence step of a master holds a first write (HeldPersistence), a child forwards an insert
 //   with a new Dictionary text of 5 MiB, and the master then takes an insert with another new text of 5 MiB.
 //   Each fits a group and together they take more than one, so each forms a group of its own, which holds
 //   the size of its root and of the entry of its text. The test knows that each write is prepared before it submits the next by

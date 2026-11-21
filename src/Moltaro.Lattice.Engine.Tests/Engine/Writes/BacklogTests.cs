@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // decision O20: the queue of writes has no limit of its own): 10,000 writes submitted at once all
 // complete, and those to one entity in the order they were admitted. A caller alone sees its write
 // complete inside the call, so the scenario test of the same sentence (WriteOrderTests) never has more
-// than one write queued on the engine; here the storage step of the test (HeldPersistence) holds the
+// than one write queued on the engine; here the persistence step of the test (HeldPersistence) holds the
 // first commit while the 10,000 calls are made from one thread, so that every one of them is admitted
 // and queued at once: QueuedWrites counts all of them, none has completed, and once the commit is
 // released all complete, the writes of each of 100 entities at increasing positions, and the last

@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // A test arms the fault point of the master (EngineDatabase.ArmFault, exception X3).
 //
 // A master that faults and closes with forwarded writes in flight (decided at the review of S12, points
-// 2 and 3): the storage step of the master holds the first of four writes a child forwards
+// 2 and 3): the persistence step of the master holds the first of four writes a child forwards
 // (HeldPersistence), two more are prepared behind it and a fourth, of the entity of the first, waits
 // behind the first; the publication after the given number of publications faults, the master closes,
 // and the storage lets the first go. Each write then succeeds, is Unavailable or is IndeterminateOutcome:

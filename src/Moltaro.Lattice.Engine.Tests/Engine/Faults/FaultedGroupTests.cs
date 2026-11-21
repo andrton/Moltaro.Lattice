@@ -13,14 +13,14 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // - A write of the group whose stores were all made before the fault gets its real result: it is
 //   published.
 // - The write whose publication faulted, and the writes of the group after it, fail with
-//   IndeterminateOutcome: the storage step took them and the instance cannot show them. The first of
+//   IndeterminateOutcome: the persistence step took them and the instance cannot show them. The first of
 //   them carries the injected InvalidOperationException, which names the point, as its InnerException.
 // - Writes prepared and not yet taken by the commit stage, writes waiting behind a prepared write of
 //   their entity, a write the arena refused that waits for the writes admitted before it, and a write
 //   being prepared fail with Unavailable: they did not run.
 // - The instance is Faulted, every later operation is Unavailable, the close works and returns every
 //   piece of native memory (CountingNativeAllocator), and with it whatever the writes held.
-// The storage step of the test (HeldPersistence) holds the group of three replaces while the test puts
+// The persistence step of the test (HeldPersistence) holds the group of three replaces while the test puts
 // the other writes where it wants them: a replace prepared and waiting for the commit stage; a replace
 // of the same entity waiting behind it; an insert of 9 MiB, which an arena of two segments of 4 MiB
 // refuses, and which then waits for the writes admitted before it, as the switch of a refused write
@@ -32,11 +32,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 //
 // A write being prepared when the database faults is held there by the allocator of the test
 // (HeldPreparation), at the moment its values need a new segment of the arena; its thread holds the
-// lock of the writes meanwhile, so the fault comes from the storage step, which fails the group it
-// holds, as a storage step fails that cannot tell whether it committed (brief of S09, the block after
+// lock of the writes meanwhile, so the fault comes from the persistence step, which fails the group it
+// holds, as a persistence step fails that cannot tell whether it committed (brief of S09, the block after
 // the implementation: the whole group is IndeterminateOutcome and the database Faulted), rather than
-// from a publication, which needs that lock. The test fails the storage step while the preparation is
-// held and lets the preparation go before it looks at any outcome: whoever completes the storage step
+// from a publication, which needs that lock. The test fails the persistence step while the preparation is
+// held and lets the preparation go before it looks at any outcome: whoever completes the persistence step
 // may need the lock of the writes to end its group. Every wait is bounded.
 public sealed class FaultedGroupTests
 {
@@ -143,7 +143,7 @@ public sealed class FaultedGroupTests
     }
 
     [Fact]
-    public async Task Write_being_prepared_when_the_storage_step_fails_ends_in_Unavailable_and_the_group_is_IndeterminateOutcome()
+    public async Task Write_being_prepared_when_the_persistence_step_fails_ends_in_Unavailable_and_the_group_is_IndeterminateOutcome()
     {
         var allocator = new CountingNativeAllocator();
         var storage = new HeldPersistence(holding: false);

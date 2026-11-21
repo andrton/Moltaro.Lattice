@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // one entity type and in a field of another; the counts and the arena are compared with the tally at
 // points during the churn, after a drain, and at its end, when everything is deleted and nothing is left.
 // The same holds while a read is held inside the protection, whose retired roots keep their references,
-// and while writes are prepared and not published because the storage step of the test holds the commit
+// and while writes are prepared and not published because the persistence step of the test holds the commit
 // stage (HeldPersistence), whose prepared roots hold theirs; a prepared write that is withdrawn takes its
 // references with it.
 public sealed class TallyTests
@@ -103,8 +103,8 @@ public sealed class TallyTests
             churn.Tally.ExpectHeldBy(database);
             storage.Hold();
 
-            // A replace held in the storage step, and behind it writes of other entities, prepared: replaces
-            // and inserts to texts the database holds and to texts it does not.
+            // A replace held in the persistence step, and behind it writes of other entities, prepared:
+            // replaces and inserts to texts the database holds and to texts it does not.
             var heldWrite = Prepared(churn, new TextSchema.Place { Id = 0, Region = "held in the storage step", Zone = "North", Label = "label" });
             var held = places.ReplaceAsync(heldWrite).AsTask();
             await storage.NextAsync();

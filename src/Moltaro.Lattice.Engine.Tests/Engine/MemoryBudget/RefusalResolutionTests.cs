@@ -21,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // two segments of 4 MiB (EngineTestInputs, exception X3):
 // - The case the first reviewer found: an insert of 3 MiB that waited for its entity behind a delete,
 //   and is the oldest write once the delete is published, while a later replace of 3 MiB is prepared
-//   and held in the storage step of the test (HeldPersistence), completes once the replace is
+//   and held in the persistence step of the test (HeldPersistence), completes once the replace is
 //   published. The switch of a refused write (RefusedWriteWait) tells that it waits.
 // - Without a hook: an insert of 5 MiB into the empty arena beside an insert of 9 MiB that can never fit,
 //   both started at once on threads of their own, round after round: the 5 MiB insert always completes
@@ -36,12 +36,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 //   prepared, and once the refused write is refused it completes, and QueuedWrites returns to 0.
 // - A write cancelled during the wait of its resolution ends in OperationCanceledException, never in
 //   WriteRejected, and the writes it held back, one of another entity and one of its own, go on.
-// - Two inserts of 4.5 MiB, each refused while an earlier delete of 4 MiB is held in the storage step:
+// - Two inserts of 4.5 MiB, each refused while an earlier delete of 4 MiB is held in the persistence step:
 //   the first admitted is resolved first and completes; the second does not fit beside it and is
 //   refused.
 // - A write that cannot fit is refused while another caller keeps replacing a small entity, within the
 //   time of the test and after the writes in flight alone: from the moment it waits for a replace of
-//   that caller held in the storage step, at most three replaces of that caller complete before the
+//   that caller held in the persistence step, at most three replaces of that caller complete before the
 //   write has left the coordinator. As built before the fix it kept retrying while the later replaces
 //   retired memory, for hundreds to tens of thousands of them.
 // - A later write of the entity of a refused write that waits for the writes admitted before it waits
@@ -50,9 +50,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // of their entity ended in a wait of a resolution, or when the database faulted during one:
 // - A write cancelled while it is held back by a resolution, or while it waits for the writes admitted
 //   before it, lets the later write of its entity, which waits behind it, run: that write completes.
-// - A fault of the storage step while a write waits in step 2 of its resolution, a later write of
+// - A fault of the persistence step while a write waits in step 2 of its resolution, a later write of
 //   another entity is held back and a write of its own entity waits behind it ends each of them, with
-//   IndeterminateOutcome for the group in the storage step and Unavailable for the others.
+//   IndeterminateOutcome for the group in the persistence step and Unavailable for the others.
 // - A close in the same situation, without a fault, completes once all of them have their outcomes,
 //   and the arena has returned every piece of native memory it obtained (CountingNativeAllocator).
 // Review round 2 of S09, part 2: a write that becomes the write being resolved while the next group is
@@ -332,7 +332,7 @@ public sealed class RefusalResolutionTests
     // Added by the implementer of S09, part 2: a refused write that waits for the writes admitted before
     // it is not prepared, so a later write of its entity has to find it among the writes that wait, not
     // among those prepared. Here the insert of entity 2 waits behind the delete of entity 1, held in the
-    // storage step; a replace of entity 2 made after it waits behind it, and runs after it: had it run
+    // persistence step; a replace of entity 2 made after it waits behind it, and runs after it: had it run
     // first, it would have found no entity 2 and been NotFound.
     [Fact]
     public async Task Later_write_of_an_entity_waits_behind_an_earlier_write_of_it_that_waits_for_the_writes_admitted_before_it()
@@ -573,7 +573,7 @@ public sealed class RefusalResolutionTests
 
             storage.Hold();
 
-            // A replace of entity 9 in the storage step; behind it Y, a replace of entity 1 of 1.5 MiB,
+            // A replace of entity 9 in the persistence step; behind it Y, a replace of entity 1 of 1.5 MiB,
             // and B, a delete of the absent entity 5, prepared; then Y and B form the next group, held.
             var first = PieceSchema.Of(9, name: 26);
             var firstWrite = pieces.ReplaceAsync(first).AsTask();
@@ -687,7 +687,7 @@ public sealed class RefusalResolutionTests
         {
             await CountersWait.UntilAsync(database, _ => Volatile.Read(ref replaced) >= 100, "the other caller has replaced its entity 100 times");
 
-            // A replace of the other caller held in the storage step, which the refused write waits for.
+            // A replace of the other caller held in the persistence step, which the refused write waits for.
             storage.Hold();
             await storage.NextAsync();
 
@@ -726,7 +726,7 @@ public sealed class RefusalResolutionTests
     }
 
     // The case of the first reviewer, up to the moment the insert waits: entity 1 is stored; a delete of
-    // the absent key 2 is held in the storage step; an insert of key 2 waits behind it for its entity; a
+    // the absent key 2 is held in the persistence step; an insert of key 2 waits behind it for its entity; a
     // replace of entity 1 of 3 MiB, admitted after the insert, is prepared. Then the delete is
     // published, the replace is dispatched and held, and the insert, now the oldest write, is refused
     // while the replace holds its prepared memory, and begins to wait. Returns the tasks of the insert
