@@ -1,7 +1,7 @@
 using System.Globalization;
 using Moltaro.Lattice.Access;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // The entries of every index equal what the writes left, the references of the text entries equal the rule
 // of a block, and the arena holds the roots, the texts and the nodes and nothing else, through every shape

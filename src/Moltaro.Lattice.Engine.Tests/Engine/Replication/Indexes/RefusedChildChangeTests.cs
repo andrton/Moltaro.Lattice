@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 
@@ -66,7 +67,7 @@ public sealed class RefusedChildChangeTests
 
         await ranked.InsertAsync(FullArena.First);
         await FullArena.InsertFillersAsync(master, fillers);
-        await child.WaitForPositionAsync(master.Position, ReplicationNodes.Bound);
+        await child.WaitForPositionAsync(master.Position, Bound);
 
         FullArena.ExpectFull(child);
         var held = HeldState.Of(child);

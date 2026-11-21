@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
 
@@ -43,8 +44,8 @@ public sealed class StoredFieldDecisionTests
             {
                 for (var right = 0; right < states.Length; right++)
                 {
-                    var leftEntry = EntryOf(item, layout, states[left]);
-                    var rightEntry = EntryOf(item, layout, states[right]);
+                    var leftEntry = EntryOf(item, layout, states[left], RootArena.Handle);
+                    var rightEntry = EntryOf(item, layout, states[right], RootArena.Handle);
                     var bytes = leftEntry.AsSpan().SequenceEqual(rightEntry);
                     var keys = order.SameKey(leftEntry, rightEntry);
                     var fields = layout.SameEntry(item.Reader(states[left]), item.Reader(states[right]));
@@ -107,13 +108,6 @@ public sealed class StoredFieldDecisionTests
         item.Arena.Payload(root).Slice(stored.Offset - BlockHeader.Size, stored.Width).Fill(0xAB);
 
         return root;
-    }
-
-    private static byte[] EntryOf(RootArena item, IndexLayout layout, ArenaAddress root)
-    {
-        var entry = new byte[layout.WidestEntryBytes];
-
-        return entry[..layout.WriteEntry(item.Reader(root), RootArena.Handle, entry)];
     }
 
     // Mixed: the key Id and a field of each trap, each in an index of its own but Label, declared before

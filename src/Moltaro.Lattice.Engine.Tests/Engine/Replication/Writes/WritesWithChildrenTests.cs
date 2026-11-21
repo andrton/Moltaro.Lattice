@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Writes;
 
@@ -19,8 +20,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Writes;
 public sealed class WritesWithChildrenTests
 {
     private const int Writers = 4;
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     [Fact]
     public async Task Master_publishes_every_write_while_a_child_is_connected_and_the_child_applies_each()

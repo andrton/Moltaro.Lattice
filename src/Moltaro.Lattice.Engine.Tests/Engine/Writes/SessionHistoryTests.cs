@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -35,7 +36,7 @@ public sealed class SessionHistoryTests
             Assert.Null(other.Set<StampSchema.Stamp>().Get(2L));
 
             commit.Release();
-            var written = await committing.WaitAsync(TimeSpan.FromMinutes(1));
+            var written = await committing.WaitAsync(Bound);
 
             Assert.Equal(written.Position, session.MinPosition);
             Assert.NotNull(first.Set<StampSchema.Stamp>().Get(1L));

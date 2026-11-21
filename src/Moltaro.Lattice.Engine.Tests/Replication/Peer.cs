@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication;
 
@@ -16,8 +17,6 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // on Linux the send buffer may grow to 4 MiB, half of such a write (LoopbackLink.ReceiveBuffer).
 internal sealed class Peer : IDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ReceiveBufferSize = LoopbackLink.ReceiveBuffer };
 
     // What was received and not handed out yet, and the frames sent so far.

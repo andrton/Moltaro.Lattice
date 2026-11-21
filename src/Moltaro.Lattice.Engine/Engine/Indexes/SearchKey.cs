@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // It is made once for each step of a search, outside the protection of reads, and allocates nothing: the
 // values of the fixed-width parts are written into scratch the caller gives on its stack, after the null
 // bitmap, by the one writer of the stored form of a value, the one the root writer uses
-// (Storage.Values.StoredScalars.Write), so that such a part compares with the part of an entry as two
+// (Storage.Values.StoredScalars), so that such a part compares with the part of an entry as two
 // stored values; a String part stays the text of the key, which the comparison reads against the
 // stored text a piece at a time. A String part compared Ordinal in a UTF-8 database is written into the
 // scratch as its UTF-8 bytes as well, when they fit TextBytesPerPart, so that the order compares it with
@@ -47,8 +47,9 @@ internal readonly ref struct SearchKey
     public const int ScratchBytes = TextBytesStart + (4 * TextBytesPerPart);
 
     // Where the stored bytes of the fixed-width parts begin in the scratch, after the null bitmap of one
-    // byte, which has the bit of part i at i: each part at its width, in the order of the index.
-    public const int FixedStart = 1;
+    // byte, which has the bit of part i at i: each part at its width, in the order of the index, so that
+    // a part lies at the offset its layout compiled (Storage.Ordered.EntryPart.FixedOffset).
+    private const int FixedStart = 1;
 
     // Where the lengths of the UTF-8 bytes of the String parts lie in the scratch, after the fixed parts:
     // two bytes for each place, NoTextBytes for a part without bytes.
@@ -83,8 +84,6 @@ internal readonly ref struct SearchKey
         From = from;
         scratch[0] = 0;
 
-        var offset = FixedStart;
-
         for (var place = 0; place < parts.Length; place++)
         {
             ref readonly var part = ref parts[place];
@@ -102,7 +101,7 @@ internal readonly ref struct SearchKey
                 continue;
             }
 
-            var at = scratch.Slice(offset, part.Width);
+            var at = scratch.Slice(FixedStart + part.FixedOffset, part.Width);
 
             if (value.IsNull)
             {
@@ -110,10 +109,8 @@ internal readonly ref struct SearchKey
             }
             else
             {
-                StoredScalars.Write(at, part.Type, value);
+                WriteFixed(at, part.Type, value);
             }
-
-            offset += part.Width;
         }
 
         _scratch = scratch;
@@ -139,9 +136,12 @@ internal readonly ref struct SearchKey
     // Whether the part at the place given, in the order of the index, is null in the key.
     public bool IsNull(int place) => (_scratch[0] & (1 << place)) != 0;
 
-    // The stored bytes of a fixed-width part, at the offset in the scratch the order counts from
-    // FixedStart.
-    public ReadOnlySpan<byte> FixedAt(int offset, int width) => _scratch.Slice(offset, width);
+    // The stored bytes of a fixed-width part of the index, where its layout placed them in the scratch
+    // (FixedStart).
+    public ReadOnlySpan<byte> FixedAt(in EntryPart part) => _scratch.Slice(FixedStart + part.FixedOffset, part.Width);
+
+    // The number of a key of an index of one number, its one part, at FixedStart (IndexOrder).
+    public long Number => MemoryMarshal.Read<long>(_scratch.Slice(FixedStart, sizeof(long)));
 
     // The text of a String part that is not null, as the key holds it.
     public ReadOnlySpan<char> TextAt(int place) => _key.ValueAt(place).Text;
@@ -162,6 +162,51 @@ internal readonly ref struct SearchKey
         bytes = _scratch.Slice(TextBytesStart + (place * TextBytesPerPart), length);
 
         return true;
+    }
+
+    // Writes the value of a fixed-width part of the key, not null, in the form its stored type has, by the
+    // one writer of the stored form of a value (Storage.Values.StoredScalars). The value has the field type
+    // of its field, an Enum part the integer type its enum type stores (IndexValue.Bind).
+    private static void WriteFixed(Span<byte> place, StoredTypeEnum type, in IndexValue value)
+    {
+        switch (type)
+        {
+            case StoredTypeEnum.Boolean:
+                StoredScalars.WriteBoolean(place, value.As<bool>());
+                break;
+            case StoredTypeEnum.SignedInteger:
+                StoredScalars.WriteInteger(place, (long)value.Integer);
+                break;
+            case StoredTypeEnum.UnsignedInteger:
+                StoredScalars.WriteUnsigned(place, (ulong)value.Integer);
+                break;
+            case StoredTypeEnum.Float32:
+                StoredScalars.WriteFloat32(place, value.As<float>());
+                break;
+            case StoredTypeEnum.Float64:
+                StoredScalars.WriteFloat64(place, value.As<double>());
+                break;
+            case StoredTypeEnum.Decimal:
+                StoredScalars.WriteDecimal(place, value.As<decimal>());
+                break;
+            case StoredTypeEnum.Guid:
+                StoredScalars.WriteGuid(place, value.As<Guid>());
+                break;
+            case StoredTypeEnum.DateTimeOffset:
+                StoredScalars.WriteDateTimeOffset(place, value.As<DateTimeOffset>());
+                break;
+            case StoredTypeEnum.DateOnly:
+                StoredScalars.WriteDateOnly(place, value.As<DateOnly>());
+                break;
+            case StoredTypeEnum.TimeOnly:
+                StoredScalars.WriteTimeOnly(place, value.As<TimeOnly>());
+                break;
+            case StoredTypeEnum.TimeSpan:
+                StoredScalars.WriteTimeSpan(place, value.As<TimeSpan>());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type.");
+        }
     }
 
     // Writes the UTF-8 bytes of the text of a String part into its place in the scratch, and their length,

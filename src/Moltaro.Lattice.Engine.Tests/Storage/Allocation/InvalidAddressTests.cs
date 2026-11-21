@@ -59,7 +59,7 @@ public sealed class InvalidAddressTests
         Assert.Throws<ArgumentException>(() => arena.Free(freed));
 
         Assert.Equal(before, arena.Counters);
-        Assert.True(arena.IsValid(live));
+        Assert.True(ArenaBlocks.IsValid(arena, live));
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class InvalidAddressTests
     {
         var before = arena.Counters;
 
-        Assert.False(arena.IsValid(address));
+        Assert.False(ArenaBlocks.IsValid(arena, address));
         Assert.Throws<ArgumentException>(() => arena.Header(address));
         Assert.Throws<ArgumentException>(() => arena.Payload(address));
         Assert.Throws<ArgumentException>(() => arena.Free(address));
@@ -120,7 +120,7 @@ public sealed class InvalidAddressTests
 
         if (live is { } block)
         {
-            Assert.True(arena.IsValid(block));
+            Assert.True(ArenaBlocks.IsValid(arena, block));
             Assert.Equal((uint)LivePayloadLength, arena.Header(block).PayloadLength);
         }
     }

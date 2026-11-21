@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Indexes;
 
@@ -26,8 +27,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // writes still waiting (AssertReserved).
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
-// writer stores with release semantics and a reader loads with acquire semantics; its height and count;
-// the pool of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
+// writer stores with release semantics and a reader loads with acquire semantics; its height; the pool
+// of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
 // the protection; everything else from the writer, under the lock of the writes, which is safe because
 // only the holder of that lock changes, retires or frees what the tree holds, and all but the root is its
 // alone.
@@ -49,11 +50,6 @@ internal sealed class OrderedTree
     private ulong _root;
 
     private int _height;
-
-    private long _count;
-
-    // The live nodes of the tree.
-    private long _nodes;
 
     // The inserts and the removes reserved and not published or withdrawn, and the places in the retired
     // list the tree holds reserved for them.
@@ -84,16 +80,10 @@ internal sealed class OrderedTree
         _retired = retired;
     }
 
-    // The levels of the tree: 0 when it is empty, 1 when its root is a leaf. For the writer.
+    // The levels of the tree: 0 when it is empty, 1 when its root is a leaf. The writer computes the need
+    // of a reservation from it (Need); the tests of the engine hold that it is the height the nodes of the
+    // tree have.
     public int Height => _height;
-
-    // The entries of the tree. For the writer and the counters.
-    public long Count => _count;
-
-    // The bytes of the live nodes of the tree, slots of the arena; the nodes it retired are counted in
-    // the retired bytes of the arena, and the nodes it reserved in its prepared bytes, until they are
-    // freed. For the writer and the counters.
-    public long Bytes => _nodes * _layout.NodeBytes;
 
     // The bytes an entry takes in a leaf besides its own: its offset, in an index with a String part.
     private int OffsetBytes => _layout.HasText ? IndexLayout.OffsetBytes : 0;
@@ -118,59 +108,35 @@ internal sealed class OrderedTree
         identity = default;
         runEnds = false;
 
-        var address = LoadRoot();
-
-        if (address.IsNull)
-        {
-            return false;
-        }
-
         // The fence: the nearest separator above the leaf on the way down, in a node that stays
-        // allocated while the read is inside.
+        // allocated while the read is inside. The target: the fence of the leaf before, at which a descent
+        // after the first goes down; the first goes down by the probe.
         ReadOnlySpan<byte> fence = default;
+        ReadOnlySpan<byte> target = default;
         var hasFence = false;
-        var node = NodeAt(address);
+        var atFence = false;
+        IndexNode node;
+        int place;
 
-        while (!node.IsLeaf)
+        // The one descent, from the root to a leaf. When every entry of the leaf lies before the probe, it
+        // goes down again at the fence, to the next leaf, whose entries are all at or above the fence, which
+        // lies above the probe. A leaf of another moment may end before the fence, and the walk goes on at
+        // its own fence; each fence lies above the one before.
+        while (true)
         {
-            var child = ChildOf(node, probe);
-
-            if (child < node.Count)
-            {
-                fence = node.EntryAt(child);
-                hasFence = true;
-            }
-
-            node = NodeAt(node.ChildAt(child));
-        }
-
-        var place = FirstAtOrAfter(node, probe);
-
-        // Every entry of the leaf lies before the probe: the next leaf, whose entries are all at or above
-        // the fence, which lies above the probe. A leaf of another moment may end before the fence, and
-        // the walk goes on at its own fence; each fence lies above the one before.
-        while (place == node.Count)
-        {
-            if (!hasFence)
-            {
-                return false;
-            }
-
-            var target = fence;
-
-            hasFence = false;
-            address = LoadRoot();
+            var address = LoadRoot();
 
             if (address.IsNull)
             {
                 return false;
             }
 
+            hasFence = false;
             node = NodeAt(address);
 
             while (!node.IsLeaf)
             {
-                var child = ChildOf(node, target);
+                var child = atFence ? ChildOf(node, target) : ChildOf(node, probe);
 
                 if (child < node.Count)
                 {
@@ -181,7 +147,20 @@ internal sealed class OrderedTree
                 node = NodeAt(node.ChildAt(child));
             }
 
-            place = FirstAtOrAfter(node, target);
+            place = atFence ? FirstAtOrAfter(node, target) : FirstAtOrAfter(node, probe);
+
+            if (place < node.Count)
+            {
+                break;
+            }
+
+            if (!hasFence)
+            {
+                return false;
+            }
+
+            target = fence;
+            atFence = true;
         }
 
         var entry = node.EntryAt(place);
@@ -355,7 +334,6 @@ internal sealed class OrderedTree
             }
         }
 
-        _count++;
         AfterPublication();
     }
 
@@ -400,7 +378,6 @@ internal sealed class OrderedTree
             }
         }
 
-        _count--;
         AfterPublication();
     }
 
@@ -574,7 +551,6 @@ internal sealed class OrderedTree
         for (var index = 0; index < _replacedCount; index++)
         {
             _retired.RetireNode(_layout, _replaced[index]);
-            _nodes--;
             _places--;
         }
 
@@ -831,96 +807,70 @@ internal sealed class OrderedTree
         Complete(ref writer, merged);
         Replaced(leafAddress);
         Replaced(neighbourAddress);
-        ReplaceChildPair(level - 1, Math.Min(slot, neighbourSlot), merged);
+
+        // The second of the two children goes away, and the merged node takes the place of the first.
+        WithoutChild(level - 1, Math.Max(slot, neighbourSlot), merged);
 
         return true;
     }
 
-    // The children first and first + 1 of the inner node of the level became the one merged node: the
-    // node is copied without the separator between them; a root left with one child gives way to it.
-    private void ReplaceChildPair(int level, int first, ArenaAddress merged)
-    {
-        var parentAddress = _path[level];
-        var parent = NodeAt(parentAddress);
-
-        Replaced(parentAddress);
-
-        if (parent.Count == 1 && level == 0)
-        {
-            StoreRoot(merged);
-            _height--;
-
-            return;
-        }
-
-        var copy = TakeNode();
-        var writer = new NodeWriter(_layout, PayloadOf(copy), parent.Level, parent.Count - 1);
-
-        for (var place = 0; place < parent.Count; place++)
-        {
-            if (place != first)
-            {
-                writer.Add(parent.EntryAt(place));
-            }
-        }
-
-        for (var child = 0; child <= parent.Count; child++)
-        {
-            if (child == first)
-            {
-                writer.AddChild(merged);
-            }
-            else if (child != first + 1)
-            {
-                writer.AddChild(parent.ChildAt(child));
-            }
-        }
-
-        Complete(ref writer, copy);
-        Replace(level, copy);
-    }
-
-    // The child that the path took in the inner node of the level goes away: the node is copied without
-    // it and without the separator below it, or above it for the first child; a node left without
-    // children goes away from its own parent, and a root left with one child gives way to it.
+    // The child that the path took in the inner node of the level goes away: a node left without
+    // children goes away from its own parent, and a tree left without a node has none; otherwise the
+    // node loses the child and a separator beside it (WithoutChild).
     private void RemoveChild(int level)
     {
         var parentAddress = _path[level];
-        var parent = NodeAt(parentAddress);
-        var slot = _slots[level];
 
-        Replaced(parentAddress);
-
-        if (parent.Count == 0)
+        if (NodeAt(parentAddress).Count > 0)
         {
-            if (level == 0)
-            {
-                StoreRoot(default);
-                _height = 0;
-            }
-            else
-            {
-                RemoveChild(level - 1);
-            }
+            WithoutChild(level, _slots[level], merged: default);
 
             return;
         }
 
+        Replaced(parentAddress);
+
+        if (level == 0)
+        {
+            StoreRoot(default);
+            _height = 0;
+        }
+        else
+        {
+            RemoveChild(level - 1);
+        }
+    }
+
+    // The inner node of the level, which has a separator at least, loses the child at the place given and
+    // the separator before it, or after it for the first child: it is copied without the two, and with
+    // the merged node in place of the child before it, when two children were merged (TryMergeLeaf); a
+    // root left with one child gives way to that child.
+    private void WithoutChild(int level, int gone, ArenaAddress merged)
+    {
+        var parentAddress = _path[level];
+        var parent = NodeAt(parentAddress);
+        var separator = gone > 0 ? gone - 1 : 0;
+        // The child beside the one that goes, at which the merged node goes after a merge, and the child a
+        // root left with one child keeps. In a removal kept is that child itself, written over itself.
+        var beside = gone > 0 ? gone - 1 : 1;
+        var kept = merged.IsNull ? parent.ChildAt(beside) : merged;
+
+        Replaced(parentAddress);
+
         if (parent.Count == 1 && level == 0)
         {
-            StoreRoot(parent.ChildAt(1 - slot));
+            StoreRoot(kept);
             _height--;
 
             return;
         }
 
-        var removed = slot > 0 ? slot - 1 : 0;
         var copy = TakeNode();
         var writer = new NodeWriter(_layout, PayloadOf(copy), parent.Level, parent.Count - 1);
 
         for (var place = 0; place < parent.Count; place++)
         {
-            if (place != removed)
+            if (place != separator)
             {
                 writer.Add(parent.EntryAt(place));
             }
@@ -928,7 +878,11 @@ internal sealed class OrderedTree
 
         for (var child = 0; child <= parent.Count; child++)
         {
-            if (child != slot)
+            if (child == beside)
+            {
+                writer.AddChild(kept);
+            }
+            else if (child != gone)
             {
                 writer.AddChild(parent.ChildAt(child));
             }
@@ -954,8 +908,7 @@ internal sealed class OrderedTree
 
     private void Replaced(ArenaAddress node) => _replaced[_replacedCount++] = node;
 
-    // A node of the reservation, live from now on and counted with the tree; nothing reaches it before
-    // the store that publishes it.
+    // A node of the reservation, live from now on; nothing reaches it before the store that publishes it.
     private ArenaAddress TakeNode()
     {
         if (!_pool.TryPop(out var node))
@@ -964,7 +917,6 @@ internal sealed class OrderedTree
         }
 
         _arena.Publish(node);
-        _nodes++;
 
         return node;
     }
@@ -985,12 +937,12 @@ internal sealed class OrderedTree
             return;
         }
 
-        Span<ArenaAddress> texts = stackalloc ArenaAddress[_layout.TextParts];
+        Span<ValueDescriptor> texts = stackalloc ValueDescriptor[_layout.TextParts];
         var count = _layout.SharedTexts(entry, texts);
 
         for (var text = 0; text < count; text++)
         {
-            _arena.Texts.Publish(texts[text]);
+            _arena.Texts.Publish(ValueBlocks.AddressOf(texts[text]));
         }
     }
 
@@ -1010,31 +962,27 @@ internal sealed class OrderedTree
     private IndexNode NodeAt(ArenaAddress node) => new(_layout, _arena.Payload(node));
 
     // The child of an inner node whose range holds the probe: the number of separators at or below it.
-    private int ChildOf(scoped in IndexNode node, scoped in SearchKey probe)
-    {
-        var low = 0;
-        var high = node.Count;
-
-        while (low < high)
-        {
-            var middle = (low + high) >>> 1;
-
-            if (_order.Compare(probe, node.EntryAt(middle)) < 0)
-            {
-                high = middle;
-            }
-            else
-            {
-                low = middle + 1;
-            }
-        }
-
-        return low;
-    }
+    private int ChildOf(scoped in IndexNode node, scoped in SearchKey probe) => EntriesBelow(node, probe, equalBelow: true);
 
     // The same for an entry: for the writer, and for a reader that descends at a fence.
-    private int ChildOf(scoped in IndexNode node, ReadOnlySpan<byte> entry)
+    private int ChildOf(scoped in IndexNode node, ReadOnlySpan<byte> entry) => EntriesBelow(node, entry, equalBelow: true);
+
+    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
+    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe) => EntriesBelow(leaf, probe, equalBelow: false);
+
+    // The same for an entry.
+    private int FirstAtOrAfter(scoped in IndexNode leaf, ReadOnlySpan<byte> entry) => EntriesBelow(leaf, entry, equalBelow: false);
+
+    // The binary search over the entries or the separators of a node by a search key: how many lie below
+    // the probe, with those equal to it counted below when equalBelow is true. It and the search by an
+    // entry below are one search written for each kind of probe, since a body shared between them would
+    // need an interface, a generic or a delegate.
+    private int EntriesBelow(scoped in IndexNode node, scoped in SearchKey probe, bool equalBelow)
     {
+        // An entry counts below the probe when the order of the probe against it is at least this: 1, the
+        // probe after the entry, or 0 when an entry equal to the probe counts below as well. A threshold, so
+        // that each probe of the search tests the order once (JIT listing at full optimization).
+        var least = equalBelow ? 0 : 1;
         var low = 0;
         var high = node.Count;
 
@@ -1042,59 +990,37 @@ internal sealed class OrderedTree
         {
             var middle = (low + high) >>> 1;
 
-            if (_order.Compare(entry, node.EntryAt(middle)) < 0)
+            if (_order.Compare(probe, node.EntryAt(middle)) >= least)
             {
-                high = middle;
+                low = middle + 1;
             }
             else
             {
-                low = middle + 1;
+                high = middle;
             }
         }
 
         return low;
     }
 
-    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe)
+    // The same search by an entry.
+    private int EntriesBelow(scoped in IndexNode node, ReadOnlySpan<byte> entry, bool equalBelow)
     {
+        var least = equalBelow ? 0 : 1;
         var low = 0;
-        var high = leaf.Count;
+        var high = node.Count;
 
         while (low < high)
         {
             var middle = (low + high) >>> 1;
 
-            if (_order.Compare(probe, leaf.EntryAt(middle)) <= 0)
-            {
-                high = middle;
-            }
-            else
+            if (_order.Compare(entry, node.EntryAt(middle)) >= least)
             {
                 low = middle + 1;
             }
-        }
-
-        return low;
-    }
-
-    // The same for an entry.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, ReadOnlySpan<byte> entry)
-    {
-        var low = 0;
-        var high = leaf.Count;
-
-        while (low < high)
-        {
-            var middle = (low + high) >>> 1;
-
-            if (_order.Compare(entry, leaf.EntryAt(middle)) <= 0)
-            {
-                high = middle;
-            }
             else
             {
-                low = middle + 1;
+                high = middle;
             }
         }
 

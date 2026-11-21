@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -29,7 +30,7 @@ internal sealed class LoadedPeer : IDisposable
     {
         var master = EngineDatabase.Create(options ?? ReplicationNodes.MasterOptions(MarkedRoot.Schema, MasterAndChild.Loopback), inputs ?? new EngineTestInputs());
 
-        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound));
+        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
         await master.Set("Marked").InsertAsync(MarkedRoot.RecordOf(master.Set("Marked").EntityType, "code"));
 
         return master;

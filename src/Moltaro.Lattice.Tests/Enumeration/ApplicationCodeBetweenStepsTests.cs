@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Enumeration;
 
 // Nothing is held between two steps of an enumeration (the remarks of ILatticeSet<TEntity>.Enumerate;
@@ -14,8 +16,6 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 public sealed class ApplicationCodeBetweenStepsTests
 {
     private const int Count = 5;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
     [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]

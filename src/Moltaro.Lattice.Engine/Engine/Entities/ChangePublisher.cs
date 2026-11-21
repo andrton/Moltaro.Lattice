@@ -9,9 +9,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 // Where prepared changes of entities become visible, for a write of a master (Writes.WriteExecutor) and for
 // what a child receives from its master (Loading.ReceivedChanges) alike: it reserves what the publication of
 // a change uses, gives back what a change holds when it is not published, and publishes the changes of one
-// publication in three steps — the stores before the position, the position, the stores after it
-// (docs/design/write-path.md, "How a publication is made"). A master passes the one change of a write, or
-// none for a delete of a key that is absent; a child the changes of a transaction, or one root of its load.
+// publication in three steps — the stores before the position (PublishBeforePosition), then the position
+// and the stores after it (PublishPositionAndAfter), which the caller makes one after the other under one
+// hold of the lock of the writes (docs/design/write-path.md, "How a publication is made"). A master passes
+// the one change of a write, or none for a delete of a key that is absent; a child the changes of a
+// transaction, or one root of its load.
 //
 // The secondary indexes are kept here, for every change and every index of its entity type
 // (Indexes.SecondaryIndex), so that a master, a forwarded write, a root of a load and a transaction of a
@@ -26,8 +28,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // read that sees one, by a load with acquire semantics, sees every store before it, the blocks the
 // preparation wrote included, and a read by key never returns a state at a position at which the master did
 // not have it. A publication obtains no native memory, grows no index, adds no root entry, allocates nothing
-// and does no I/O: every store goes to what the preparation took and reserved. It fails only at the fault
-// point a test armed, or for a defect; the stores made stay, and the caller faults the database.
+// and does no I/O: every store goes to what the preparation took and reserved. It fails only for a defect;
+// the stores made stay, and the caller faults the database. A test of the engine fails the publication of
+// a write of a master between its two calls (Writes.WriteExecutor).
 //
 // It holds no state of its own. What it changes — the arena, the table of root entries, the primary and the
 // secondary indexes of the tables of the database, the position clock and the retired list — has one
@@ -204,14 +207,14 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, before a write or a received change is refused for memory: every index
     // of the database gives back what its pool holds above the need of the changes prepared and not
-    // published (Indexes.OrderedTree.GiveBackReserve).
+    // published (Indexes.SecondaryIndex.GiveBackReserve).
     public void GiveBackReserves()
     {
         foreach (var table in _tables.InSchemaOrder)
         {
             foreach (var index in table.Indexes)
             {
-                index.Tree.GiveBackReserve();
+                index.GiveBackReserve();
             }
         }
     }
@@ -226,7 +229,7 @@ internal sealed class ChangePublisher
         {
             if (ChangeAt(change, index, replaced) != IndexChangeEnum.None)
             {
-                indexes[index].Tree.TopUp();
+                indexes[index].TopUp();
             }
         }
     }
@@ -281,25 +284,14 @@ internal sealed class ChangePublisher
         }
     }
 
-    // Under the lock of the writes: publishes the changes of one publication, in their order and in the
-    // three steps of the class, each with the stamp given. First the stores before the position: the new
-    // entries of the secondary indexes, then Install, MarkReplace and MarkDelete. Then the stamp becomes
-    // the position of the database, unless the changes are
-    // a root of a load, whose position the end of the load sets: after the entry of the index of an insert,
-    // so that a read that sees the position finds the key, and between the mark and the stamp of a replace
-    // or a delete, so that a read that loads the new stamp reads that position or a later one (the position
-    // of an answer, EntityTable). Then the stores after it: StampReplace and StampDelete, each of which takes
-    // the old entries of the secondary indexes away before it retires the root they belong to. With no
-    // change it publishes only the position, as a delete of a key that is absent does. The caller wakes the
-    // waits for a position once it has released the lock (PositionClock.Wake). An entry an index refuses
-    // to add or to take away (Indexes.OrderedTree.Insert, Remove) fails the publication with
-    // InvalidOperationException: on a master a defect, on a child its stream contradicting its index, and
-    // the caller faults the database either way.
-    //
-    // A test of the engine fails a publication of a master between the stores before the position and the
-    // position (Writes.EngineFaultPointEnum.DuringPublication): armedFault is the exception thrown there, and
-    // null when no test armed that point.
-    public void Publish(Span<PreparedChange> changes, ulong stamp, bool publishesPosition, Exception? armedFault)
+    // Under the lock of the writes: the first step of the publication of the changes of one publication, in
+    // their order and each with the stamp given (see the class): the stores before the position, the new
+    // entries of the secondary indexes, then Install, MarkReplace and MarkDelete. The caller makes the rest
+    // of the publication next, under the same hold of the lock (PublishPositionAndAfter). An entry an index
+    // refuses to add (Indexes.OrderedTree.Insert) fails the publication with InvalidOperationException: on a
+    // master a defect, on a child its stream contradicting its index, and the caller faults the database
+    // either way.
+    public void PublishBeforePosition(Span<PreparedChange> changes, ulong stamp)
     {
         foreach (ref var change in changes)
         {
@@ -323,12 +315,21 @@ internal sealed class ChangePublisher
                     break;
             }
         }
+    }
 
-        if (armedFault is not null)
-        {
-            throw armedFault;
-        }
-
+    // Under the lock of the writes, after PublishBeforePosition of the same changes with the same stamp:
+    // the rest of their publication (see the class). The stamp becomes the position of the database, unless
+    // the changes are a root of a load, whose position the end of the load sets: after the entry of the
+    // index of an insert, so that a read that sees the position finds the key, and between the mark and
+    // the stamp of a replace or a delete, so that a read that loads the new stamp reads that position or a
+    // later one (the position of an answer, EntityTable). Then the stores after it: StampReplace and
+    // StampDelete, each of which takes the old entries of the secondary indexes away before it retires the
+    // root they belong to. With no change it publishes only the position, as a delete of a key that is
+    // absent does. The caller wakes the waits for a position once it has released the lock
+    // (PositionClock.Wake). An entry an index refuses to take away (Indexes.OrderedTree.Remove) fails the
+    // publication as in PublishBeforePosition.
+    public void PublishPositionAndAfter(ReadOnlySpan<PreparedChange> changes, ulong stamp, bool publishesPosition)
+    {
         if (publishesPosition)
         {
             _clock.Publish(stamp);
@@ -452,8 +453,8 @@ internal sealed class ChangePublisher
     // so a read that misses the key reads the position of the delete or a later one, and the entries of
     // the secondary indexes; the root and its entry are retired after them, so that no search can meet the
     // entry of the root once it may be given to another root (Entities.IndexSearch).
-    // Inlined into Publish, as it was before there were indexes, which made it too large to be inlined
-    // by the JIT's choice (JIT listing at full optimization).
+    // Inlined into PublishPositionAndAfter, as it was into the publication before there were indexes,
+    // which made it too large to be inlined by the JIT's choice (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void StampDelete(in PreparedChange change, ulong sequence)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Storage;
@@ -51,6 +52,8 @@ internal sealed class PreparedWrite
     // that reservation (Set).
     public ref PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
     {
+        Debug.Assert(!ChangesEntity, "The record of a write is written while it holds the change of a write that has no outcome yet.");
+
         // One field at a time, not through the constructor of PreparedChange: the JIT builds a value made
         // by a constructor aside and copies it into the field, and written so it writes the change where
         // it lies.
@@ -77,8 +80,9 @@ internal sealed class PreparedWrite
     }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left
-    // as it is: nothing reads it while ChangesEntity is false, and the record holds no reference of an
-    // earlier write in it, being new or let go of after its last write (LetGo).
+    // as it is: nothing reads it while ChangesEntity is false. It references no earlier write: the record
+    // is new, or let go of after its last write (LetGo), or holds what an earlier try of the preparation of
+    // this same write wrote into it (WriteChange) before the arena refused that try.
     public void SetNoChange()
     {
         ChangesEntity = false;

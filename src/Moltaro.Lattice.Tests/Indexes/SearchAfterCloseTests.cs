@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Indexes;
 
 // A search after its database was closed is ObjectDisposedException, as every operation after a close is
@@ -35,7 +37,7 @@ public sealed class SearchAfterCloseTests
             Assert.True(search.MoveNext());
             var first = search.Current;
 
-            await Task.Run(() => database.CloseAsync().AsTask()).WaitAsync(TimeSpan.FromMinutes(1));
+            await Task.Run(() => database.CloseAsync().AsTask()).WaitAsync(Bound);
 
             for (var step = 0; step < 3; step++)
             {

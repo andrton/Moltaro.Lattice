@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // Where a node of an index fills and splits (docs/design/ordered-index.md, "Nodes in the arena", "Writes"):
 // a leaf of 1 KiB holds 61 entries of an Int64 key, 16 bytes each; the next entry splits it. One appended

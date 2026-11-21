@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -20,8 +21,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // stated by CloseTests. A write refused for memory is stated by MemoryTests.
 public sealed class ReleasedWriteTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Write_withdrawn_before_its_dispatch_leaves_no_entry_of_its_new_text_and_the_count_of_its_existing_text_as_before()
     {

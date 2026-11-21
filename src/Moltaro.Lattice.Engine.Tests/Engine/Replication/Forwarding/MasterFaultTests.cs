@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 using Moltaro.Lattice.Engine.Writes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -31,8 +32,8 @@ public sealed class MasterFaultTests
 
         master.ArmFault(EngineFaultPointEnum.DuringPublication);
 
-        var faulted = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(1, name: 8)).AsTask().WaitAsync(ReplicationNodes.Bound));
-        var afterTheFault = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(ReplicationNodes.Bound));
+        var faulted = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(1, name: 8)).AsTask().WaitAsync(Bound));
+        var afterTheFault = await Assert.ThrowsAsync<LatticeException>(async () => await pieces.InsertAsync(PieceSchema.Of(2, name: 8)).AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeDatabaseStateEnum.Faulted, master.State);
         Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, faulted.Error);
@@ -72,13 +73,13 @@ public sealed class MasterFaultTests
             master.ArmFault(EngineFaultPointEnum.DuringPublication, publishedBeforeTheFault);
             var closing = master.CloseAsync().AsTask();
             storage.ReleaseAll();
-            await closing.WaitAsync(ReplicationNodes.Bound);
+            await closing.WaitAsync(Bound);
 
             var outcomes = new List<LatticeErrorEnum?>();
 
             for (var index = 0; index < writes.Length; index++)
             {
-                var failure = await Record.ExceptionAsync(() => writes[index].WaitAsync(ReplicationNodes.Bound));
+                var failure = await Record.ExceptionAsync(() => writes[index].WaitAsync(Bound));
                 var outcome = failure is null ? (LatticeErrorEnum?)null : Assert.IsType<LatticeException>(failure).Error;
                 var (id, version) = written[index];
 
@@ -112,7 +113,7 @@ public sealed class MasterFaultTests
         finally
         {
             storage.ReleaseAll();
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 }

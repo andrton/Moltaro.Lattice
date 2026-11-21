@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Protection;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -19,8 +20,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 internal sealed class FullEpochTable : IDisposable
 {
     private static readonly TimeSpan EndBound = TimeSpan.FromSeconds(10);
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     private readonly List<HeldRead> _held = [];
 

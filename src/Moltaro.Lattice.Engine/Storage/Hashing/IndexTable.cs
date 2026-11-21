@@ -317,9 +317,6 @@ internal sealed class IndexTable
         return false;
     }
 
-    // The same, for a walk that needs the slots alone.
-    public bool TryFindNext(ref long position, out uint slot) => TryFindNext(ref position, long.MaxValue, out slot, out _);
-
     private void CopyBucket(long place, IndexTable grown)
     {
         var bucket = BucketAt(place);

@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 
@@ -42,8 +43,6 @@ public sealed class FaultedGroupTests
     private const int Mebibyte = 1024 * 1024;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Theory]
     [InlineData(nameof(EngineFaultPointEnum.BeforePublication))]

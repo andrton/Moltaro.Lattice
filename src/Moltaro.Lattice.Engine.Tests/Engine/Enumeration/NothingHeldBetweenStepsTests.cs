@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -26,8 +27,6 @@ public sealed class NothingHeldBetweenStepsTests
     private const int Large = 3 * 1024 * 1024;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static IEnumerable<TheoryDataRow<string>> Forms => EnumerationForms.All.Select(form => new TheoryDataRow<string>(form));
 

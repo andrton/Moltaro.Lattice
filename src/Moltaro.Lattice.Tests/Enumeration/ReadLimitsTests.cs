@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Enumeration;
 
@@ -19,8 +20,6 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 //   types allow, from which a deadline has to be computed without overflow.
 public sealed class ReadLimitsTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Cancellation_of_an_enumeration_under_read_limits_is_OperationCanceledException_and_never_ReadLimitExceeded()
     {

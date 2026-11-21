@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Database;
 
@@ -210,7 +211,7 @@ public sealed class ConsistencyTests
         {
             var exception = await TestData.ExpectErrorAsync(
                 LatticeErrorEnum.SynchronizationTimeout,
-                () => child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session)).WaitAsync(TimeSpan.FromMinutes(1));
+                () => child.Users().InsertAsync(new User { Id = 1, Name = "Ada" }, session)).WaitAsync(Bound);
 
             Assert.Equal(master.Position, exception.CommittedPosition);
         }
@@ -420,7 +421,7 @@ public sealed class ConsistencyTests
         }));
         var onTheOther = OwnThread.Run(() => Race(id => Refused(() => other.Set<User>().InsertAsync(new User { Id = id, Name = "other" }, session!))));
 
-        await Task.WhenAll(throughTheChild, onTheOther).WaitAsync(TimeSpan.FromMinutes(1));
+        await Task.WhenAll(throughTheChild, onTheOther).WaitAsync(Bound);
 
         if (failure is not null)
         {

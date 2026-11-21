@@ -19,7 +19,7 @@ public sealed class DisposeTests
 
         Assert.Throws<ObjectDisposedException>(() => arena.TryAllocate(100, BlockKindEnum.Value, new RootHandle(1, 1), out _));
         Assert.Throws<ObjectDisposedException>(() => arena.Free(block));
-        Assert.Throws<ObjectDisposedException>(() => arena.IsValid(block));
+        Assert.Throws<ObjectDisposedException>(() => ArenaBlocks.IsValid(arena, block));
         Assert.Throws<ObjectDisposedException>(() => arena.Header(block));
         Assert.Throws<ObjectDisposedException>(() => arena.Payload(block));
         Assert.Throws<ObjectDisposedException>(() => arena.Counters);

@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 
@@ -40,7 +41,7 @@ public sealed class ChildNullUpkeepTests
         var onChild = child.Set("Optional");
 
         await optional.InsertAsync(OptionalEntities.Of(optional, null, "a"));
-        await child.WaitForPositionAsync(master.Position, ReplicationNodes.Bound);
+        await child.WaitForPositionAsync(master.Position, Bound);
         var walk = IndexContents.Of(child, "Optional", "ByValue").Walk;
 
         Volatile.Write(ref damaging, 1);
@@ -51,7 +52,7 @@ public sealed class ChildNullUpkeepTests
             async () =>
             {
                 await optional.ReplaceAsync(OptionalEntities.Of(optional, null, "b"));
-                await child.WaitForPositionAsync(master.Position, ReplicationNodes.Bound);
+                await child.WaitForPositionAsync(master.Position, Bound);
             },
             "Optional",
             1);

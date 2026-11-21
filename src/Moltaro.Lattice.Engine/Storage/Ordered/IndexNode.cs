@@ -50,10 +50,6 @@ internal readonly ref struct IndexNode
     // included: what a copy of the node with nothing more or less takes after the header.
     public int UsedBytes => EntriesStart + _header.Bytes - NodeHeader.Size;
 
-    // The room left after the entries or the separators, for the writer, which decides from it whether a
-    // copy of the node with one more entry fits or splits.
-    public int FreeBytes => _payload.Length - EntriesStart - _header.Bytes;
-
     // Where the offsets of the entries begin, after the header and the children of an inner node; for an
     // index without a String part, where the entries begin.
     private int OffsetsStart => NodeHeader.Size + (IsLeaf ? 0 : (_header.Count + 1) * IndexLayout.ChildBytes);

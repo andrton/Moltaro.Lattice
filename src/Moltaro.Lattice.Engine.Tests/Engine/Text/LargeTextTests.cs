@@ -1,5 +1,6 @@
 using System.Text;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 
@@ -12,8 +13,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // 100,000 bytes, two chunks, and of 1 MiB, seventeen.
 public sealed class LargeTextTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     public static IEnumerable<TheoryDataRow<int>> Lengths => [new(100_000), new(1024 * 1024)];
 
     [Theory]

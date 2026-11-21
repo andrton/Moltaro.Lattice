@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -16,8 +17,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 // the child in. Every child has an open timeout far beyond the bound, so that no timeout ends it.
 public sealed class NotReadyTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     [Fact]
     public async Task Child_that_cannot_reach_its_master_is_Connecting_and_every_operation_is_Unavailable()
     {

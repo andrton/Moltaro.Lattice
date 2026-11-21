@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Enumeration;
 
@@ -24,8 +25,6 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 public sealed class ReadTimeLimitTests
 {
     private static readonly TimeSpan Pause = ReadTimes.BeyondTheLimit;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Caller_that_is_slow_between_two_steps_does_not_use_up_the_time_limit()

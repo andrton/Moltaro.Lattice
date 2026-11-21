@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -16,8 +17,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // is bounded.
 public sealed class CloseWhileWritesWaitTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Close_while_a_group_is_held_in_the_storage_step_and_writes_wait_completes_once_every_write_is_published()
     {

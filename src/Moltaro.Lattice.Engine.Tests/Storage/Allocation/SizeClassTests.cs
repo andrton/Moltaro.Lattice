@@ -54,7 +54,7 @@ public sealed class SizeClassTests
 
         var address = Arenas.Allocate(arena, 0);
 
-        Assert.True(arena.IsValid(address));
+        Assert.True(ArenaBlocks.IsValid(arena, address));
         Assert.Equal(0u, arena.Header(address).PayloadLength);
         Assert.True(arena.Payload(address).IsEmpty);
         Assert.Equal(32, arena.Counters.LiveBytes);
@@ -103,17 +103,17 @@ public sealed class SizeClassTests
         // The region is the only one of its class and has no free slot.
         var region = Arenas.FillFirstRegion(arena, payloadLength);
         var freed = region[^1];
-        Assert.All(region, block => Assert.True(arena.IsValid(block)));
+        Assert.All(region, block => Assert.True(ArenaBlocks.IsValid(arena, block)));
         var before = arena.Counters;
 
         arena.Free(freed);
 
-        Assert.False(arena.IsValid(freed));
+        Assert.False(ArenaBlocks.IsValid(arena, freed));
 
         var again = Arenas.Allocate(arena, payloadLength);
 
         // The block took the space the freed one gave back, and no other.
-        Assert.True(arena.IsValid(again));
+        Assert.True(ArenaBlocks.IsValid(arena, again));
         Assert.Equal(before, arena.Counters);
 
         // While the region keeps other blocks, the freed slot is the only free slot of the class,

@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
@@ -21,8 +22,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // stated by IndexPreparationTests.
 public sealed class CancelledAfterReservationTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Replace_and_delete_cancelled_after_their_indexes_reserved_nodes_give_every_node_back_and_succeed_when_submitted_again()
     {

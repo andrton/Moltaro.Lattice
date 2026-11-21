@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
@@ -31,7 +32,7 @@ public sealed class SlowChildTests
                 }
             });
 
-            await writing.WaitAsync(ReplicationNodes.Bound);
+            await writing.WaitAsync(Bound);
 
             Assert.True(master.Counters.PendingDeliveryBytes >= (long)Writes * DataBytes, $"The master holds {master.Counters.PendingDeliveryBytes} bytes for delivery, less than the {Writes * DataBytes} bytes its writes carry.");
         }

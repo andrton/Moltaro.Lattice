@@ -18,7 +18,7 @@ public sealed class BlockTests
 
         Assert.True(arena.TryAllocate(100, BlockKindEnum.Root, root, out var address));
 
-        Assert.True(arena.IsValid(address));
+        Assert.True(ArenaBlocks.IsValid(arena, address));
         AssertNewHeader(arena.Header(address), root, BlockKindEnum.Root, 100);
     }
 
@@ -88,7 +88,7 @@ public sealed class BlockTests
         Assert.Equal((ushort)3, read.Flags);
         Assert.Equal(11u, read.LayoutVersion);
         Assert.Equal(100u, read.PayloadLength);
-        Assert.True(arena.IsValid(address));
+        Assert.True(ArenaBlocks.IsValid(arena, address));
     }
 
     [Theory]
@@ -139,10 +139,10 @@ public sealed class BlockTests
 
         // The block is still a block of the arena. With the length it was given back in its header,
         // it can be freed.
-        Assert.True(arena.IsValid(address));
+        Assert.True(ArenaBlocks.IsValid(arena, address));
         arena.Header(address).PayloadLength = 100;
         arena.Free(address);
-        Assert.False(arena.IsValid(address));
+        Assert.False(ArenaBlocks.IsValid(arena, address));
     }
 
     [Fact]

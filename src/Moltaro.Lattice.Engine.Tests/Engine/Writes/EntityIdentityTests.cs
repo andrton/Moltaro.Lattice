@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -13,8 +14,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // In a database of UTF-8 and in one of UTF-16 (KeySchema).
 public sealed class EntityIdentityTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Theory]
     [InlineData("Utf8")]
     [InlineData("Utf16")]

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -27,8 +28,6 @@ internal sealed class LoopbackLink : IAsyncDisposable
     // 4 MiB by default: there a write of the tests of 8 MiB is about twice what the two buffers can take,
     // so it still cannot fit, but by that margin and not by far.
     public const int ReceiveBuffer = 64 * 1024;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // Guards the list of the sockets, which the copies, Cut and DisposeAsync reach from their threads.
     private readonly Lock _lock = new();

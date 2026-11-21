@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Addresses;
 
@@ -17,8 +18,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Addresses;
 //   holds nothing (CountingNativeAllocator).
 public sealed class ListenAddressTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     [Fact]
     public async Task Master_opened_at_port_0_reports_the_port_it_listens_at_and_a_child_connects_to_that_address()
     {

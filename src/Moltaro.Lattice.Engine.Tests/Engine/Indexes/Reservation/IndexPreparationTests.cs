@@ -4,8 +4,9 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
 // Index nodes are prepared before the commit, and nothing grows inside a publication (docs/design/
 // ordered-index.md, "The reservation"; milestone contract, "Index preparation and traversal"): in the hold
@@ -50,8 +51,6 @@ public sealed class IndexPreparationTests
 
     // The arena of the test that fills it: regions of 64 KiB, each a segment of its own.
     private const int Regions = 48;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static IEnumerable<TheoryDataRow<int, int>> Waiting =>
     [

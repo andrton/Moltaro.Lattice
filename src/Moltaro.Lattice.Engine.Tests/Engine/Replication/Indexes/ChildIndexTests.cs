@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 
@@ -72,7 +73,7 @@ public sealed class ChildIndexTests
             tally.Written(entity);
         }
 
-        await child.WaitForPositionAsync(master.Position).AsTask().WaitAsync(ReplicationNodes.Bound);
+        await child.WaitForPositionAsync(master.Position).AsTask().WaitAsync(Bound);
 
         ExpectEqual(tally, master, child);
     }

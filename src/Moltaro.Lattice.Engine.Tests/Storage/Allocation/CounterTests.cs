@@ -91,7 +91,7 @@ public sealed class CounterTests
 
         foreach (var (address, payloadLength, tag) in tally.Kept)
         {
-            Assert.True(arena.IsValid(address));
+            Assert.True(ArenaBlocks.IsValid(arena, address));
             Assert.Equal((uint)payloadLength, arena.Header(address).PayloadLength);
             Assert.Equal(tag, arena.Header(address).LayoutVersion);
         }
@@ -106,7 +106,7 @@ public sealed class CounterTests
         Assert.Equal(
             new ArenaCounters(LiveBytes: 0, ClassSlackBytes: 0, PreparedBytes: 0, RetiredBytes: 0, FreeRegions: 0, ReservedSegments: 1, Segments: 1),
             arena.Counters);
-        Assert.All(everAllocated, address => Assert.False(arena.IsValid(address)));
+        Assert.All(everAllocated, address => Assert.False(ArenaBlocks.IsValid(arena, address)));
     }
 
     private static void AssertCountersMatch(ArenaTally tally, Arena arena)

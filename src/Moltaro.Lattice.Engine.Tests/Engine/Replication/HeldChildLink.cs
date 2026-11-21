@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -15,8 +16,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // process of a peer is gone.
 internal sealed class HeldChildLink : IAsyncDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     // Guards the bytes the link read from the child, which a test reads from its own thread.
     private readonly Lock _lock = new();
 

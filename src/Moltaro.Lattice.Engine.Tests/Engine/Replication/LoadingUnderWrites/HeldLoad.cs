@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 
@@ -28,8 +29,6 @@ internal sealed class HeldLoad : IAsyncDisposable
 
     // Pieces the capture has not copied yet when the link holds.
     public static readonly long[] NotCopied = [Small + Large - 2, Small + Large - 1, Small + Large];
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     private readonly HeldLink _link;
 

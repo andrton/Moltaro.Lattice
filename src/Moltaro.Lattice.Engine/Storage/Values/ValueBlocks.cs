@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Moltaro.Lattice.Storage.Values;
@@ -44,7 +45,10 @@ internal static class ValueBlocks
 
     public static void Write(Span<byte> place, ValueDescriptor descriptor) => MemoryMarshal.Write(place, in descriptor);
 
-    // The address a descriptor of kind Block, Chunked or Text holds in its Location.
+    // The address a descriptor of kind Block, Chunked or Text holds in its Location. Inlined, so that the
+    // walks over the shared keys of the nodes of an index make no call for each key (JIT listing at full
+    // optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ArenaAddress AddressOf(in ValueDescriptor descriptor) =>
         new((uint)(descriptor.Location >> 32), (uint)descriptor.Location);
 

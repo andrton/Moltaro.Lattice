@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -9,8 +10,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // it. Dispose releases the read, so that a test that fails before ReleaseAsync does not keep it.
 internal sealed class HeldRead : IDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private Task<long?> _read = Task.FromResult<long?>(null);

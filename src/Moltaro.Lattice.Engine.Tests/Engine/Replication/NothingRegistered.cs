@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -32,7 +33,7 @@ internal static class NothingRegistered
                 return;
             }
 
-            if (waited.Elapsed > ReplicationNodes.Bound)
+            if (waited.Elapsed > Bound)
             {
                 Assert.Fail($"Within the bound the master still holds {counters.ActiveCaptures} captures and {counters.PendingDeliveryBytes} bytes for delivery: a child that has gone is still registered on it.");
             }

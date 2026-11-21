@@ -1240,7 +1240,7 @@ Why this order:
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
-| S14R | Refactoring after S14: structure only | Full | Not started |
+| S14R | Refactoring after S14: structure only | Full | In progress: part 1 done on 21 November 2026, part 2 open ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
 | S15, part 2 | The binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |

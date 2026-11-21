@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -21,8 +22,6 @@ public sealed class WholeChangesTests
     private const int Readers = 2;
 
     private const int DataBytes = 64 * 1024;
-
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
 
     [Fact]
     public async Task Readers_on_a_child_see_each_change_of_the_master_whole_and_in_order()

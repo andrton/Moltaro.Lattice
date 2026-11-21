@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // An exact search that returns one entity allocates its result and nothing for a comparison, and making
 // its key allocates nothing (docs/design/ordered-index.md, "The search by a full key": the key is bound

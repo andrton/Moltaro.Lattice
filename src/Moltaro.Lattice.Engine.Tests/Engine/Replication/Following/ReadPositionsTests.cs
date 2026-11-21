@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -37,7 +38,7 @@ public sealed class ReadPositionsTests
 
         // Every reader has read once before the first write, however late its thread starts; a reader that
         // failed its first read has ended, and the test reports it below.
-        await Task.WhenAll(readers.Select((reader, index) => Task.WhenAny(reader, firstReads[index].Task))).WaitAsync(ReplicationNodes.Bound);
+        await Task.WhenAll(readers.Select((reader, index) => Task.WhenAny(reader, firstReads[index].Task))).WaitAsync(Bound);
 
         for (var pair = 0; pair < Pairs; pair++)
         {
@@ -53,7 +54,7 @@ public sealed class ReadPositionsTests
         await Eventually.AtAsync(child, master.Position);
         await stop.CancelAsync();
 
-        var answers = (await Task.WhenAll(readers).WaitAsync(ReplicationNodes.Bound)).SelectMany(read => read).ToList();
+        var answers = (await Task.WhenAll(readers).WaitAsync(Bound)).SelectMany(read => read).ToList();
         var wrong = answers.Where(answer => answer.Found != held[answer.Sequence]).ToList();
 
         Assert.NotEmpty(answers);

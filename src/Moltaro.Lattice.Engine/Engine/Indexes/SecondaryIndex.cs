@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
@@ -27,7 +28,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // each index the write changes, under the lock of the writes, on a master and on a child alike:
 // - in the hold that prepares the write: TryReserve; false when the arena cannot hold what the change
 //   needs, which refuses the write as one the memory budget cannot hold, with nothing taken; then, once
-//   every index has what the write needs, the top-up of the standing reserve (OrderedTree.TopUp);
+//   every index has what the write needs, the top-up of the standing reserve (TopUp);
 // - when the write is withdrawn before its publication: Release;
 // - in its publication, before the stores that publish the root and the position: InstallNew;
 // - after the position, before the old root or the deleted entry is retired: RemoveOld.
@@ -42,10 +43,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // faults the child (OrderedTree.Insert, Remove).
 //
 // Memory. The nodes are blocks of the arena, counted in its live, prepared and retired bytes and so in
-// the budget of the instance; the bytes of the live ones are Tree.Bytes. The close frees them with the
-// arena. An entry of a write is made in scratch of the writer that the index holds, of the widest entry,
-// allocated when the database opens. Readers take no lock; only the holder of the lock of the writes
-// calls the members of a write.
+// the budget of the instance. The close frees them with the arena. An entry of a write is made in
+// scratch of the writer that the index holds, of the widest entry, allocated when the database opens.
+// Readers take no lock; only the holder of the lock of the writes calls the members of a write.
 internal sealed class SecondaryIndex
 {
     private readonly RootLayout _roots;
@@ -112,34 +112,31 @@ internal sealed class SecondaryIndex
     }
 
     // For the writer, in the hold that prepares the write: reserves what the change the write makes to
-    // the index needs (OrderedTree.TryReserve): an insert for Insert, Move and Rewrite, a remove for Remove
-    // and Move. False when the arena cannot hold it, with nothing taken (see the class).
-    public bool TryReserve(IndexChangeEnum change) => change switch
+    // the index needs (OrderedTree.TryReserve, CountsOf). False when the arena cannot hold it, with nothing
+    // taken (see the class).
+    public bool TryReserve(IndexChangeEnum change)
     {
-        IndexChangeEnum.Insert or IndexChangeEnum.Rewrite => Tree.TryReserve(inserts: 1, removes: 0),
-        IndexChangeEnum.Remove => Tree.TryReserve(inserts: 0, removes: 1),
-        _ => Tree.TryReserve(inserts: 1, removes: 1),
-    };
+        var (inserts, removes) = CountsOf(change);
+
+        return Tree.TryReserve(inserts, removes);
+    }
 
     // For the writer: gives back what TryReserve took for the change, for a write withdrawn before its
     // publication.
     public void Release(IndexChangeEnum change)
     {
-        switch (change)
-        {
-            case IndexChangeEnum.Insert or IndexChangeEnum.Rewrite:
-                Tree.Release(inserts: 1, removes: 0);
-                break;
+        var (inserts, removes) = CountsOf(change);
 
-            case IndexChangeEnum.Remove:
-                Tree.Release(inserts: 0, removes: 1);
-                break;
-
-            default:
-                Tree.Release(inserts: 1, removes: 1);
-                break;
-        }
+        Tree.Release(inserts, removes);
     }
+
+    // For the writer, in the hold that prepares a write, once every index of the write has what the write
+    // needs: tops the standing reserve of the tree up, as far as the arena gives (OrderedTree.TopUp).
+    public void TopUp() => Tree.TopUp();
+
+    // For the writer, before a write is refused for memory: gives back what the pool of the tree holds
+    // above the need of the writes prepared and not published (OrderedTree.GiveBackReserve).
+    public void GiveBackReserve() => Tree.GiveBackReserve();
 
     // For the writer, in the publication of the write, before the stores of its root: adds the entry the
     // root the write publishes contributes, under the handle of the root entry, for an Insert or a Move,
@@ -169,6 +166,17 @@ internal sealed class SecondaryIndex
                 break;
         }
     }
+
+    // The inserts and the removes a change of the index takes in its tree: an insert for Insert, Move and
+    // Rewrite, a remove for Remove and Move. Inlined, so that a reservation and a release make no call for
+    // it (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static (int Inserts, int Removes) CountsOf(IndexChangeEnum change) => change switch
+    {
+        IndexChangeEnum.Insert or IndexChangeEnum.Rewrite => (1, 0),
+        IndexChangeEnum.Remove => (0, 1),
+        _ => (1, 1),
+    };
 
     // The entry the root contributes under the handle, in the scratch of the writer.
     private ReadOnlySpan<byte> EntryOf(RootHandle handle, ArenaAddress root) =>

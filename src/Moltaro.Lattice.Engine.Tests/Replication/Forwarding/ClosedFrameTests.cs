@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -52,7 +53,7 @@ public sealed class ClosedFrameTests
                 _ => [ForwardPayload.ClosedFrame(0), ForwardPayload.ClosedFrame(0)],
             });
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(Bound));
         await forwarded.Relay.ChildEndedAsync();
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
@@ -68,7 +69,7 @@ public sealed class ClosedFrameTests
                 ? [ForwardPayload.ClosedFrame(0).WithPayload([0])]
                 : [ForwardPayload.ClosedFrame(0).WithCorrelationId(1)]);
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(Bound));
         await forwarded.Relay.ChildEndedAsync();
 
         Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
@@ -98,7 +99,7 @@ public sealed class ClosedFrameTests
                 ? [ForwardPayload.Frames(ForwardPayload.WriteReply, reply.CorrelationId, 0, ForwardPayload.BodyOf([reply]), framePayload: 8)[0], ForwardPayload.ClosedFrame(0)]
                 : [WireFrame.Make(FrameKindEnum.Transaction, flags: 0, correlationId: 0, streamSequence: 0, TransactionPayload.Make(1, announcedLength: 2, [TransactionPayload.Unchanged])), ForwardPayload.ClosedFrame(0)]);
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => forwarded.Writing.WaitAsync(Bound));
         await forwarded.Relay.ChildEndedAsync();
 
         Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
@@ -130,7 +131,7 @@ public sealed class ClosedFrameTests
         });
         var child = LatticeDatabase.Create(ReplicationNodes.ChildOptions(relay.Address, ReplicationNodes.BeyondTheBound));
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         Assert.Equal(LatticeDatabaseStateEnum.Closed, child.State);

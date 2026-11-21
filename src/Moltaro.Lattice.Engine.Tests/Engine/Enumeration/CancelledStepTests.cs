@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 
@@ -69,8 +70,6 @@ public sealed class CancelledStepTests
 
     // How long a step of an attempt is let wait for a slot, so that it waits when its token is cancelled.
     private static readonly TimeSpan IntoTheWait = TimeSpan.FromMilliseconds(50);
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     public static TheoryData<string, string, string> Cases => new()
     {

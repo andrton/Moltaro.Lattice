@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -32,8 +33,8 @@ public sealed class OrderThroughAChildTests
             await Eventually.HoldsAsync(() => master.Counters.QueuedWrites == 2, "The master did not take the second write while the first was in its storage step.");
             storage.ReleaseAll();
 
-            var earlier = await first.WaitAsync(ReplicationNodes.Bound);
-            var later = await second.WaitAsync(ReplicationNodes.Bound);
+            var earlier = await first.WaitAsync(Bound);
+            var later = await second.WaitAsync(Bound);
 
             Assert.True(PositionSequence.Of(earlier.Position) < PositionSequence.Of(later.Position));
             Assert.Equal("v2", master.Set<PieceSchema.Piece>().Get(1L)?.Name);

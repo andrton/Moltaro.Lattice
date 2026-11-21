@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Database;
 
 // The memory budget of an instance, LatticeDatabaseOptions.MemoryLimit (brief of Epic 1, sprint S09,
@@ -10,8 +12,6 @@ namespace Moltaro.Lattice.Tests.Database;
 public sealed class MemoryLimitTests
 {
     private const int Mebibyte = 1024 * 1024;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Write_the_memory_limit_cannot_hold_is_WriteRejected_with_Limit_Memory_has_no_effect_and_never_runs_later()

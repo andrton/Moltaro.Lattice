@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
 // Index nodes are memory of the arena, counted in the budget of the instance, and a reservation of them
 // that the arena cannot hold takes nothing and is refused as a write the memory budget cannot hold is:
@@ -19,8 +20,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // the same write succeeds and is found.
 public sealed class RefusedReservationTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Fact]
     public async Task Write_whose_index_nodes_the_arena_cannot_hold_is_refused_for_memory_leaves_nothing_and_succeeds_once_memory_is_freed()
     {

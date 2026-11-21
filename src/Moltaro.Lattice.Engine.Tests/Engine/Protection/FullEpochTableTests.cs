@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Protection;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -18,8 +19,6 @@ public sealed class FullEpochTableTests
 
     // The reads beyond the slots.
     private const int Beyond = 4;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Reads_beyond_the_slots_of_the_epoch_table_wait_for_a_slot_and_every_read_is_served()

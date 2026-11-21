@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -25,7 +26,7 @@ public sealed class ChildMemoryLimitTests
         var options = ReplicationNodes.ChildOptions(master.ListenUri!, ReplicationNodes.BeyondTheBound, memoryLimit: Segment);
         var child = EngineDatabase.Create(options, new EngineTestInputs { Allocator = allocator });
 
-        var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(ReplicationNodes.Bound));
+        var exception = await Assert.ThrowsAsync<LatticeException>(() => child.OpenAsync().AsTask().WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, exception.Error);
         Assert.Contains("memory", exception.Message, StringComparison.OrdinalIgnoreCase);

@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // The schema of the tests of the primary index, and the class of its one entity type Clash: the key
 // Id, an Int64, and Number, an Int64, both in the fixed part, so that an entity is small and a test of

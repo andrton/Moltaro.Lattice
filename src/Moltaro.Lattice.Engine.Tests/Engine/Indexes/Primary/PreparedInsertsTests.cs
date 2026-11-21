@@ -1,8 +1,9 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Inserts prepared while the storage step holds a group, none of them published yet, each reserve room
 // in the primary index beside the others, so that every one finds its room when it is published, in
@@ -26,8 +27,6 @@ public sealed class PreparedInsertsTests
     private const int Existing = 10;
 
     private const int Inserts = 50;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // The bytes of the slot of one entity of Clash: a root of its fixed part alone, the header and two
     // Int64 fields.

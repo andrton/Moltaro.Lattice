@@ -14,7 +14,7 @@ internal readonly struct ArenaAddress : IEquatable<ArenaAddress>
     private readonly ulong _value;
 
     // Packs a segment and an offset. It does not check that a block is there: only the arena can
-    // tell, through Arena.IsValid.
+    // tell, and Arena.Header and Payload refuse an address where none is.
     public ArenaAddress(uint segment, uint offset) =>
         _value = ((ulong)segment << 32) | offset;
 

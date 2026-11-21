@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Closing;
 
@@ -12,8 +13,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Closing;
 // serving its reads, and the close of a child returns all its native memory (CountingNativeAllocator).
 public sealed class CloseOverTheNetworkTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     [Fact]
     public async Task New_master_opens_on_the_same_port_right_after_the_close_of_the_first_has_completed()
     {

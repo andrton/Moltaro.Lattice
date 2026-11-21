@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // A search by the full key is a step at a time and holds between two steps only the key and the identity
 // of the last entity it returned: no node, no address and no slot of the protection of reads

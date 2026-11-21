@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 
@@ -11,8 +12,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Opening;
 // off is not what this test states; it is closed at the end.
 public sealed class VanishedChildTests
 {
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     [Fact]
     public async Task Child_that_vanishes_in_the_middle_of_its_load_leaves_nothing_registered_on_the_master()
     {

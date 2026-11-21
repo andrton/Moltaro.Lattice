@@ -3,8 +3,9 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // The tree of an index keeps the shape of a B+tree through every change (docs/design/ordered-index.md,
 // "Nodes in the arena", "Writes"): the entries of a leaf lie in the order of the index; separator i of
@@ -71,7 +72,7 @@ public sealed class TreeShapeTests
 
         retired.Drain();
 
-        Assert.Equal((0, 0L, 0L), (index.Tree.Height, index.Tree.Count, index.Tree.Bytes));
+        Assert.Equal((0, 0L, 0L), (index.Tree.Height, TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
         Assert.True(item.Arena.Counters.PreparedBytes <= ReservationNeed.OfOneChangeOfKey(height: 0, room: 0, index.Layout.LeastSeparators) * index.Layout.NodeBytes, "The arena holds prepared bytes beyond the reserve of the empty tree.");
         Assert.Equal(0, item.Arena.Counters.RetiredBytes);
     }
@@ -90,8 +91,6 @@ public sealed class TreeShapeTests
         }
 
         Assert.Equal(nodes.Count, next);
-        Assert.Equal(held.Count, index.Tree.Count);
-        Assert.Equal((long)nodes.Count * index.Layout.NodeBytes, index.Tree.Bytes);
 
         var expected = held.Select(Convert.ToHexString).Order(StringComparer.Ordinal);
 
@@ -128,19 +127,5 @@ public sealed class TreeShapeTests
             Assert.Equal(level - 1, nodes[next].Level);
             Walk(nodes, ref next, order, child == 0 ? lower : items[child - 1], child == items.Count ? upper : items[child], entries);
         }
-    }
-
-    // The entry of a root of Counted with the number given, under the identity given.
-    private static byte[] EntryOf(RootArena item, SecondaryIndex index, RootHandle identity, long number)
-    {
-        var writer = item.Writer();
-
-        writer.SetInteger(item.Field("Id"), identity.Slot);
-        writer.SetInteger(item.Field("Number"), number);
-
-        var root = writer.Complete();
-        var entry = new byte[index.Layout.WidestEntryBytes];
-
-        return entry[..index.Layout.WriteEntry(item.Reader(root), identity, entry)];
     }
 }

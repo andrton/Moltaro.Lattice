@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
@@ -23,8 +24,6 @@ public sealed class CloseUnderLoadTests
     private const int Cycles = 20;
 
     private const int Keys = 4;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     // At least four readers; at most eight, beside the writer.
     private static int Readers => Math.Clamp(Environment.ProcessorCount, 4, 8);

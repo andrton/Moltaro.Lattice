@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 
 // A write reserves the nodes of the indexes of its entity type one index after the other, and a
@@ -17,8 +19,6 @@ public sealed class RefusalAtALaterIndexTests
 {
     // Far more slots than an insert into three trees of one leaf can take.
     private const int MostFreed = 30;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Insert_refused_at_a_later_index_gives_back_the_nodes_the_indexes_before_it_reserved_and_succeeds_once_memory_is_freed()

@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 
@@ -43,8 +44,6 @@ public sealed class RefusedWriteTests
     private static readonly int Segment = new ArenaOptions().SegmentSize;
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * Segment };
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Replace_that_the_arena_holds_only_once_retired_memory_no_read_holds_is_freed_succeeds()

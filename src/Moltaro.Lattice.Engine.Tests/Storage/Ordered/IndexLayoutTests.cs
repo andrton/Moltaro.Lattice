@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Ordered;
 //   inner node; it then takes the smallest size class that holds them. The widest entry has every String
 //   part a copy of 64 bytes. Up to the largest block: an index of 251 String parts takes nodes of 64 KiB.
 // Each entry is written from a root the test writes into an arena of its own (RootArena), and its bytes
-// are those WriteEntry returns and EntryLength reads back from it.
+// are those WriteEntry returns and the test reads back from its parts (EntryLength).
 public sealed class IndexLayoutTests
 {
     // A node starts with its header; a leaf of an index with a String part has an offset of 2 bytes for
@@ -76,7 +76,7 @@ public sealed class IndexLayoutTests
         var bytes = layout.WriteEntry(item.Reader(root), RootArena.Handle, entry);
 
         Assert.Equal(expected, bytes);
-        Assert.Equal(expected, layout.EntryLength(entry));
+        Assert.Equal(expected, EntryLength(layout, entry));
         Assert.Equal(RootArena.Handle, IndexLayout.IdentityOf(entry));
         Assert.Equal(layout.HasText ? 0 : expected, layout.FixedEntryBytes);
     }
@@ -137,6 +137,25 @@ public sealed class IndexLayoutTests
         {
             Assert.Equal(IndexLayout.SmallestNodeBytes, layout.NodeBytes);
         }
+    }
+
+    // The bytes of the entry that starts the span, read from its parts as the layout lays them out: the
+    // identity, the null bitmap, each part at its width, and for a String part its head and what follows it.
+    private static int EntryLength(IndexLayout layout, ReadOnlySpan<byte> entry)
+    {
+        if (!layout.HasText)
+        {
+            return layout.FixedEntryBytes;
+        }
+
+        var length = IndexLayout.IdentityBytes + layout.NullBitmapBytes;
+
+        foreach (ref readonly var part in layout.Parts)
+        {
+            length += part.IsText ? IndexLayout.TextPartBytes(entry[length]) : part.Width;
+        }
+
+        return length;
     }
 
     // Writes the value of a row into the writer of the root: by reference, since a writer is a value that

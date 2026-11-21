@@ -4,6 +4,7 @@ using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Following;
 
@@ -72,7 +73,7 @@ public sealed class ChildArenaFullTests
         child.HoldNextRefusedWriteWait(() => waits.TrySetResult());
         var inserted = await pieces.InsertAsync(Pieces.Versioned(2, version: 2, TwoAndAHalfMebibytes));
 
-        await waits.Task.WaitAsync(ReplicationNodes.Bound);
+        await waits.Task.WaitAsync(Bound);
 
         Assert.Equal(deleted.Position, child.Position);
         await held.ReleaseAsync();

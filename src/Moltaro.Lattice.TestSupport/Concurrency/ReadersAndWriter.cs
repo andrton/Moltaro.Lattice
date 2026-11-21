@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.TestSupport.Concurrency;
 
 // For tests in which readers read while one writer writes, to state what a read returns while the
@@ -21,7 +23,7 @@ internal static class ReadersAndWriter
 
         try
         {
-            if (!started.Wait(TimeSpan.FromMinutes(1)))
+            if (!started.Wait(Bound))
             {
                 throw new TimeoutException("The readers did not start within a minute.");
             }

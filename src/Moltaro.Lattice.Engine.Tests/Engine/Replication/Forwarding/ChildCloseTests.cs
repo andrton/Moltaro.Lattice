@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Writes;
 using Moltaro.Lattice.Engine.Tests.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 
@@ -43,8 +44,8 @@ public sealed class ChildCloseTests
 
         Assert.False(writing.IsCompleted, "The write completed while its child held back its application.");
 
-        await child.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
-        var written = await writing.WaitAsync(ReplicationNodes.Bound);
+        await child.CloseAsync().AsTask().WaitAsync(Bound);
+        var written = await writing.WaitAsync(Bound);
 
         Assert.True(written.Changed);
         Assert.Equal(sequence, PositionSequence.Of(written.Position));
@@ -64,9 +65,9 @@ public sealed class ChildCloseTests
             var writing = child.Set<PieceSchema.Piece>().InsertAsync(PieceSchema.Of(1, name: 8)).AsTask();
             await storage.NextAsync();
 
-            await child.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await child.CloseAsync().AsTask().WaitAsync(Bound);
 
-            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(ReplicationNodes.Bound));
+            var exception = await Assert.ThrowsAsync<LatticeException>(() => writing.WaitAsync(Bound));
             Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
         }
         finally
@@ -88,10 +89,10 @@ public sealed class ChildCloseTests
         await link.HeldAsync();
         var notTaken = pieces.InsertAsync(PieceSchema.Of(2, name: 8)).AsTask();
 
-        await child.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+        await child.CloseAsync().AsTask().WaitAsync(Bound);
 
-        var sentInPart = await Assert.ThrowsAsync<LatticeException>(() => inPart.WaitAsync(ReplicationNodes.Bound));
-        var neverSent = await Assert.ThrowsAsync<LatticeException>(() => notTaken.WaitAsync(ReplicationNodes.Bound));
+        var sentInPart = await Assert.ThrowsAsync<LatticeException>(() => inPart.WaitAsync(Bound));
+        var neverSent = await Assert.ThrowsAsync<LatticeException>(() => notTaken.WaitAsync(Bound));
 
         Assert.Equal(LatticeErrorEnum.Unavailable, sentInPart.Error);
         Assert.Equal(LatticeErrorEnum.Unavailable, neverSent.Error);

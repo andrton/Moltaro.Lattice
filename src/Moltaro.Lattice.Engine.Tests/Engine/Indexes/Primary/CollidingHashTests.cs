@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 
 // Keys of a structure do not cost more of the primary index than other keys (review round 1 of Epic 1,
 // sprint S08, part 1: keys (shard << 32) | id of 16 shards took 139 bytes of the index an entry,

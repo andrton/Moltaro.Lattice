@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Storage;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -37,8 +38,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 public sealed class StandingReserveTests
 {
     private const int SpreadIndexes = 40;
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task After_every_published_write_of_an_indexed_type_the_arena_holds_prepared_bytes_above_zero_and_within_the_reserve_of_its_indexes()

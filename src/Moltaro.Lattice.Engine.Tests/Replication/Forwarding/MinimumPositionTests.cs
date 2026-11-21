@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.TestSupport.Positions;
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
@@ -91,11 +92,11 @@ public sealed class MinimumPositionTests
             Assert.All(frames.Where(frame => frame.Kind == FrameKindEnum.Transaction), frame => Assert.Equal(next, TransactionPayload.SequenceOf(frame)));
 
             child.Dispose();
-            await closing.WaitAsync(ReplicationNodes.Bound);
+            await closing.WaitAsync(Bound);
         }
         finally
         {
-            await master.CloseAsync().AsTask().WaitAsync(ReplicationNodes.Bound);
+            await master.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
 

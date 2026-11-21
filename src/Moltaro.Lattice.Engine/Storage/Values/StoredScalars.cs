@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Moltaro.Lattice.Access.Values;
 
 namespace Moltaro.Lattice.Storage.Values;
 
@@ -92,52 +91,6 @@ internal static class StoredScalars
     public static void WriteTimeOnly(Span<byte> place, TimeOnly value) => MemoryMarshal.Write(place, value.Ticks);
 
     public static void WriteTimeSpan(Span<byte> place, TimeSpan value) => MemoryMarshal.Write(place, value.Ticks);
-
-    // Writes a value of an index key, bound to its field (Access.Sets.IndexCriteria), in the form its
-    // stored type has, by the members above: what the search key of an index writes for each fixed part.
-    // The value is not null, and it has the field type of its field, an Enum part the integer type its
-    // enum type stores (IndexValue.Bind).
-    public static void Write(Span<byte> place, StoredTypeEnum type, in IndexValue value)
-    {
-        switch (type)
-        {
-            case StoredTypeEnum.Boolean:
-                WriteBoolean(place, value.As<bool>());
-                break;
-            case StoredTypeEnum.SignedInteger:
-                WriteInteger(place, (long)value.Integer);
-                break;
-            case StoredTypeEnum.UnsignedInteger:
-                WriteUnsigned(place, (ulong)value.Integer);
-                break;
-            case StoredTypeEnum.Float32:
-                WriteFloat32(place, value.As<float>());
-                break;
-            case StoredTypeEnum.Float64:
-                WriteFloat64(place, value.As<double>());
-                break;
-            case StoredTypeEnum.Decimal:
-                WriteDecimal(place, value.As<decimal>());
-                break;
-            case StoredTypeEnum.Guid:
-                WriteGuid(place, value.As<Guid>());
-                break;
-            case StoredTypeEnum.DateTimeOffset:
-                WriteDateTimeOffset(place, value.As<DateTimeOffset>());
-                break;
-            case StoredTypeEnum.DateOnly:
-                WriteDateOnly(place, value.As<DateOnly>());
-                break;
-            case StoredTypeEnum.TimeOnly:
-                WriteTimeOnly(place, value.As<TimeOnly>());
-                break;
-            case StoredTypeEnum.TimeSpan:
-                WriteTimeSpan(place, value.As<TimeSpan>());
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type.");
-        }
-    }
 
     // Reads back what the members above wrote, from a place at the width of the value.
     // Inlined, so that the switch on the width lies in RootReader.GetInteger as it did before the stored

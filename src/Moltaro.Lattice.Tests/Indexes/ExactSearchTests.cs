@@ -1,3 +1,5 @@
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
+
 namespace Moltaro.Lattice.Tests.Indexes;
 
 // A search by the full key of a declared index returns exactly the entities whose current state has
@@ -150,7 +152,7 @@ public sealed class ExactSearchTests
             }))
             .ToArray();
 
-        await Task.WhenAll(searches).WaitAsync(TimeSpan.FromMinutes(1));
+        await Task.WhenAll(searches).WaitAsync(Bound);
 
         Assert.Equal(7, Assert.Single(byGroupAndLogin.Find(copy)).Id);
     }

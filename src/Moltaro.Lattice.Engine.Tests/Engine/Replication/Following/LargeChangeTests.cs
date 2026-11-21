@@ -20,8 +20,6 @@ public sealed class LargeChangeTests
 
     private const int OneMebibyte = 1024 * 1024;
 
-    private static readonly TimeSpan Bound = ReplicationNodes.Bound;
-
     [Fact]
     public async Task Write_of_an_entity_of_32_MiB_on_the_master_reaches_a_child_whole()
     {

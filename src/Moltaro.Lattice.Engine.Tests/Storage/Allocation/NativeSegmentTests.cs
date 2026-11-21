@@ -71,7 +71,7 @@ public sealed class NativeSegmentTests
             {
                 var address = new ArenaAddress(segment, offset);
 
-                if (arena.IsValid(address) != live.Contains(address))
+                if (ArenaBlocks.IsValid(arena, address) != live.Contains(address))
                 {
                     wrong++;
                 }
@@ -108,7 +108,7 @@ public sealed class NativeSegmentTests
             tally.Allocated(Arenas.Allocate(arena, payloadLength), payloadLength, tag: 0);
         }
 
-        Assert.All(tally.Kept, block => Assert.True(arena.IsValid(block.Address)));
+        Assert.All(tally.Kept, block => Assert.True(ArenaBlocks.IsValid(arena, block.Address)));
         Assert.Equal(tally.LiveBytes, arena.Counters.LiveBytes);
         Assert.Equal(tally.ClassSlackBytes, arena.Counters.ClassSlackBytes);
         Assert.True(arena.Counters.Segments * (long)options.SegmentSize <= options.MemoryLimit);
@@ -173,7 +173,7 @@ public sealed class NativeSegmentTests
 
         foreach (var (address, tag) in kept)
         {
-            Assert.True(arena.IsValid(address));
+            Assert.True(ArenaBlocks.IsValid(arena, address));
             Assert.Equal((uint)tag, arena.Header(address).LayoutVersion);
             Assert.True(arena.Payload(address).IndexOfAnyExcept((byte)tag) < 0, $"The payload of block {tag} changed.");
         }

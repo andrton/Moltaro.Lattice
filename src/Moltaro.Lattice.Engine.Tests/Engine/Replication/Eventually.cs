@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -15,7 +16,7 @@ internal static class Eventually
 
         while (!condition())
         {
-            if (waited.Elapsed > ReplicationNodes.Bound)
+            if (waited.Elapsed > Bound)
             {
                 Assert.Fail(failure);
             }

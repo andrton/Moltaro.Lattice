@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Enumeration;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Enumeration;
 
@@ -17,8 +18,6 @@ namespace Moltaro.Lattice.Tests.Enumeration;
 // database that it has not reached (TestData.Ahead).
 public sealed class EnumerationAfterCloseTests
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     [Theory]
     [MemberData(nameof(EnumerationCases.Forms), MemberType = typeof(EnumerationCases))]
     public async Task Step_after_a_close_from_another_thread_is_ObjectDisposedException(string form)

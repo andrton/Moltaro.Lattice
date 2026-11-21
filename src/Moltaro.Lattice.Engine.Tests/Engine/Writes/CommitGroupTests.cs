@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -49,8 +50,6 @@ public sealed class CommitGroupTests
     private const string OnThePool = "on a thread of the pool";
 
     private const string OnTheReleasingThread = "on the thread that completes its task";
-
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
 
     [Fact]
     public async Task Writes_submitted_while_a_commit_is_held_are_admitted_and_prepared_and_wait_for_the_commit_stage()

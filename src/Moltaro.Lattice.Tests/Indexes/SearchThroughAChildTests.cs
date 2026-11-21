@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Tests.Indexes;
 
@@ -108,8 +109,8 @@ public sealed class SearchThroughAChildTests
             Assert.False(searchingByName.IsCompleted, "The search by name with the session completed while the child held back the write.");
         }
 
-        var byClassResult = await searchingByClass.WaitAsync(TimeSpan.FromMinutes(1));
-        var byNameResult = await searchingByName.WaitAsync(TimeSpan.FromMinutes(1));
+        var byClassResult = await searchingByClass.WaitAsync(Bound);
+        var byNameResult = await searchingByName.WaitAsync(Bound);
 
         Assert.Equal(1, Assert.Single(byClassResult.Items).Id);
         Assert.Equal(1L, Assert.Single(byNameResult.Items)["Id"]);
@@ -135,7 +136,7 @@ public sealed class SearchThroughAChildTests
             Assert.False(searching.IsCompleted, "The search with the session completed while the child held back the write.");
 
             await cancellation.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => searching.WaitAsync(TimeSpan.FromMinutes(1)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => searching.WaitAsync(Bound));
         }
 
         var foreign = new LatticeSession(other.Position);

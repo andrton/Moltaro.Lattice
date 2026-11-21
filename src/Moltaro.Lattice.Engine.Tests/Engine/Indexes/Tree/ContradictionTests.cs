@@ -2,8 +2,9 @@ using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;
 
 // An entry the tree of an index holds already is never added again, and one it does not hold is never
 // taken away: either is refused before any store (OrderedTree.Insert, Remove; docs/design/ordered-index.md,
@@ -31,8 +32,8 @@ public sealed class ContradictionTests
         index.Tree.Insert(held);
         retired.Drain();
 
-        var count = index.Tree.Count;
-        var bytes = index.Tree.Bytes;
+        var count = TreeWalk.CountOf(index);
+        var bytes = TreeWalk.BytesOf(index);
         var arena = item.Arena.Counters;
 
         Assert.Equal(1, count);
@@ -47,21 +48,7 @@ public sealed class ContradictionTests
 
         retired.Drain();
 
-        Assert.Equal((count, bytes), (index.Tree.Count, index.Tree.Bytes));
+        Assert.Equal((count, bytes), (TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
         Assert.Equal(arena, item.Arena.Counters);
-    }
-
-    // The entry of a root of Counted with the number given, under the identity given.
-    private static byte[] EntryOf(RootArena item, SecondaryIndex index, RootHandle identity, long number)
-    {
-        var writer = item.Writer();
-
-        writer.SetInteger(item.Field("Id"), identity.Slot);
-        writer.SetInteger(item.Field("Number"), number);
-
-        var root = writer.Complete();
-        var entry = new byte[index.Layout.WidestEntryBytes];
-
-        return entry[..index.Layout.WriteEntry(item.Reader(root), identity, entry)];
     }
 }

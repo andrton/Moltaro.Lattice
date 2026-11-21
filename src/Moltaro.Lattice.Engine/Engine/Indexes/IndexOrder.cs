@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Schema;
@@ -34,7 +35,7 @@ internal sealed class IndexOrder
     // of the machine, whose order is the order of that number: an Int64 or an Enum over one, a
     // DateTimeOffset as its UTC ticks, a TimeOnly or a TimeSpan as its ticks (Storage.Values.StoredScalars,
     // Comparison.ValueComparer.CompareStored). Its entry is the identity and the number, with no null
-    // bitmap, and a search key holds the number at FixedStart.
+    // bitmap, and a search key holds the number as its one fixed part (SearchKey.Number).
     private readonly bool _oneNumber;
 
     // The order of the entries of the layout, whose shared keys lie in the arena.
@@ -62,14 +63,17 @@ internal sealed class IndexOrder
     // key comes first. For a reader inside the protection of reads.
     public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
-        var order = _oneNumber ? NumberOf(probe).CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
+        var order = _oneNumber ? probe.Number.CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
 
         return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
     }
 
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
+    // Inlined into the three places of OrderedTree.TryFindFirst that ask it, so that an index of one
+    // number makes no call for it, also at the fence (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
-        _oneNumber ? NumberOf(probe) == NumberOf(entry) : CompareKey(probe, entry) == 0;
+        _oneNumber ? probe.Number == NumberOf(entry) : CompareKey(probe, entry) == 0;
 
     // Whether the two roots contribute entries of equal keys by the order, read from their stored fields
     // as the entries would hold them: a copy of a text or the text entry its root references is the text
@@ -86,8 +90,7 @@ internal sealed class IndexOrder
 
             if (leftNull || rightNull)
             {
-                // A null equals a null and no value.
-                order = leftNull == rightNull ? 0 : 1;
+                order = NullOrder(leftNull, rightNull);
             }
             else if (part.IsText)
             {
@@ -114,7 +117,6 @@ internal sealed class IndexOrder
     public bool HasKey(in RootReader root, scoped in SearchKey key)
     {
         var parts = _layout.Parts;
-        var keyOffset = SearchKey.FixedStart;
 
         for (var place = 0; place < parts.Length; place++)
         {
@@ -125,7 +127,7 @@ internal sealed class IndexOrder
 
             if (rootNull || keyNull)
             {
-                order = rootNull == keyNull ? 0 : 1;
+                order = NullOrder(rootNull, keyNull);
             }
             else if (part.IsText)
             {
@@ -133,18 +135,12 @@ internal sealed class IndexOrder
             }
             else
             {
-                order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(keyOffset, part.Width));
+                order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(part));
             }
 
             if (order != 0)
             {
                 return false;
-            }
-
-            // A fixed part of the key has its width in the scratch, null or not (SearchKey), as in CompareKey.
-            if (!part.IsText)
-            {
-                keyOffset += part.Width;
             }
         }
 
@@ -211,12 +207,14 @@ internal sealed class IndexOrder
     // The number of an entry of an index of one number, after its identity.
     private static long NumberOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<long>(entry[IndexLayout.IdentityBytes..]);
 
-    // The number of a search key of an index of one number, in its scratch.
-    private static long NumberOf(scoped in SearchKey probe) => MemoryMarshal.Read<long>(probe.FixedAt(SearchKey.FixedStart, sizeof(long)));
-
     // The identity of an entry as the number the order compares: the RootHandle it begins with.
     private static ulong IdentityOf(ReadOnlySpan<byte> entry) => MemoryMarshal.Read<ulong>(entry);
 
+    // The order of two parts of which one at least is null: a null after every value, and equal to a
+    // null. The rule of the four loops of the order, which stay four because they read different sources
+    // (two entries, a search key against an entry, a root against a search key, two roots), and a source
+    // of a part made generic would cost more than it removes on the hottest path.
+    private static int NullOrder(bool leftNull, bool rightNull) => leftNull == rightNull ? 0 : leftNull ? 1 : -1;
 
     // The parts of two entries, one after the other (see the class).
     private int CompareKeys(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
@@ -232,8 +230,7 @@ internal sealed class IndexOrder
 
             if (leftNull || rightNull)
             {
-                // A null after every value, and equal to a null.
-                order = leftNull == rightNull ? 0 : leftNull ? 1 : -1;
+                order = NullOrder(leftNull, rightNull);
             }
             else if (part.IsText)
             {
@@ -262,7 +259,6 @@ internal sealed class IndexOrder
     {
         var parts = _layout.Parts;
         var offset = IndexLayout.IdentityBytes + _layout.NullBitmapBytes;
-        var probeOffset = SearchKey.FixedStart;
 
         for (var place = 0; place < parts.Length; place++)
         {
@@ -273,7 +269,7 @@ internal sealed class IndexOrder
 
             if (probeNull || entryNull)
             {
-                order = probeNull == entryNull ? 0 : probeNull ? 1 : -1;
+                order = NullOrder(probeNull, entryNull);
             }
             else if (part.IsText)
             {
@@ -281,7 +277,7 @@ internal sealed class IndexOrder
             }
             else
             {
-                order = ValueComparer.CompareStored(part.Type, probe.FixedAt(probeOffset, part.Width), entry.Slice(offset, part.Width));
+                order = ValueComparer.CompareStored(part.Type, probe.FixedAt(part), entry.Slice(offset, part.Width));
             }
 
             if (order != 0)
@@ -289,15 +285,7 @@ internal sealed class IndexOrder
                 return order;
             }
 
-            if (part.IsText)
-            {
-                offset += IndexLayout.TextPartBytes(entry[offset]);
-            }
-            else
-            {
-                offset += part.Width;
-                probeOffset += part.Width;
-            }
+            offset += part.IsText ? IndexLayout.TextPartBytes(entry[offset]) : part.Width;
         }
 
         return 0;

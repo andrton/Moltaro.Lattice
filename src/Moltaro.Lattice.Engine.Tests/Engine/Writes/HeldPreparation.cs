@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Engine.Tests.Storage;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
@@ -17,8 +18,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // the bound.
 internal sealed class HeldPreparation : IDisposable
 {
-    private static readonly TimeSpan Bound = TimeSpan.FromMinutes(1);
-
     private readonly TaskCompletionSource _inside = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);

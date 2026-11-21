@@ -1,4 +1,5 @@
 using Moltaro.Lattice.TestSupport.Replication;
+using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Delivery;
 
@@ -32,7 +33,7 @@ public sealed class ActiveCapturesTests
 
         firstLink.Release();
         secondLink.Release();
-        await Task.WhenAll(openings).WaitAsync(ReplicationNodes.Bound);
+        await Task.WhenAll(openings).WaitAsync(Bound);
 
         await Eventually.HoldsAsync(() => master.Counters.ActiveCaptures == 0, "The master still counts a capture of a child that has loaded.");
     }
