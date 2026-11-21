@@ -469,8 +469,8 @@ between two steps (`IndexSearch`): the identity after the last entity returned, 
 sequence of an end a step saw, the read limits and what the search has spent of them, its
 direction and its Offset, and the reference to what a walk of more than one entity
 remembers (`WalkProgress`, "How a range is walked", below), which the search lets go of at
-its end, on `Dispose` and when a read limit fails it; a further `GetEnumerator` is a search
-of its own. The search key of a step
+its end, on `Dispose`, when a read limit fails it and at a step after the close; a further
+`GetEnumerator` is a search of its own. The search key of a step
 refers to that bound key and does not copy it. A search that returns one entity so
 allocates that object and the entity: through a class 360 bytes and the entity, by name 352
 (`SearchObjectAllocationTests` gives the composition). `FindAsync`

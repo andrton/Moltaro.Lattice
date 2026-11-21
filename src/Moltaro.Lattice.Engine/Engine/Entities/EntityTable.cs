@@ -508,7 +508,20 @@ internal sealed class EntityTable
                 var walk = index is null || search.EndsAt != 0
                     ? default
                     : new IndexWalk(index, key, search.Reverse, search.From, !full && search.Progress is { } walked ? walked.Last : default, scratch);
-                var protection = _epochs.Enter(cancellationToken);
+                int protection;
+
+                try
+                {
+                    protection = _epochs.Enter(cancellationToken);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // After the close every step fails here, so the search is over for good and lets go of
+                    // what it remembers, as when a read limit fails it.
+                    search.Progress = null;
+
+                    throw;
+                }
 
                 try
                 {

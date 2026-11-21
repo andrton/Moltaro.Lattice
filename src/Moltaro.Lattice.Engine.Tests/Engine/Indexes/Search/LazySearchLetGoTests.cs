@@ -6,13 +6,14 @@ using Moltaro.Lattice.TestSupport.Enumeration;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
-// A lazy search, Find, lets go of what it remembers once it is over (docs/design/ordered-index.md, "How a
-// range is walked": the keys it returned and the entries it stands at, its WalkProgress): at its end, when
-// it is disposed, and when a read limit fails it, ReadTime as well as ReadMemory, since every later step
-// fails the same way before it would read any of it. So an application that keeps the enumerable after
-// that keeps only the object of the search. The test walks the 50 entities of a key of ByNumber of Counted
+// A lazy search, Find, lets go of what it remembers once it is over (docs/decisions/queries.md, Q07.3.5,
+// released on completion, disposal or error; docs/design/ordered-index.md, "How a range is walked": the keys
+// it returned and the entries it stands at, its WalkProgress): at its end, when it is disposed, when a read
+// limit fails it, ReadTime as well as ReadMemory, and at its step after the close, since every later step
+// fails the same way before it would read any of it. So an application that keeps the enumerable after that
+// keeps only the object of the search. The test walks the 50 entities of a key of ByNumber of Counted
 // (IndexSchema), takes a weak reference to what the search remembers once it has returned two of them, ends
-// the search one of the four ways, and collects the garbage while it holds the enumerable: what the search
+// the search one of the five ways, and collects the garbage while it holds the enumerable: what the search
 // remembered is collected. ReadTime is spent inside a step held at a root it takes, through the switch of the
 // engine (EngineDatabase.ArmReadSwitch), for longer than the limit of ReadTimes; that step still returns its
 // entity, and the next one fails.
@@ -24,7 +25,8 @@ public sealed class LazySearchLetGoTests
     // room doubles the places of the keys (ReturnedKeys).
     private const long MemoryLimit = 200;
 
-    public static TheoryData<string> Ends => ["walked to its end", "disposed before its end", "failed with ReadTime", "failed with ReadMemory"];
+    public static TheoryData<string> Ends =>
+        ["walked to its end", "disposed before its end", "failed with ReadTime", "failed with ReadMemory", "failed after the close"];
 
     [Theory]
     [MemberData(nameof(Ends))]
@@ -60,6 +62,10 @@ public sealed class LazySearchLetGoTests
                 database.ArmReadSwitch(_ => Thread.Sleep(ReadTimes.BeyondTheLimit));
                 Assert.True(walk.MoveNext());
                 ExpectLimit(LatticeLimitEnum.ReadTime, Record.Exception(() => walk.MoveNext()));
+                break;
+            case "failed after the close":
+                await database.CloseAsync();
+                Assert.IsType<ObjectDisposedException>(Record.Exception(() => walk.MoveNext()), exactMatch: false);
                 break;
             default:
                 ExpectLimit(LatticeLimitEnum.ReadMemory, Record.Exception(() =>

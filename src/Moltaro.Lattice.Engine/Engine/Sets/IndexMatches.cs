@@ -18,8 +18,8 @@ namespace Moltaro.Lattice.Engine.Sets;
 // every further MoveNext is a step again, so a search never ends as if it were complete after a failure.
 // After the close every step throws ObjectDisposedException. MoveNext returns false only at the end of
 // the search, and after Dispose. At the end and on Dispose the object lets go of what the search
-// remembered (Entities.WalkProgress), as the search does itself when a read limit fails it, so that an
-// application that keeps the enumerable keeps only this object. Between two steps the object holds the
+// remembered (Entities.WalkProgress), as the search does itself when a read limit fails it and at a step
+// after the close, so that an application that keeps the enumerable keeps only this object. Between two steps the object holds the
 // search and nothing of the database holds the object.
 internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnumerator<TResult>
     where TCopy : struct, IRootCopy<TResult>
