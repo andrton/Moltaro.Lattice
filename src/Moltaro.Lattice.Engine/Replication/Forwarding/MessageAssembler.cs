@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // - While no message is in progress, the frame begins one: at least the announced length, then no more
 //   bytes of the body than it announces, the flag exactly when they complete it.
 // - While one is in progress, the frame carries its correlation id and only its next bytes: no more than
-//   it still announces, and the flag exactly when they complete it. A frame of another id is a message
-//   interleaved with the one in progress, which the transport does not allow.
+//   it still announces, and the flag exactly when they complete it (AnnouncedBody). A frame of another id
+//   is a message interleaved with the one in progress, which the transport does not allow.
 // Each failure is a LatticeException with ValidationFailed: the peer is not a node of this protocol.
 //
 // Memory. The body is copied out of the receive buffer frame by frame, a piece for each, so that the
@@ -26,11 +26,11 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // One thread at a time uses an assembler: the task that receives on the connection.
 internal sealed class MessageAssembler
 {
-    // The message in progress: its correlation id, the bytes still to arrive, whether it is dropped, and
-    // the pieces taken so far; nothing is in progress while _remaining is 0.
+    // The message in progress: its correlation id, its body, whose bytes are still to arrive, whether it is
+    // dropped, and the pieces taken so far; nothing is in progress while its body is not.
     private ulong _correlationId;
 
-    private ulong _remaining;
+    private AnnouncedBody _message;
 
     private bool _dropping;
 
@@ -41,7 +41,7 @@ internal sealed class MessageAssembler
     private long _held;
 
     // Whether a message is in progress: the next frame continues it, rather than beginning one.
-    public bool InProgress => _remaining != 0;
+    public bool InProgress => _message.InProgress;
 
     // Reads one frame (see the class): with the correlation id of its message, and the body once it is
     // whole. A body announced above largest bytes is Refused at its first frame, and its last frame is
@@ -52,7 +52,7 @@ internal sealed class MessageAssembler
 
         body = default;
 
-        if (_remaining != 0)
+        if (_message.InProgress)
         {
             correlationId = _correlationId;
 
@@ -68,29 +68,13 @@ internal sealed class MessageAssembler
 
         var announced = BinaryPrimitives.ReadUInt64LittleEndian(payload);
         var held = payload[sizeof(ulong)..];
+        var complete = _message.Begin(frame, announced, (ulong)held.Length, "message", frame.CorrelationId);
 
-        if ((ulong)held.Length > announced)
-        {
-            throw Protocol.Invalid($"The first {frame.Kind} frame of a message holds {held.Length} bytes of its body, more than the {announced} it announces.");
-        }
-
-        var complete = (ulong)held.Length == announced;
-
-        if (complete != frame.EndsABody)
-        {
-            throw Protocol.Invalid(frame.EndsABody
-                ? $"A {frame.Kind} message announces {announced} bytes, and its last frame ends after {held.Length}."
-                : $"A {frame.Kind} message is complete in its first frame, which is not marked as its end.");
-        }
+        _correlationId = frame.CorrelationId;
 
         if (announced > (ulong)largest)
         {
-            if (!complete)
-            {
-                _correlationId = frame.CorrelationId;
-                _remaining = announced - (ulong)held.Length;
-                _dropping = true;
-            }
+            _dropping = !complete;
 
             return MessageStepEnum.Refused;
         }
@@ -104,16 +88,13 @@ internal sealed class MessageAssembler
             return MessageStepEnum.Whole;
         }
 
-        _correlationId = frame.CorrelationId;
-        _remaining = announced - (ulong)held.Length;
-
         return MessageStepEnum.Partial;
     }
 
     // Forgets the message in progress, when the connection it arrived on has ended: nothing of it is used.
     public void Reset()
     {
-        _remaining = 0;
+        _message.Reset();
         _dropping = false;
         _first = null;
         _last = null;
@@ -130,23 +111,11 @@ internal sealed class MessageAssembler
             throw Protocol.Invalid($"A {frame.Kind} frame of the message {frame.CorrelationId} arrived in the middle of the message {_correlationId}.");
         }
 
-        if ((ulong)payload.Length > _remaining)
-        {
-            throw Protocol.Invalid($"A {frame.Kind} frame holds {payload.Length} bytes of the message {_correlationId}, which announces {_remaining} more.");
-        }
-
-        _remaining -= (ulong)payload.Length;
-
-        if ((_remaining == 0) != frame.EndsABody)
-        {
-            throw Protocol.Invalid(frame.EndsABody
-                ? $"A {frame.Kind} frame is marked as the end of the message {_correlationId}, which announces {_remaining} more bytes."
-                : $"A {frame.Kind} frame completes the message {_correlationId} and is not marked as its end.");
-        }
+        var complete = _message.Continue(frame, payload.Length, "message", _correlationId);
 
         if (_dropping)
         {
-            if (_remaining != 0)
+            if (!complete)
             {
                 return MessageStepEnum.Partial;
             }
@@ -158,7 +127,7 @@ internal sealed class MessageAssembler
 
         Take(payload);
 
-        if (_remaining != 0)
+        if (!complete)
         {
             return MessageStepEnum.Partial;
         }

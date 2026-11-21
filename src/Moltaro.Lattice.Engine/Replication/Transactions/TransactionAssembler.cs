@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Replication.Transactions;
 //   effects, at least one byte, then the first bytes of its effects, no more than the length announces.
 //   The frame carries Protocol.EndsABody exactly when it holds all of them.
 // - While one is in progress, the frame holds only its next bytes: no more than it still announces, and
-//   the flag exactly when they complete it.
+//   the flag exactly when they complete it (AnnouncedBody).
 // Each failure is a LatticeException with ValidationFailed. A transaction announced larger than the
 // memory the child may take for its database cannot be held by it, whatever arrives after: that is a
 // LatticeException with Unavailable and the reason, before anything is taken for it.
@@ -30,11 +30,10 @@ internal sealed class TransactionAssembler
     // database.
     private readonly long _largest;
 
-    // The transaction in progress: its sequence, and the bytes of its effects still to arrive; 0 while
-    // none is.
+    // The transaction in progress: its sequence, and its effects, whose bytes are still to arrive.
     private ulong _sequence;
 
-    private ulong _remaining;
+    private AnnouncedBody _effects;
 
     public TransactionAssembler(long largest)
     {
@@ -42,7 +41,7 @@ internal sealed class TransactionAssembler
     }
 
     // Whether a transaction is in progress: the next frame continues it, rather than beginning one.
-    public bool InProgress => _remaining != 0;
+    public bool InProgress => _effects.InProgress;
 
     // Reads one Transaction frame (see the class): true with the sequence and the effects of the
     // transaction it completes; false while the transaction needs more frames.
@@ -50,7 +49,7 @@ internal sealed class TransactionAssembler
     {
         var payload = frame.Payload;
 
-        if (_remaining != 0)
+        if (_effects.InProgress)
         {
             return Continue(frame, out sequence, out effects);
         }
@@ -75,19 +74,7 @@ internal sealed class TransactionAssembler
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master sends the transaction {sequence} of {announced} bytes, more than the memory limit of this child, {_largest} bytes, can hold.");
         }
 
-        if (held > announced)
-        {
-            throw Protocol.Invalid($"The first frame of the transaction {sequence} holds {held} bytes of effects, more than the {announced} it announces.");
-        }
-
-        if ((held == announced) != frame.EndsABody)
-        {
-            throw Protocol.Invalid(frame.EndsABody
-                ? $"The transaction {sequence} announces {announced} bytes of effects, and its last frame ends after {held}."
-                : $"The transaction {sequence} is complete in its first frame, which is not marked as its end.");
-        }
-
-        if (held == announced)
+        if (_effects.Begin(frame, announced, held, "transaction", sequence))
         {
             effects = new ReadOnlySequence<byte>(payload[TransactionFormat.HeaderSize..]);
 
@@ -97,7 +84,6 @@ internal sealed class TransactionAssembler
         _large.Clear();
         _large.Write(payload.Span[TransactionFormat.HeaderSize..]);
         _sequence = sequence;
-        _remaining = announced - held;
         effects = default;
 
         return false;
@@ -108,7 +94,7 @@ internal sealed class TransactionAssembler
     public void Reset()
     {
         _large.Clear();
-        _remaining = 0;
+        _effects.Reset();
     }
 
     // The next bytes of the transaction in progress.
@@ -118,23 +104,11 @@ internal sealed class TransactionAssembler
 
         sequence = _sequence;
 
-        if ((ulong)payload.Length > _remaining)
-        {
-            throw Protocol.Invalid($"A Transaction frame holds {payload.Length} bytes of the transaction {_sequence}, which announces {_remaining} more.");
-        }
+        var complete = _effects.Continue(frame, payload.Length, "transaction", _sequence);
 
         _large.Write(payload);
-        _remaining -= (ulong)payload.Length;
+        effects = complete ? _large.Sequence : default;
 
-        if ((_remaining == 0) != frame.EndsABody)
-        {
-            throw Protocol.Invalid(frame.EndsABody
-                ? $"A Transaction frame is marked as the end of the transaction {_sequence}, which announces {_remaining} more bytes."
-                : $"A Transaction frame completes the transaction {_sequence} and is not marked as its end.");
-        }
-
-        effects = _remaining == 0 ? _large.Sequence : default;
-
-        return _remaining == 0;
+        return complete;
     }
 }

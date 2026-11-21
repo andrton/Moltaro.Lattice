@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Replication.Load;
 //   and the frame does not carry the flag of an end. Every other frame of roots ends with its last root
 //   exactly — fewer or more bytes than its roots announce are refused — and carries the flag.
 // - While a root is in progress, the frame holds only its next bytes: no more than the root still
-//   announces, and the flag exactly when they complete it.
+//   announces, and the flag exactly when they complete it (AnnouncedBody).
 // Each failure is a LatticeException with ValidationFailed. A root announced larger than the memory the
 // child may take for its database cannot be held by it, whatever arrives after: that ends the load at
 // once, with Unavailable and the reason, before anything is taken for the root.
@@ -29,8 +29,8 @@ internal sealed class RootAssembler
 
     private readonly TransferBuffer _large = new();
 
-    // The bytes of the root in progress still to arrive; 0 while none is.
-    private ulong _remaining;
+    // The root in progress, whose bytes are still to arrive.
+    private AnnouncedBody _root;
 
     // The most bytes one root may announce: the memory the child may take for its database.
     private readonly long _largestRoot;
@@ -41,7 +41,7 @@ internal sealed class RootAssembler
     }
 
     // Whether a root is in progress: at the end of a load none may be.
-    public bool InProgress => _remaining != 0;
+    public bool InProgress => _root.InProgress;
 
     // Reads one Blocks frame and adds the roots it completes to the list, in their order (see the
     // class). The list is the caller's and is not cleared here.
@@ -49,7 +49,7 @@ internal sealed class RootAssembler
     {
         var payload = frame.Payload;
 
-        if (_remaining != 0)
+        if (_root.InProgress)
         {
             Continue(frame, completed);
 
@@ -100,14 +100,15 @@ internal sealed class RootAssembler
                 continue;
             }
 
-            if (count != 1 || frame.EndsABody)
+            if (count != 1)
             {
                 throw Protocol.Invalid($"A Blocks frame ends {length - available} bytes before the end of a root it announces.");
             }
 
+            // The root does not end in this frame, which therefore may not be marked as its end.
+            _root.Begin(frame, length, available, "root");
             _large.Clear();
             _large.Write(payload.Span[offset..]);
-            _remaining = length - available;
 
             return;
         }
@@ -127,23 +128,11 @@ internal sealed class RootAssembler
     private void Continue(in ReceivedFrame frame, List<ReadOnlySequence<byte>> completed)
     {
         var payload = frame.Payload.Span;
-
-        if ((ulong)payload.Length > _remaining)
-        {
-            throw Protocol.Invalid($"A Blocks frame holds {payload.Length} bytes of a root that announces {_remaining} more.");
-        }
+        var complete = _root.Continue(frame, payload.Length, "root");
 
         _large.Write(payload);
-        _remaining -= (ulong)payload.Length;
 
-        if ((_remaining == 0) != frame.EndsABody)
-        {
-            throw Protocol.Invalid(frame.EndsABody
-                ? $"A Blocks frame is marked as the end of a root that announces {_remaining} more bytes."
-                : "A Blocks frame completes a root and is not marked as its end.");
-        }
-
-        if (_remaining == 0)
+        if (complete)
         {
             completed.Add(_large.Sequence);
         }
