@@ -6681,6 +6681,33 @@ exists. The contract step:
    the test of it through that consumer.
 Either way the finding goes to the planner before it is acted on.
 
+**Answered by the planner on 21 November 2026, on the two answers.** The implementer and
+the breaker, each on its own, found that nothing relies on "no entity of the key at exactly
+the reported sequence": no public guarantee, no session, no child, no other part of the
+engine. The breaker corrected two premises above. The check is visible through the public
+Position, and it is not the same entities either way: with it, an entity that entered the
+key ahead of the walk during a step is returned, while the same event behind the walk is
+missed in 5.6 to 22 % of its answers. A property that holds on one side of the walk is no
+guarantee, and the order of identities among equal keys is not specified. So point 2
+holds, in this form, in the first structural commit with G4:
+1. The end seen by a step that copies an entity is reported at the sequence of that step,
+   not at `before`, and the range form of the early end is designed so from the start.
+2. The end of a walk that passed over a deleted or moved hint and found no entity keeps
+   its check: there `before` is the only sequence an empty answer reports, and the retry
+   keeps a session at or after that write.
+3. The comment at the step and `docs/design/ordered-index.md` say what the sequence of an
+   answer is, in the words of the contract, and that the Position may be later than the
+   search's last look at the index, so an entity written into the key while the search
+   ran may be absent from an answer whose Position covers its write. The same sentence,
+   in the words of a user, goes into the documentation of `LatticeFindResult.Position` and
+   of `Find`: a clarification of what is promised, listed for the owner under the rule on
+   a draft contract.
+4. The head of `RunEndTests` is corrected, its assertions unchanged. F5 closes as removed
+   with its subject. Group 7 of the tests and the breaker's fourth target are dropped; the
+   breaker's probes are kept outside the repository as the evidence.
+The sentence of the Acceptance on the sequence a search ends at waits for the owner's word
+to be removed; until then step 1 writes no test for it.
+
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
   `FindAsync`, while leading parts and ranges exist for both. The remembered set of a lazy
