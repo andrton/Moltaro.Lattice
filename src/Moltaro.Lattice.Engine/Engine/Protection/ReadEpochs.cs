@@ -155,6 +155,9 @@ internal sealed class ReadEpochs
     // only on that retry, never on the ordinary path of a read.
     public bool IsFaulted => (Volatile.Read(ref _state) & Faulted) != 0;
 
+    // Whether a read that entered now would be refused: the database is closed or faulted (ThrowForState).
+    public bool Refuses => Volatile.Read(ref _state) != 0;
+
     // The refusal of a read that found the state set: ObjectDisposedException after the close, which
     // comes first, Unavailable after a fault.
     [DoesNotReturn]

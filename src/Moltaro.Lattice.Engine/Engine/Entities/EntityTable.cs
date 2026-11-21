@@ -477,9 +477,10 @@ internal sealed class EntityTable
     // A step of a search that has nothing to walk: one whose step before saw its end, which ends at the
     // sequence of that step, and one of an entity type the engine does not store, which has no index and finds
     // nothing, as a read by key does. Kept apart from Step, whose frame holds the walk and the scratch of its
-    // keys, which such a step needs neither of. It still enters the protection of reads, so that a step after
-    // the close or the fault is refused as every step is and the search lets go of what it remembers, and it
-    // looks at the limits as every round does.
+    // keys, which such a step needs neither of. It reads nothing of the arena, so it takes no slot of the
+    // protection of reads; it looks at the state the protection refuses by, so that a step after the close or
+    // the fault is refused as every step is and the search lets go of what it remembers, and it looks at the
+    // limits as every round does.
     private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, out (RootHandle From, ulong EndsAt, FirstKey? First) next, CancellationToken cancellationToken)
     {
         next = search.Place;
@@ -489,19 +490,16 @@ internal sealed class EntityTable
 
         try
         {
-            var protection = EnterProtection(ref search, cancellationToken);
-
-            try
+            if (_epochs.Refuses)
             {
-                search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
-                sequence = index is null ? _clock.Sequence : search.EndsAt;
+                search.Progress = null;
+                _epochs.ThrowForState();
+            }
 
-                return false;
-            }
-            finally
-            {
-                _epochs.Exit(protection);
-            }
+            search.CheckRound(started, cancellationToken, EntityType.Name, index?.Definition.Name);
+            sequence = index is null ? _clock.Sequence : search.EndsAt;
+
+            return false;
         }
         finally
         {
