@@ -6668,12 +6668,37 @@ fall is called only on three rounds agreeing against the gauge.
 | # | Series | Expected length | Decides |
 | --- | --- | --- | --- |
 | 1 | `index-search` over 5cc64c8, 5abb6c0 (the head of the first start), the head after group 1 (a6bbd62), after group 2 (18151c8), the head with group 3 and (B), and a second build of the head as the gauge. The line of 16 keys, the first item, is an Int64 key, which (B) covers; a String primary key takes the earlier path and is not measured here | about 30 minutes, six builds, three rounds | whether the exact search still loses to the sprint, and which group carries what: a group of the frame and A4 are kept only if their step shows outside the gauge |
-| 2 | `write-callers` over 22b8ee1, 5cc64c8, `main` with the fix of S14R, and a second build of it as the gauge; its insert-and-delete lines decide | about 15 minutes, four builds, four rounds | that the fix of S14R gives back what S14R cost inserts and deletes |
+| 2 | `write-callers` over 22b8ee1, 5cc64c8, 5cc64c8 with V1, 5cc64c8 with V2, and a second build of 5cc64c8 with V1 as the gauge; its insert-and-delete lines decide | about 18 minutes, five builds, four rounds | which fix of S14R gives back what it cost inserts and deletes |
+| 3 | `index-long-text` over 5cc64c8, with V1 and with V2 | about 10 minutes, three builds, three rounds | that V2, which also changes the taking and the freeing of the references of shared keys, loses nothing where keys are long; the fixture's keys are short |
 
-The series run in the order 1, 2. Eight builds take about ten minutes. The whole start is
-about fifty-five minutes. The lengths come from the first start: a run of `index-search`
-about 63 seconds for 5cc64c8 and 98 for the head, of `write-callers` about 50. A series is
-added during the start only for a reason the planner agrees to.
+The cause of the fall of S14R, located by listings and exact block counts before the
+start: E7 of S14R, part 1 gave `NodeStorage.Retire` a `stackalloc` beside its loop and a
+call of `IndexLayout.SharedTexts` for each entry, so the method is compiled without
+tiering, is never inlined into the retirement of a node, and makes about 54 calls more a
+write than at 22b8ee1, on an insert and a delete of an index with a String part only. Two
+fixes are measured as patches outside the repository: V1, the sum of the slot bytes of
+22b8ee1 back, a second walk beside `SharedTexts`; V2, the shared keys of an entry walked
+by a ref struct, as `RootDescriptors` walks a root, with no `stackalloc` in its four
+users.
+
+The rule that chooses, written before the start (the planner, 21 November 2026): V2 is
+taken if it brings the insert-and-delete lines back to 22b8ee1 within the gauge and loses
+nothing outside the gauge on `index-long-text` against 5cc64c8, since it keeps the walk
+single, which is what E7 was for. V1 is taken if V2 fails either condition and V1 meets
+the first; its second walk then carries a comment at its place with the figure that
+justifies it, and E7 is recorded as half undone with that reason. If neither brings the
+lines back, nothing is merged and the figures go to the planner. The one taken is
+committed on a branch of its own from `main`, reviewed by one reviewer with one question,
+is any behavior or assertion changed, and merged before this sprint, which then takes
+`main` in; the variant series stands as its measurement only if the commit is the patch
+line for line. The insert and delete of the head of this sprint, which still has the slow
+form, are not judged on this start.
+
+The series run in the order 1, 2, 3. Twelve builds take about fifteen minutes. The whole
+start is about seventy minutes. The lengths come from the first start: a run of
+`index-search` about 63 seconds for 5cc64c8 and 98 for the head, of `write-callers` about
+50, of `index-long-text` about 55. Nothing else is added to the start, whatever series 1
+shows.
 
 Series 1 judges, in figures: the exact lines of the head against 5cc64c8 inside the gauge,
 and the three targets of S14, part 2 still met on this machine, 700,000 searches a second

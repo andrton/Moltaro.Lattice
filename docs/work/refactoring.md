@@ -75,6 +75,14 @@ Gone through by the planner and the coordinator on 18 November 2026.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
 
+**Found by the first start of S15, part 1, 21 November 2026, for every refactoring
+sprint.** E7 of S14R, part 1 cost an insert and a delete of an index with a String part 4
+to 8 %, because a `stackalloc` beside a loop took `NodeStorage.Retire` out of tiering and
+out of the inlining into its callers, which no reading of the source shows. So a change of
+a refactoring sprint on the read or the write path is checked by the JIT listing of its
+callers, not only of the changed method, and a refactoring sprint that touches those paths
+gets a line in the next start of the machine.
+
 ## Review of understandability, 18 November 2026
 
 A reader with the code alone and none of the documents explained the four main flows and
