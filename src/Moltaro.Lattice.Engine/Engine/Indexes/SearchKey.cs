@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // It is made once for each step of a search, outside the protection of reads, and allocates nothing: the
 // values of the fixed-width parts are written into scratch the caller gives on its stack, after the null
 // bitmap, by the one writer of the stored form of a value, the one the root writer uses
-// (Storage.Values.StoredScalars.Write), so that such a part compares with the part of an entry as two
+// (Storage.Values.StoredScalars), so that such a part compares with the part of an entry as two
 // stored values; a String part stays the text of the key, which the comparison reads against the
 // stored text a piece at a time. A String part compared Ordinal in a UTF-8 database is written into the
 // scratch as its UTF-8 bytes as well, when they fit TextBytesPerPart, so that the order compares it with
@@ -109,7 +109,7 @@ internal readonly ref struct SearchKey
             }
             else
             {
-                StoredScalars.Write(at, part.Type, value);
+                WriteFixed(at, part.Type, value);
             }
         }
 
@@ -162,6 +162,51 @@ internal readonly ref struct SearchKey
         bytes = _scratch.Slice(TextBytesStart + (place * TextBytesPerPart), length);
 
         return true;
+    }
+
+    // Writes the value of a fixed-width part of the key, not null, in the form its stored type has, by the
+    // one writer of the stored form of a value (Storage.Values.StoredScalars). The value has the field type
+    // of its field, an Enum part the integer type its enum type stores (IndexValue.Bind).
+    private static void WriteFixed(Span<byte> place, StoredTypeEnum type, in IndexValue value)
+    {
+        switch (type)
+        {
+            case StoredTypeEnum.Boolean:
+                StoredScalars.WriteBoolean(place, value.As<bool>());
+                break;
+            case StoredTypeEnum.SignedInteger:
+                StoredScalars.WriteInteger(place, (long)value.Integer);
+                break;
+            case StoredTypeEnum.UnsignedInteger:
+                StoredScalars.WriteUnsigned(place, (ulong)value.Integer);
+                break;
+            case StoredTypeEnum.Float32:
+                StoredScalars.WriteFloat32(place, value.As<float>());
+                break;
+            case StoredTypeEnum.Float64:
+                StoredScalars.WriteFloat64(place, value.As<double>());
+                break;
+            case StoredTypeEnum.Decimal:
+                StoredScalars.WriteDecimal(place, value.As<decimal>());
+                break;
+            case StoredTypeEnum.Guid:
+                StoredScalars.WriteGuid(place, value.As<Guid>());
+                break;
+            case StoredTypeEnum.DateTimeOffset:
+                StoredScalars.WriteDateTimeOffset(place, value.As<DateTimeOffset>());
+                break;
+            case StoredTypeEnum.DateOnly:
+                StoredScalars.WriteDateOnly(place, value.As<DateOnly>());
+                break;
+            case StoredTypeEnum.TimeOnly:
+                StoredScalars.WriteTimeOnly(place, value.As<TimeOnly>());
+                break;
+            case StoredTypeEnum.TimeSpan:
+                StoredScalars.WriteTimeSpan(place, value.As<TimeSpan>());
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type), type, "Not a fixed-width type.");
+        }
     }
 
     // Writes the UTF-8 bytes of the text of a String part into its place in the scratch, and their length,
