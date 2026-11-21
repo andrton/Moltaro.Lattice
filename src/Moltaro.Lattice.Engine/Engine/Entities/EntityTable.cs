@@ -647,7 +647,8 @@ internal sealed class EntityTable
                     }
 
                     // The walk has no entry left: the end, when the database published nothing over it, as for
-                    // an absent key; otherwise the next round walks again from where the search stands.
+                    // an absent key; otherwise the next round walks again from where the search stands. That is a
+                    // round like any other: at most EntriesPerRound entries, after the token and the time limit.
                     if (exhausted && _clock.Sequence == before)
                     {
                         sequence = before;
