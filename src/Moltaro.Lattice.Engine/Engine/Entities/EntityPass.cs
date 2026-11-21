@@ -6,8 +6,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // and moves it on. It is managed memory of the enumeration alone: the engine holds no reference to it
 // and it holds nothing of the engine, no table of the index, no root and no slot of the protection of
 // reads, so an enumeration that is abandoned without being disposed leaves nothing behind, keeps
-// nothing from being reused, and is counted nowhere (brief of S08, "Nothing is held between two
-// steps").
+// nothing from being reused, and is counted nowhere: nothing of the engine is held between two steps.
 //
 // Where it is: the position of the next word of a table of the index to look at, and the version of
 // that table (PrimaryIndex.TableAndVersion), which a growth changes. A position belongs to the table

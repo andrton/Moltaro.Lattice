@@ -10,9 +10,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // THIRD-PARTY-NOTICES.md).
 //
 // The primary index of one entity type: from the hash of a key to the slot of the root entry of its
-// live root (decision on index structures, the addition of 16 November 2026: a hash table of the
-// engine's own after the hash index of Garnet/Tsavorite). It holds its current table (IndexTable),
-// which a lookup reads while the one writer inserts, deletes or grows it.
+// live root (docs/decisions/index-structures.md: a hash table of the engine's own after the hash index
+// of Garnet/Tsavorite). It holds its current table (IndexTable), which a lookup reads while the thread
+// that holds the lock of the writes inserts, deletes or grows it.
 //
 // Growth. Before an insert is published, Reserve makes sure the table has room for its entry, beside
 // the entries of the other inserts prepared and not published yet, so that no publication allocates
@@ -24,19 +24,19 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // the reads (Protection.RetiredMemory), which lets go of it once the readers that could hold it have
 // left. Until then both are counted: the new one in Bytes, the old one in RetiredMemory.IndexBytes,
 // and while the new one is built in ReplacementBytes. Tsavorite grows in phases, with chunks of the
-// table split by the threads that meet them, because many threads change its index; here the one
-// writer builds the whole table within the write that needs the room, as the decision on index
-// structures selected ("serialize index mutations during the copy; readers may continue using the
-// old map").
+// table split by the threads that meet them, because many threads change its index; here the
+// publishing thread builds the whole table within the write that needs the room, as the decision on
+// index structures selected ("serialize index mutations during the copy; readers may continue using
+// the old map").
 //
 // The version of a table. Each table holds its version, which it is made with and which never changes:
 // the first table has 0, and a growth makes the next table with the version after the current one's
 // (IndexTable.Version). An enumeration keeps the version of the table its position belongs to, and a
 // step that loads the current table finds its version in it, with no second load to frame, so the
-// table and the version a step takes are always one pair (review round 1 of S08, part 1: a step had
-// applied a position of the old table to the new one). An insert or a delete changes entries of the
-// current table, which a step reads as they change, and not its version (docs/design/arena-protocol.md,
-// "An enumeration", says why a walk stays correct through both).
+// table and the version a step takes are always one pair, and a step never applies a position of the
+// old table to the new one. An insert or a delete changes entries of the current table, which a step
+// reads as they change, and not its version (docs/design/arena-protocol.md, "An enumeration", says why
+// a walk stays correct through both).
 //
 // Who calls what. Find and TableAndVersion from reads, inside the protection of reads; Find also from a
 // write being prepared, under the lock of the writes and outside the protection of reads, which is
@@ -78,7 +78,7 @@ internal sealed class PrimaryIndex
     public int Count => _table.Count;
 
     // The bytes of the table being built while the index grows, 0 otherwise. The counters are taken
-    // between two writes, so they read 0 here; it is the figure the budget of S09 charges while a
+    // between two writes, so they read 0 here; it is the figure the memory budget charges while a
     // growth runs.
     public long ReplacementBytes => _replacementBytes;
 
@@ -120,10 +120,9 @@ internal sealed class PrimaryIndex
 
     // For the loader of a child, before the first root of the entity type is placed: replaces the empty
     // first table by one whose main table holds count entries without growing (IndexTable, "The capacity
-    // policy"), so that a load of the count its master announced never grows the index (the planner's
-    // decision of 17 November 2026 after the study of S10, point 6). The table keeps the version 0: no
-    // enumeration has seen the first one, since the child serves nothing before it is Ready. Under the
-    // lock of the writes. An index that holds or reserved an entry is a caller's mistake.
+    // policy"), so that a load of the count its master announced never grows the index. The table keeps
+    // the version 0: no enumeration has seen the first one, since the child serves nothing before it is
+    // Ready. Under the lock of the writes. An index that holds or reserved an entry is a caller's mistake.
     public void Presize(long count)
     {
         if (_table.Count != 0 || _reserved != 0)

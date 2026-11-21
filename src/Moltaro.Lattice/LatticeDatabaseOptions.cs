@@ -230,8 +230,8 @@ public sealed class LatticeDatabaseOptions
     // agree on it.
     internal const int ArenaSegmentSize = 4 * 1024 * 1024;
 
-    // The scheme of the addresses of the replication transport: lattice://host:port (brief of Epic 1,
-    // sprint S10; Validate from S12).
+    // The scheme of the addresses of the replication transport, lattice://host:port, which Validate
+    // checks a ListenUri and a MasterUri against.
     internal const string AddressScheme = "lattice";
 
     /// <summary>

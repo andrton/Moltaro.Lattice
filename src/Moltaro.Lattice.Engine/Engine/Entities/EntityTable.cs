@@ -570,8 +570,9 @@ internal sealed class EntityTable
 
             while (true)
             {
-                // What the round ends for, made outside the protection: a WalkProgress, room for a key whose
-                // text takes at most keyBound code units, -1 for none, and room for an entry of entryLength.
+                // What the round ends for, made outside the protection: room for a key whose text takes at
+                // most keyBound code units, -1 for none, and room for an entry of entryLength, 0 for none;
+                // a search without a WalkProgress makes one for either.
                 var keyBound = -1;
                 var entryLength = 0;
 
@@ -798,9 +799,10 @@ internal sealed class EntityTable
     // Inside the protection, when a round ends before an entry: the search stands at it, a search by a full
     // key at its identity, any other at the entry, detached into the WalkProgress when it has room for it.
     // Without a WalkProgress or without the room the search stays where it stood, and what the round needs is
-    // said to the step, which makes it outside the protection. The next round then walks again over the
-    // entries this one passed, which is correct because the matches it skipped by Offset are remembered: it
-    // passes over them by their keys and counts none of them twice.
+    // said to the step, which makes it outside the protection: the length of the entry it could not stand
+    // at is returned, 0 when it stood. The next round then walks again over the entries this one passed,
+    // which is correct because the matches it skipped by Offset are remembered: it passes over them by
+    // their keys and counts none of them twice.
     private int StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search)
     {
         if (full)

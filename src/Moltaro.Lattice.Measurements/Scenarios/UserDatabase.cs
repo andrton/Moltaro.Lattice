@@ -15,9 +15,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // users of its own: users with keys above the fixture's, which the reads never read, made as copies
 // of the fixture's users with another key.
 //
-// For the scenarios of Dictionary strings (brief of Epic 1, sprint S13) the field Region, one of 16
-// texts of 9 bytes, can be declared with Dictionary storage: the same users, generated from the scalar
-// form and copied by name into a schema that differs from it in that one declaration.
+// For the scenarios of Dictionary strings the field Region, one of 16 texts of 9 bytes, can be declared
+// with Dictionary storage: the same users, generated from the scalar form and copied by name into a
+// schema that differs from it in that one declaration.
 internal sealed class UserDatabase : IDisposable
 {
     private readonly EngineDatabase _database;

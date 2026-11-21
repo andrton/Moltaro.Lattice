@@ -4,10 +4,9 @@ using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
-// The figures that Epic 1, sprint S09 reports ("Measured" and "Measured, added"): how many single small
-// writes the engine database completes per second for 1, 4 and 16 writing callers, with the time of
-// one write; and how many reads by key 16 readers make meanwhile, with the time of one read, beside
-// readers alone. For the 100,000 users of UserDatabase, MemoryOnly.
+// How many single small writes the engine database completes per second for 1, 4 and 16 writing
+// callers, with the time of one write; and how many reads by key 16 readers make meanwhile, with the
+// time of one read, beside readers alone. For the 100,000 users of UserDatabase, MemoryOnly.
 //
 // The callers. Each caller is a thread of its own that writes, awaits the write and writes again, so
 // that a caller has one write in flight at a time, as an application thread that awaits its writes

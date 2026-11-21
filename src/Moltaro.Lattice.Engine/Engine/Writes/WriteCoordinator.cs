@@ -380,6 +380,7 @@ internal sealed class WriteCoordinator
             switch (write.State)
             {
                 case PendingWriteStateEnum.Chained:
+                    // Unchain relinks the chain around the write, so its end starts no write (MarkCompleted).
                     Unchain(write);
                     DecideFailure(write, cancelled, ref hold);
                     break;
@@ -1279,7 +1280,7 @@ internal sealed class WriteCoordinator
 
             DecideFailure(write, new LatticeException(
                 LatticeErrorEnum.IndeterminateOutcome,
-                "The storage step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the storage step itself failed.",
+                "The persistence step took the write, and the database faulted before it could show it: its publication, or that of a write before it in its group, failed, or the persistence step itself failed.",
                 index == published ? failure : null), ref hold);
         }
 
@@ -1337,6 +1338,9 @@ internal sealed class WriteCoordinator
         MarkCompleted(write, ref hold);
     }
 
+    // Under the lock: the write has ended, with the outcome decided, and the next write of its chain
+    // starts. Every end of a write passes here, so a completed write never has a write waiting behind it;
+    // AdvanceChain does nothing for a write with nothing behind it.
     private void MarkCompleted(PendingWrite write, ref Hold hold)
     {
         write.State = PendingWriteStateEnum.Completed;

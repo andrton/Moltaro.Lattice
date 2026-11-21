@@ -46,6 +46,8 @@ internal struct ReadLimits
     public readonly long StartStep() => _options.ReadTimeLimit is null ? 0 : Stopwatch.GetTimestamp();
 
     // Adds the time of the step that started at the timestamp.
+    // Inlined into the step of a search, which is compiled at full optimization at its first call and whose
+    // inline budget left it out of line (JIT listing of EntityTable.Step).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EndStep(long started)
     {

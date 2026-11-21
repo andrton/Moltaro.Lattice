@@ -16,9 +16,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the entry it stands after, and the bytes of its answer. A lazy search by a full key of an integer or Guid
 // key makes it at its second step, and its first step keeps only the key of the entity it returned
 // (FirstKey), in the same reference. So a search that finds one entity or none and passes over no match
-// holds the read limits and one reference more than a search did before the walk, and nothing else: 56
-// bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference, 8, and the Offset, the
-// direction, whether it holds its answer and whether its key is full, 7, padded to 8.
+// holds 56 bytes and nothing else: the identity and the end, 8 bytes each, the read limits, 24, the
+// reference, 8, and the Offset, the direction, whether it holds its answer and whether its key is full, 7,
+// padded to 8.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to

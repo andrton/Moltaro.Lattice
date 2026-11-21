@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Protection;
 // The protection of the reads of one database by epochs (docs/design/arena-protocol.md, "Deferred
 // reclamation"). The database has one epoch, a number that only grows, and a table of slots. A read
 // enters by writing the current epoch into a free slot and leaves by clearing it; that slot is the only
-// memory it writes, and no other read writes it while it is held. The one writer retires what a read
+// memory it writes, and no other read writes it while it is held. The publishing thread retires what a read
 // could still reach, tagged with the current epoch (RetiredMemory), and frees it once every slot is free
 // or holds a later epoch: then every read that entered before it was retired has left. The writer never
 // waits for a read; a read never waits for the writer.

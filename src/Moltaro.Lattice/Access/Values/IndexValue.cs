@@ -23,20 +23,11 @@ namespace Moltaro.Lattice.Access.Values;
 // a TimeOnly or a TimeSpan, the 16 of a Decimal, a Guid or a DateTimeOffset. They are read back the same
 // way, so the value is the one given, bit for bit, a negative zero and a NaN payload included.
 //
-// Bind is where a value meets the schema, for a value of an index key and for a bound alike. A value
-// whose type is the .NET type of the field is taken as it is, text when it is well-formed. A value of
-// another type is converted when it is the same number in the type of the field, by the allowlist of the
-// milestone contract ("Index preparation and traversal"; docs/decisions/queries.md, Q07.3.6): an integer
-// of another width that fits, any integer for a Decimal, an integer that a Float32 or a Float64 holds
-// exactly, a Float32 for a Float64, and a Float64 for a Float32 when it converts back to itself, with NaN,
-// the infinities and the sign of zero kept. A converted value is written into the bits as any other, so
-// it is not boxed. The value of an Enum part, bound to the underlying type of its enum type, has to be
-// one LatticeEnumType.IsValid allows, as for a write, and is refused in the words of that validation. A
-// null keeps the field type of the .NET type it was given as, a Nullable without a value or a null
-// string, and is accepted only where a value of that type would be; a null given as an object has no
-// type, and a null given as any other type is one of a type no field has, refused for every part. Any
-// other value is an ArgumentException for the parameter named, with the message FieldValues gives for a
-// value it refuses.
+// Bind is where a value of an index key or of a bound meets the schema: it applies the remarks of
+// IndexKey and the allowlist of Q07.3.6 of docs/decisions/queries.md. Beyond them, a converted value is
+// written into the bits as any other, so it is not boxed; the value of an Enum part is refused in the
+// words of the validation of a write (EnumValues.Undeclared); and a value it cannot use is refused with
+// the message of a field value (FieldValues.CannotBeUsed).
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {

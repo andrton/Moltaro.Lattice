@@ -50,8 +50,8 @@ internal static class FieldValues
 
     // A value given as an argument to look an entity up with by its primary key. Normalized as
     // above, and text that is not well-formed is refused as a value of another type is, since no
-    // stored value can be equal to it (the planner's answer to Q41). A value set into a record is not
-    // checked for it; the write checks it.
+    // stored value can be equal to it, so a lookup by it could only find nothing. A value set into a
+    // record is not checked for it; the write checks it.
     public static object NormalizeArgument(LatticeField field, object value, string parameterName)
     {
         var normalized = Normalize(field, value, parameterName);
