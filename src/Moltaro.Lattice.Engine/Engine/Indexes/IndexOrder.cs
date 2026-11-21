@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Schema;
@@ -68,6 +69,9 @@ internal sealed class IndexOrder
     }
 
     // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
+    // Inlined into the three places of OrderedTree.TryFindFirst that ask it, so that an index of one
+    // number makes no call for it, also at the fence (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
         _oneNumber ? probe.Number == NumberOf(entry) : CompareKey(probe, entry) == 0;
 
