@@ -30,6 +30,29 @@ producing. Nobody checks their own work.
 | **Independent reviewer** | Reviews the result against the brief, with no part in producing it | Fix what it finds |
 | **Breaker** | Writes probe tests of its own against the guarantees the sprint states, with no part in producing it, and reports only what fails | Fix what it finds |
 
+## Models and effort by role
+
+Which model and effort each agent runs at (the owner, 19 and 21 November 2026). The
+principle: the highest effort goes where the work is judgement and no later step catches
+its mistake; work that is mechanical, or that an independent check follows, runs lower.
+
+| Role or work | Model, effort |
+| --- | --- |
+| Breaker | Opus 5.5, xhigh |
+| Independent reviewer of a sprint | Opus 5.5, xhigh |
+| Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh |
+| Coordinator | Opus 5.5, xhigh |
+| Implementer of any other sprint of the full track | Opus 5.5, high |
+| Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high |
+| Light track: documents, samples, comments, small fixes | Opus 5.5, high |
+| Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high |
+| Architect's review, a study before a critical sprint, the planner | Fable |
+
+The rows at high effort are a trial that begins with S15, part 2 of Epic 1: the record of
+that sprint states the number of review rounds and of findings by severity beside those of
+S15, part 1, and the owner decides from that whether the rows stay. An agent that stops on
+a usage limit is not retried in a loop; the owner is told.
+
 ## The plan
 
 The planner delivers an epic document in the form described in [README.md](README.md),
