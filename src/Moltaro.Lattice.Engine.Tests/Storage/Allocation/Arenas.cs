@@ -20,7 +20,7 @@ internal static class Arenas
     // refuses the allocation for its budget.
     public static ArenaAddress Allocate(Arena arena, int payloadLength)
     {
-        var allocated = arena.TryAllocate(payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out var address);
+        var allocated = ArenaBlocks.TryAllocateLive(arena, payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out var address);
 
         Assert.True(allocated, "The arena refused an allocation for its budget.");
 

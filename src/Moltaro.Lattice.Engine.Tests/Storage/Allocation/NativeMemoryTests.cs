@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // ownership audits and a final disposal check). Every segment the arena obtains is returned
 // exactly once: by Free when the segment is left empty and the reserve has no room for it, and by
 // Dispose for every segment still held, the reserve included. When the native allocator fails,
-// TryAllocate lets the failure out and the arena is as it was. The number of a freed segment is
+// an allocation lets the failure out and the arena is as it was. The number of a freed segment is
 // given to a later one, so the segment table does not grow with the number of segments ever
 // obtained. The tests watch the native memory through a counting allocator (exception X3).
 public sealed class NativeMemoryTests
@@ -207,5 +207,5 @@ public sealed class NativeMemoryTests
     private static bool TryAllocateLargest(Arena arena) => TryAllocateLargest(arena, out _);
 
     private static bool TryAllocateLargest(Arena arena, out ArenaAddress address) =>
-        arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out address);
+        ArenaBlocks.TryAllocateLive(arena, SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out address);
 }

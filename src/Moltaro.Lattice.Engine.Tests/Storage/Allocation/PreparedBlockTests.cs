@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // the planner's answer to Q30). It is valid from its allocation. Its whole slot counts in
 // PreparedBytes, and nothing of it in LiveBytes or ClassSlackBytes, until Publish makes it live:
 // then its header and payload length count in LiveBytes and the rest of its slot in
-// ClassSlackBytes, as for a block TryAllocate gives. A prepared block that is freed, a block of a
+// ClassSlackBytes, as for every live block. A prepared block that is freed, a block of a
 // write that was abandoned, leaves PreparedBytes. A block is counted in exactly one place.
 public sealed class PreparedBlockTests
 {

@@ -5,8 +5,8 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // Measured in the brief of S04, "no managed allocation on allocate and free after warm-up", on
 // every path, read as the coordinator reads it: it holds while the arena obtains no segment, and
 // obtaining a segment allocates its metadata. Free allocates no managed memory, also when it frees
-// a segment or puts one into the reserve. TryAllocate allocates none unless it obtains a segment,
-// whether it takes a free slot of its class, a free region or a reserved segment.
+// a segment or puts one into the reserve. An allocation, prepared and published, allocates none unless
+// it obtains a segment, whether it takes a free slot of its class, a free region or a reserved segment.
 //
 // Each call is measured alone, with GC.GetAllocatedBytesForCurrentThread around it. The same steps
 // run first on another arena, so that every path is taken once before it is measured, and the
@@ -92,7 +92,7 @@ public sealed class ManagedAllocationPathTests
                 var before = arena.Counters;
                 var start = GC.GetAllocatedBytesForCurrentThread();
 
-                var allocated = arena.TryAllocate(payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out var address);
+                var allocated = ArenaBlocks.TryAllocateLive(arena, payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out var address);
 
                 var managedBytes = GC.GetAllocatedBytesForCurrentThread() - start;
 
@@ -150,6 +150,6 @@ public sealed class ManagedAllocationPathTests
         return calls;
     }
 
-    // One call of TryAllocate or Free.
+    // One allocation or one call of Free.
     private readonly record struct Call(bool Allocation, long ManagedBytes, ArenaCounters Before, ArenaCounters After);
 }

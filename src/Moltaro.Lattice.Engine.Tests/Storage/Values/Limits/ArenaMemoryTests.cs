@@ -20,7 +20,7 @@ public sealed class ArenaMemoryTests
         // One segment, filled with blocks of the largest class until the arena refuses another.
         using var item = new RootArena(ItemSchema.Compile(Fields), memoryLimit: RootArena.SegmentSize);
 
-        while (item.Arena.TryAllocate(Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out _))
+        while (ArenaBlocks.TryAllocateLive(item.Arena, Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out _))
         {
         }
 
@@ -58,7 +58,7 @@ public sealed class ArenaMemoryTests
         // allocated in the first: in Complete, or in a Set… member if it allocates there.
         var allocator = new CountingNativeAllocator();
         using var item = new RootArena(ItemSchema.Compile(Fields), memoryLimit: 8L * RootArena.SegmentSize, allocator: allocator);
-        Assert.True(item.Arena.TryAllocate(0, BlockKindEnum.Value, default, out var first));
+        Assert.True(ArenaBlocks.TryAllocateLive(item.Arena, 0, BlockKindEnum.Value, default, out var first));
         item.Arena.Free(first);
         allocator.FailNextAllocation = true;
         var before = StoredBytes.In(item.Arena);

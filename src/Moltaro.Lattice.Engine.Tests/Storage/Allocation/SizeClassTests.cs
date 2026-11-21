@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // two through MaxBlockSize, 64 KiB. A payload of 0 bytes takes the smallest class, 32 bytes; the
 // largest payload is MaxBlockSize - 32 = 65,504 bytes. A negative length, or one that does not fit
 // MaxBlockSize with the header, is refused with ArgumentOutOfRangeException by BlockSizeFor and by
-// TryAllocate alike.
+// an allocation alike.
 public sealed class SizeClassTests
 {
     public static TheoryData<int> EverySizeClass => new(SpecifiedSizeClasses.All);
@@ -89,7 +89,7 @@ public sealed class SizeClassTests
         var before = arena.Counters;
 
         Assert.Throws<ArgumentOutOfRangeException>(() => Arena.BlockSizeFor(payloadLength));
-        Assert.Throws<ArgumentOutOfRangeException>(() => arena.TryAllocate(payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out _));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ArenaBlocks.TryAllocateLive(arena, payloadLength, BlockKindEnum.Value, new RootHandle(1, 1), out _));
         Assert.Equal(before, arena.Counters);
     }
 

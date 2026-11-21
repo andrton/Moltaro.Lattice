@@ -4,8 +4,8 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
 // The budget of the arena (brief of S04, "Options"). ArenaOptions.MemoryLimit bounds the native
 // capacity the arena obtains, Segments times SegmentSize, the reserve included. An allocation that
-// would need more fails and leaves the counters as they were; that is the only case in which
-// TryAllocate returns false. The limit is required. The constructor refuses null options with
+// would need more fails and leaves the counters as they were; that is the only case in which an
+// allocation returns false. The limit is required. The constructor refuses null options with
 // ArgumentNullException, and with ArgumentOutOfRangeException a MemoryLimit smaller than one
 // segment, a SegmentSize smaller than MaxBlockSize and a negative ReservedSegments.
 public sealed class BudgetTests
@@ -27,7 +27,7 @@ public sealed class BudgetTests
         var blocks = new List<ArenaAddress>();
         var before = arena.Counters;
 
-        while (arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out var address))
+        while (ArenaBlocks.TryAllocateLive(arena, SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out var address))
         {
             blocks.Add(address);
             Assert.True(blocks.Count <= options.MemoryLimit / Arena.MaxBlockSize, "The arena allocated beyond its memory limit.");
@@ -43,7 +43,7 @@ public sealed class BudgetTests
         // The refusal lasts only as long as the space is taken: a freed block makes room again.
         arena.Free(blocks[^1]);
 
-        Assert.True(arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out _));
+        Assert.True(ArenaBlocks.TryAllocateLive(arena, SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out _));
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class BudgetTests
     {
         var allocated = 0;
 
-        while (arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out _))
+        while (ArenaBlocks.TryAllocateLive(arena, SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out _))
         {
             allocated++;
             Assert.True(allocated <= options.MemoryLimit / Arena.MaxBlockSize, "The arena allocated beyond its memory limit.");

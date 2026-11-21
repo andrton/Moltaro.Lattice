@@ -30,7 +30,7 @@ internal sealed class OneRegionArena : IDisposable
 
         for (var index = 0; index < reservedSegments; index++)
         {
-            Assert.True(Arena.TryAllocate(Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out var block));
+            Assert.True(ArenaBlocks.TryAllocateLive(Arena, Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out var block));
             blocks.Add(block);
         }
 

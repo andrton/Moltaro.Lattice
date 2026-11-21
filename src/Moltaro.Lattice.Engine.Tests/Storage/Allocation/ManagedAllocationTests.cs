@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 // Measured in the brief of S04: allocating and freeing blocks allocates no managed memory once the
 // arena is warmed up. A round allocates BlocksPerClass blocks of every size class and frees them
 // all again. The warm-up is WarmUpRounds of the same rounds, run before the measurement: it obtains
-// every segment and region the rounds need and takes every path of TryAllocate and Free they take,
+// every segment and region the rounds need and takes every path of the allocation and of Free they take,
 // so that nothing is left to compile or to set up. The reserve has room for every segment the
 // rounds leave empty, so that the measured rounds obtain no segment from the native allocator:
 // they measure blocks, not segments. GC.GetAllocatedBytesForCurrentThread counts what this thread
@@ -44,7 +44,7 @@ public sealed class ManagedAllocationTests
             {
                 var payloadLength = payloadLengths[index % payloadLengths.Length];
 
-                if (!arena.TryAllocate(payloadLength, BlockKindEnum.Value, root, out blocks[index]))
+                if (!ArenaBlocks.TryAllocateLive(arena, payloadLength, BlockKindEnum.Value, root, out blocks[index]))
                 {
                     throw new InvalidOperationException("The arena refused an allocation for its budget.");
                 }

@@ -2,7 +2,7 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Allocation;
 
-// A block of the arena (brief of S04, "What the members do"). TryAllocate writes the whole header,
+// A block of the arena (brief of S04, "What the members do"). An allocation writes the whole header,
 // also in a reused slot: the root, the kind and the payload length as given, every other field
 // zero; it checks neither the kind nor the root. Header and Payload reach the block in place, in
 // native memory. Payload spans the header's PayloadLength and never goes beyond the capacity of
@@ -16,7 +16,7 @@ public sealed class BlockTests
         using var arena = Arenas.Open();
         var root = new RootHandle(3, 17);
 
-        Assert.True(arena.TryAllocate(100, BlockKindEnum.Root, root, out var address));
+        Assert.True(ArenaBlocks.TryAllocateLive(arena, 100, BlockKindEnum.Root, root, out var address));
 
         Assert.True(ArenaBlocks.IsValid(arena, address));
         AssertNewHeader(arena.Header(address), root, BlockKindEnum.Root, 100);
@@ -43,7 +43,7 @@ public sealed class BlockTests
         // The freed slot is the only free slot of the class, and a payload of 110 bytes takes the
         // same class.
         var root = new RootHandle(5, 9);
-        Assert.True(arena.TryAllocate(110, BlockKindEnum.Chunk, root, out var again));
+        Assert.True(ArenaBlocks.TryAllocateLive(arena, 110, BlockKindEnum.Chunk, root, out var again));
 
         Assert.Equal(freed, again);
         AssertNewHeader(arena.Header(again), root, BlockKindEnum.Chunk, 110);
@@ -62,7 +62,7 @@ public sealed class BlockTests
 
         foreach (var (kind, root) in cases)
         {
-            Assert.True(arena.TryAllocate(8, kind, root, out var address));
+            Assert.True(ArenaBlocks.TryAllocateLive(arena, 8, kind, root, out var address));
 
             Assert.Equal(kind, arena.Header(address).Kind);
             Assert.Equal(root, arena.Header(address).Root);
