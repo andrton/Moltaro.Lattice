@@ -64,7 +64,7 @@ internal static class BindingSearch
     // form.
     public static async Task ExpectRangeAsync(ILatticeDatabase database, string field, IReadOnlyList<Stored> stored, RangeEnd? from, RangeEnd? to, IComparer<object>? order = null)
     {
-        var key = from is null && to is null ? IndexKey.All : IndexKey.All.Range(BoundOf(from), BoundOf(to));
+        var key = from is null && to is null ? IndexKey.All : IndexKey.All.Range(from?.Bound(), to?.Bound());
 
         foreach (var reverse in new[] { false, true })
         {
@@ -87,9 +87,6 @@ internal static class BindingSearch
         Assert.True(await Record.ExceptionAsync(async () => await byClass.FindAsync(key, Forward)) is ArgumentException, $"{search} through the class was not refused by FindAsync.");
         Assert.True(await Record.ExceptionAsync(async () => await byName.FindAsync(key, Forward)) is ArgumentException, $"{search} by name was not refused by FindAsync.");
     }
-
-    // The bound of a range end, its value given as its own type.
-    public static IndexBound? BoundOf(RangeEnd? end) => end is null ? null : TypedValues.Bound(end.Value, end.Inclusive);
 
     private static List<Stored> Of(string field, IEnumerable<Item> items) => [.. items.Select(item => new Stored(item.Id, item.ValueOf(field)))];
 

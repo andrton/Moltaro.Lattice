@@ -1,7 +1,8 @@
-namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
+namespace Moltaro.Lattice.Tests.Indexes;
 
-// A key or a bound of a value that a theory holds as an object, made with the value given as its own .NET
-// type, as an application gives it: the generic factory is called with that type, never with object.
+// A key or a bound of a value that a test holds as an object, made with the value given as its own .NET
+// type, as an application gives it: the generic factory is called with that type, never with object. The
+// tests of the walk and of the binding of values make their keys and bounds here.
 internal static class TypedValues
 {
     public static IndexKey Equal(object value) => value switch
