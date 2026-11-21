@@ -4,7 +4,11 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 // found in the order asked for, Offset of them are skipped and at most Limit are returned, and HasMore
 // says whether a match follows those returned.
 // - Against the oracle of the order, in both directions, for an Offset and a Limit at the start, inside the
-//   matches and beyond them.
+//   matches and beyond them. Entities with the same indexed values come in no order the contract states
+//   (docs/decisions/queries.md, Q07.3.3; LatticeFindResult.Items), so the rows of a run of equal keys that
+//   Offset or Limit cuts cannot be named: a page has the keys of the oracle in their order, no row twice,
+//   and only rows that match with the key of their place; a page that cuts no run has the rows of the
+//   oracle (WalkOracle.ExpectPage).
 // - Offset skips without returning, and Limit bounds the walk without reading every match first. Stated
 //   by what a search holds, not by time: the memory limit of a read counts what a walk remembers, the keys
 //   of the rows it returned or passed over and, until FindAsync returns, its result
@@ -30,9 +34,8 @@ public sealed class OffsetAndLimitTests
                 foreach (var (offset, limit) in new (int, int?)[] { (0, 1), (0, 10), (5, 10), (all.Count - 3, 10), (all.Count - 3, 3), (all.Count, 1), (all.Count + 5, null), (3, null) })
                 {
                     var found = await byAB.FindAsync(shape.Key(), new LatticeFindOptions { Reverse = reverse, Offset = offset, Limit = limit });
-                    var expected = all.Skip(offset).Take(limit ?? int.MaxValue).ToList();
 
-                    WalkOracle.Expect(shape, expected, found.Items);
+                    WalkOracle.ExpectPage(shape, all, offset, limit, found.Items);
                     Assert.Equal(limit is { } most && offset + most < all.Count, found.HasMore);
                 }
             }

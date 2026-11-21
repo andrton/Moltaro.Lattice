@@ -136,5 +136,40 @@ internal static class WalkOracle
         Assert.Equal(expected.Select(row => row.Id).Order(), actual.Select(row => row.Id).Order());
     }
 
+    // That a page of the answer, after Offset of its matches and at most Limit of them, is the one of the
+    // oracle as far as the contract states it: the keys at every place of the page in their order; no row
+    // twice; every row a match whose key is the key at its place. The rows of one key come in no order the
+    // contract states, so when the page cuts a run of equal keys at either end, which rows of that run it
+    // holds is not stated; a page that cuts no run holds the rows of the oracle.
+    public static void ExpectPage(WalkShape shape, IReadOnlyList<Row> all, int offset, int? limit, IReadOnlyList<Row> actual)
+    {
+        var start = Math.Min(offset, all.Count);
+        var end = limit is { } most ? Math.Min(all.Count, start + most) : all.Count;
+        var expected = all.Skip(start).Take(end - start).ToList();
+
+        Assert.True(
+            expected.Count == actual.Count,
+            $"{shape} after {offset} with a limit of {limit} returned {actual.Count} rows, not the {expected.Count} of the oracle.{Environment.NewLine}{Listing(actual)}");
+        Assert.True(actual.Count == actual.Select(row => row.Id).Distinct().Count(), $"{shape} after {offset} returned a row twice.{Environment.NewLine}{Listing(actual)}");
+
+        for (var place = 0; place < expected.Count; place++)
+        {
+            var row = actual[place];
+            var match = all.SingleOrDefault(candidate => candidate.Id == row.Id);
+
+            Assert.True(
+                CompareKeys(shape.Parts, expected[place], row) == 0 && match is not null && CompareKeys(shape.Parts, match, row) == 0,
+                $"{shape} after {offset} returned {row} at {place}, where the oracle has a match with the key of {expected[place]}.{Environment.NewLine}{Listing(actual)}");
+        }
+
+        var cutsRun = (start > 0 && start < all.Count && CompareKeys(shape.Parts, all[start - 1], all[start]) == 0)
+            || (end > start && end < all.Count && CompareKeys(shape.Parts, all[end - 1], all[end]) == 0);
+
+        if (!cutsRun)
+        {
+            Assert.Equal(expected.Select(row => row.Id).Order(), actual.Select(row => row.Id).Order());
+        }
+    }
+
     private static string Listing(IEnumerable<Row> rows) => string.Join(Environment.NewLine, rows);
 }
