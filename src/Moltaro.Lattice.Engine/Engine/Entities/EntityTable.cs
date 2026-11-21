@@ -475,8 +475,10 @@ internal sealed class EntityTable
     // there: a WalkProgress, room for a key to remember or for an entry to stand at or after; it then stands
     // at that entry, when it can write it, and the room is counted against the memory limit and made outside
     // the protection, and the next round reads the entry anew. A round that cannot write where it stands goes
-    // on from where the search stood before it: what it remembered stays, so the next round passes over the
-    // keys it skipped and counts none twice.
+    // on from where the search stood before it, and the next round walks again over what this one passed. That
+    // is correct only because of the remembered set: every match this round skipped by Offset it remembered at
+    // once, so the next round passes over it by its key and does not count it against Offset again, and the
+    // entities returned before are passed over the same way.
     //
     // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it.
     [SkipLocalsInit]
@@ -621,6 +623,11 @@ internal sealed class EntityTable
                         }
 
                         copy.Copy(reader);
+
+                        // The sequence of the answer, as LatticeFindResult.Position states it: the node had
+                        // applied everything up to it when the search looked at the index. The later of the
+                        // sequence read after the descent and the last mutation of the entity copied
+                        // (docs/design/ordered-index.md, "The search by a full key").
                         sequence = Math.Max(at, stamp);
 
                         if (progress is not null)
@@ -696,7 +703,9 @@ internal sealed class EntityTable
     // Inside the protection, when a round ends before an entry: the search stands at it, a search by a full
     // key at its identity, any other at the entry, detached into the WalkProgress when it has room for it.
     // Without a WalkProgress or without the room the search stays where it stood, and what the round needs is
-    // said to the step, which makes it outside the protection.
+    // said to the step, which makes it outside the protection. The next round then walks again over the
+    // entries this one passed, which is correct because the matches it skipped by Offset are remembered: it
+    // passes over them by their keys and counts none of them twice.
     private void StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search, ref bool makesProgress, ref int entryLength)
     {
         if (full)

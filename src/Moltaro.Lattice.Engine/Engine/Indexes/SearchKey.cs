@@ -162,11 +162,6 @@ internal readonly ref struct SearchKey
     // the end of a walk.
     public int Parts { get; }
 
-    // The same key, for the entries after the identity given: the next step of a search, after the entity
-    // of that identity was returned or its entry was found to be a hint its root no longer holds. The
-    // identities are ordered as the packed numbers of their handles (RootHandle.Next).
-    public SearchKey After(RootHandle identity) => new(this, identity.Next);
-
     // The same key at the identity given.
     public SearchKey At(RootHandle identity) => new(this, identity);
 

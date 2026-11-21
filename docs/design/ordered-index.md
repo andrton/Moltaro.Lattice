@@ -8,9 +8,10 @@ milestone contract states its rules under
 `src/Moltaro.Lattice.Engine/Storage/Ordered` holds the nodes and entries in arena memory,
 `Engine/Indexes` the tree, its order and the index of an entity type,
 `Engine/Entities/ChangePublisher.cs` the upkeep of every index with the data, and
-`Engine/Entities/IndexSearch.cs` with `EntityTable.TrySearch` the search by the full key.
-The walk of ranges, order and paging is not built yet; the [README](../../README.md) says
-what works.
+`Engine/Indexes/IndexWalk.cs` with `Engine/Entities/IndexSearch.cs` and
+`EntityTable.TrySearch` the search: by the full key, by the leading fields and a range on
+the next, in the index order or its reverse, and in pages. The [README](../../README.md)
+says what works.
 
 [Index access](../decisions/index-access.md) · [Index lifecycle](../decisions/index-lifecycle.md) · [How reads are protected](epoch-protection.md) · [How a write is executed](write-path.md)
 
@@ -35,8 +36,8 @@ run of five seconds a case; the engine measures the structure again.
 An entry is the key of an entity in this index and the identity of its root entry, the
 8-byte root handle. A state of an entity contributes one entry to each index, so an
 entry is unique by (key, identity), and the entries of one key form a run ordered by
-identity. A search finds the first entry of a key and walks its run; a range will walk
-from one key to another in the same order. An index on the members of a collection,
+identity. A search finds the first entry of a key and walks its run; a range walks from
+one key to another in the same order. An index on the members of a collection,
 where a state would contribute a set of entries, is not built.
 
 Entries are ordered part by part in the order of the index, each part by the comparison
@@ -425,7 +426,8 @@ between two steps only the key and the identity of the last entity it returned:
 
 A step that ends without an entity takes the sequence of the database read when it began
 as the position of its end when it is unchanged after the walk, as a read of an absent
-key does, and walks again otherwise. An entity deleted and created again while a search
+key does, and walks again otherwise, in a round like any other ("How a range is walked",
+below). An entity deleted and created again while a search
 runs has a new root entry, so a new identity, which can lie after the one the search
 returned before; the search passes it over by the keys it remembers, as every walk does
 ("How a range is walked", below).
@@ -463,8 +465,12 @@ before its entry is retired, so the identity needs no check of its generation.
 
 A lazy search, `Find`, is one object: the enumerable it returns is also the enumerator its
 first `GetEnumerator` gives, and it holds the bound key once and where the search stands
-between two steps, the identity after the last entity returned and the sequence of an end
-a step saw; a further `GetEnumerator` is a search of its own. The search key of a step
+between two steps (`IndexSearch`): the identity after the last entity returned, the
+sequence of an end a step saw, the read limits and what the search has spent of them, its
+direction and its Offset, and the reference to what a walk of more than one entity
+remembers (`WalkProgress`, "How a range is walked", below), which the search lets go of at
+its end, on `Dispose` and when a read limit fails it; a further `GetEnumerator` is a search
+of its own. The search key of a step
 refers to that bound key and does not copy it. A search that returns one entity so
 allocates that object and the entity: through a class 360 bytes and the entity, by name 352
 (`SearchObjectAllocationTests` gives the composition). `FindAsync`

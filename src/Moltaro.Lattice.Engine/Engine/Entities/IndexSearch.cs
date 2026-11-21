@@ -72,22 +72,15 @@ internal struct IndexSearch
     public readonly (RootHandle From, ulong EndsAt) Place => (From, EndsAt);
 
     // Puts the place of the search back to where it stood before a step, and forgets what that step
-    // staged.
+    // staged. From and EndsAt are what the step moved past the entity it returned, or set to the end it saw,
+    // so they go back. The entry a search other than by a full key stands at (WalkProgress.Last) may have
+    // moved in an earlier round of the same step, and stays: such a round stood at an entry before that
+    // entity, after entries it returned none of and whose matches skipped by Offset it remembered, so the next
+    // step still meets the entity and counts none of those twice.
     public void PutBack((RootHandle From, ulong EndsAt) place)
     {
         (From, EndsAt) = place;
         Progress?.Unstage();
-    }
-
-    // For FindAsync, until it returns: adds what its result holds, the capacity its list grew by, once the
-    // search has a WalkProgress; before that, an answer of one entity whose step saw the end, nothing of it
-    // counts, as a read by key does not.
-    public readonly void Hold(long bytes)
-    {
-        if (HoldsAnswer)
-        {
-            Progress?.Hold(bytes);
-        }
     }
 
     // Fails the step that started at the timestamp when the steps, this one so far included, have spent

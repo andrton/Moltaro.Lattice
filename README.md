@@ -15,12 +15,13 @@ reads entities of scalar and Enum fields by primary key, under every key type an
 text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. Every
 declared secondary index is kept with the data, and an application finds entities
 through an index by its full key, by its leading fields and a range on the next, in the
-order of the index or its reverse and in pages, each entity at most once. A child loads the whole database from its master over TCP
-while the master keeps writing, builds its own indexes, then follows its changes, and
-forwards its own writes to the master. A schema can already declare more than the
-engine stores: an entity type with an owned value, a List, a Map, a Set or a reference
-compiles, but cannot be written yet. Unique indexes, write batches and PostgreSQL
-persistence are not implemented yet, and the contract may still change.
+order of the index or its reverse and in pages, each entity at most once. A child loads
+the whole database from its master over TCP while the master keeps writing, builds its
+own indexes, then follows its changes, and forwards its own writes to the master. A
+schema can already declare more than the engine stores: an entity type with an owned
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Unique
+indexes, write batches and PostgreSQL persistence are not implemented yet, and the
+contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and

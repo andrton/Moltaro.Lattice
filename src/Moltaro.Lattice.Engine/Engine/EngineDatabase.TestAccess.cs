@@ -207,13 +207,13 @@ internal sealed partial class EngineDatabase
     // finds its root in the index, or the next root a step of a search through a secondary index takes,
     // runs the action, once, on its own thread and inside the protection of reads, after it has found the
     // root and before it reads it, with the handle of the root entry it found. A step that ends a round to
-    // make room outside the protection takes the same root again in its next round. A test waits inside the action, with a bounded wait, to keep that read inside the
-    // protection while the test writes, drains, counts and closes; when the action returns, the read goes
-    // on as it would have. Every other read passes the point without running anything. The switch
-    // can be armed again while a read it held earlier is still held, so that two reads are held at
-    // once. A read when no test has armed the switch pays nothing for it beyond reading one field
-    // that is null (ReadEpochs.OfferReadSwitch). Unavailable before the open, ObjectDisposedException after
-    // the close.
+    // make room outside the protection takes the same root again in its next round. A test waits inside the
+    // action, with a bounded wait, to keep that read inside the protection while the test writes, drains,
+    // counts and closes; when the action returns, the read goes on as it would have. Every other read
+    // passes the point without running anything. The switch can be armed again while a read it held earlier
+    // is still held, so that two reads are held at once. A read when no test has armed the switch pays
+    // nothing for it beyond reading one field that is null (ReadEpochs.OfferReadSwitch). Unavailable before
+    // the open, ObjectDisposedException after the close.
     public void ArmReadSwitch(Action<RootHandle> action)
     {
         ArgumentNullException.ThrowIfNull(action);

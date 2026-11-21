@@ -93,14 +93,6 @@ internal ref struct IndexWalk
     public static bool IsFullKey(IndexLayout layout, in IndexKey bound) =>
         bound.Count == layout.Parts.Length && bound.From is null && bound.To is null;
 
-    // The walk from its start again, for a step that walks once more after the database moved on.
-    public void Restart()
-    {
-        _place = default;
-        _started = false;
-        _done = false;
-    }
-
     // The next entry of the walk, true; false when the walk has no entry left. With an entry, whether the
     // walk shows that no entry of the search follows it.
     public bool TryNext(out ReadOnlySpan<byte> entry, out bool ends)

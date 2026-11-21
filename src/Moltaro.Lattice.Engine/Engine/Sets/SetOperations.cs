@@ -173,20 +173,21 @@ internal sealed class SetOperations
     public bool HasMore(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
         Table.SearchHasMore(index, key, ref search, out sequence, cancellationToken);
 
-    // For FindAsync, until it returns: what its result holds grew by the bytes given, which counts, once the
-    // search has a WalkProgress, against the memory limit of a read with what the search remembers; over
-    // the limit the search fails with ReadLimitExceeded and lets go of what it remembers. The token is looked
-    // at first, as at every place a limit is looked at, so that a cancellation is reported before the limit
-    // is, also one the code of the application made while it built the entity just added.
+    // For FindAsync, which holds its answer until it returns: what its result holds grew by the bytes given,
+    // which counts, once the search has a WalkProgress, against the memory limit of a read with what the
+    // search remembers; before that, an answer of one entity whose step saw the end, nothing of it counts, as a
+    // read by key does not, and nothing is counted without a memory limit. Over the limit the search fails
+    // with ReadLimitExceeded and lets go of what it remembers. The token is looked at first, as at every place
+    // a limit is looked at, so that a cancellation is reported before the limit is, also one the code of the
+    // application made while it built the entity just added.
     public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes, CancellationToken cancellationToken)
     {
-        search.Hold(bytes);
-
-        if (search.Progress is not { } progress || !search.HoldsAnswer || !search.Limits.LimitsMemory)
+        if (search.Progress is not { } progress || !search.Limits.LimitsMemory)
         {
             return;
         }
 
+        progress.Hold(bytes);
         cancellationToken.ThrowIfCancellationRequested();
         search.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
     }

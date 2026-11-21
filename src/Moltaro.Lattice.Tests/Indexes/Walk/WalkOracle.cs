@@ -3,8 +3,8 @@ using Moltaro.Lattice.TestSupport.Text;
 namespace Moltaro.Lattice.Tests.Indexes.Walk;
 
 // The oracle of a walk, computed from the values of the rows and the rules of the order, never from the
-// engine (docs/design/ordered-index.md, "Entries and their order"; the owner's answer of 21 November 2026
-// on the reverse):
+// engine (docs/design/ordered-index.md, "Entries and their order", and for the reverse "How a range is
+// walked"):
 // - an index orders its entries part by part in the order of its fields: A and C as numbers, B by its
 //   UTF-16 code units (Ordinal), D by the code units of its simple uppercase mapping (without case,
 //   CaseRule), the same in a UTF-8 and in a UTF-16 database; a null after every value of its part and

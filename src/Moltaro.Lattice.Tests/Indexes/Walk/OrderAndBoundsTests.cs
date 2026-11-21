@@ -9,13 +9,13 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 //   the nulls of each part after its values; a range on the next part, inclusive or exclusive at each end
 //   and either end open, returns those of them whose next part lies in it, and none whose next part is
 //   null, since a null is in no range;
-// - in reverse the answer is the exact mirror of the index order, so that a null comes first there (the
-//   owner, 21 November 2026), and a reverse range without an upper end starts at the last value before
-//   the nulls of its part and returns none of them;
+// - in reverse the answer is the exact mirror of the index order, so that a null comes first there
+//   (docs/design/ordered-index.md, "How a range is walked"), and a reverse range without an upper end
+//   starts at the last value before the nulls of its part and returns none of them;
 // - the lazy Find and FindAsync give the same answer in the index order.
 // The rows of one key come in no order the contract states, so an answer is compared as its keys in
-// their order and its ids as a set. The P1 of the search by the full key was a composite key with a null
-// before another part; these are the searches that hold such keys at their bounds.
+// their order and its ids as a set. A composite key with a null before another part is among the keys
+// these searches hold at their bounds.
 public sealed class OrderAndBoundsTests
 {
     public static IEnumerable<TheoryDataRow<string>> Encodings => WalkSchema.Encodings;
