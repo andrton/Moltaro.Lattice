@@ -177,7 +177,8 @@ a snapshot; it returns each entity at most once, also one deleted and created ag
 it runs, and every entity that keeps its indexed values for the whole search. A value is
 given in the type of its field, or as the same number in another type, such as an `int`
 for a `Decimal` field; a value that would have to be rounded is refused, and so is a
-floating-point or `Decimal` value for an integer field, 42.0 included:
+floating-point or `Decimal` value for an integer field, 42.0 included, and a `Decimal`
+for a floating-point field or the reverse:
 
 ```csharp
 var byEmail = users.Index("ByEmail");                             // keep and reuse
