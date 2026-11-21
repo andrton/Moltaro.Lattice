@@ -6533,7 +6533,8 @@ kinds of work.
    2. Order and bounds against an oracle of values:
       - composite indexes of two to four parts with a null in every position;
       - searches by leading parts, and ranges with inclusive and exclusive bounds;
-      - both directions, nulls last in both;
+      - both directions against the oracle, the reverse being the mirror of the index
+        order;
       - UTF-8 and UTF-16.
       The P1 of S14, part 2 was a composite key with a null before another part. This is the
       test that would have caught it, and it is written before the code.
@@ -6571,7 +6572,8 @@ kinds of work.
 5. **The breaker of part 1,** its targets in order:
    1. twice or missed under change, both directions, inside equal keys;
    2. a delete and a re-creation;
-   3. composite keys with nulls at the bounds;
+   3. composite keys with nulls at the bounds, both directions, the reverse being the
+      mirror;
    4. the end sequence against its mutant;
    5. a step that holds nothing: weak references after a paused traversal, and the growth of
       the tree between two steps;
@@ -6619,7 +6621,9 @@ What it found:
 - Offset is linear in every system read; counts for each subtree would copy the path at
   every write and count entries, not matches.
 - The hardest part: reverse with nulls last in a composite index, a short sequence of
-  seeks for each nullable part after the equal ones.
+  seeks for each nullable part after the equal ones. The owner's answer of 21 November
+  2026, that Reverse is the exact mirror of the index order, removed this piece from the
+  sprint.
 
 Decided by the planner on 20 November 2026, on the study:
 - The way is the remembered set, for every walk, the exact search included: Q07.3.5
@@ -6709,12 +6713,30 @@ The owner removed the sentence of the Acceptance on the sequence a search ends a
 November 2026.
 
 **The reverse order and nulls, the owner, 21 November 2026.**
-`IndexTests.Options_choose_direction_and_page` expected the reverse of `ByAgeAndName` with
-the entity without an age first, the plain reverse of the index, against Q07.3.2 and this
-Acceptance, which put nulls last in both directions. The decision holds: the test expects Grace, Alan, Linus, Barbara, Ada, Edsger,
-and the documentation of `LatticeFindOptions.Reverse` says that the values come in
-descending order with nulls still last, a clarification listed under the rule on a draft
-contract.
+`IndexTests.Options_choose_direction_and_page` expects the reverse of `ByAgeAndName` with
+the entity without an age first, the plain reverse of the index, as the documentation of
+`LatticeFindOptions.Reverse` says ("the reverse of the index order"), while this
+Acceptance said nulls last in both directions. Q07.3.2 decides the order of a query and
+says itself that the reverse of an index is not descending with nulls last. The owner
+heard both readings and chose the exact mirror: nulls are last in the index order, and
+Reverse is its exact reverse, so a null comes first there. The test and the documentation
+of `Reverse` stay as they are. The default of a query, nulls last in both directions with
+an override for each key, is the query layer's to build over the two regions when it
+exists.
+
+**The internal contract of step 1, read by the planner on 21 November 2026.** No name or
+signature changes, but for what the reverse with nulls last needed: the implementer names
+what of the four-argument `EntryProbe`, of `nullNext` and of the use of `KeyEdgeEnum` goes,
+and commits the contract after it. Two departures from the text above:
+- The form of G4: a step stages its move in the search, and `Commit` takes it after the
+  entity is built, instead of stepping a copy, so that a step that throws keeps the time
+  it spent and a failure it recorded.
+- A search that finds one entity or none grows only by the read limits and one reference.
+  What only a walk needs, the remembered set and the detached last entry with its staging,
+  sits in one object made at the same moment as the set, the first step that returns an
+  entity without seeing the end. If a figure shows that this second object costs a walk
+  more than its bytes would cost an exact search, it comes to the planner with the figure.
+  Group 8 pins both: the search of one entity and a walk.
 
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
@@ -6787,14 +6809,13 @@ For this sprint:
 - **To read.** [Index access](../decisions/index-access.md);
   [index preparation and traversal](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [Q07.1.1, Q07.3.1–Q07.3.6](../decisions/queries.md).
-- **Acceptance.** Every test of `IndexTests` passes with its assertions unchanged, but for
-  `Options_choose_direction_and_page`, whose reverse order puts the entity without an age
-  last, as Q07.3.2 says (the owner, 21 November 2026), and
+- **Acceptance.** Every test of `IndexTests` passes with its assertions unchanged, and
   the index sample runs to the end. In addition: for every scalar and key family the
   same value is found by key, by index, through a class and by name; the numeric
   allowlist binds or refuses exactly as specified, including overflow, 42.0 for an
-  integer field, NaN and signed zero; nulls are last in both directions; enum order is
-  numeric; text compares by its field policy in UTF-8 and in UTF-16 databases. A
+  integer field, NaN and signed zero; nulls are last in the index order, and Reverse is
+  its exact reverse, so a null comes first there (the owner, 21 November 2026); enum
+  order is numeric; text compares by its field policy in UTF-8 and in UTF-16 databases. A
   traversal under concurrent change returns no identity twice and every unchanged match,
   also inside a group of equal keys. Offset skips matches and Limit bounds them without
   reading all matches first. A search over its budget fails explicitly. An unsupported
@@ -6815,7 +6836,9 @@ created after the pass began are passed over, which needs a stamp of creation fo
 lifetime; or a remembered set, as an enumeration has. A step that holds nothing works on
 the studied tree: it enters the protection, seeks after the last key and identity in
 either direction, and reaches the next leaf by a new descent at the fence. Offset is
-linear in the entries passed over; nulls last in both directions is a rule of the walk.
+linear in the entries passed over; nulls last in both directions is a rule of the walk
+(the owner's answer of 21 November 2026 makes Reverse the exact mirror of the index order
+instead, above).
 The tree needs an order from the comparison service, beside its equality.
 
 **Required of this sprint, decided by the planner on 19 November 2026.** As S14 is

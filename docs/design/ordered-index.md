@@ -492,8 +492,11 @@ Over a range an entity whose key moves ahead of the walk would be returned again
 new pair, so a walk remembers the entities it returned or passed over, as an enumeration
 does ([queries](../decisions/queries.md), Q07.3.5); the set counts against
 `ReadMemoryLimit`, and an entity deleted and created again during a pass is passed over by
-it as well. Nulls last in both directions is a rule of the walk: the null region of a part
-is visited after its values, whichever way.
+it as well. Nulls are last in the index order, and a walk in reverse is its exact mirror,
+so a null comes first there (the owner's decision of 21 November 2026). The default of a
+query, nulls last in both directions with an override for each key
+([queries](../decisions/queries.md), Q07.3.2), is the query layer's to build over the two
+regions.
 
 ## A child
 
