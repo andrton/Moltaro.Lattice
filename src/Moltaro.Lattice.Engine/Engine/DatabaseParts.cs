@@ -15,9 +15,11 @@ namespace Moltaro.Lattice.Engine;
 // The parts of an open database (EngineDatabase), made together by one method when it opens (Build) and
 // published as one field, which the close clears once it has freed the arena: a part added here is let go
 // of with the others, so an instance kept alive after its close holds none of them, nor the managed memory
-// of its root entries, its indexes and its text table. Immutable once made: a member reads the field once
-// and finds every part, or none, and then reports ObjectDisposedException. The network of a master and of a
-// child is not among them: it is made at moments of its own during the open, and kept beside them.
+// of its root entries, its indexes and its text table. Every reference is fixed once made: a member reads
+// the field once and finds every part, or none, and then reports ObjectDisposedException. The two
+// dictionaries, Operations and RecordSets, are filled by Build and only read afterwards; the sets of
+// classes are added as each class is first used (ClassSets). The network of a master and of a child is
+// not among them: it is made at moments of its own during the open, and kept beside them.
 internal sealed class DatabaseParts
 {
     public required LatticeSchema Schema { get; init; }
