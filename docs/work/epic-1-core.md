@@ -6705,8 +6705,16 @@ holds, in this form, in the first structural commit with G4:
 4. The head of `RunEndTests` is corrected, its assertions unchanged. F5 closes as removed
    with its subject. Group 7 of the tests and the breaker's fourth target are dropped; the
    breaker's probes are kept outside the repository as the evidence.
-The sentence of the Acceptance on the sequence a search ends at waits for the owner's word
-to be removed; until then step 1 writes no test for it.
+The owner removed the sentence of the Acceptance on the sequence a search ends at on 21
+November 2026.
+
+**The reverse order and nulls, the owner, 21 November 2026.**
+`IndexTests.Options_choose_direction_and_page` expected the reverse of `ByAgeAndName` with
+the entity without an age first, the plain reverse of the index, against Q07.3.2 and this
+Acceptance, which put nulls last in both directions. The decision holds: the test expects Grace, Alan, Linus, Barbara, Ada, Edsger,
+and the documentation of `LatticeFindOptions.Reverse` says that the values come in
+descending order with nulls still last, a clarification listed under the rule on a draft
+contract.
 
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
@@ -6779,7 +6787,9 @@ For this sprint:
 - **To read.** [Index access](../decisions/index-access.md);
   [index preparation and traversal](../design/milestone-1-engine-contract.md#index-preparation-and-traversal);
   [Q07.1.1, Q07.3.1–Q07.3.6](../decisions/queries.md).
-- **Acceptance.** Every test of `IndexTests` passes with its assertions unchanged, and
+- **Acceptance.** Every test of `IndexTests` passes with its assertions unchanged, but for
+  `Options_choose_direction_and_page`, whose reverse order puts the entity without an age
+  last, as Q07.3.2 says (the owner, 21 November 2026), and
   the index sample runs to the end. In addition: for every scalar and key family the
   same value is found by key, by index, through a class and by name; the numeric
   allowlist binds or refuses exactly as specified, including overflow, 42.0 for an
@@ -6788,10 +6798,9 @@ For this sprint:
   traversal under concurrent change returns no identity twice and every unchanged match,
   also inside a group of equal keys. Offset skips matches and Limit bounds them without
   reading all matches first. A search over its budget fails explicitly. An unsupported
-  key or bound shape is refused. The sequence a search ends at gets its test with its
-  first consumer: a mutant that reports the end at the sequence before the step, without
-  the check that the sequence did not move, must fail it (the planner, 20 November 2026;
-  entry F5 of the [refactoring backlog](refactoring.md)).
+  key or bound shape is refused. The sentence on the sequence a search ends at, added on
+  20 November 2026, is removed on the owner's word of 21 November 2026, with the check it
+  was to hold.
 - **Measured.** Reported: search time for exact and range lookups on the fixture's user
   indexes, with and without a writer.
 - **Out of scope.** Uniqueness (S16). A query language, automatic choice of an index,
@@ -6899,10 +6908,36 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
   at the call; what the database decides comes through the task. A batch that the memory budget cannot hold is refused with `WriteRejected` and
   `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
-  a batch. A child never acknowledges a part.
+  a batch. A child never acknowledges a part. A transaction with several effects is exposed
+  whole or not at all, by key, by a search and by an enumeration, on the master that
+  publishes it and on a child that applies it, and no answer carries its position before
+  all of its effects are visible (the owner, 21 November 2026).
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
   of 1, 32, 1,000 and 10,000 entities.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
+
+**Found by the breaker of S15, part 1 on 21 November 2026.** On a child, a transaction of
+several effects at one position is exposed a part at a time: the publication
+(`ChangePublisher.PublishBeforePosition`) installs the effects one after another, each fully
+visible, and moves the clock afterwards, while a read reports the larger of the clock and
+the stamp of what it read. A probe that merges 300 insert transactions of a master into
+one through a relay found, in 10 of 10 runs, an answer that held the first member but not
+the last at the position of the transaction, by key, by a search and by an enumeration.
+That breaks "A child must not expose a prefix or advance applied progress past a partial
+batch" ([document model](../decisions/document-model.md)). No master on `main` sends such a
+transaction and committing a batch is refused, so it is not reachable today; the same loop
+publishes a batch on a master.
+- The sentence of the Acceptance above states it. The breaker's `BatchPrefixProbeTests`,
+  kept outside the repository with its outputs, is the starting point of its test, written
+  first.
+- A question for the study of this sprint: by what means the effects become visible
+  together. The study names how established systems make a group of changes visible at
+  one moment to readers that take no lock, and what it costs a read.
+- A narrower case, an open question with this sprint as its limit (Q53).
+- Several tests of the engine already feed a child a transaction of several effects
+  through a relay, among them the refused change of a child and the null upkeep on a
+  child. They state other things and stay; when this sprint defines that form, they are
+  checked against it.
 
 **Carried from the fixes after S13.** `ReceivedChanges` checks "a transaction names each
 key once" by scanning the changes it has prepared and the keys it has skipped for every

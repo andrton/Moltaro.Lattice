@@ -79,6 +79,15 @@ in the meantime.
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
 | **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
 
+### Q53. A fresh insert found by a search before a read by key finds it
+
+| | |
+| --- | --- |
+| **Found** | 21 November 2026, the breaker of Epic 1, sprint S15, part 1, by reading, not probed |
+| **Question** | `ChangePublisher.InstallNew` installs the secondary entries of a new entity first, and `Install` stores its stamp and marks it live before the entry of the primary index. For a few instructions a search can return a fresh insert at the position of its write while a read by key of it still finds nothing, at the position before. Each answer is true at its own position, and a read in a session waits on the clock and finds it. Is this acceptable, or must a new entity become visible to every kind of read at once? |
+| **Until answered** | Each answer is true at the position it reports; nothing is changed |
+| **Decides** | The planner, with S17, whose means of exposing a batch whole most likely closes it |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

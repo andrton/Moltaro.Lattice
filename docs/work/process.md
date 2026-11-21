@@ -294,8 +294,11 @@ extensible.
 - **What becomes of it.** The planner goes through the list with the coordinator. Each
   entry is taken as a refactoring task, joined to a coming sprint that changes the same
   code, or refused with its reason written beside it. A taken entry is entered in the
-  [refactoring backlog](refactoring.md) with its status. What would change a rule or the
-  scope goes to the owner.
+  [refactoring backlog](refactoring.md) with its status. What would change a rule goes
+  to the owner. What would change the scope follows the
+  [limits on questions](#limits-on-review-and-on-questions): it waits for the owner only
+  when it changes an Acceptance or a guarantee written in a decision record, or cannot be
+  undone cheaply; otherwise it is taken and listed.
 - **The refactoring sprint.** After a sprint is merged and the architect's list is gone
   through, the entries that were taken are carried out as one sprint of their own, before
   the next sprint of the plan starts; it is named after the sprint it follows (S13R after
@@ -414,5 +417,6 @@ within the requirements is reported at the close.
 
 In the epic document: the list of sprints with the status of each. The coordinator updates
 it when a sprint closes. What a later agent needs to know is in the brief of its sprint.
-What nobody has answered yet is in the [open questions](open-questions.md). There are no
-other reports, logs or handoff files.
+What nobody has answered yet is in the [open questions](open-questions.md), and so is
+an answer the coordinator took, marked as taken. There are no other reports, logs or
+handoff files.
