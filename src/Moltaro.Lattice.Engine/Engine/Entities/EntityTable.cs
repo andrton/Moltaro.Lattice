@@ -307,17 +307,17 @@ internal sealed class EntityTable
     public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
         new(EntityType.Name, new ReturnedKeys(Keys), memoryLimit, timeLimit);
 
-    // Reads the next entity of the enumeration into the copy and stages it in the pass, as the class
-    // says: true when there is one, which the caller builds and then commits to the pass; false at the
-    // end, with the sequence under which the index showed no more, taken as for an absent key. Each
-    // round enters the protection of reads and leaves it, and a call holds nothing when it returns; a
-    // pass whose entity was not committed, because its build failed, finds it again at its next step.
-    // ObjectDisposedException after the close, at every call; LatticeException with ReadLimitExceeded
-    // from a call that would exceed a read limit and from every call after it (EntityPass). The token
-    // of an asynchronous enumeration ends the wait of a round for a slot of the protection, and each
-    // round looks at it before it looks at the limits, so a cancellation is reported before a limit is
-    // and takes effect between two rounds; OperationCanceledException then, with the pass as it was
-    // before the call.
+    // Reads the next entity of the enumeration into the copy and stages it in the pass, as
+    // docs/design/arena-protocol.md, "An enumeration", says: true when there is one, which the caller
+    // builds and then commits to the pass; false at the end, with the sequence under which the index
+    // showed no more, taken as for an absent key. Each round enters the protection of reads and leaves
+    // it, and a call holds nothing when it returns; a pass whose entity was not committed, because its
+    // build failed, finds it again at its next step. ObjectDisposedException after the close, at every
+    // call; LatticeException with ReadLimitExceeded from a call that would exceed a read limit and from
+    // every call after it (EntityPass). The token of an asynchronous enumeration ends the wait of a
+    // round for a slot of the protection, and each round looks at it before it looks at the limits, so a
+    // cancellation is reported before a limit is and takes effect between two rounds;
+    // OperationCanceledException then, with the pass as it was before the call.
     public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
@@ -352,7 +352,8 @@ internal sealed class EntityTable
                     var before = _clock.Sequence;
                     var table = _index!.TableAndVersion(out var current);
 
-                    // Step 1 of the class: a grown table is walked from its start.
+                    // Step 1 of a round (arena-protocol.md, "An enumeration"): a grown table is walked
+                    // from its start.
                     if (current != version)
                     {
                         position = 0;
@@ -374,9 +375,9 @@ internal sealed class EntityTable
                             continue;
                         }
 
-                        // Step 3 of the class: without room for its key, the round ends before the
-                        // entry and before it copies anything; the next round reads the entry again
-                        // once the room is made.
+                        // Step 3 of a round (arena-protocol.md, "An enumeration"): without room for its
+                        // key, the round ends before the entry and before it copies anything; the next
+                        // round reads the entry again once the room is made.
                         if (!pass.Returned.HasRoomFor(stored, out var bound))
                         {
                             position--;
