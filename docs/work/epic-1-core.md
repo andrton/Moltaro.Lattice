@@ -316,7 +316,8 @@ which grew from four planned hours to more than seven by additions:
 - Figures from a rented machine are a new series and are never compared in absolute
   terms with those of the workstation.
 - Nothing about the machine goes into the repository beyond "a rented ARM64 machine, 16
-  cores".
+  cores". How it is reached, and the raw outputs of every start, are kept in a note
+  outside the repository, which the coordinator keeps and the planner knows of.
 - The output of every repeat of the test suite is kept, so that a failure is never
   without a name.
 
