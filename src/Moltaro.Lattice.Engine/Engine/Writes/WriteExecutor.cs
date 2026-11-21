@@ -390,10 +390,14 @@ internal sealed class WriteExecutor
     }
 
     // Places the root a child forwarded for the lifetime the handle names (see the class), in prepared
-    // blocks, with the bytes of the slots it takes: the root block and every block of its values out of
-    // line. For a replace, a key of another spelling than the stored one is written again with the
-    // stored spelling. The null address, with the refusal, when the arena has no room for the entity;
-    // then nothing of it is left allocated.
+    // blocks, with the bytes of the slots it takes as the import counts them: the root block, every block
+    // of its values out of line and every entry of the text table it adds, as Encode counts them for the
+    // same write of values. For a replace, a key of another spelling than the stored one is written again
+    // with the stored spelling (Respell), and the size is then what Encode counts for that root, not what
+    // the import counted: the placed root is freed, a text entry it added is freed with it as its count
+    // reaches zero (Storage.Text.TextTable.Release), and Encode adds that entry again and counts it. The
+    // null address, with the refusal, when the arena has no room for the entity; then nothing of it is
+    // left allocated.
     private ArenaAddress PlaceForwarded(EntityTable table, RootHandle handle, ForwardedOrigin forwarded, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout!;
@@ -402,23 +406,18 @@ internal sealed class WriteExecutor
         var received = import.Check(ref reader, layout);
 
         refusal = null;
-        size = 0;
 
         if (replaces && KeepsAnotherSpelling(table, handle, import, received))
         {
-            return Respell(table, handle, import.Place(received, handle), out size, out refusal);
+            return Respell(table, handle, import.Place(received, handle, out _), out size, out refusal);
         }
 
-        var root = import.Place(received, handle);
+        var root = import.Place(received, handle, out size);
 
         if (root.IsNull)
         {
             refusal = RootWriter.RefusalForMemory(layout);
-
-            return default;
         }
-
-        size = SlotBytes(layout, root);
 
         return root;
     }
@@ -467,20 +466,6 @@ internal sealed class WriteExecutor
         table.KeepStoredKey(handle, values);
 
         return Encode(table, handle, values, out size, out refusal);
-    }
-
-    // The bytes of the slots of a root and of its values out of line.
-    private long SlotBytes(RootLayout layout, ArenaAddress root)
-    {
-        var payload = layout.RootPayload(_arena, root);
-        var size = (long)Arena.BlockSizeFor(payload.Length);
-
-        foreach (var descriptor in new RootDescriptors(layout, payload))
-        {
-            size += RootStorage.ValueSlotBytes(descriptor);
-        }
-
-        return size;
     }
 
     // The publication of one write (see the class), with the fault points of the tests, and its

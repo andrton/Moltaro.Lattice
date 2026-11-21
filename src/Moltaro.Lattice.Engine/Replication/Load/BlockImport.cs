@@ -39,13 +39,16 @@ namespace Moltaro.Lattice.Replication.Load;
 // header and location itself; the root block is named as their parent (Place). The bytes of a Dictionary
 // text become a reference to the entry of the text table of this node that holds them, found or added
 // with the seed of this node (Storage.Text.TextTable.TryAcquire), so a node stores each distinct text
-// once whatever it receives. The caller publishes the root.
+// once whatever it receives. Place counts the slots it took as the root writer counts those of a write
+// (Storage.Roots.RootWriter.SlotBytes): the root block, the blocks of each value and each entry it added,
+// so that a root a child forwards has on its master the encoded size the same write made there has
+// (Engine.Writes.PreparedWrite.EncodedSize). The caller publishes the root.
 //
 // A refusal of the arena for its budget returns the null address, and an OutOfMemoryException of the
 // native allocator passes through; either way nothing of the root is left allocated. The caller decides
-// what a refusal means (Engine.Child.Loading).
+// what a refusal means (Engine.Child.Loading, Engine.Writes.WriteExecutor).
 //
-// The arena has one changing thread at a time: the caller holds the lock of the writes of the child.
+// The arena has one changing thread at a time: the caller holds the lock of the writes of its node.
 internal sealed class BlockImport
 {
     private readonly Arena _arena;
@@ -148,17 +151,20 @@ internal sealed class BlockImport
     }
 
     // Places the root checked last for the lifetime the handle names (see the class): the address of its
-    // root block, prepared; the null address when the arena refused it for its budget, with nothing of it
-    // left allocated.
-    public ArenaAddress Place(in ReceivedRoot root, RootHandle handle)
+    // root block, prepared, with the bytes of the slots it took; the null address and 0 when the arena
+    // refused it for its budget, with nothing of it left allocated.
+    public ArenaAddress Place(in ReceivedRoot root, RootHandle handle, out long slotBytes)
     {
         var layout = root.Layout;
+
+        slotBytes = 0;
 
         if (!_arena.TryAllocatePrepared(root.PayloadLength, BlockKindEnum.Root, handle, out var block))
         {
             return default;
         }
 
+        var size = (long)Arena.BlockSizeFor(root.PayloadLength);
         var index = 0;
         var values = root.OutOfLine;
 
@@ -193,12 +199,14 @@ internal sealed class BlockImport
                 // it as it was.
                 if (received.Kind == DescriptorKindEnum.Text)
                 {
-                    if (!_arena.Texts.TryAcquire(bytes, place, out _))
+                    if (!_arena.Texts.TryAcquire(bytes, place, out var newBytes))
                     {
                         Abandon(block, layout, index);
 
                         return default;
                     }
+
+                    size += newBytes;
                 }
                 else
                 {
@@ -212,6 +220,7 @@ internal sealed class BlockImport
                     }
 
                     ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, descriptors.Offset);
+                    size += ValueBlocks.SlotBytesOf(length);
                 }
 
                 values = values.Slice(length);
@@ -222,6 +231,8 @@ internal sealed class BlockImport
             Abandon(block, layout, index);
             throw;
         }
+
+        slotBytes = size;
 
         return block;
     }
