@@ -1248,6 +1248,11 @@ Why this order:
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
+| S15, part 1 | Exact search, index-search, 1 thread alone, against 5cc64c8 (main after S14R), the first of three starts, four builds, three rounds | Int64 through the class 0.88, by name 0.92; text of 8 bytes 0.87, of 100 bytes 0.92; the first item of 6,250 equal keys 0.52, its bytes 416 to 840; S14R itself loses nothing there | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | The walk, index-search, the first start: a range of 100, a page at Offset 10,000, the rounds of a step | a range of 100 about 9,800 a second alone, 0.89 forwards and 0.84 in reverse beside a writer, about 62,000 with 8 readers; the page at Offset 10,000 404 a second against 10,405 for the first page, the price of remembering the identities passed over; counting under `ReadMemoryLimit` not visible for an entity of 112 stored bytes; 3.22 descents at a fence for a range of 100; `EntriesPerRound` 64, 256 and 1,024 not apart outside the gauge, 256 kept | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | Writes and reads by key, the upkeep, forwarded writes, the first start | writes and reads by key lose nothing to the sprint; a type without indexes loses nothing (F7); the upkeep of one index 1.20 to 1.26 times the bare tree of the same rounds; the forwarded write loses nothing after F12; F9 not explained by how a step is called | rented-arm64-1 | 21 November 2026 |
+| S14R | Inserts and deletes of the reference fixture's users, write-callers, against 22b8ee1, as merged and with two fixes, the first and second starts of S15, part 1 | as merged 0.93 to 0.96; with V1 0.96 to 0.99; with V2 1.01 to 1.08, taken and merged (PR 37); V2 on index-long-text 8 to 14 % faster on a replace that changes a long key and on an insert and a delete with distinct heads | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | Exact search at the close, the third start, against 5cc64c8, 1 thread alone, class and by name | Int64 0.966 and 0.957; text of 8 bytes 0.899 and 0.911; text of 100 bytes 0.951 and 0.964; the first of many 0.826 and 0.869; beside a writer one entity 0.99 to 1.06. Targets of S14, part 2 at the head: 692 k against 700 k, 426 k against 450 k, 258 k against 200 k, with 5cc64c8 reading 730 k and 474 k | rented-arm64-1 | 21 November 2026 |
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
 | S15, part 2 | The binding rules | Full | Not started |
@@ -6743,6 +6748,23 @@ absolute targets reported beside it. Whatever is taken gets its tests where it c
 anything observable, one review round and the breaker's probes before it is merged. After
 this start nothing more is tried on the machine for this fall: what remains goes to the
 owner as one question with the figures.
+
+**What the third start showed** (21 November 2026, the last for this fall). The gauge, two
+builds of the head, stood at 0.97 to 1.02. None of the three variants stood outside it
+against the head: a6 1.00, lean at most 1.03 on one line and short of the gauge of 5cc64c8
+everywhere, split 1.00; none is taken, and the patches stay outside the repository. A
+single run on the workstation had promised split a third off the time of a search; the
+machine did not confirm it, so a single run on the workstation selects nothing. Group 1
+stays: it is in every build that was measured, and its gain in the second start was at the
+edge of that start's gauge (F14 of the backlog). What remains against 5cc64c8, one thread
+alone, class and by name: Int64 one entity 0.966 and 0.957, a text of 8 bytes 0.899 and
+0.911, a text of 100 bytes 0.951 and 0.964, the first of many 0.826 and 0.869; beside a
+writer a search of one entity loses nothing (0.99 to 1.06). The targets of S14, part 2 at
+the head: Int64 692,000 against 700,000, a text of 8 bytes 426,000 against 450,000, a text
+of 100 bytes 258,000 against 200,000; 5cc64c8 itself reads 730,000 and 474,000, against
+796,000 and 503,000 on 20 November. Nothing more is tried on the machine for this fall;
+the backlog carries the search for what an exact search of one entity does not need (F13),
+and the remainder is the owner's question on the Acceptance.
 
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
