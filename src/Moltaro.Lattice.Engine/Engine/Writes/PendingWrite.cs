@@ -96,7 +96,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public bool IsWaiter { get; set; }
 
     // The next write of the list it is in: the queue of the prepared writes, the held list, or the
-    // writes a hold of the lock has to start (WriteCoordinator.Drive).
+    // writes a hold of the lock has to start (WriteCoordinator.StartReadyAndCommit).
     public PendingWrite? Next { get; set; }
 
     // The next write whose outcome a hold of the lock decided and gives after it.
