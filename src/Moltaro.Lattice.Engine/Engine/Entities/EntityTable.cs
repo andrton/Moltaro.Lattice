@@ -610,10 +610,11 @@ internal sealed class EntityTable
                         }
 
                         // An entity of the answer FindAsync holds counts against the memory limit when it is
-                        // added, before it is copied; the round looked at the token when it entered.
+                        // added, by everything stored for it, before it is copied; the round looked at the
+                        // token when it entered. Nothing of it is measured without a memory limit.
                         if (progress is not null && search.HoldsAnswer && search.Limits.LimitsMemory)
                         {
-                            var held = reader.BlockBytes;
+                            var held = reader.EntityBytes();
 
                             search.CheckMemory(progress.Bytes + progress.Held + held, entityName, indexName);
                             progress.StageHeld(held);

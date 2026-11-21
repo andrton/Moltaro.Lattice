@@ -20,8 +20,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // is counted and made, and the step reads its entry anew.
 //
 // Staged, then committed: a step detaches the entry of the entity it returns into the room for it, stages
-// its key and the bytes of its root, and the search commits them once the entity is built (Commit), so that
-// an entity whose build fails is read again by the next step. The two entries are two arrays of one
+// its key and, for FindAsync under a memory limit, everything stored for it (RootReader.EntityBytes), and
+// the search commits them once the entity is built (Commit), so that an entity whose build fails is read
+// again by the next step. The two entries are two arrays of one
 // capacity, which a commit swaps.
 internal sealed class WalkProgress
 {
@@ -124,7 +125,7 @@ internal sealed class WalkProgress
         _keyStaged = true;
     }
 
-    // Stages the bytes of the root of the entity the step is about to return, for the answer of FindAsync.
+    // Stages everything stored for the entity the step is about to return, for the answer of FindAsync.
     public void StageHeld(long bytes) => _stagedHeld = bytes;
 
     // Remembers at once the key of an entity the walk passes over by Offset, which the returned keys have
@@ -139,7 +140,7 @@ internal sealed class WalkProgress
     public void Hold(long bytes) => Held += bytes;
 
     // The entity the last step staged was built and is returned: the walk stands after its entry, and
-    // remembers its key and the bytes of its root.
+    // remembers its key and what is stored for it.
     public void Commit()
     {
         if (_stagedLength >= 0)

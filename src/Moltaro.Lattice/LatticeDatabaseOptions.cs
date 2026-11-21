@@ -131,7 +131,12 @@ public sealed class LatticeDatabaseOptions
     /// For a search through an index it counts what the search holds: the identities it has
     /// returned or passed over, with the text of their keys, and the indexed values it stands
     /// after; and, for <see cref="ILatticeIndex{TEntity}.FindAsync"/> until it returns, its
-    /// result, the list by its capacity and each entity by the bytes stored for it. The lazy
+    /// result, the list by its capacity and each entity, checked when it is added, by the bytes
+    /// stored for it. Those are its stored lengths, not an account of the memory that holds them:
+    /// the bytes of its root block and the encoded bytes of every value kept outside it, a value
+    /// in chunks with 16 bytes for each chunk, and a text of
+    /// <see cref="LatticeStringStorageEnum.Dictionary"/> storage by the bytes of its shared
+    /// entry, once for each entity that refers to it. The lazy
     /// <see cref="ILatticeIndex{TEntity}.Find"/> counts no entity it returned. An answer of one
     /// entity whose step saw the end of the search is not counted, as a read by key is not; from
     /// the first step that returns an entity without seeing the end, everything the answer holds
