@@ -636,7 +636,7 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         {
             await CloseAsync(CancellationToken.None).ConfigureAwait(false);
 
-            var failure = OpenFailure(exception, cancellationToken);
+            var failure = ChildLoad.OpenFailure(exception, cancellationToken, _closing.IsCancellationRequested, _options.MasterUri, _options.OpenTimeout);
 
             if (ReferenceEquals(failure, exception))
             {
@@ -676,22 +676,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
             }
 
             var memoryLimit = MemoryLimitInForce();
-            var (schema, counts) = await master.ReceiveSchemaAsync(memoryLimit, token).ConfigureAwait(false);
-
-            // The schema has to be the one the handshake bound: the master announced its fingerprint in
-            // its HelloReply.
-            if (schema.Fingerprint != master.Master.SchemaFingerprint)
-            {
-                throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} sent a schema whose fingerprint {schema.Fingerprint} is not the {master.Master.SchemaFingerprint} its HelloReply announced.");
-            }
-
+            var (schema, counts) = await ChildLoad.ReceiveSchemaAsync(master, masterUri, memoryLimit, token).ConfigureAwait(false);
             var parts = Build(schema, master.Master.History, child: true);
-            var tables = parts.Tables;
-            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, tables, parts.Writes, _barrier, Fault);
-
-            PresizeIndexes(parts, counts, memoryLimit);
-
-            var end = await master.ReceiveRootsAsync(new RootPlacement(changes, tables), memoryLimit, token).ConfigureAwait(false);
+            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, parts.Tables, parts.Writes, _barrier, Fault);
+            var end = await ChildLoad.ReceiveRootsAsync(master, changes, parts.Tables, parts.Writes, counts, memoryLimit, token).ConfigureAwait(false);
 
             // The load is complete; the transactions of (S, R] follow LoadEnd: the child is CatchingUp
             // until it has applied R, and then Ready.
@@ -727,69 +715,6 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         {
             _loaded!.SetResult();
         }
-    }
-
-    // Sizes the primary index of each entity type for the roots its master announced, so that the load does
-    // not grow it root by root. A count of roots of a type the engine does not store is not valid; counts
-    // that need more than the memory limit, each root at least one block of its fixed part, cannot be held,
-    // and the open ends with Unavailable.
-    private static void PresizeIndexes(DatabaseParts parts, long[] counts, long memoryLimit)
-    {
-        var tables = parts.Tables.InSchemaOrder;
-        var least = 0.0;
-
-        for (var index = 0; index < tables.Count; index++)
-        {
-            if (counts[index] == 0)
-            {
-                continue;
-            }
-
-            if (tables[index].Layout is not { } layout)
-            {
-                throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The master announces {counts[index]} roots of {tables[index].EntityType.Name}, which the engine does not store.");
-            }
-
-            least += (double)counts[index] * Arena.BlockSizeFor(layout.FixedSize - BlockHeader.Size);
-        }
-
-        if (least > memoryLimit)
-        {
-            throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master announces roots that take at least {least:F0} bytes, more than the memory limit of this child, {memoryLimit} bytes: the child cannot hold the database of its master.");
-        }
-
-        lock (parts.Writes)
-        {
-            for (var index = 0; index < tables.Count; index++)
-            {
-                if (counts[index] > 0)
-                {
-                    tables[index].Presize(counts[index]);
-                }
-            }
-        }
-    }
-
-    // What the open of a child reports for what ended it: its own token, and a close that came while the open
-    // waited, OperationCanceledException — the caller has no instance yet that could be unavailable, and
-    // closing it withdraws the request to open; an address it cannot use, InvalidConfiguration; everything
-    // that ends the open because of the master, Unavailable with the reason in the message.
-    private Exception OpenFailure(Exception exception, CancellationToken cancellationToken)
-    {
-        var masterUri = _options.MasterUri;
-
-        return exception switch
-        {
-            OperationCanceledException when cancellationToken.IsCancellationRequested => exception,
-            OperationCanceledException or ObjectDisposedException when _closing.IsCancellationRequested =>
-                new OperationCanceledException("The instance was closed while it opened.", exception),
-            LatticeException { Error: LatticeErrorEnum.Unavailable or LatticeErrorEnum.InvalidConfiguration } => exception,
-            LatticeException { Error: LatticeErrorEnum.ValidationFailed or LatticeErrorEnum.InvalidSchema } invalid =>
-                new LatticeException(LatticeErrorEnum.Unavailable, $"What the master at {masterUri} sent is not valid: {invalid.Message}", invalid),
-            TimeoutException => new LatticeException(LatticeErrorEnum.Unavailable, $"Nothing arrived from the master at {masterUri} for the open timeout of {_options.OpenTimeout}.", exception),
-            IOException or SocketException => new LatticeException(LatticeErrorEnum.Unavailable, $"The connection to the master at {masterUri} ended before the load was complete.", exception),
-            _ => exception,
-        };
     }
 
     // The memory budget is the limit of the arena (see the class): the option, or half of the memory of the
