@@ -2,12 +2,12 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A null that has a type, a Nullable without a value or a null string, is a value of a part only where a
 // value of that type could be, by the allowlist, and only where the part can be null; a null given as an
-// object has no type and follows the part alone; a null given as any other class, or as a Nullable of a
-// type no scalar field has, is refused for every part (IndexKey; docs/decisions/queries.md, Q07.3.6: for
-// nullable inputs compatibility is still checked by the declared type, and a typed null does not make an
-// otherwise incompatible type valid). The fields of Item (BindingSchema): the
-// nullable Int32, Decimal, Float32, Float64 and Exact, a String; Count, an Int32 that is never null; and
-// ByTriple over Int32, Exact and Decimal.
+// object has no type and follows the part alone; a null given as any other reference type, or as a
+// Nullable of a type no scalar field has, is refused for every part (IndexKey; docs/decisions/queries.md,
+// Q07.3.6: for nullable inputs compatibility is still checked by the declared type, and a typed null does
+// not make an otherwise incompatible type valid). The fields of Item (BindingSchema): the nullable Int32,
+// Decimal, Float32, Float64 and Exact, a String; Count, an Int32 that is never null; and ByTriple over
+// Int32, Exact and Decimal.
 // - A null that binds finds the entities without a value in the part, through the class and by name, by
 //   Find and by FindAsync; one that is refused is the ArgumentException of a key the index cannot serve.
 // - In ByTriple a null stands in every position, given with the type of its part and as an object, and

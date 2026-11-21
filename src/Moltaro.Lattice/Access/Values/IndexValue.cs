@@ -40,9 +40,9 @@ namespace Moltaro.Lattice.Access.Values;
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct IndexValue
 {
-    // The type of a null given as a type that no scalar field has, a Nullable of one or a class other than
-    // string and object, which is no field type: such a null is refused for every part, as a value of its
-    // type is.
+    // The type of a null given as a type that no scalar field has, a Nullable of one or a reference type
+    // other than string and object, which is no field type: such a null is refused for every part, as a
+    // value of its type is.
     private const LatticeFieldTypeEnum OtherType = (LatticeFieldTypeEnum)byte.MaxValue;
 
     // The bits; see the struct.
@@ -114,8 +114,8 @@ internal readonly struct IndexValue
                 : new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
         }
 
-        // A null reference: given as an object it has no type; given as any other class, a type no
-        // scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
+        // A null reference: given as an object it has no type; given as any other reference type, a type
+        // no scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
         // tested here, where an unoptimized build would box it.
         if (!typeof(T).IsValueType && value is null)
         {

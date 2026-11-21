@@ -6,11 +6,11 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // A value that is bound to its field by a conversion of the allowlist is not boxed: a search with it
 // allocates what the same search with the value in the type of the field allocates (IndexKey: making a
-// key boxes none of its values, and binding a value converts it into the bits it is held in). Measured as the other searches are, with
-// GC.GetAllocatedBytesForCurrentThread, after a first search of the same form, in the test collection of
-// the tests that measure managed allocation: an Int32 for a Decimal part and a Float32 for a Float64 part,
-// as the value of Equal and as both bounds of a range, through the class and by name, by Find and by
-// FindAsync, each finding the one entity that holds the value.
+// key boxes none of its values, and binding a value converts it into the bits it is held in). Measured as
+// the other searches are, with GC.GetAllocatedBytesForCurrentThread, after a first search of the same
+// form, in the test collection of the tests that measure managed allocation: an Int32 for a Decimal part
+// and a Float32 for a Float64 part, as the value of Equal and as both bounds of a range, through the class
+// and by name, by Find and by FindAsync, each finding the one entity that holds the value.
 [Collection<ManagedAllocationCollection>]
 public sealed class ConvertedValueAllocationTests
 {

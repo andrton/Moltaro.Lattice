@@ -3,8 +3,8 @@ using Moltaro.Lattice.Tests.Indexes.Walk;
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
 // A range over a part of every scalar family finds what the oracle finds, in both directions, through the
-// class and by name (docs/design/ordered-index.md, "Entries and their order": a part
-// is ordered by the comparison of its type, never as raw bytes):
+// class and by name (docs/design/ordered-index.md, "Entries and their order": a part is ordered by the
+// comparison of its type, never as raw bytes):
 // - for each family OrderAndBoundsTests does not hold, Boolean, the six integers other than Int32 and
 //   Int64, Float32, Float64, Decimal, Guid, DateTimeOffset, DateOnly, TimeOnly and TimeSpan: five values
 //   from the smallest to the largest of the type, where the order of the bytes of a value differs from the

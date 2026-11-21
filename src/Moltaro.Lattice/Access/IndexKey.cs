@@ -39,7 +39,7 @@ namespace Moltaro.Lattice.Access;
 /// <see langword="null"/> for any other part is an <see cref="ArgumentException"/>. A
 /// <see langword="null"/> that has a type, a <see cref="Nullable{T}"/> without a value or a null
 /// <see cref="string"/>, is accepted only where a value of that type would be. A null given as
-/// any other class is refused, as a null of a type no field has.
+/// any other reference type is refused, as a null of a type no field has.
 /// </para>
 /// <para>
 /// A key is a small value. Making one allocates nothing and boxes none of its values when each
