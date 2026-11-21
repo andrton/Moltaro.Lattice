@@ -323,7 +323,7 @@ internal sealed class EntityTable
     // build failed, finds it again at its next step. ObjectDisposedException after the close, at every
     // call; LatticeException with ReadLimitExceeded from a call that would exceed a read limit and from
     // every call after it (EntityPass). The token of an asynchronous enumeration ends the wait of a
-    // round for a slot of the protection, and each round looks at it before it looks at the limits, so a
+    // round for a slot of the protection, and every look at a limit looks at it first (ReadLimits), so a
     // cancellation is reported before a limit is and takes effect between two rounds;
     // OperationCanceledException then, with the pass as it was before the call.
     public bool TryReadNext<TCopy, TResult>(EntityPass pass, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
@@ -346,9 +346,7 @@ internal sealed class EntityTable
 
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    pass.ThrowIfFailed();
-                    pass.CheckTime(started);
+                    pass.CheckRound(started, cancellationToken);
 
                     if (Layout is null)
                     {
@@ -418,15 +416,13 @@ internal sealed class EntityTable
                     _epochs.Exit(protection);
                 }
 
-                // Outside the protection: the room is counted against the memory limit, then made; a
-                // cancellation is reported before the limit is.
+                // Outside the protection: the room is counted against the memory limit, whose check looks at
+                // the token first, then made.
                 if (room >= 0)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
                     if (pass.LimitsMemory)
                     {
-                        pass.CheckMemory(pass.Returned.BytesWithRoomFor(room));
+                        pass.CheckMemory(pass.Returned.BytesWithRoomFor(room), cancellationToken);
                     }
 
                     pass.Returned.MakeRoom(room);
@@ -448,7 +444,7 @@ internal sealed class EntityTable
     // A search of an entity type the engine does not store, which has no index, finds nothing, as a read by
     // key does. ObjectDisposedException after the close; LatticeException with ReadLimitExceeded from a
     // step that would exceed a read limit and from every step after it (ReadLimits). The token ends the wait
-    // of a round for a slot of the protection, and each round looks at it before it looks at the limits, so
+    // of a round for a slot of the protection, and every look at a limit looks at it first (ReadLimits), so
     // a cancellation is reported before a limit is; OperationCanceledException then. Allocates nothing but
     // what the copy makes and what WalkProgress holds, which room made outside the protection grows.
     //
@@ -525,9 +521,7 @@ internal sealed class EntityTable
 
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    search.Limits.ThrowIfFailed(entityName, indexName);
-                    search.CheckTime(started, entityName, indexName);
+                    search.CheckRound(started, cancellationToken, entityName, indexName);
 
                     if (index is null)
                     {
@@ -625,13 +619,14 @@ internal sealed class EntityTable
                         }
 
                         // An entity of the answer FindAsync holds counts against the memory limit when it is
-                        // added, by everything stored for it, before it is copied; the round looked at the
-                        // token when it entered. Nothing of it is measured without a memory limit.
+                        // added, by everything stored for it, before it is copied; the check looks at the token
+                        // first, which another thread may have cancelled while the round was inside. Nothing of
+                        // it is measured without a memory limit.
                         if (progress is not null && search.HoldsAnswer && search.Limits.LimitsMemory)
                         {
                             var held = reader.EntityBytes();
 
-                            search.CheckMemory(progress.Bytes + progress.Held + held, entityName, indexName);
+                            search.CheckMemory(progress.Bytes + progress.Held + held, cancellationToken, entityName, indexName);
                             progress.StageHeld(held);
                         }
 
@@ -681,10 +676,8 @@ internal sealed class EntityTable
                     _epochs.Exit(protection);
                 }
 
-                // Outside the protection: what the round ended for is counted against the memory limit, then
-                // made; a cancellation is reported before the limit is.
-                cancellationToken.ThrowIfCancellationRequested();
-
+                // Outside the protection: what the round ended for is counted against the memory limit, whose
+                // check looks at the token first, then made.
                 if (makesProgress)
                 {
                     search.Progress = new WalkProgress(Keys);
@@ -694,7 +687,7 @@ internal sealed class EntityTable
                 {
                     if (search.Limits.LimitsMemory)
                     {
-                        search.CheckMemory(made.BytesWithRoomFor(keyBound, entryLength), entityName, indexName);
+                        search.CheckMemory(made.BytesWithRoomFor(keyBound, entryLength), cancellationToken, entityName, indexName);
                     }
 
                     made.MakeRoom(keyBound, entryLength);

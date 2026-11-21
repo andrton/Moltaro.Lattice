@@ -20,8 +20,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // A step that would exceed a limit fails with LatticeException, ReadLimitExceeded, and the limit; the
 // failure is kept, so that every later step fails the same way and the read never ends as if it were
-// complete. 24 bytes: the options, the ticks spent and the limit that failed. Mutable, and only the
-// thread that takes a step of its read changes it.
+// complete. A cancellation is reported before a limit: the two looks at the limits, that of a round when
+// it enters the protection (CheckRound) and that at the memory (CheckMemory), take the token of the read
+// and look at it first, so that no place of a step can look at a limit before the token. 24 bytes: the
+// options, the ticks spent and the limit that failed. Mutable, and only the thread that takes a step of
+// its read changes it.
 internal struct ReadLimits
 {
     private readonly LatticeDatabaseOptions _options;
@@ -50,20 +53,20 @@ internal struct ReadLimits
         }
     }
 
-    // Fails the step when the read failed before; the names, of the entity type and of the index of a
-    // search, null for an enumeration, go into the message, which is made only when the read fails.
-    public readonly void ThrowIfFailed(string entityName, string? indexName)
+    // The look of a round of the step that started at the timestamp, once it has entered the protection of
+    // reads, in this order: the token; a failure the read kept, which fails the step again; and the time
+    // limit, which fails it when the steps, this one so far included, have spent more than it, and the
+    // failure is kept. The names, of the entity type and of the index of a search, null for an enumeration,
+    // go into the message, which is made only when the read fails.
+    public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
-        if (_failed is { } limit)
-        {
-            throw Exceeded(limit, entityName, indexName);
-        }
-    }
+        cancellationToken.ThrowIfCancellationRequested();
 
-    // Fails the step that started at the timestamp when the steps, this one so far included, have spent
-    // more than the time limit; the failure is kept.
-    public void CheckTime(long started, string entityName, string? indexName)
-    {
+        if (_failed is { } failed)
+        {
+            throw Exceeded(failed, entityName, indexName);
+        }
+
         if (_options.ReadTimeLimit is { } limit && _spentTicks + (Stopwatch.GetTimestamp() - started) > TicksOf(limit))
         {
             _failed = LatticeLimitEnum.ReadTime;
@@ -72,9 +75,12 @@ internal struct ReadLimits
         }
     }
 
-    // Fails the step when the read would hold more bytes than the memory limit; the failure is kept.
-    public void CheckMemory(long bytes, string entityName, string? indexName)
+    // The look at the memory: the token, then whether the read would hold more bytes than the memory limit,
+    // which fails the step; the failure is kept.
+    public void CheckMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (bytes > _options.ReadMemoryLimit)
         {
             _failed = LatticeLimitEnum.ReadMemory;

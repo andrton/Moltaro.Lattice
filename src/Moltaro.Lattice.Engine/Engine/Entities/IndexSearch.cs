@@ -22,7 +22,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // it back when it cannot build the entity the step returned (Sets.SetOperations.Next), so that the next
 // step reads that entity again, while the time spent and a failure the step recorded stay; and it commits
 // what the step staged once the entity is built (Commit). A read limit that fails the search, and a step
-// after the close, make it let go of its WalkProgress (CheckTime, CheckMemory, EntityTable.TrySearch), and a
+// after the close, make it let go of its WalkProgress (CheckRound, CheckMemory, EntityTable.TrySearch), and a
 // lazy search lets go of it at its end and on Dispose. An entity whose build fails keeps it: the next step
 // reads that entity again.
 internal struct IndexSearch
@@ -85,15 +85,15 @@ internal struct IndexSearch
         Progress?.Unstage();
     }
 
-    // Fails the step that started at the timestamp when the steps, this one so far included, have spent
-    // more than the time limit, and lets go of what the search remembers: a search that failed returns
-    // nothing more, and every later step fails at the failure the read limits keep before it would read it
-    // (ReadLimits).
-    public void CheckTime(long started, string entityName, string? indexName)
+    // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
+    // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
+    // remembers: a search that failed returns nothing more, and every later step fails at the failure the
+    // read limits keep before it would read it.
+    public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         try
         {
-            Limits.CheckTime(started, entityName, indexName);
+            Limits.CheckRound(started, cancellationToken, entityName, indexName);
         }
         catch (LatticeException)
         {
@@ -103,13 +103,14 @@ internal struct IndexSearch
         }
     }
 
-    // Fails the step when the search would hold more bytes than the memory limit, and lets go of what it
-    // remembers, as CheckTime does. Every place a search looks at the memory limit looks through here.
-    public void CheckMemory(long bytes, string entityName, string? indexName)
+    // The look at the memory (ReadLimits.CheckMemory): the token, then whether the search would hold more
+    // bytes than the memory limit; on a failure of the limit it lets go of what it remembers, as CheckRound
+    // does. Every place a search looks at the memory limit looks through here.
+    public void CheckMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         try
         {
-            Limits.CheckMemory(bytes, entityName, indexName);
+            Limits.CheckMemory(bytes, cancellationToken, entityName, indexName);
         }
         catch (LatticeException)
         {

@@ -177,9 +177,9 @@ internal sealed class SetOperations
     // which counts, once the search has a WalkProgress, against the memory limit of a read with what the
     // search remembers; before that, an answer of one entity whose step saw the end, nothing of it counts, as a
     // read by key does not, and nothing is counted without a memory limit. Over the limit the search fails
-    // with ReadLimitExceeded and lets go of what it remembers. The token is looked at first, as at every place
-    // a limit is looked at, so that a cancellation is reported before the limit is, also one the code of the
-    // application made while it built the entity just added.
+    // with ReadLimitExceeded and lets go of what it remembers. The check looks at the token first, as every
+    // look at a limit does (Entities.ReadLimits), so that a cancellation is reported before the limit is,
+    // also one the code of the application made while it built the entity just added.
     public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes, CancellationToken cancellationToken)
     {
         if (search.Progress is not { } progress || !search.Limits.LimitsMemory)
@@ -188,8 +188,7 @@ internal sealed class SetOperations
         }
 
         progress.Hold(bytes);
-        cancellationToken.ThrowIfCancellationRequested();
-        search.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
+        search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index?.Definition.Name);
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>

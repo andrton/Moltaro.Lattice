@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Values;
 using Moltaro.Lattice.TestSupport.ApplicationCode;
 
@@ -14,8 +15,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 // step that makes what a walk remembers, everything counts, the first entity included. So a limit of exactly
 // what an answer of n entities holds lets FindAsync return them, and a limit one byte less fails it with
 // ReadMemory. And a cancellation is reported before a limit: the token is looked at before the limit at every
-// place a limit is looked at, so a token cancelled by the code of the application while an entity is built
-// ends the search in OperationCanceledException, also when the check after that build would exceed the limit.
+// place a limit is looked at, so a token cancelled by the code of the application while an entity is built,
+// or by another thread while a round of a step is inside, ends the search in OperationCanceledException, also
+// when the check after it would exceed the limit. A round is held at a root it takes through the switch of the
+// engine (EngineDatabase.ArmReadSwitch), which cancels the token there, as another thread could.
 //
 // The figures, by the rules: a search by the full key of ByNumber stands at no entry, so it holds none; its
 // keys take KeysBytes while it remembers 12 keys or fewer; the list of its answer takes 8 bytes a reference of
@@ -172,6 +175,66 @@ public sealed class AnswerMemoryTests
             await hooked.Index("ByText").FindAsync(IndexKey.Equal("t"), new LatticeFindOptions(), cancellation.Token));
 
         Assert.True(failure is OperationCanceledException, $"The search ended in {failure?.GetType().Name}: {failure?.Message}");
+    }
+
+    // The token is cancelled inside the round that adds the second entity of the answer, at its root, past the
+    // match an Offset skips, in either direction, under a limit one byte less than the answer holds once that
+    // entity is added: without the cancellation the search fails there with ReadMemory.
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 1)]
+    public async Task FindAsync_cancelled_inside_a_round_ends_in_cancellation_under_a_limit_the_next_entity_exceeds(bool reverse, int offset)
+    {
+        var limit = KeysBytes + ListBytes(2) + (2 * (long)IndexSchema.CountedFixedSize) - 1;
+
+        ExpectReadMemory(await Record.ExceptionAsync(() => FindCancelledAtAsync(limit, reverse, offset, cancels: false)));
+
+        var failure = await Record.ExceptionAsync(() => FindCancelledAtAsync(limit, reverse, offset, cancels: true));
+
+        Assert.True(failure is OperationCanceledException, $"The search ended in {failure?.GetType().Name}: {failure?.Message}");
+    }
+
+    // FindAsync of the four entities of Counted of one Number, in the direction and with the Offset given,
+    // under the memory limit given, with the token cancelled at the first root of the second entity it would
+    // return, when it cancels: the roots it takes are counted by their identities.
+    private static async Task FindCancelledAtAsync(long limit, bool reverse, int offset, bool cancels)
+    {
+        await using var database = (EngineDatabase)await OpenAsync(IndexSchema.Utf8, limit);
+        var counted = database.Set<IndexSchema.Counted>();
+
+        for (var id = 1L; id <= 4; id++)
+        {
+            await counted.InsertAsync(new IndexSchema.Counted { Id = id, Number = 7 });
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        var taken = new List<RootHandle>();
+
+        void CancelAtTheSecondEntity(RootHandle root)
+        {
+            if (!taken.Contains(root))
+            {
+                taken.Add(root);
+            }
+
+            if (taken.Count == offset + 2)
+            {
+                cancellation.Cancel();
+            }
+            else
+            {
+                database.ArmReadSwitch(CancelAtTheSecondEntity);
+            }
+        }
+
+        if (cancels)
+        {
+            database.ArmReadSwitch(CancelAtTheSecondEntity);
+        }
+
+        await counted.Index("ByNumber").FindAsync(IndexKey.Equal(7L), new LatticeFindOptions { Reverse = reverse, Offset = offset }, cancellation.Token);
     }
 
     // FindAsync of the key of ByNumber that the number of entities of Counted given have, in a database
