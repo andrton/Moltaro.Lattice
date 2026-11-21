@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -33,20 +35,19 @@ internal struct IndexSearch
     // moves where it lies.
     public ReadLimits Limits;
 
-    // The search of a lazy Find, by a full key or not: forward, skipping nothing, and holding nothing of its
-    // answer.
-    public IndexSearch(LatticeDatabaseOptions options, bool fullKey)
+    // The search of a lazy Find through the index, null for an entity type the engine does not store, by the
+    // key, a full key or not: forward, skipping nothing, and holding nothing of its answer.
+    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key)
     {
         Limits = new ReadLimits(options);
-        FullKey = fullKey;
+        FullKey = index is not null && IndexWalk.IsFullKey(index.Layout, key);
     }
 
-    // The search of FindAsync, by a full key or not, in the direction given, which skips the matches of its
-    // Offset and holds its answer until it returns.
-    public IndexSearch(LatticeDatabaseOptions options, bool fullKey, bool reverse, int offset)
+    // The search of FindAsync through the index by the key, a full key or not, in the direction given, which
+    // skips the matches of its Offset and holds its answer until it returns.
+    public IndexSearch(LatticeDatabaseOptions options, SecondaryIndex? index, in IndexKey key, bool reverse, int offset)
+        : this(options, index, key)
     {
-        Limits = new ReadLimits(options);
-        FullKey = fullKey;
         Reverse = reverse;
         Offset = offset;
         HoldsAnswer = true;

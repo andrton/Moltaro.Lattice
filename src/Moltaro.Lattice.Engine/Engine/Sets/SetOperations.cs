@@ -41,9 +41,6 @@ internal sealed class SetOperations
 
     public EntityTable Table { get; }
 
-    // The options of the database, whose read limits a search takes (Entities.IndexSearch).
-    public LatticeDatabaseOptions Options => _options;
-
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
     // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
     // read ends its wait for a slot of the protection (EntityTable.TryRead).
@@ -92,6 +89,14 @@ internal sealed class SetOperations
 
     // A new pass of an enumeration of the entity type, under the read limits of the options.
     public EntityPass StartPass() => Table.StartPass(_options);
+
+    // A new search of a lazy Find through the index by the key, under the read limits of the options.
+    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_options, index, key);
+
+    // A new search of FindAsync through the index by the key, in the direction given and past the matches
+    // of its Offset, under the read limits of the options.
+    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key, bool reverse, int offset) =>
+        new(_options, index, key, reverse, offset);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
     public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>
