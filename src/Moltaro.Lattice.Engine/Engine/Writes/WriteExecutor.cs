@@ -350,7 +350,7 @@ internal sealed class WriteExecutor
     // writer has freed everything it allocated.
     private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[] values, out long size, out LatticeException? refusal)
     {
-        var writer = new RootWriter(_arena, table.Layout!, handle, prepared: true);
+        var writer = new RootWriter(_arena, table.Layout!, handle);
 
         refusal = null;
 

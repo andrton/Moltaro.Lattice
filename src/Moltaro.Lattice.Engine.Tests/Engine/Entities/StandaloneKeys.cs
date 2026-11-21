@@ -77,7 +77,7 @@ internal sealed class StandaloneKeys : IDisposable
                 units.Fill('k');
                 value.TryFormat(units, out _, default, CultureInfo.InvariantCulture);
             });
-            var writer = new RootWriter(_arena, _layout, new RootHandle(1, 1), prepared: true);
+            var writer = new RootWriter(_arena, _layout, new RootHandle(1, 1));
 
             writer.SetString(_layout.EntityType.Key, text);
             writer.SetString(Body, string.Empty);

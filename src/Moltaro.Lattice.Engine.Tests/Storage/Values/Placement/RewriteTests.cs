@@ -129,7 +129,7 @@ public sealed class RewriteTests
         var handle = table.Add((uint)item.EntityType.Id);
         var other = table.Add((uint)item.EntityType.Id);
 
-        var writer = new RootWriter(item.Arena, item.Layout, handle, prepared: true);
+        var writer = new RootWriter(item.Arena, item.Layout, handle);
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Value"), Payloads.Bytes(100_000));
         var root = writer.Complete();

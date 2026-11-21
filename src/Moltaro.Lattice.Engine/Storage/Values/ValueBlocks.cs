@@ -80,9 +80,9 @@ internal static class ValueBlocks
     // writer therefore never holds a half-stored value: a descriptor in its image names a whole value
     // or nothing.
     //
-    // The blocks are prepared when prepared is true (Arena.TryAllocatePrepared), and live otherwise.
-    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, bool prepared, int length, ref ValueSource source, scoped Span<byte> place) =>
-        TryStore(arena, root, layoutVersion, prepared, sharedText: false, length, ref source, place);
+    // The blocks are prepared (Arena.TryAllocatePrepared).
+    public static bool TryStore(Arena arena, RootHandle root, uint layoutVersion, int length, ref ValueSource source, scoped Span<byte> place) =>
+        TryStore(arena, root, layoutVersion, sharedText: false, length, ref source, place);
 
     // Allocates the blocks of the entry of a Dictionary text of length bytes, at least one, and fills
     // them from the source, by the placement of TryStore: every block of kind SharedText, its parent
@@ -90,8 +90,8 @@ internal static class ValueBlocks
     // where the block of a root names its root, as a handle of generation 0, which no lifetime of a root
     // has (RootTable); TextSlotOf reads it. The descriptor in place becomes a Text descriptor with the
     // length and the address of the block or the directory. Stored whole or not at all, as TryStore.
-    public static bool TryStoreText(Arena arena, uint slot, bool prepared, int length, ref ValueSource source, scoped Span<byte> place) =>
-        TryStore(arena, new RootHandle(0, slot), NoLayout, prepared, sharedText: true, length, ref source, place);
+    public static bool TryStoreText(Arena arena, uint slot, int length, ref ValueSource source, scoped Span<byte> place) =>
+        TryStore(arena, new RootHandle(0, slot), NoLayout, sharedText: true, length, ref source, place);
 
     // The slot of the text entry whose first block is at the address, as TryStoreText wrote it into the
     // header of the block.
@@ -237,7 +237,7 @@ internal static class ValueBlocks
         }
     }
 
-    private static bool TryStore(Arena arena, RootHandle owner, uint layoutVersion, bool prepared, bool sharedText, int length, ref ValueSource source, scoped Span<byte> place)
+    private static bool TryStore(Arena arena, RootHandle owner, uint layoutVersion, bool sharedText, int length, ref ValueSource source, scoped Span<byte> place)
     {
         var valueKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.Value;
         var directoryKind = sharedText ? BlockKindEnum.SharedText : BlockKindEnum.ChunkDirectory;
@@ -246,7 +246,7 @@ internal static class ValueBlocks
         if (length <= RootLayout.SingleBlockLimit)
         {
             // One block: it is allocated or, when the allocation fails, nothing is.
-            if (!TryAllocate(arena, length, valueKind, owner, layoutVersion, prepared, default, 0, out var block))
+            if (!TryAllocate(arena, length, valueKind, owner, layoutVersion, default, 0, out var block))
             {
                 return false;
             }
@@ -259,7 +259,7 @@ internal static class ValueBlocks
 
         var chunks = ChunkCount(length);
 
-        if (!TryAllocate(arena, chunks * DescriptorSize, directoryKind, owner, layoutVersion, prepared, default, 0, out var directory))
+        if (!TryAllocate(arena, chunks * DescriptorSize, directoryKind, owner, layoutVersion, default, 0, out var directory))
         {
             return false;
         }
@@ -280,7 +280,7 @@ internal static class ValueBlocks
                 var chunkLength = Math.Min(RootLayout.ChunkPayload, length - chunk * RootLayout.ChunkPayload);
                 var entryOffset = chunk * DescriptorSize;
 
-                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, prepared, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
+                if (!TryAllocate(arena, chunkLength, chunkKind, owner, layoutVersion, directory, (uint)(BlockHeader.Size + entryOffset), out var block))
                 {
                     FreeBlocks(arena, directory, chunks: true);
 
@@ -346,7 +346,7 @@ internal static class ValueBlocks
         arena.Publish(address);
     }
 
-    // Allocates a block of a root or of a text entry, prepared or live, and completes its header: the
+    // Allocates a prepared block of a root or of a text entry and completes its header: the
     // arena writes the owner, the kind and the length; the layout version, the parent and the offset of
     // the descriptor in the parent are written here.
     private static bool TryAllocate(
@@ -355,16 +355,11 @@ internal static class ValueBlocks
         BlockKindEnum kind,
         RootHandle owner,
         uint layoutVersion,
-        bool prepared,
         ArenaAddress parent,
         uint descriptorOffset,
         out ArenaAddress address)
     {
-        var allocated = prepared
-            ? arena.TryAllocatePrepared(payloadLength, kind, owner, out address)
-            : arena.TryAllocate(payloadLength, kind, owner, out address);
-
-        if (!allocated)
+        if (!arena.TryAllocatePrepared(payloadLength, kind, owner, out address))
         {
             return false;
         }

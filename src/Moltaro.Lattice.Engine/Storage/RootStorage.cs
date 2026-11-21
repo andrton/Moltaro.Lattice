@@ -53,7 +53,7 @@ internal static class RootStorage
         }
     }
 
-    // Publishes a root that a writer made with prepared true wrote: the root block and every block
+    // Publishes a root that a writer wrote, in prepared blocks: the root block and every block
     // it owns become live (Arena.Publish), when the write of the root is published, and so does the
     // entry of a Dictionary text that is still prepared because this root is the first published one
     // to refer to it (Text.TextTable.Publish). It changes no byte and allocates nothing. The root is

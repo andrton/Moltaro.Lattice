@@ -157,8 +157,8 @@ public sealed class WriterLifeTests
     {
         using var item = EveryType.Open();
 
-        Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(null!, item.Layout, RootArena.Handle, prepared: true); });
-        Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(item.Arena, null!, RootArena.Handle, prepared: true); });
+        Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(null!, item.Layout, RootArena.Handle); });
+        Assert.Throws<ArgumentNullException>(() => { _ = new RootWriter(item.Arena, null!, RootArena.Handle); });
     }
 
     // The member that serves the field, with a valid value.

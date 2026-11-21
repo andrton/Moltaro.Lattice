@@ -3,7 +3,7 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
-// A writer made with prepared true writes a root of a write of the database: every block it
+// A writer writes a root as a write of the database does: every block it
 // allocates is prepared until RootStorage.Publish publishes the root, and then the arena holds, live,
 // what the placement of its values gives (StoredBytes.Of; brief of Epic 1, sprint S06, the planner's
 // answer to Q30). A prepared root reads like any root. A prepared writer that is abandoned, or
@@ -33,7 +33,7 @@ public sealed class PreparedRootTests
         // directory for the Photo, 75,184 bytes of slots.
         var held = StoredBytes.Of(item.Layout.FixedSize, 20, 1_000, 70_000);
 
-        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
+        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle);
         var root = Write(ref writer, item);
 
         Assert.Equal(held.LiveBytes + held.ClassSlackBytes, item.Arena.Counters.PreparedBytes);
@@ -50,7 +50,7 @@ public sealed class PreparedRootTests
     {
         using var item = RootArena.Of(Fields);
 
-        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
+        var writer = new RootWriter(item.Arena, item.Layout, RootArena.Handle);
         var root = Write(ref writer, item);
         var reader = item.Reader(root);
 
@@ -64,7 +64,7 @@ public sealed class PreparedRootTests
     {
         using var item = RootArena.Of(Fields);
 
-        var abandoned = new RootWriter(item.Arena, item.Layout, RootArena.Handle, prepared: true);
+        var abandoned = new RootWriter(item.Arena, item.Layout, RootArena.Handle);
         abandoned.SetInteger(item.Field("Id"), 1);
         abandoned.SetString(item.Field("Login"), Login);
         abandoned.SetString(item.Field("Note"), Note);
@@ -76,7 +76,7 @@ public sealed class PreparedRootTests
         // An arena of one 4 MiB segment has no room for a photo of 5 MiB: Complete is refused for the
         // memory of the arena and frees what was prepared.
         using var small = new RootArena(ItemSchema.Compile(Fields), memoryLimit: RootArena.SegmentSize);
-        var refused = new RootWriter(small.Arena, small.Layout, RootArena.Handle, prepared: true);
+        var refused = new RootWriter(small.Arena, small.Layout, RootArena.Handle);
         refused.SetInteger(small.Field("Id"), 1);
         refused.SetString(small.Field("Login"), Login);
         refused.SetString(small.Field("Note"), Note);

@@ -102,7 +102,7 @@ internal static class LargeWriteChildScenario
         var roots = new RootTable();
         var epochs = new ReadEpochs(roots);
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, roots), seed: 0);
-        var writer = new RootWriter(arena, layout, roots.Add((uint)entityType.Id), prepared: true);
+        var writer = new RootWriter(arena, layout, roots.Add((uint)entityType.Id));
 
         RootValues.Write(ref writer, entityType, [.. entityType.Fields.Select(field => user[field.Name])]);
 
@@ -166,7 +166,7 @@ internal static class LargeWriteChildScenario
         var retired = new RetiredMemory(epochs, arena, roots);
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, retired, new PositionClock(1, roots), seed: 0);
         var handle = roots.Add((uint)entityType.Id);
-        var writer = new RootWriter(arena, layout, handle, prepared: true);
+        var writer = new RootWriter(arena, layout, handle);
         var data = new byte[LargeWritesScenario.LargeBytes];
 
         new Random(42).NextBytes(data);

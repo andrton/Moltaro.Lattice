@@ -91,7 +91,7 @@ internal static class RootBytesScenario
     // Writes the record as a root and adds the logical sizes of its fields.
     private static ArenaAddress Write(Arena arena, RootLayout layout, RootHandle handle, LatticeRecord record, ref long logicalBytes)
     {
-        var writer = new RootWriter(arena, layout, handle, prepared: true);
+        var writer = new RootWriter(arena, layout, handle);
 
         foreach (var field in record.EntityType.Fields)
         {

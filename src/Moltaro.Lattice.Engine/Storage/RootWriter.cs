@@ -45,9 +45,8 @@ namespace Moltaro.Lattice.Storage;
 // not set, as after any refused call, and the writer stays usable, so the caller may set the field
 // again, complete or abandon.
 //
-// The blocks are live, as Arena.TryAllocate gives them, or, for a writer made with prepared true,
-// prepared (Arena.TryAllocatePrepared): the blocks of a write of the database, which count as
-// prepared until the write is published with RootStorage.Publish.
+// The blocks are prepared (Arena.TryAllocatePrepared), as the blocks of a write of the database are: they
+// count as prepared until the write is published with RootStorage.Publish.
 //
 // A writer ends in one of two ways. Complete checks the root as a whole and returns the address of
 // its root block; the root then belongs to the caller, who publishes it and frees it later with
@@ -103,9 +102,6 @@ internal ref struct RootWriter
 
     private readonly RootHandle _root;
 
-    // Whether the blocks are allocated prepared.
-    private readonly bool _prepared;
-
     // The rented array, null once the writer has ended. Its first RootLayout.ImageCapacity bytes are
     // the image of the root block, its header bytes unused, so that an offset of the layout is an
     // index into it; after them, one bit for each field, by LatticeField.Ordinal, set once the field
@@ -126,14 +122,8 @@ internal ref struct RootWriter
     public long SlotBytes { get; private set; }
 
     // Starts a root of the entity type of the layout, in the arena, for the root that the handle
-    // names, in live blocks. Refuses a null arena or layout with ArgumentNullException.
+    // names, in prepared blocks. Refuses a null arena or layout with ArgumentNullException.
     public RootWriter(Arena arena, RootLayout layout, RootHandle root)
-        : this(arena, layout, root, prepared: false)
-    {
-    }
-
-    // The same, in prepared blocks when prepared is true.
-    public RootWriter(Arena arena, RootLayout layout, RootHandle root, bool prepared)
     {
         ArgumentNullException.ThrowIfNull(arena);
         ArgumentNullException.ThrowIfNull(layout);
@@ -141,7 +131,6 @@ internal ref struct RootWriter
         _arena = arena;
         _layout = layout;
         _root = root;
-        _prepared = prepared;
         _scratch = ArrayPool<byte>.Shared.Rent(layout.ImageCapacity + RootLayout.BitBytes(layout.FieldCount));
         _rootBytes = layout.FixedSize;
         Start();
@@ -428,9 +417,7 @@ internal ref struct RootWriter
         {
             var payloadLength = _rootBytes - BlockHeader.Size;
 
-            allocated = _prepared
-                ? _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root)
-                : _arena.TryAllocate(payloadLength, BlockKindEnum.Root, _root, out root);
+            allocated = _arena.TryAllocatePrepared(payloadLength, BlockKindEnum.Root, _root, out root);
 
             if (allocated)
             {
@@ -452,7 +439,7 @@ internal ref struct RootWriter
             throw RefuseForMemory();
         }
 
-        // TryAllocate wrote the root, the kind and the length; a root has no parent and the offset 0.
+        // TryAllocatePrepared wrote the root, the kind and the length; a root has no parent and the offset 0.
         _arena.Header(root).LayoutVersion = _layout.LayoutVersion;
         Image[BlockHeader.Size.._rootBytes].CopyTo(_arena.Payload(root));
 
@@ -618,7 +605,7 @@ internal ref struct RootWriter
                 Location = 0,
             });
         }
-        else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, _prepared, length, ref source, descriptor))
+        else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, length, ref source, descriptor))
         {
             SlotBytes += ValueBlocks.SlotBytes(ValueBlocks.Read(descriptor));
         }
@@ -658,7 +645,7 @@ internal ref struct RootWriter
             _exported.Store((stored.Offset - _layout.DescriptorOffset) / ValueBlocks.DescriptorSize, length, ref source);
             ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Text, Length = (uint)length, Location = 0 });
         }
-        else if (_arena.Texts.TryAcquire(value, _layout.StringEncoding, length, _prepared, descriptor, out var newBytes))
+        else if (_arena.Texts.TryAcquire(value, _layout.StringEncoding, length, descriptor, out var newBytes))
         {
             SlotBytes += newBytes;
         }

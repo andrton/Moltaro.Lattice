@@ -193,7 +193,7 @@ internal sealed class BlockImport
                 // it as it was.
                 if (received.Kind == DescriptorKindEnum.Text)
                 {
-                    if (!_arena.Texts.TryAcquire(bytes, prepared: true, place, out _))
+                    if (!_arena.Texts.TryAcquire(bytes, place, out _))
                     {
                         Abandon(block, layout, index);
 
@@ -204,7 +204,7 @@ internal sealed class BlockImport
                 {
                     var source = ValueSource.Received(bytes);
 
-                    if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, prepared: true, length, ref source, place))
+                    if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, length, ref source, place))
                     {
                         Abandon(block, layout, index);
 

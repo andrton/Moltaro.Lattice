@@ -100,25 +100,24 @@ internal sealed class TextTable
     // descriptor that names it into place; for RootWriter, under the lock of the writes. The text is
     // well-formed and takes length stored bytes, at least one, in the encoding of the database. True with
     // the bytes of the slots of a new entry in newBytes, 0 when the entry was there; false when the arena
-    // cannot hold a new entry, with nothing taken and place as it was. A new entry is prepared when
-    // prepared is true, and published with the first published block that refers to it (Publish); a
-    // write of live blocks publishes an entry it finds prepared. An OutOfMemoryException of the native
-    // allocator or of the managed heap passes with nothing taken.
-    public bool TryAcquire(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding, int length, bool prepared, Span<byte> place, out long newBytes)
+    // cannot hold a new entry, with nothing taken and place as it was. A new entry is prepared, and
+    // published with the first published block that refers to it (Publish). An OutOfMemoryException of
+    // the native allocator or of the managed heap passes with nothing taken.
+    public bool TryAcquire(ReadOnlySpan<char> text, LatticeStringEncodingEnum encoding, int length, Span<byte> place, out long newBytes)
     {
         Span<byte> scratch = stackalloc byte[ScratchBytes];
         var pieces = TextPieces.OfText(text, encoding, length, scratch);
 
-        return TryAcquire(ref pieces, length, prepared, place, out newBytes);
+        return TryAcquire(ref pieces, length, place, out newBytes);
     }
 
     // The same, for the bytes of a Dictionary text a node received, as its sender stored them, length
     // of them, at least one; for Replication.Load.BlockImport, under the lock of the writes.
-    public bool TryAcquire(ReadOnlySequence<byte> bytes, bool prepared, Span<byte> place, out long newBytes)
+    public bool TryAcquire(ReadOnlySequence<byte> bytes, Span<byte> place, out long newBytes)
     {
         var pieces = TextPieces.OfReceived(bytes);
 
-        return TryAcquire(ref pieces, (int)bytes.Length, prepared, place, out newBytes);
+        return TryAcquire(ref pieces, (int)bytes.Length, place, out newBytes);
     }
 
     // One more reference to the entry at the address, which a block that is written refers to and which
@@ -204,7 +203,7 @@ internal sealed class TextTable
         new() { Kind = DescriptorKindEnum.Text, Length = slot.Length, Location = slot.Address.Value };
 
     // The search and the addition of TryAcquire (see there).
-    private bool TryAcquire(ref TextPieces pieces, int length, bool prepared, Span<byte> place, out long newBytes)
+    private bool TryAcquire(ref TextPieces pieces, int length, Span<byte> place, out long newBytes)
     {
         AssertTheLockIsHeld();
 
@@ -218,12 +217,6 @@ internal sealed class TextTable
             if (slot.Length == (uint)length && HoldsTheBytes(slot, ref pieces))
             {
                 slot.References++;
-
-                if (!prepared && _arena.IsPrepared(slot.Address))
-                {
-                    ValueBlocks.PublishText(_arena, slot.Address, slot.Length);
-                }
-
                 ValueBlocks.Write(place, DescriptorOf(slot));
                 newBytes = 0;
 
@@ -231,7 +224,7 @@ internal sealed class TextTable
             }
         }
 
-        return TryAdd(ref pieces, hash, length, prepared, place, out newBytes);
+        return TryAdd(ref pieces, hash, length, place, out newBytes);
     }
 
     // A new entry of the text: room in the bucket table and a slot first, then the blocks, so that a
@@ -239,7 +232,7 @@ internal sealed class TextTable
     // more refuses the entry as the arena refuses one it cannot hold: no slot is taken, no block is
     // stored and no count changes; the bucket table may have grown and room in it is reserved, which
     // the next entry uses.
-    private bool TryAdd(ref TextPieces pieces, uint hash, int length, bool prepared, Span<byte> place, out long newBytes)
+    private bool TryAdd(ref TextPieces pieces, uint hash, int length, Span<byte> place, out long newBytes)
     {
         if (_buckets.IsFull(reserved: 0) && _buckets.BucketBits < IndexTable.MostBucketBits)
         {
@@ -260,7 +253,7 @@ internal sealed class TextTable
 
         try
         {
-            stored = ValueBlocks.TryStoreText(_arena, number, prepared, length, ref source, place);
+            stored = ValueBlocks.TryStoreText(_arena, number, length, ref source, place);
         }
         catch
         {

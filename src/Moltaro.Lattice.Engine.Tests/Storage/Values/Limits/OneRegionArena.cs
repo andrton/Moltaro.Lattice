@@ -57,7 +57,7 @@ internal sealed class OneRegionArena : IDisposable
     }
 
     // Writes a root as a write of the database does, in prepared blocks, until Publish makes them live.
-    public RootWriter Writer() => new(Arena, Layout, RootArena.Handle, prepared: true);
+    public RootWriter Writer() => new(Arena, Layout, RootArena.Handle);
 
     // Publishes the root a writer of the arena completed, as a write of the database publishes its root
     // (RootStorage.Publish): its blocks are live from then on. Returns the root.
