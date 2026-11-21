@@ -6598,8 +6598,8 @@ reviewed with it:
   descent, reported;
 - F7: a line of `write-callers` over a type without indexes, with its callers and its
   readers beside them;
-- F9: its cause found by reading the old and the new harness for that one line; if reading
-  does not show it, series 6 carries it.
+- F9: its cause read in the old and the new harness for that one line; series 6 tests the
+  hypothesis reading gave.
 The variants of `EntityTable.EntriesPerRound` are patches of the head, kept with the
 outputs of the start and never in the repository.
 
@@ -6610,7 +6610,7 @@ outputs of the start and never in the repository.
 | 3 | `write-callers` and `read-by-key-threads` over 22b8ee1, 5cc64c8, the head and a second build of the head as the gauge, with the line of F7 | about 40 minutes, four builds, four rounds | that S14R and this sprint change neither the writes nor the reads by key of the fixture's users, and that a type without indexes loses nothing on many callers and readers (F7) |
 | 4 | `index-writes` and `index-read-by-key` over the same four builds, the gauge a second build of the head; and in each round once the bare tree of the prototype (`src/Prototypes/SecondaryIndexComparison`, `ordered writecost`), as on 20 November 2026, its restore in the build stage | about 35 minutes, four builds and the prototype, three rounds | the upkeep of an index after S14R (G5) and this sprint, as a ratio to the bare tree taken in this start; a ratio whose denominator is from another day is not judged |
 | 5 | `forwarding-costs` over 5cc64c8 and the head, with a second build of the head as the gauge | about 10 minutes, three builds, three rounds | that the forwarded write of F12, which counts its text entries and walks its descriptors once less, does not lose |
-| 6 | Only if reading has not found the cause of F9: the line of 0 indexes, 1 thread, alone, of `index-read-by-key`, three builds | about 10 minutes | F9 |
+| 6 | F9: the line of 0 indexes, 1 thread, alone, of `index-read-by-key`, over the head, a second build of the head as the gauge, and a variant of the head whose step of the window (`IWindowStep.Run`) is marked NoInlining, a patch outside the repository and never a candidate for the code. Reading found that the harness of B2 calls a step inlined into a loop optimized only by on-stack replacement, where the old one called a lambda that reached Tier 1; a hypothesis. Tried once on the workstation before the start, not judged | about 10 minutes, three builds, three rounds | the line recovers with the variant: the difference is how a step is called, and figures of that line from before B2 stay incomparable for a known cause; it does not: the cause is still unknown and the entry stays open |
 
 The series run in the order 1, 2, 3, 4, 5, 6, the most decisive first, so that a start cut
 short still answers the sprint. Over the four builds, 5cc64c8 against 22b8ee1 is S14R, the
