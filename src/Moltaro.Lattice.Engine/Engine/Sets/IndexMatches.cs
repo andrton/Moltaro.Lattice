@@ -17,8 +17,11 @@ namespace Moltaro.Lattice.Engine.Sets;
 // Written by hand for the reason Enumeration gives: a step that throws leaves the search as it was, and
 // every further MoveNext is a step again, so a search never ends as if it were complete after a failure.
 // After the close every step throws ObjectDisposedException. MoveNext returns false only at the end of
-// the search, and after Dispose, which lets the search go. Between two steps the object holds the search
-// and nothing of the database holds the object.
+// the search, and after Dispose. At the end and on Dispose the object lets go of what the search
+// remembered (Entities.WalkProgress), as the search does itself when a read limit fails it and at a step
+// after the close or after the database faulted, so that an application that keeps the enumerable keeps
+// only this object. Between two steps the object holds the search and nothing of the database holds the
+// object.
 internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnumerator<TResult>
     where TCopy : struct, IRootCopy<TResult>
     where TResult : class
@@ -53,6 +56,7 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
         _index = index;
         _key = key;
         _prototype = prototype;
+        _search = new IndexSearch(operations.Options, index is not null && IndexWalk.IsFullKey(index.Layout, key));
     }
 
     // The enumerator of a search of its own, which the constructor of a later one makes ready.
@@ -61,6 +65,10 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
     {
         _state = Enumerating;
     }
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): what the search remembers between
+    // two steps (Entities.IndexSearch.Progress), null while it remembers nothing.
+    public WalkProgress? Progress => _search.Progress;
 
     public TResult Current => _current!;
 
@@ -84,6 +92,7 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
         {
             _state = Ended;
             _current = null;
+            _search.Progress = null;
 
             return false;
         }
@@ -99,5 +108,6 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
     {
         _state = Ended;
         _current = null;
+        _search.Progress = null;
     }
 }

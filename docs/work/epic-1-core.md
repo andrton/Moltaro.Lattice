@@ -67,8 +67,9 @@ values and copy what is set into them. Sets by class and by name, for
 entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
 and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Search through a declared secondary index
-by its full key, by class and by name, on a master and on a child; a search by the
-leading fields, with a range, in reverse or in pages is S15. Positions and sessions; a write through a
+by its full key, by its leading fields and with a range, in either direction and in pages
+with Offset and Limit, within the read limits, by class and by name, on a master and on a
+child (S15, part 1). Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
 **How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
@@ -141,15 +142,15 @@ that publishes its root, the upkeep of every index of a type in one place
 has the key. A text key of 64 bytes or less is copied into the entry whatever the storage
 mode of its field, a longer one references the text entry of its root, and a field that
 is part of an index stores a value longer than 64 bytes as a text entry. A child builds
-its indexes while it loads and keeps them while it follows. An entity deleted and created
-again during a search may be returned twice until S15.
+its indexes while it loads and keeps them while it follows. A search remembers the
+entities it returned or passed over, so an entity is returned at most once, also across a
+delete and a re-creation and when its key moves ahead of the walk.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Search through a declared index by its leading fields, with a range, in reverse or with Offset or Limit | `set.Index(name).Find` / `FindAsync` | `IndexTests` | S15 |
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
@@ -194,8 +195,8 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
 | R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
-| R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
-| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | On the engine an enumeration goes on while entities change, with the budget of the options; index traversal follows | S06–S08, S14–S15 |
+| R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Done: the full key in S14, leading fields, ranges, both directions, Offset, Limit and the read limits in S15, part 1; the binding rules wait for S15, part 2 | S14–S15 |
+| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | Done: an enumeration and a traversal of an index go on while entities change, with the budget of the options (S15, part 1) | S06–S08, S14–S15 |
 | R17 | Unique indexes on one field or several, validated against the final state on the master; keys with a null are exempt; swaps and delete-and-reclaim inside a batch | [Q07.4](../decisions/unique-indexes.md) | Must | Contract; `UniqueIndexTests` skipped | S16, S17 |
 | R18 | Complete writes: Insert, Replace, Upsert, Delete; expected revisions; immutable keys; a complete write is never turned into a diff; inputs stay stable until completion | [Q13](../decisions/mutation-commands.md) | Must | Works | S06–S08 |
 | R19 | Explicit partial updates: scalar assignments, replacement of a whole collection field and the accepted List, Map and Set element commands, in order, atomic for one entity | [Q13](../decisions/mutation-commands.md) | Must | Absent | S20 |
@@ -404,6 +405,11 @@ documentation before this document is removed.
 | S14, part 2 | The size of a node, 2 KiB against 1 KiB, index-search, index-writes, index-build, a second build of the head as the gauge | 8 readers beside a writer: reads 1.04 (gauge 0.99), the writer 0.95 (0.94); a replace that changes the key 0.97 to 0.98 (0.99 to 1.00); 16.8 and 23.7 bytes an index entry against 17.6 and 25.1 | rented-arm64-1 | 20 November 2026 |
 | S14, part 2 | Text keys of 100 and 200 bytes, index-long-text, five rounds: a prefix of 8 bytes beside a shared key, and the references of a text held for each entry, against the head | the prefix: a search 1.26 and 1.30 with distinct heads, 0.89 and 0.93 with a common head, a replace that changes the key 1.17 and 0.98; the references for each entry: a replace that changes the key 1.45 to 1.51, an insert and a delete 1.9 to 2.1 with distinct heads, a search unchanged. The gauge 0.99 to 1.02 | rented-arm64-1 | 20 November 2026 |
 | S14, part 2 | The harness of B2, the new (main) against the old (f3d767f) on the same engine, three rounds and one pair of the gauge | read-by-key-threads up to 8 threads 0.96 to 1.05, write-callers 0.98 to 1.03, index-search 0.99 to 1.07; index-read-by-key 0.96 to 1.03 but for 0 indexes, 1 thread, alone, 0.89 [0.94 0.87 0.89], whose gauge pair is 1.07 | rented-arm64-1 | 20 November 2026 |
+| S15, part 1 | Exact search, index-search, 1 thread alone, against 5cc64c8 (main after S14R), the first of three starts, four builds, three rounds | Int64 through the class 0.88, by name 0.92; text of 8 bytes 0.87, of 100 bytes 0.92; the first item of 6,250 equal keys 0.52, its bytes 416 to 840; S14R itself loses nothing there | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | The walk, index-search, the first start: a range of 100, a page at Offset 10,000, the rounds of a step | a range of 100 about 9,800 a second alone, 0.89 forwards and 0.84 in reverse beside a writer, about 62,000 with 8 readers; the page at Offset 10,000 404 a second against 10,405 for the first page, the price of remembering the identities passed over; counting under `ReadMemoryLimit` not visible for an entity of 112 stored bytes; 3.22 descents at a fence for a range of 100; `EntriesPerRound` 64, 256 and 1,024 not apart outside the gauge, 256 kept | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | Writes and reads by key, the upkeep, forwarded writes, the first start | writes and reads by key lose nothing to the sprint; a type without indexes loses nothing (F7); the upkeep of one index 1.20 to 1.26 times the bare tree of the same rounds; the forwarded write loses nothing after F12; F9 not explained by how a step is called | rented-arm64-1 | 21 November 2026 |
+| S14R | Inserts and deletes of the reference fixture's users, write-callers, against 22b8ee1, as merged and with two fixes, the first and second starts of S15, part 1 | as merged 0.93 to 0.96; with V1 0.96 to 0.99; with V2 1.01 to 1.08, taken and merged (PR 37); V2 on index-long-text 8 to 14 % faster on a replace that changes a long key and on an insert and a delete with distinct heads | rented-arm64-1 | 21 November 2026 |
+| S15, part 1 | Exact search at the close, the third start, against 5cc64c8, 1 thread alone, class and by name | Int64 0.966 and 0.957; text of 8 bytes 0.899 and 0.911; text of 100 bytes 0.951 and 0.964; the first of many 0.826 and 0.869; beside a writer one entity 0.99 to 1.06. Targets of S14, part 2 at the head: 692 k against 700 k, 426 k against 450 k, 258 k against 200 k, with 5cc64c8 reading 730 k and 474 k | rented-arm64-1 | 21 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -562,6 +568,9 @@ first step. The [development process](process.md#the-plan) now says so. *Not cho
 writing the whole public API of the milestone into the briefs before the plan is
 approved. The types and members of the first stages, sprints S02 to S12, are written
 into their briefs below and are approved with the plan.
+*Note of 21 November 2026:* the contract author is no longer a role of its own; by the
+owner's word of that day the implementer of a sprint puts its contract into code in step 1
+of the [development process](process.md).
 
 **P2. Answered on 14 November 2026: sprints that join several behaviors are split.** The
 first plan had 32 sprints. Seven of them were split in two after the first review and
@@ -659,6 +668,9 @@ puts them into code, documented and refusing, so that the tests are
 still written first and by another agent. This is exception X3 of the
 [exceptions register](exceptions.md); `AGENTS.md` gets the approved text in S01. The
 answer to P4 above extends it to the provider tests and the cluster tests.
+*Note of 21 November 2026:* by the owner's word of that day the tests are still written
+first, in step 1 of the [development process](process.md), now by the implementer of the
+sprint; the independent view moved to the reviewer and the breaker.
 
 **O6. Protected views in both forms.** A view by name through field handles, and a typed
 view with properties for an entity class. The typed view needs code written for each
@@ -992,8 +1004,9 @@ settles. They are approved with the plan, each by name.
 
 ### Rules for every sprint
 
-- The [development process](process.md) applies. On the full track: contract, then tests
-  by another agent, then implementation, each its own commit.
+- The [development process](process.md) applies. On the full track one implementer puts
+  the contract into code and writes the tests in commits that come before any of its
+  implementation; the reviewer and the breaker give the independent view.
 - A sprint on the full track has its own branch, `epic-1/sprint-NN-name`, cut from
   `main` and merged back when the sprint closes, as [branches and releases](branches.md)
   says; the light sprint S01 uses a light-track branch. One sprint runs at a time. `main` stays green after every merge: what is not implemented refuses and
@@ -1001,8 +1014,8 @@ settles. They are approved with the plan, each by name.
 - Every document under **To read** is read at its baseline of 14 November 2026. If one
   changes, the coordinator stops and has this plan corrected.
 - The briefs of S02 to S12 name their types and members exactly, under "Types and
-  members"; the owner approves them with the plan, and the contract author puts them into
-  code as written. A later brief says what its contract must be able to do, and the
+  members"; the owner approves them with the plan, and the implementer of the sprint puts
+  them into code as written. A later brief says what its contract must be able to do, and the
   planner writes its types and members before its stage begins: S13–S17, S18–S25,
   S26–S32, S33–S36, S37–S39. The owner approves the contract of each stage before its
   first sprint, as the [development process](process.md#the-plan) says.
@@ -1021,11 +1034,11 @@ settles. They are approved with the plan, each by name.
   [exceptions to the rules](exceptions.md) when it is approved and moved to **In force**
   there by the change that introduces it.
 - The physical specification is not repeated here. A brief names the section that owns it.
-- A verification sprint is on the full track: the test author writes the scenarios and
-  the harness, the implementer fixes what they expose.
+- A verification sprint is on the full track: its implementer writes the scenarios and
+  the harness in step 1 and then fixes what they expose.
 - A test that only asserts that a feature is not implemented, such as
-  `Search_is_not_implemented_yet`, is removed by the test author in the tests step of the
-  sprint that implements the feature. "Assertions unchanged" speaks of the tests of the
+  `Search_is_not_implemented_yet`, is removed by the implementer in step 1 of the sprint
+  that implements the feature. "Assertions unchanged" speaks of the tests of the
   behavior.
 - An acceptance item that says what the code must not do — hold a lock across an `await`,
   perform I/O inside publication, run user code inside a gate — is checked by the two
@@ -1241,7 +1254,7 @@ Why this order:
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
+| S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
 | S15, part 2 | The binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
@@ -6325,6 +6338,10 @@ machine 13 to 53 % busy before the runs: differences under about a tenth decide 
   rented-arm64-1, one thread, `index-search`: an Int64 key 700 k a second or more (today 450 k);
   a text key of 8 bytes 450 k or more (163 k); of 100 bytes 200 k or more (119 k), without a
   prefix.
+  After S15, part 1 the same start reads 692 k for an Int64 key against the target of 700 k
+  and 426 k for a text key of 8 bytes against 450 k, on a machine that read 5cc64c8 itself 6
+  to 8 % lower than on 20 November (730 k and 474 k against 796 k and 503 k). The targets
+  stay; they are measured again in the start of S16 (the owner, 21 November 2026).
 - **The questions of (e):**
   - The size of a node: not answered. A descent compares about log₂ n times whatever the
     size; a larger node saves a level (a `Payload` and a miss) and doubles the copy of a leaf,
@@ -6504,9 +6521,10 @@ kinds of work.
      - an unsupported key or bound shape refused;
      - enum order numeric;
      - text by its field policy in UTF-8 and UTF-16.
-     Full track, no study, not critical: one reviewer. It needs part 1 only for bounds. Its
-     tests of exact keys may be written while part 1 is implemented, by another test author,
-     where the coordinator judges that it shortens the way.
+     Full track, no study, not critical: one reviewer, and a breaker that takes the
+     Acceptance as its list, as the development process says. It needs part 1 only for
+     bounds. Its tests of exact keys may be written while part 1 is implemented, by the
+     implementer of part 2, where the coordinator judges that it shortens the way.
 2. **The study of part 1** (Fable) may start on `main`, read-only, beside S14R: it reads the
    tree, not the loops S14R merges. Its questions, beside those below:
    - which of the three ways gives "at most once across a delete and a re-creation", each
@@ -6519,13 +6537,14 @@ kinds of work.
      search just measured;
    - what a traversal allocates: one object, as a search does, and nothing for each entity
      beyond what it returns.
-3. **Tests first for part 1**, by the test author, in this order, after the study and the
-   contract step; each sentence of the acceptance gets its smallest set:
+3. **Tests first for part 1**, by its implementer in step 1, with the contract and after
+   the study, in this order; each sentence of the acceptance gets its smallest set:
    1. The six that wait, unskipped by the implementer, their assertions unchanged.
    2. Order and bounds against an oracle of values:
       - composite indexes of two to four parts with a null in every position;
       - searches by leading parts, and ranges with inclusive and exclusive bounds;
-      - both directions, nulls last in both;
+      - both directions against the oracle, the reverse being the mirror of the index
+        order;
       - UTF-8 and UTF-16.
       The P1 of S14, part 2 was a composite key with a null before another part. This is the
       test that would have caught it, and it is written before the code.
@@ -6548,8 +6567,12 @@ kinds of work.
 4. **Measured,** corrected by the rules written after the starts of 19 and 20 November:
    - "on 1 and 16 threads" becomes: 1 and 8 readers judged on 16 cores, 16 reported and not
      judged;
-   - the exact search of S14, part 2 must not lose: index-search over `main` and the head,
-     three builds rotating, against its figures of 20 November;
+   - the exact search loses no more than was measured in the third start against 5cc64c8:
+     4 % on an Int64 key, 10 % on a text key of 8 bytes, 5 % on a text key of 100 bytes and
+     17 % on the first of many, one thread alone. This is the price of the read limits and
+     of at most once on every search, accepted by the owner on 21 November 2026, in place of
+     "the exact search of S14, part 2 must not lose". Beside a writer a search of one entity
+     loses nothing;
    - a range of 100 entities alone and beside a writer; a page at Offset 10,000 beside the
      first page;
    - one start, at the end, after the review and the breaker have closed. Every series
@@ -6563,7 +6586,8 @@ kinds of work.
 5. **The breaker of part 1,** its targets in order:
    1. twice or missed under change, both directions, inside equal keys;
    2. a delete and a re-creation;
-   3. composite keys with nulls at the bounds;
+   3. composite keys with nulls at the bounds, both directions, the reverse being the
+      mirror;
    4. the end sequence against its mutant;
    5. a step that holds nothing: weak references after a paused traversal, and the growth of
       the tree between two steps;
@@ -6571,6 +6595,224 @@ kinds of work.
 6. **Unchanged** from the texts of 17 and 19 November: points 1 to 4 of "For this sprint",
    and the carried texts of the study of S14 and of the architect's review (E6 here, E3 at
    S14R).
+
+**The plan of the start of S15, part 1** (the coordinator, 21 November 2026, for the
+planner to read before it). One start of the rented machine, after the review and the
+breaker have closed with no P1 to P3, on the head that passed them. Builds: `main` before
+S14R (22b8ee1), `main` after S14R (5cc64c8), the head and its variants. Every series
+rotates its builds in rounds, with a second build of one of them as the gauge. At most 8
+readers are judged on the 16 cores, 16 are reported and not judged, and a fall is called
+only after a series of three rounds.
+
+Before the start, in the measurement program, by the implementer of the sprint and
+reviewed with it:
+- the lines of the walk in `index-search`: a range that returns 100 entities, forwards and
+  in reverse, alone and beside the writer of the scenario; a page of 100 at Offset 10,000
+  beside the first page; and the share of the steps of a range of 100 that begin with a
+  descent, reported;
+- F7: a line of `write-callers` over a type without indexes, with its callers and its
+  readers beside them;
+- F9: its cause read in the old and the new harness for that one line; series 6 tests the
+  hypothesis reading gave.
+The variants of `EntityTable.EntriesPerRound` are patches of the head, kept with the
+outputs of the start and never in the repository.
+
+| # | Series | Expected length | Decides |
+| --- | --- | --- | --- |
+| 1 | `index-search`, its exact lines, at 1 and 8 readers, alone and beside the writer, over 22b8ee1, 5cc64c8, the head and a second build of the head as the gauge | about 15 minutes, four builds, three rounds | that the exact search of S14, part 2 does not lose, neither to S14R nor to this sprint, against its figures of 20 November 2026 |
+| 2 | The lines of the walk, over the head, a second build of the head and two variants of `EntriesPerRound`, 64 and 1,024 against 256 | about 20 minutes, four builds, three rounds | the figure of `EntriesPerRound`, which replaces the placeholder in one commit after the start with the figure beside it; the cost of the range of 100 alone and beside a writer, of the deep page, and of the share of descents; the cost of the first entity of a walk read twice |
+| 3 | `write-callers` and `read-by-key-threads` over 22b8ee1, 5cc64c8, the head and a second build of the head as the gauge, with the line of F7 | about 40 minutes, four builds, four rounds | that S14R and this sprint change neither the writes nor the reads by key of the fixture's users, and that a type without indexes loses nothing on many callers and readers (F7) |
+| 4 | `index-writes` and `index-read-by-key` over the same four builds, the gauge a second build of the head; and in each round once the bare tree of the prototype (`src/Prototypes/SecondaryIndexComparison`, `ordered writecost`), as on 20 November 2026, its restore in the build stage | about 35 minutes, four builds and the prototype, three rounds | the upkeep of an index after S14R (G5) and this sprint, as a ratio to the bare tree taken in this start; a ratio whose denominator is from another day is not judged |
+| 5 | `forwarding-costs` over 5cc64c8 and the head, with a second build of the head as the gauge | about 10 minutes, three builds, three rounds | that the forwarded write of F12, which counts its text entries and walks its descriptors once less, does not lose |
+| 6 | F9: the line of 0 indexes, 1 thread, alone, of `index-read-by-key`, over the head, a second build of the head as the gauge, and a variant of the head whose step of the window (`IWindowStep.Run`) is marked NoInlining, a patch outside the repository and never a candidate for the code. Reading found that the harness of B2 calls a step inlined into a loop optimized only by on-stack replacement, where the old one called a lambda that reached Tier 1; a hypothesis. Tried once on the workstation before the start, not judged: the workstation was not quiet (another project's compiler on 7 to 12 of its 20 processors before five of the six runs), and the line ranged from about a third to its full rate within each build, so the try says nothing either way | about 10 minutes, three builds, three rounds | the line recovers with the variant: the difference is how a step is called, and figures of that line from before B2 stay incomparable for a known cause; it does not: the cause is still unknown and the entry stays open |
+
+The series run in the order 1, 2, 3, 4, 5, 6, the most decisive first, so that a start cut
+short still answers the sprint. Over the four builds, 5cc64c8 against 22b8ee1 is S14R, the
+head against 5cc64c8 is this sprint with F12, and the two builds of the head are the
+spread. Series 1, 3, 4 and 5 can show a loss, and a loss is called only when the three
+rounds agree against the gauge; series 2 chooses a constant and reports costs with no
+target, so nothing in it is met or missed; the lines of 16 readers are reported and not
+judged (the planner, 21 November 2026). Six builds — 22b8ee1, 5cc64c8, two of the head and
+the two variants — and the prototype take about 15 minutes more. The whole start is about
+two hours and twenty-five minutes. The lengths come from the start of 20 November 2026: a
+run of `index-search` about 64 seconds, `write-callers` 50, `read-by-key-threads` 96,
+`index-writes` 124, `index-read-by-key` 25, the prototype's writecost about 20; the lines
+of the walk are estimated at about a minute and a half for a run. A series is added during
+the start only for a reason the planner agrees to.
+
+**What the first start showed, 21 November 2026** (the rented ARM64 machine, six series,
+about two hours). The exact search lost to this sprint, three rounds agreeing against the
+gauge: head against 5cc64c8 0.88 for an Int64 key found once through the class, 0.92 by
+name, 0.87 and 0.92 for texts of 8 and 100 bytes, and 0.52 for the first item of 6,250
+equal keys, whose bytes went from 416 to 840; S14R was clean there. 256 entries a round
+stays (series 2). Writes and reads by key lose nothing to this sprint, nor does a type
+without indexes (F7, series 3). The upkeep of one index stands at 1.20 to 1.26 times the
+bare tree taken in the same rounds (series 4), the forwarded write loses nothing to F12
+(series 5), and F9 is not explained by how a step is called (series 6). One fall belongs
+to S14R: inserts and deletes of write-callers at 0.92 to 0.96 against 22b8ee1, the head no
+better; its cause is located on a branch of its own, and its fix is merged to `main`
+before this sprint.
+
+The costs of the walk, reported with no target: a range of 100 about 9,800 a second on one
+thread alone and 0.89 forwards, 0.84 in reverse beside a writer, which is everything a
+writer costs a reader, the tries among it; a page of 100 at Offset 10,000 about 26 times
+the first page, the price of remembering the identities passed over that Q07.3.5 requires;
+counting under a memory limit not visible for an entity of 112 stored bytes; a range of
+100 makes 3.22 descents at a fence, so a harvest of a page at a time is not worth a
+design.
+
+The fixes of the fall of the exact search, taken by the planner after a table of the parts
+of its path: group 1, the frame of the step (A1 the step with nothing to walk as a method
+of its own, A2 one walk and one scratch); group 2, the calls (A3 the place given as out
+values, A5 whether the key is full asked once, A4 an inline test whether any limit is
+set); group 3, A7 Seek keeps the fence of its side; and (B), a lazy search by a full key
+that takes the first of many keeps only that entity's primary key until its second step,
+counted against `ReadMemoryLimit` as anything it remembers. A2's lean second path and A6
+wait for the figures of the second start. A group is kept only if its figure shows outside
+the gauge; A3, A5 and A7 are plainer and stay in any case.
+
+**The plan of the second start of S15, part 1** (the coordinator, for the planner to read
+before it). One start of the rented machine, after a review round of the fixes and the
+breaker's probes on them have closed with no P1 to P3, on the head that passed them. The
+owner is asked only to start and to stop the machine. Every series rotates its builds in
+rounds with a second build of the last as the gauge; at most 8 readers are judged, and a
+fall is called only on three rounds agreeing against the gauge.
+
+| # | Series | Expected length | Decides |
+| --- | --- | --- | --- |
+| 1 | `index-search` over 5cc64c8, 5abb6c0 (the head of the first start), the head after group 1 (a6bbd62), after group 2 (18151c8), the head with group 3 and (B), and a second build of the head as the gauge. The line of 16 keys, the first item, is an Int64 key, which (B) covers; a String primary key takes the earlier path and is not measured here | about 30 minutes, six builds, three rounds | whether the exact search still loses to the sprint, and which group carries what: a group of the frame and A4 are kept only if their step shows outside the gauge |
+| 2 | `write-callers` over 22b8ee1, 5cc64c8, 5cc64c8 with V1, 5cc64c8 with V2, and a second build of 5cc64c8 with V1 as the gauge; its insert-and-delete lines decide | about 18 minutes, five builds, four rounds | which fix of S14R gives back what it cost inserts and deletes |
+| 3 | `index-long-text` over 5cc64c8, with V1 and with V2 | about 10 minutes, three builds, three rounds | that V2, which also changes the taking and the freeing of the references of shared keys, loses nothing where keys are long; the fixture's keys are short |
+
+The cause of the fall of S14R, located by listings and exact block counts before the
+start: E7 of S14R, part 1 gave `NodeStorage.Retire` a `stackalloc` beside its loop and a
+call of `IndexLayout.SharedTexts` for each entry, so the method is compiled without
+tiering, is never inlined into the retirement of a node, and makes about 54 calls more a
+write than at 22b8ee1, on an insert and a delete of an index with a String part only. Two
+fixes are measured as patches outside the repository: V1, the sum of the slot bytes of
+22b8ee1 back, a second walk beside `SharedTexts`; V2, the shared keys of an entry walked
+by a ref struct, as `RootDescriptors` walks a root, with no `stackalloc` in its four
+users.
+
+The rule that chooses, written before the start (the planner, 21 November 2026): V2 is
+taken if it brings the insert-and-delete lines back to 22b8ee1 within the gauge and loses
+nothing outside the gauge on `index-long-text` against 5cc64c8, since it keeps the walk
+single, which is what E7 was for. V1 is taken if V2 fails either condition and V1 meets
+the first; its second walk then carries a comment at its place with the figure that
+justifies it, and E7 is recorded as half undone with that reason. If neither brings the
+lines back, nothing is merged and the figures go to the planner. The one taken is
+committed on a branch of its own from `main`, reviewed by one reviewer with one question,
+is any behavior or assertion changed, and merged before this sprint, which then takes
+`main` in; the variant series stands as its measurement only if the commit is the patch
+line for line. The insert and delete of the head of this sprint, which still has the slow
+form, are not judged on this start.
+
+The series run in the order 1, 2, 3. Twelve builds take about fifteen minutes. The whole
+start is about seventy minutes. The lengths come from the first start: a run of
+`index-search` about 63 seconds for 5cc64c8 and 98 for the head, of `write-callers` about
+50, of `index-long-text` about 55. Nothing else is added to the start, whatever series 1
+shows.
+
+Series 1 judges, in figures: the exact lines of the head against 5cc64c8 inside the gauge,
+and the three targets of S14, part 2 still met on this machine, 700,000 searches a second
+for an Int64 key, 450,000 for a text of 8 bytes and 200,000 for a text of 100 bytes, one
+thread alone. If a loss remains outside the gauge after the three groups, it is reported
+with what remains, and A6 and the lean path come back to the planner with that figure; the
+start is not extended for them (the planner, 21 November 2026).
+
+This sprint does not wait for the fix of S14R. If that fix has passed its review when the
+review round of the fixes of this sprint closes, series 2 rides on this start; if not, the
+start runs series 1 alone, about forty minutes, series 2 goes with the next start of the
+machine, and the fix of S14R is not merged before its series is taken, since merging an
+unmeasured change of the write path is how its loss got in. If the comparison of the
+listings finds the cause and it is the price of something S14R had to do, the cost is
+recorded with its reason and its figure and reported to the owner at the close as a known
+cost of 4 to 8 % on an insert and a delete of an indexed type, and series 2 drops. If the
+listings find no cause, the entry is not dropped: it goes to the planner with what was
+compared, and stays open with a place.
+
+**What the second start showed, and the plan of the third** (21 November 2026). Series 1:
+group 1 gave the one-entity lines 2 to 6 %, at the edge of the gauge; group 2 gave
+nothing, so A4 is taken out; group 3 with (B) gave nothing on one entity and lifted the
+first item of many from 0.52 to 0.80 to 0.89 of 5cc64c8. What remains against 5cc64c8:
+Int64 one entity 0.91, a text of 8 bytes 0.90 to 0.92; the targets of S14, part 2 at the
+head, 688,000 against 700,000 and 435,000 against 450,000, missed, with 5cc64c8 itself
+about 6 % lower on this machine than on 20 November. Series 2 and 3 chose V2 as the fix of
+S14R, merged to `main` as a040f9d and taken into this branch.
+
+The third start is the last for this fall: series 1 alone, `index-search`, three rounds,
+over 5cc64c8, the head without A4 (6c73e8d), the head with a6 (`ReadLimits` without the
+options and with a byte for its failure: the search 48 bytes, the object 352), the head
+with lean (a step of its own for a full-key search that remembers nothing, handing over to
+the walk), the head with split (the scratch of a step made apart from the loop of its
+rounds, so that both methods tier), and a second build of the head as the gauge; about
+thirty-five minutes. The variants are patches outside the repository. The rule that
+chooses (the planner, 21 November 2026): a variant is taken only if its lines stand
+outside the gauge against the head; split is taken over lean if it brings the one-entity
+lines within the gauge of 5cc64c8 or within the gauge of lean, since one form beats two at
+the same figure; lean only if it reaches the gauge of 5cc64c8 and split does not; a6 only
+if it shows outside the gauge by itself. Judged against 5cc64c8 of the same start, the
+absolute targets reported beside it. Whatever is taken gets its tests where it changes
+anything observable, one review round and the breaker's probes before it is merged. After
+this start nothing more is tried on the machine for this fall: what remains goes to the
+owner as one question with the figures.
+
+**What the third start showed** (21 November 2026, the last for this fall). The gauge, two
+builds of the head, stood at 0.97 to 1.02. None of the three variants stood outside it
+against the head: a6 1.00, lean at most 1.03 on one line and short of the gauge of 5cc64c8
+everywhere, split 1.00; none is taken, and the patches stay outside the repository. A
+single run on the workstation had promised split a third off the time of a search; the
+machine did not confirm it, so a single run on the workstation selects nothing. Group 1
+stays: it is in every build that was measured, and its gain in the second start was at the
+edge of that start's gauge (F14 of the backlog). What remains against 5cc64c8, one thread
+alone, class and by name: Int64 one entity 0.966 and 0.957, a text of 8 bytes 0.899 and
+0.911, a text of 100 bytes 0.951 and 0.964, the first of many 0.826 and 0.869; beside a
+writer a search of one entity loses nothing (0.99 to 1.06). The targets of S14, part 2 at
+the head: Int64 692,000 against 700,000, a text of 8 bytes 426,000 against 450,000, a text
+of 100 bytes 258,000 against 200,000; 5cc64c8 itself reads 730,000 and 474,000, against
+796,000 and 503,000 on 20 November. Nothing more is tried on the machine for this fall;
+the backlog carries the search for what an exact search of one entity does not need (F13),
+and the remainder is the owner's question on the Acceptance.
+
+**The record of S15, part 1** (closed on 21 November 2026). Step 1 ended at 7606ef1, its
+tests written by the implementer from the brief before its implementation; two of them
+were changed after step 1 on the coordinator's decision, each in a commit of its own
+(df67c81, the ids inside a run of equal keys a page cuts; d2af035, FindAsync on a thread
+of its own). Review: three rounds on the sprint and one on the fixes of the fall. Round 1
+found one P1 (an entity added to an answer not checked against `ReadMemoryLimit`), three
+P2 (an entity counted by its root block only; a cancellation reported as the limit; a lazy
+`Find` keeping what it remembered after its end) and five P3; round 2 no P1 or P2 and
+three P3 (the token inside a round, ranked P2 by the coordinator; the line of the cost of
+counting; the comparison of F7); round 3 nothing above P4; the round on the fixes of the
+fall nothing above P4. The breaker found three failures in its first round, two in its
+second and none in its third or on the fixes. The hardest part to follow, by the reviewer:
+`EntityTable.Step` with `StandAt`, now commented.
+
+Listed for the owner at the close, under the rule on a draft contract and the limits on
+questions:
+- `LatticeFindResult.Position`: the position may be later than the last time the search
+  looked at the index, so an entity written into the key while the search ran may be
+  absent from an answer whose position covers that write.
+- `ILatticeIndex.Find`: the search is not a snapshot; an entity written into the key while
+  the matches are enumerated may be missing from them.
+- `LatticeFindOptions.Limit`: the search returns at most that many, looks once more
+  without copying for `HasMore`, and walks no further.
+- `ReadMemoryLimit`: what a search counts, every entity of an answer by everything stored
+  for it; an answer of one entity whose step saw the end and that passed over no match is
+  not counted; the key a lazy search keeps between its first and second step counts.
+- Taken by the owner in this session: the sentence of the Acceptance on the sequence a
+  search ends at removed with its check (F5 closed, group 7 of the tests dropped);
+  `Reverse` as the exact mirror of the index order; the measured price of the walk on the
+  exact search, above; the requirement of S17 that a transaction of several effects is
+  exposed whole (Q53 its narrower case).
+- Dropped after the starts, kept only outside the repository: A4, a6, lean and split.
+  Found for later: F13 (S15R), F14 (the architect's review), the rest of N3 (S15R), and F9
+  still open.
+
+The order after this sprint: S15, part 2, the binding rules; then the architect's review
+after S15, part 1 and part 2; then S15R; then S16 with F6 and G2, whose start measures the
+targets of S14, part 2 again. The outputs of the three starts of the machine are kept
+outside the repository by the coordinator.
 
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
@@ -6611,7 +6853,9 @@ What it found:
 - Offset is linear in every system read; counts for each subtree would copy the path at
   every write and count entries, not matches.
 - The hardest part: reverse with nulls last in a composite index, a short sequence of
-  seeks for each nullable part after the equal ones.
+  seeks for each nullable part after the equal ones. The owner's answer of 21 November
+  2026, that Reverse is the exact mirror of the index order, removed this piece from the
+  sprint.
 
 Decided by the planner on 20 November 2026, on the study:
 - The way is the remembered set, for every walk, the exact search included: Q07.3.5
@@ -6626,9 +6870,17 @@ Decided by the planner on 20 November 2026, on the study:
 - The tests of group 4 above add the range form and the moving key, forwards and
   backwards, returned and in the skipped prefix; it is the second target of the breaker.
 - The read limits count what the search holds: until `FindAsync` returns, its list by the
-  capacity of its array and each entity by the stored bytes of its root (Q07.1.1); the lazy
-  `Find` counts none. The documentation of `ReadMemoryLimit` says what is counted. Before
-  the test author writes group 6, it checks the default of `ReadMemoryLimit` against an
+  capacity of its array and each entity by everything stored for it (Q07.1.1); the lazy
+  `Find` counts none. Corrected on 21 November 2026, after the breaker of this sprint:
+  everything stored for an entity is its root block and every value kept outside it,
+  values in blocks, chunked values with their directory, and a text kept as a shared or a
+  Dictionary entry by the bytes of that entry, once for each entity that refers to it,
+  since each copy in the answer holds its own text. It is a measure from the stored
+  lengths a step already reads, not an account of the heap, and nothing of it is computed
+  when no memory limit is set. Every entity added to what the answer holds is checked when
+  it is added, and the token is looked at before the limit at every place a limit is
+  looked at. The documentation of `ReadMemoryLimit` says what is counted. Before
+  the implementer writes group 6, it checks the default of `ReadMemoryLimit` against an
   ordinary `FindAsync`, such as 10,000 entities of the fixture; a default that would refuse
   ordinary load comes to the planner first.
 - Taken from the study: the early end for a range, the one descent with a side, the key
@@ -6639,8 +6891,8 @@ Decided by the planner on 20 November 2026, on the study:
   for a handle held outside the protection (the start measures the share of descents in a
   range of 100); counts for each subtree for Offset.
 
-**A question for the contract step of part 1, before any test of group 7 is written (the
-planner, 21 November 2026): is the check of the sequence at the early end needed at all?**
+**A question for step 1 of part 1, before any test of group 7 is written (the planner, 21
+November 2026): is the check of the sequence at the early end needed at all?**
 The check, in `EntityTable.TrySearch`, decides only which sequence the end reports:
 `before`, or a later one after one more step. The entities returned are the same either
 way, since an entity whose entry was taken away during the step is missed in both. Its
@@ -6673,6 +6925,71 @@ exists. The contract step:
    the test of it through that consumer.
 Either way the finding goes to the planner before it is acted on.
 
+**Answered by the planner on 21 November 2026, on the two answers.** The implementer and
+the breaker, each on its own, found that nothing relies on "no entity of the key at exactly
+the reported sequence": no public guarantee, no session, no child, no other part of the
+engine. The breaker corrected two premises above. The check is visible through the public
+Position, and it is not the same entities either way: with it, an entity that entered the
+key ahead of the walk during a step is returned, while the same event behind the walk is
+missed in 5.6 to 22 % of its answers. A property that holds on one side of the walk is no
+guarantee, and the order of identities among equal keys is not specified. So point 2
+holds, in this form, in the first structural commit with G4:
+1. The end seen by a step that copies an entity is reported at the sequence of that step,
+   not at `before`, and the range form of the early end is designed so from the start.
+2. The end of a walk that passed over a deleted or moved hint and found no entity keeps
+   its check: there `before` is the only sequence an empty answer reports, and the retry
+   keeps a session at or after that write.
+3. The comment at the step and `docs/design/ordered-index.md` say what the sequence of an
+   answer is, in the words of the contract, and that the Position may be later than the
+   search's last look at the index, so an entity written into the key while the search
+   ran may be absent from an answer whose Position covers its write. The same sentence,
+   in the words of a user, goes into the documentation of `LatticeFindResult.Position` and
+   of `Find`: a clarification of what is promised, listed for the owner under the rule on
+   a draft contract.
+4. The head of `RunEndTests` is corrected, its assertions unchanged. F5 closes as removed
+   with its subject. Group 7 of the tests and the breaker's fourth target are dropped; the
+   breaker's probes are kept outside the repository as the evidence.
+The owner removed the sentence of the Acceptance on the sequence a search ends at on 21
+November 2026.
+
+**The reverse order and nulls, the owner, 21 November 2026.**
+`IndexTests.Options_choose_direction_and_page` expects the reverse of `ByAgeAndName` with
+the entity without an age first, the plain reverse of the index, as the documentation of
+`LatticeFindOptions.Reverse` says ("the reverse of the index order"), while this
+Acceptance said nulls last in both directions. Q07.3.2 decides the order of a query and
+says itself that the reverse of an index is not descending with nulls last. The owner
+heard both readings and chose the exact mirror: nulls are last in the index order, and
+Reverse is its exact reverse, so a null comes first there. The test and the documentation
+of `Reverse` stay as they are. The default of a query, nulls last in both directions with
+an override for each key, is the query layer's to build over the two regions when it
+exists.
+
+**The internal contract of step 1, read by the planner on 21 November 2026.** No name or
+signature changes, but for what the reverse with nulls last needed: the implementer names
+what of the four-argument `EntryProbe`, of `nullNext` and of the use of `KeyEdgeEnum` goes,
+and commits the contract after it. Two departures from the text above:
+- The form of G4: `SetOperations.Next` keeps the place of the search on its stack and puts
+  it back if the build of the entity throws, so that a step that throws keeps the time it
+  spent and a failure it recorded without the search paying for a staged move. This
+  replaces the staged move first accepted, which made a search of one entity larger than
+  the condition below allows (the planner, after step 1).
+- A search that finds one entity or none grows only by the read limits and one reference.
+  What only a walk needs, the remembered set and the detached last entry with its staging,
+  sits in one object, `WalkProgress`, made at the same moment as the set, the first step
+  that returns an entity without seeing the end; the Offset still to skip and the bytes an
+  answer holds live there too. If a figure shows that this second object costs a walk
+  more than its bytes would cost an exact search, it comes to the planner with the figure.
+  Group 8 pins both: the search of one entity and a walk.
+- So an answer of one entity whose step saw the end of the search and that passed over no
+  match is not counted against `ReadMemoryLimit`, as a read by key is not; once the search
+  remembers anything, an entity returned without seeing the end or a match passed over by
+  Offset, everything the answer holds counts, the first entity included. The documentation
+  of `ReadMemoryLimit` says it in those terms (worded so after the breaker found the first
+  wording too narrow for an Offset), and group 6 states both sides: under a limit smaller
+  than one entity, a search that finds exactly one succeeds and one that finds two fails
+  with the error of the limit; and with an Offset of 1 over two matches, the one entity
+  returned counts.
+
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
   `FindAsync`, while leading parts and ranges exist for both. The remembered set of a lazy
@@ -6682,7 +6999,7 @@ Two smaller points, from the same reading:
   and Limit bounds without reading every match first. With a `ReadMemoryLimit` that admits
   the identities of Offset plus Limit but not those of the whole set of matches, the
   limited search succeeds and the unlimited one fails with the error of the limit. No
-  counter of steps and no test member is needed. The test author may find a plainer way;
+  counter of steps and no test member is needed. The implementer may find a plainer way;
   this one exists.
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
@@ -6748,15 +7065,15 @@ For this sprint:
   the index sample runs to the end. In addition: for every scalar and key family the
   same value is found by key, by index, through a class and by name; the numeric
   allowlist binds or refuses exactly as specified, including overflow, 42.0 for an
-  integer field, NaN and signed zero; nulls are last in both directions; enum order is
-  numeric; text compares by its field policy in UTF-8 and in UTF-16 databases. A
+  integer field, NaN and signed zero; nulls are last in the index order, and Reverse is
+  its exact reverse, so a null comes first there (the owner, 21 November 2026); enum
+  order is numeric; text compares by its field policy in UTF-8 and in UTF-16 databases. A
   traversal under concurrent change returns no identity twice and every unchanged match,
   also inside a group of equal keys. Offset skips matches and Limit bounds them without
   reading all matches first. A search over its budget fails explicitly. An unsupported
-  key or bound shape is refused. The sequence a search ends at gets its test with its
-  first consumer: a mutant that reports the end at the sequence before the step, without
-  the check that the sequence did not move, must fail it (the planner, 20 November 2026;
-  entry F5 of the [refactoring backlog](refactoring.md)).
+  key or bound shape is refused. The sentence on the sequence a search ends at, added on
+  20 November 2026, is removed on the owner's word of 21 November 2026, with the check it
+  was to hold.
 - **Measured.** Reported: search time for exact and range lookups on the fixture's user
   indexes, with and without a writer.
 - **Out of scope.** Uniqueness (S16). A query language, automatic choice of an index,
@@ -6771,7 +7088,9 @@ created after the pass began are passed over, which needs a stamp of creation fo
 lifetime; or a remembered set, as an enumeration has. A step that holds nothing works on
 the studied tree: it enters the protection, seeks after the last key and identity in
 either direction, and reaches the next leaf by a new descent at the fence. Offset is
-linear in the entries passed over; nulls last in both directions is a rule of the walk.
+linear in the entries passed over; nulls last in both directions is a rule of the walk
+(the owner's answer of 21 November 2026 makes Reverse the exact mirror of the index order
+instead, above).
 The tree needs an order from the comparison service, beside its equality.
 
 **Required of this sprint, decided by the planner on 19 November 2026.** As S14 is
@@ -6864,10 +7183,36 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
   at the call; what the database decides comes through the task. A batch that the memory budget cannot hold is refused with `WriteRejected` and
   `Memory` before anything is written, and the database is as it was. Two entities changed by one batch
   share its position and have revisions that do not satisfy a condition on each other. An internal group never splits
-  a batch. A child never acknowledges a part.
+  a batch. A child never acknowledges a part. A transaction with several effects is exposed
+  whole or not at all, by key, by a search and by an enumeration, on the master that
+  publishes it and on a child that applies it, and no answer carries its position before
+  all of its effects are visible (the owner, 21 November 2026).
 - **Measured.** Reported: how long ordinary reads are held by the publication of a batch
   of 1, 32, 1,000 and 10,000 entities.
 - **Out of scope.** Partial updates as batch members (S20). The batch's token (S26).
+
+**Found by the breaker of S15, part 1 on 21 November 2026.** On a child, a transaction of
+several effects at one position is exposed a part at a time: the publication
+(`ChangePublisher.PublishBeforePosition`) installs the effects one after another, each fully
+visible, and moves the clock afterwards, while a read reports the larger of the clock and
+the stamp of what it read. A probe that merges 300 insert transactions of a master into
+one through a relay found, in 10 of 10 runs, an answer that held the first member but not
+the last at the position of the transaction, by key, by a search and by an enumeration.
+That breaks "A child must not expose a prefix or advance applied progress past a partial
+batch" ([document model](../decisions/document-model.md)). No master on `main` sends such a
+transaction and committing a batch is refused, so it is not reachable today; the same loop
+publishes a batch on a master.
+- The sentence of the Acceptance above states it. The breaker's `BatchPrefixProbeTests`,
+  kept outside the repository with its outputs, is the starting point of its test, written
+  first.
+- A question for the study of this sprint: by what means the effects become visible
+  together. The study names how established systems make a group of changes visible at
+  one moment to readers that take no lock, and what it costs a read.
+- A narrower case, an open question with this sprint as its limit (Q53).
+- Several tests of the engine already feed a child a transaction of several effects
+  through a relay, among them the refused change of a child and the null upkeep on a
+  child. They state other things and stay; when this sprint defines that form, they are
+  checked against it.
 
 **Carried from the fixes after S13.** `ReceivedChanges` checks "a transaction names each
 key once" by scanning the changes it has prepared and the keys it has skipped for every

@@ -8,9 +8,10 @@ milestone contract states its rules under
 `src/Moltaro.Lattice.Engine/Storage/Ordered` holds the nodes and entries in arena memory,
 `Engine/Indexes` the tree, its order and the index of an entity type,
 `Engine/Entities/ChangePublisher.cs` the upkeep of every index with the data, and
-`Engine/Entities/IndexSearch.cs` with `EntityTable.TrySearch` the search by the full key.
-The walk of ranges, order and paging is not built yet; the [README](../../README.md) says
-what works.
+`Engine/Indexes/IndexWalk.cs` with `Engine/Entities/IndexSearch.cs` and
+`EntityTable.TrySearch` the search: by the full key, by the leading fields and a range on
+the next, in the index order or its reverse, and in pages. The [README](../../README.md)
+says what works.
 
 [Index access](../decisions/index-access.md) · [Index lifecycle](../decisions/index-lifecycle.md) · [How reads are protected](epoch-protection.md) · [How a write is executed](write-path.md)
 
@@ -35,8 +36,8 @@ run of five seconds a case; the engine measures the structure again.
 An entry is the key of an entity in this index and the identity of its root entry, the
 8-byte root handle. A state of an entity contributes one entry to each index, so an
 entry is unique by (key, identity), and the entries of one key form a run ordered by
-identity. A search finds the first entry of a key and walks its run; a range will walk
-from one key to another in the same order. An index on the members of a collection,
+identity. A search finds the first entry of a key and walks its run; a range walks from
+one key to another in the same order. An index on the members of a collection,
 where a state would contribute a set of entries, is not built.
 
 Entries are ordered part by part in the order of the index, each part by the comparison
@@ -425,28 +426,34 @@ between two steps only the key and the identity of the last entity it returned:
 
 A step that ends without an entity takes the sequence of the database read when it began
 as the position of its end when it is unchanged after the walk, as a read of an absent
-key does, and walks again otherwise. An entity deleted and created again while a search
+key does, and walks again otherwise, in a round like any other ("How a range is walked",
+below). An entity deleted and created again while a search
 runs has a new root entry, so a new identity, which can lie after the one the search
-returned before: the search then returns that entity twice. The walk of ranges (below)
-ends it with the set it remembers.
+returned before; the search passes it over by the keys it remembers, as every walk does
+("How a range is walked", below).
 
 The step that finds an entity sees the end of the run as well when it can: the entry
 after the one it found, in its leaf, has another key; or that entry is the last of its
 leaf, and the leaf has no fence, or a fence of another key, above which every entry of
-the next leaf lies. When the sequence read at the start of its walk is unchanged once it
-has copied the entity, that is the condition under which the next step would end at that
-sequence, so the next step ends there without a descent. The check of the sequence is for
-a write that takes an entry of the key away: a replace that moves an entity after the
-identity to another key, or its delete, publishes its position and only then removes the
-old entry. A descent that no longer meets that entry so comes after the position, and the
-sequence has changed; without the check the end would be given at a sequence at which that
-entity still had the key. A write that adds an entry of the key needs no check: it inserts
-the entry before its position, so the descent either meets the entry, and the run does not
-end there, or does not, and the entity has no state at that sequence. The next step still
-enters the protection, so that a step after a close is
-refused as every step is. A lazy search so ends at the sequence of the step that returned
-its last entity, not at the sequence of a later call. A fence of the key says nothing:
-then the next step descends as before.
+the next leaf lies. Then the search keeps the sequence of that step, the sequence of the
+entity it returned, and its next step ends there without a descent. A fence of the key
+says nothing: then the next step descends as before. The next step still enters the
+protection, so that a step after a close is refused as every step is. A lazy search so
+ends at the sequence of the step that returned its last entity, not at the sequence of a
+later call.
+
+What the sequence of an answer is, in the words of the contract (`LatticeFindResult`): a
+position the node had applied when the search looked at the index. It is read in the step
+after the descent, so it covers every write whose effect the descent saw, an entry a
+delete or a replace took away among them: such a write publishes its position before it
+removes the entry. It may be later than the last time the search looked at the index, so
+an entity written into the key while the search ran may be absent from an answer whose
+position covers that write. A session that moves to it waits for no less than the answer
+showed; the position is no snapshot of the run at one sequence, which the contract does not
+promise (`ILatticeIndex`: a search "is not a snapshot"). An end without an entity keeps its
+check: there the sequence read when the walk began is the only sequence the answer reports,
+and the walk again after the sequence moved keeps a session at or after a delete it passed
+over.
 
 The key is bound to the fields of the index once, outside the protection, and its fixed
 parts are written on the stack in their stored form, by the one writer of that form the
@@ -458,10 +465,15 @@ before its entry is retired, so the identity needs no check of its generation.
 
 A lazy search, `Find`, is one object: the enumerable it returns is also the enumerator its
 first `GetEnumerator` gives, and it holds the bound key once and where the search stands
-between two steps, the identity after the last entity returned and the sequence of an end
-a step saw; a further `GetEnumerator` is a search of its own. The search key of a step
+between two steps (`IndexSearch`): the identity after the last entity returned, the
+sequence of an end a step saw, the read limits and what the search has spent of them, its
+direction and its Offset, and the reference to what a walk of more than one entity
+remembers (`WalkProgress`, "How a range is walked", below), which the search lets go of at
+its end, on `Dispose`, when a read limit fails it and at a step after the close or after a
+fault of the database; a further `GetEnumerator` is a search of its own. The search key of a step
 refers to that bound key and does not copy it. A search that returns one entity so
-allocates that object and the entity: through a class 328 bytes and the entity. `FindAsync`
+allocates that object and the entity: through a class 360 bytes and the entity, by name 352
+(`SearchObjectAllocationTests` gives the composition). `FindAsync`
 runs its search to its end with the position on its stack, and allocates the list of its
 result, the result and the entities; in a Release build nothing more when it needs no wait.
 A Debug build makes the state machine of an asynchronous method a class, which every call
@@ -476,24 +488,84 @@ copies one leaf of the run. A search returns the run one entity a step, each ste
 descent and at most one more at a fence. What a hot key costs is the key repeated in
 every entry and in every separator inside the run: there are no posting lists.
 
-## How a range will be walked
+## How a range is walked
 
-Ranges, order and paging are built after the search (S15 of Epic 1); the tree is made so
-that they need nothing new from it. A step holds nothing between two steps: no node, no
-cursor, no slot of the protection. It enters the protection, seeks after the last (key,
-identity) it returned, in either direction, returns the next entity and leaves. Forwards,
-the next leaf is found by a new descent at the separator above the current one, at or
-after which every entry of the next leaf lies; backwards, at the separator below it,
-before which every entry of the leaf before lies: the same tree walked both ways, with no
-links between leaves, after LeanStore. With entries unique by (key, identity), a step
-that seeks strictly after the last pair returns no pair twice and every pair that is
-there throughout, also inside a run of equal keys. That holds for one run of one key.
-Over a range an entity whose key moves ahead of the walk would be returned again under its
-new pair, so a walk remembers the entities it returned or passed over, as an enumeration
-does ([queries](../decisions/queries.md), Q07.3.5); the set counts against
-`ReadMemoryLimit`, and an entity deleted and created again during a pass is passed over by
-it as well. Nulls last in both directions is a rule of the walk: the null region of a part
-is visited after its values, whichever way.
+A search by the leading fields of an index and a range on the next, in the index order or
+its reverse, is the same walk as the search by a full key, which is its narrowest case
+(`Engine/Indexes/IndexWalk.cs`, `Engine/Entities/EntityTable.cs`). The tree needed nothing
+new for it. A step holds nothing between two steps: no node, no cursor, no slot of the
+protection.
+
+1. **Its ends.** The entries of a search lie between two search keys in the order of the
+   index: the leading values with the lower bound of the range, and the leading values with
+   the upper bound. A search key that gives fewer parts than the index stands before or
+   after every entry those parts equal, an edge, which is an identity no root entry has,
+   below or above every one; so the order compares the parts the key gives and then the
+   identity, and needs no rule of its own for it. An inclusive lower bound stands before
+   every entry of its value, an exclusive one after them, and the upper bound the other way
+   round. A null is in no range, so a range with no upper end on a part that can be null
+   ends before the nulls of that part, at the search key of that null. The walk starts at
+   one end and ends at the other, which it never meets, since an edge equals no entry.
+2. **One descent.** A step enters the protection and descends once, in either direction,
+   to the first entry at or after where it starts, or to the last entry before it
+   (`OrderedTree.Seek`): the leaf, the place, and the fence of the leaf on the side it walks
+   to, the only one a walk follows.
+   Forwards, the next leaf is found by a new descent at the separator above the leaf, at or
+   after which every entry of the next leaf lies; backwards, at the separator below it,
+   before which every entry of the leaf before lies: the same tree walked both ways, with no
+   links between leaves, after LeanStore.
+3. **Where it starts.** A search by a full key starts at an identity in its run, after the
+   last entity it returned. Any other search starts after the entry of the last entity it
+   returned, which it holds between two steps in detached form: a copy that owns the text of
+   a shared key, under a head of its own, which the order reads as any entry
+   (`IndexLayout.Detach`).
+4. **The hint.** Each entry is a hint. The step takes the root entry it names by its stamp,
+   as a read by key does, and returns the entity only if the root still has the key of that
+   entry, by the order of the index (`SecondaryIndex.HasKeyOf`; for a full key `HasKey`), so
+   that it returns an entity only at the place of its key and in the order it walks.
+5. **No entity twice.** Over a range an entity whose key moves ahead of the walk would be
+   met again under its new pair, and an entity deleted and created again has a new identity,
+   so a walk remembers the primary keys of the entities it returned or passed over by Offset,
+   as an enumeration does ([queries](../decisions/queries.md), Q07.3.5), and passes over a
+   key it remembers. The set, the detached entry and its staging sit in one object
+   (`WalkProgress`), made at the first step that returns an entity without seeing the end of
+   the search, or that passes over a match by Offset; a search that finds one entity or none
+   and passes over no match never makes it. A lazy search by a full key of an integer or a
+   Guid key makes it one step later: its first step keeps only the primary key of the entity
+   it returns (`FirstKey`), taken from the root it copied in that step, and the next step
+   makes the set and begins it with that key, so a search that takes the first of many
+   entities and stops allocates no set and reads that entity once. The kept key counts
+   against `ReadMemoryLimit` from the step that keeps it, as everything a search remembers
+   does. Three searches make the set at their first step instead: a search by a String key,
+   whose text would have to be copied out of the root inside the protection; `FindAsync`,
+   which counts its first entity as it adds it, with what the walk remembers; and a search by
+   a range, which keeps the detached entry of its entity in the `WalkProgress` anyway.
+6. **The early end.** With the entity it returns, a step sees the end of the search when it
+   can: the entry after it on the side of travel is not of the search, or the fence on that
+   side lies beyond the end, or there is none. The search then keeps the sequence of that
+   step, and its next step ends there without a descent, as for a full key; so a Limit gives
+   "no more" without a further step.
+7. **Rounds and room.** A step walks at most `EntriesPerRound` entries inside one period of
+   the protection, the hints it passes over and the matches it skips by Offset included, then
+   stands at the next entry and enters again. What a step needs and does not have, a
+   `WalkProgress`, room for a key or for an entry, is counted against `ReadMemoryLimit` and
+   made outside the protection, and the step reads its entry anew; a round that cannot write
+   where it stands goes on from where the search stood, and what it remembered stays.
+8. **Offset and Limit.** Offset is linear in the matches it passes over, which are
+   remembered and counted once; Limit ends the walk after its last entity, and one more look,
+   which copies nothing, says whether a match follows.
+
+Nulls are last in the index order, and a walk in reverse is its exact mirror, so a null
+comes first there (the owner's decision of 21 November 2026). The default of a query, nulls
+last in both directions with an override for each key ([queries](../decisions/queries.md),
+Q07.3.2), is the query layer's to build over the two regions.
+
+What a walk allocates: the object of a lazy search, the entities it returns, and once it
+returns more than the entities of one step its `WalkProgress`, with the set of its keys,
+whose room grows as an enumeration's does, and two arrays of the detached entry; nothing
+for each entity beyond what it returns and that room (`WalkAllocationTests`). A lazy search
+by a full key that takes the first of many entities allocates its object, the entity and
+the key it keeps, 40 bytes.
 
 ## A child
 

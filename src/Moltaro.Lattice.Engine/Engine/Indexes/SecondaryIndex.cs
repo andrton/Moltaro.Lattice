@@ -78,6 +78,9 @@ internal sealed class SecondaryIndex
     // Its tree, which a search descends inside the protection of reads.
     public OrderedTree Tree { get; }
 
+    // The order of its entries, by which a walk tells where it ends (IndexWalk).
+    public IndexOrder Order => _order;
+
     // The index of the declaration for the entity type whose roots have the layout given, empty and so
     // without a node, its nodes in the arena given, its replaced nodes retired into the list given; when
     // the database opens. An index the layout refuses fails the open with the LatticeException of
@@ -94,6 +97,22 @@ internal sealed class SecondaryIndex
     // entry of the run names, has the key of the search: the order of the index between the two is zero
     // (IndexOrder.HasKey), so that a hint is checked by the order the tree is ordered by. Allocates nothing.
     public bool HasKey(in RootReader root, scoped in SearchKey key) => _order.HasKey(root, key);
+
+    // For a walk inside the protection of reads, whose entries have different keys: whether the root, the
+    // current state of the entity an entry of the walk names, still has the key of that entry, by the order
+    // of the index, so that a walk returns an entity only at the place of its key and in the order it walks.
+    // The entry the root contributes is written on the stack by the writer of entries and compared with the
+    // entry as two entries are (IndexLayout.WriteEntry, IndexOrder.SameKey), so the check is the order the
+    // tree is ordered by and needs no comparison of its own. Allocates nothing; the scratch is not zeroed,
+    // since the entry writes every byte the order reads of it.
+    [SkipLocalsInit]
+    public bool HasKeyOf(in RootReader root, ReadOnlySpan<byte> entry)
+    {
+        Span<byte> written = stackalloc byte[Layout.WidestEntryBytes];
+        var length = Layout.WriteEntry(root, default, written);
+
+        return _order.SameKey(written[..length], entry);
+    }
 
     // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
     // does to the index, from the root the entity has and the root the write publishes, both the write's

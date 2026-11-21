@@ -28,7 +28,7 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height; the pool
-// of reserved nodes; the path of the writer's last descent. TryFindFirst runs from reads, inside
+// of reserved nodes; the path of the writer's last descent. Seek runs from reads, inside
 // the protection; everything else from the writer, under the lock of the writes, which is safe because
 // only the holder of that lock changes, retires or frees what the tree holds, and all but the root is its
 // alone.
@@ -91,91 +91,94 @@ internal sealed class OrderedTree
     // The bytes a leaf holds for its entries and their offsets.
     private int LeafCapacity => _layout.PayloadBytes - NodeHeader.Size;
 
-    // For a read inside the protection of reads: the identity of the first entry at or after the probe,
-    // its key and the identity it starts at, when that entry has the key of the probe; false when the run
-    // of the key has no entry from there on. One descent from the root to the leaf of the probe, and when
-    // the probe lies after the last entry of that leaf, one more from the root at the fence of the leaf,
-    // the separator above it in its parent or further up, which every entry of the next leaf is at or
-    // above (ordered-index.md, "Fences").
-    //
-    // With an entry found, runEnds says whether the run of the key ends with it, as this descent sees the
-    // tree: the entry after it in its leaf has another key; or it is the last entry of its leaf, and the
-    // leaf has no fence, so no entry lies after it, or the fence has another key, so every entry after the
-    // leaf has a key above the fence's, which is above the probe's. A fence of the key says nothing, and
-    // the run is not taken to end.
-    public bool TryFindFirst(scoped in SearchKey probe, out RootHandle identity, out bool runEnds)
+    // For a read inside the protection of reads: the one descent of a reader, in either direction, from the
+    // root to the leaf whose range holds the probe, with the place of the first entry at or after the probe
+    // or of the last entry before it, as the side says, and the fence of that leaf on that side, the nearest
+    // separator beside the path on it, which lies in a node that stays allocated while the read is inside
+    // (TreePlace; ordered-index.md, "Fences"). It descends once: a place beyond the leaf, after its last
+    // entry or before its first, is the walk's to follow at the fence on that side. For the last entry
+    // before the probe the descent takes, at each inner node, the child left of a separator equal to the
+    // probe, since every entry at or after that separator lies at or after the probe. Default for a tree
+    // that holds no entry.
+    public TreePlace Seek(scoped in SearchKey probe, SeekSideEnum side)
     {
-        identity = default;
-        runEnds = false;
+        var address = LoadRoot();
 
-        // The fence: the nearest separator above the leaf on the way down, in a node that stays
-        // allocated while the read is inside. The target: the fence of the leaf before, at which a descent
-        // after the first goes down; the first goes down by the probe.
+        if (address.IsNull)
+        {
+            return default;
+        }
+
+        var before = side == SeekSideEnum.Before;
         ReadOnlySpan<byte> fence = default;
-        ReadOnlySpan<byte> target = default;
         var hasFence = false;
-        var atFence = false;
-        IndexNode node;
-        int place;
+        var node = NodeAt(address);
 
-        // The one descent, from the root to a leaf. When every entry of the leaf lies before the probe, it
-        // goes down again at the fence, to the next leaf, whose entries are all at or above the fence, which
-        // lies above the probe. A leaf of another moment may end before the fence, and the walk goes on at
-        // its own fence; each fence lies above the one before.
-        while (true)
+        while (!node.IsLeaf)
         {
-            var address = LoadRoot();
+            var child = EntriesBelow(node, probe, equalBelow: !before);
 
-            if (address.IsNull)
+            // The fence on the side of the descent: the separator left of the child for a descent before
+            // the probe, right of it for one at or after it.
+            if (before && child > 0)
             {
-                return false;
+                fence = node.EntryAt(child - 1);
+                hasFence = true;
+            }
+            else if (!before && child < node.Count)
+            {
+                fence = node.EntryAt(child);
+                hasFence = true;
             }
 
-            hasFence = false;
-            node = NodeAt(address);
-
-            while (!node.IsLeaf)
-            {
-                var child = atFence ? ChildOf(node, target) : ChildOf(node, probe);
-
-                if (child < node.Count)
-                {
-                    fence = node.EntryAt(child);
-                    hasFence = true;
-                }
-
-                node = NodeAt(node.ChildAt(child));
-            }
-
-            place = atFence ? FirstAtOrAfter(node, target) : FirstAtOrAfter(node, probe);
-
-            if (place < node.Count)
-            {
-                break;
-            }
-
-            if (!hasFence)
-            {
-                return false;
-            }
-
-            target = fence;
-            atFence = true;
+            node = NodeAt(node.ChildAt(child));
         }
 
-        var entry = node.EntryAt(place);
+        var place = EntriesBelow(node, probe, equalBelow: false) - (before ? 1 : 0);
 
-        if (!_order.SameKey(probe, entry))
+        return new TreePlace(node, place, fence, hasFence);
+    }
+
+    // The same descent by a whole entry, its identity included: a fence of a leaf, at which a walk goes on
+    // to the leaf beside, or the entry a walk stands after, in detached form (IndexLayout.Detach). Written
+    // a second time, for the kind of its probe, as the binary search of a node is (EntriesBelow).
+    public TreePlace Seek(ReadOnlySpan<byte> entry, SeekSideEnum side)
+    {
+        var address = LoadRoot();
+
+        if (address.IsNull)
         {
-            return false;
+            return default;
         }
 
-        identity = IndexLayout.IdentityOf(entry);
-        runEnds = place + 1 < node.Count
-            ? !_order.SameKey(probe, node.EntryAt(place + 1))
-            : !hasFence || !_order.SameKey(probe, fence);
+        var before = side == SeekSideEnum.Before;
+        ReadOnlySpan<byte> fence = default;
+        var hasFence = false;
+        var node = NodeAt(address);
 
-        return true;
+        while (!node.IsLeaf)
+        {
+            var child = EntriesBelow(node, entry, equalBelow: !before);
+
+            // The fence on the side of the descent: the separator left of the child for a descent before
+            // the probe, right of it for one at or after it.
+            if (before && child > 0)
+            {
+                fence = node.EntryAt(child - 1);
+                hasFence = true;
+            }
+            else if (!before && child < node.Count)
+            {
+                fence = node.EntryAt(child);
+                hasFence = true;
+            }
+
+            node = NodeAt(node.ChildAt(child));
+        }
+
+        var place = EntriesBelow(node, entry, equalBelow: false) - (before ? 1 : 0);
+
+        return new TreePlace(node, place, fence, hasFence);
     }
 
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired
@@ -958,16 +961,12 @@ internal sealed class OrderedTree
 
     private IndexNode NodeAt(ArenaAddress node) => new(_layout, _arena.Payload(node));
 
-    // The child of an inner node whose range holds the probe: the number of separators at or below it.
-    private int ChildOf(scoped in IndexNode node, scoped in SearchKey probe) => EntriesBelow(node, probe, equalBelow: true);
-
-    // The same for an entry: for the writer, and for a reader that descends at a fence.
+    // The child of an inner node whose range holds the entry: the number of separators at or below it. For
+    // the writer.
     private int ChildOf(scoped in IndexNode node, ReadOnlySpan<byte> entry) => EntriesBelow(node, entry, equalBelow: true);
 
-    // The place of the first entry of a leaf at or after the probe: the number of entries below it.
-    private int FirstAtOrAfter(scoped in IndexNode leaf, scoped in SearchKey probe) => EntriesBelow(leaf, probe, equalBelow: false);
-
-    // The same for an entry.
+    // The place of the first entry of a leaf at or after the entry: the number of entries below it. For the
+    // writer.
     private int FirstAtOrAfter(scoped in IndexNode leaf, ReadOnlySpan<byte> entry) => EntriesBelow(leaf, entry, equalBelow: false);
 
     // The binary search over the entries or the separators of a node by a search key: how many lie below

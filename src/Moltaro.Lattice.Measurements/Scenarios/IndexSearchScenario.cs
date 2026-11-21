@@ -22,6 +22,25 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // next, so that the runs the searches take their first item from change. The text cases are searched
 // alone. Every search checks that it found one item.
 //
+// The walk of the index (docs/design/ordered-index.md, "How a range is walked"), over the items of the
+// distinct case, through the class, after its exact lines, which it leaves as they were:
+// - a range of 100: FindAsync of the range of the keys of 100 searched items in a row, from places drawn
+//   with the same seed, forwards and in reverse, alone and beside the writer of the case, whose items
+//   lie between the searched ones; every search checks that it found the 100 searched items;
+// - the same range forwards, on one thread, alone, without a limit and under a ReadMemoryLimit that admits
+//   it: what counting costs, since a search under a memory limit counts what it holds and measures each
+//   entity it adds by a walk of the descriptors of its root (RootReader.EntityBytes). The two lines of this
+//   pair run over two databases loaded the same way for them, one after the other, of the same items and
+//   untouched by any writer, one without a limit and one with it, not over the database of the case, which
+//   the writers of its exact lines have changed;
+// - a page of 100 of the whole index, FindAsync with Offset 10,000 and Limit 100, beside the first page,
+//   Offset 0; every search checks that it found 100 items;
+// - the descents of a range of 100, reported from the leaves of the tree that each of the ranges of the
+//   first 1,000 places spans (EngineDatabase.IndexNodes): every step that returns an entity begins with a
+//   descent, the first takes one more round to make what the walk remembers, and a step that crosses to
+//   the next leaf descends once more at its fence; and the share of the steps that find their entity in
+//   the leaf of the step before, which a step that held its leaf would serve without a descent.
+//
 // Every reader is a thread of its own, searching the keys of places drawn with one seed, from a place of
 // its own in them. A line gives the searches of all its readers a second as reads/s; a series of one
 // reader also the managed bytes that reader's thread allocated in the window for each search
@@ -34,7 +53,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // a delegate (WriterStep). The threads are not pinned to processors; a figure is the result of one
 // window, and runs are repeated.
 //
-// A run takes a little over a minute on the development machine.
+// A run takes about two minutes on the development machine.
 internal static class IndexSearchScenario
 {
     public const string Name = "index-search";
@@ -47,6 +66,19 @@ internal static class IndexSearchScenario
     private const int SharedKeys = 16;
 
     private const ulong KeySeed = 14;
+
+    // The entities a range of the walk returns, and those a page holds.
+    private const int RangeSize = 100;
+
+    // The Offset of the deep page.
+    private const int DeepOffset = 10_000;
+
+    // The ranges whose leaves the report of the descents counts, from the first place on.
+    private const int CountedRanges = 1_000;
+
+    // The memory limit of a read of the line of what counting costs: 1 MiB, far above what a range of 100
+    // holds, its 100 keys, its list and its 100 items, some 20 KiB, so that it admits every range.
+    private const long RangeMemoryLimit = 1024 * 1024;
 
     private static readonly int[] Readers = [1, 8];
 
@@ -69,10 +101,22 @@ internal static class IndexSearchScenario
 
         var distinct = Enumerable.Range(0, Count).Select(place => 2L * (place + 1)).ToArray();
 
-        using (var items = IndexedItems.Load(1, Keyed(distinct, own => DistinctOwnKey(own, moved: false))))
+        var distinctItems = Keyed(distinct, own => DistinctOwnKey(own, moved: false));
+
+        using (var items = IndexedItems.Load(1, distinctItems))
         {
+            var writer = Changer(items, DistinctOwnKey);
+
             lines.Add($"Int64, distinct keys: {items.Loaded}");
-            lines.AddRange(Int64Series(items, "Int64, distinct keys", distinct, places, firstOnly: false, Changer(items, DistinctOwnKey)));
+            lines.AddRange(Int64Series(items, "Int64, distinct keys", distinct, places, firstOnly: false, writer));
+            lines.Add("");
+
+            using var unlimited = IndexedItems.Load(1, distinctItems);
+            using var limited = IndexedItems.Load(1, distinctItems, readMemoryLimit: RangeMemoryLimit);
+
+            lines.Add($"Int64, distinct keys, for the pair of what counting costs, without a limit: {unlimited.Loaded}");
+            lines.Add($"Int64, distinct keys, for the pair of what counting costs, under a ReadMemoryLimit of {ReadSeries.Number(RangeMemoryLimit)} bytes: {limited.Loaded}");
+            lines.AddRange(WalkSeries(items, unlimited, limited, distinct, Places(Count - RangeSize + 1, KeySeed, ReadSeries.Reads), writer));
         }
 
         var shared = Enumerable.Range(0, Count).Select(place => (long)(place % SharedKeys)).ToArray();
@@ -235,6 +279,73 @@ internal static class IndexSearchScenario
         }
     }
 
+    // The series of the walk over the items of the distinct case (see the class): a range of 100 forwards
+    // and in reverse, alone and beside the writer, on each count of readers, and forwards on one thread
+    // alone over the pair of databases of what counting costs; the first page and the deep page alone, on
+    // each count of readers; and the descents of a range.
+    private static IEnumerable<string> WalkSeries(IndexedItems items, IndexedItems unlimited, IndexedItems limited, long[] keys, int[] rangePlaces, Func<int> writer)
+    {
+        var byClass = items.ByClass.Index(IndexedItems.KeyIndex(1));
+        var unlimitedByClass = unlimited.ByClass.Index(IndexedItems.KeyIndex(1));
+        var limitedByClass = limited.ByClass.Index(IndexedItems.KeyIndex(1));
+        var range = $"Int64, distinct keys, a range of {RangeSize}";
+
+        foreach (var reverse in new[] { false, true })
+        {
+            var direction = reverse ? "in reverse" : "forwards";
+
+            foreach (var readers in Readers)
+            {
+                yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone: {Series(readers, start => new RangeSearch(byClass, keys, rangePlaces, start, reverse), writer: null)}";
+
+                if (!reverse && readers == 1)
+                {
+                    yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone, the pair without a limit: {Series(readers, start => new RangeSearch(unlimitedByClass, keys, rangePlaces, start, reverse), writer: null)}";
+                    yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone, the pair under the ReadMemoryLimit: {Series(readers, start => new RangeSearch(limitedByClass, keys, rangePlaces, start, reverse), writer: null)}";
+                }
+
+                yield return $"{range}, {direction}, through the class, {Threads(readers)}, beside a writer that changes the key: {Series(readers, start => new RangeSearch(byClass, keys, rangePlaces, start, reverse), writer)}";
+            }
+        }
+
+        foreach (var offset in new[] { 0, DeepOffset })
+        {
+            foreach (var readers in Readers)
+            {
+                yield return $"Int64, distinct keys, a page of {RangeSize} at Offset {ReadSeries.Number(offset)}, through the class, {Threads(readers)}, alone: {Series(readers, _ => new PageSearch(byClass, offset), writer: null)}";
+            }
+        }
+
+        yield return Descents(items, keys, rangePlaces);
+    }
+
+    // The descents of a range of 100, from the leaves of the tree each of the ranges of the first places
+    // spans (see the class). The leaves are the nodes of level 0, in the order of the index.
+    private static string Descents(IndexedItems items, long[] keys, int[] rangePlaces)
+    {
+        var leaves = items.Database.IndexNodes(items.ByClass.EntityType, IndexedItems.KeyIndex(1))
+            .Where(node => node.Level == 0 && node.Items.Count > 0)
+            .Select(node => (First: (long)node.Items[0].Key[0]!, Last: (long)node.Items[^1].Key[0]!))
+            .ToList();
+        var spanned = 0L;
+
+        for (var range = 0; range < CountedRanges; range++)
+        {
+            var low = keys[rangePlaces[range]];
+            var high = keys[rangePlaces[range] + RangeSize - 1];
+
+            spanned += leaves.Count(leaf => leaf.Last >= low && leaf.First <= high);
+        }
+
+        var perRange = spanned / (double)CountedRanges;
+        var atFences = perRange - 1;
+        var inTheLeafBefore = (RangeSize - 1 - atFences) / (RangeSize - 1);
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"Int64, distinct keys, a range of {RangeSize}, the descents, from the leaves of the tree the ranges of the first {ReadSeries.Number(CountedRanges)} places span ({ReadSeries.Number(leaves.Count)} leaves): a range spans {perRange:F2} leaves; its steps, one for each of its {RangeSize} searched items, one for an item of the writer between them, if there is one, and one that ends at the end the last saw, make one descent at the start of each step that returns an entity, one more for the round of the first that makes what the walk remembers, and {atFences:F2} at a fence; {100 * inTheLeafBefore:F1} % of the steps after the first find their entity in the leaf of the step before");
+    }
+
     // A reader that searches the key of each place in turn from the start on (Search).
     internal static Search<TEntity, TKey> Searcher<TEntity, TKey>(ILatticeIndex<TEntity> index, TKey[] keys, int[] places, int start, bool firstOnly)
         where TEntity : class => new(index, keys, places, start, firstOnly);
@@ -297,4 +408,84 @@ internal static class IndexSearchScenario
 
         private static void NotOne(TKey key, int found) => throw new InvalidOperationException($"The search for {key} found {found} items, not one.");
     }
+
+    // A reader of the walk that searches the range of the keys of 100 searched items in a row from each
+    // place in turn, from its start on, one FindAsync a step, in the direction given.
+    private struct RangeSearch : IWindowStep
+    {
+        private readonly ILatticeIndex<IndexedItems.Item> _index;
+
+        private readonly long[] _keys;
+
+        private readonly int[] _places;
+
+        private readonly LatticeFindOptions _options;
+
+        private int _next;
+
+        public RangeSearch(ILatticeIndex<IndexedItems.Item> index, long[] keys, int[] places, int start, bool reverse)
+        {
+            _index = index;
+            _keys = keys;
+            _places = places;
+            _options = new LatticeFindOptions { Reverse = reverse };
+            _next = start;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var place = _places[_next];
+
+            _next = _next + 1 == _places.Length ? 0 : _next + 1;
+
+            var range = IndexKey.All.Range(IndexBound.Inclusive(_keys[place]), IndexBound.Inclusive(_keys[place + RangeSize - 1]));
+            var found = Completed(_index.FindAsync(range, _options));
+            var searched = 0;
+
+            foreach (var item in found.Items)
+            {
+                if (item.Id <= Count)
+                {
+                    searched++;
+                }
+            }
+
+            if (searched != RangeSize)
+            {
+                NotTheRange(_keys[place], searched);
+            }
+
+            return 1;
+        }
+
+        private static void NotTheRange(long low, int found) => throw new InvalidOperationException($"The range from {low} found {found} searched items, not {RangeSize}.");
+    }
+
+    // A reader of a page of 100 of the whole index at the Offset given, one FindAsync a step.
+    private readonly struct PageSearch(ILatticeIndex<IndexedItems.Item> index, int offset) : IWindowStep
+    {
+        private readonly LatticeFindOptions _options = new() { Offset = offset, Limit = RangeSize };
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Run(bool counting, long counted)
+        {
+            var found = Completed(index.FindAsync(IndexKey.All, _options));
+
+            if (found.Items.Count != RangeSize)
+            {
+                NotAPage(found.Items.Count);
+            }
+
+            return 1;
+        }
+
+        private static void NotAPage(int found) => throw new InvalidOperationException($"The page found {found} items, not {RangeSize}.");
+    }
+
+    // The result of a FindAsync without a session, which completes within its call: AsTask would allocate
+    // a task for it, which the managed bytes of a read would count.
+    private static LatticeFindResult<TEntity> Completed<TEntity>(ValueTask<LatticeFindResult<TEntity>> search)
+        where TEntity : class =>
+        search.IsCompletedSuccessfully ? search.Result : search.AsTask().GetAwaiter().GetResult();
 }

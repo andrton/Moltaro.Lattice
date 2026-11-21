@@ -68,6 +68,38 @@ internal readonly ref struct RootReader
         _layout = layout;
     }
 
+    // Everything stored for the entity of the root, by the stored lengths: the bytes of the root block, its
+    // header, its fixed part and its inline values, and the encoded bytes of every value kept outside it, in a
+    // block of its own, in chunks with the 16 bytes its directory holds for each chunk, or in the entry of the
+    // text table a Dictionary text lies in, which every root that refers to it counts. What a search counts of
+    // an entity it holds in its answer (LatticeDatabaseOptions.ReadMemoryLimit): a measure from the lengths
+    // the descriptors of the root hold, read in one pass over them, not an account of the slots of the
+    // arena. Not for a reader of a copy.
+    public long EntityBytes()
+    {
+        var bytes = (long)BlockHeader.Size + _payload.Length;
+
+        for (var index = 0; index < _layout.DescriptorCount; index++)
+        {
+            var place = _layout.DescriptorOffset - BlockHeader.Size + (index * ValueBlocks.DescriptorSize);
+            var descriptor = ValueBlocks.Read(_payload.Slice(place, ValueBlocks.DescriptorSize));
+
+            if (!ValueBlocks.LiesOutOfLine(descriptor))
+            {
+                continue;
+            }
+
+            bytes += descriptor.Length;
+
+            if (ValueBlocks.LiesInChunks(descriptor))
+            {
+                bytes += (long)ValueBlocks.ChunkCount((int)descriptor.Length) * ValueBlocks.DescriptorSize;
+            }
+        }
+
+        return bytes;
+    }
+
     // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
     // copies.
     public static int FixedPartLength(RootLayout layout) => layout.FixedSize - BlockHeader.Size;

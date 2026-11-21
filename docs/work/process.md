@@ -30,6 +30,29 @@ producing. Nobody checks their own work.
 | **Independent reviewer** | Reviews the result against the brief, with no part in producing it | Fix what it finds |
 | **Breaker** | Writes probe tests of its own against the guarantees the sprint states, with no part in producing it, and reports only what fails | Fix what it finds |
 
+## Models and effort by role
+
+Which model and effort each agent runs at (the owner, 19 and 21 November 2026). The
+principle: the highest effort goes where the work is judgement and no later step catches
+its mistake; work that is mechanical, or that an independent check follows, runs lower.
+
+| Role or work | Model, effort |
+| --- | --- |
+| Breaker | Opus 5.5, xhigh |
+| Independent reviewer of a sprint | Opus 5.5, xhigh |
+| Implementer of a critical sprint of the engine (concurrency, storage, the lifetime of memory, replication, durability) | Opus 5.5, xhigh |
+| Coordinator | Opus 5.5, xhigh |
+| Implementer of any other sprint of the full track | Opus 5.5, high |
+| Refactoring sprint: its implementer and its narrow reviewer | Opus 5.5, high |
+| Light track: documents, samples, comments, small fixes | Opus 5.5, high |
+| Preparing a measurement, variant patches, a comparison of listings | Opus 5.5, high |
+| Architect's review, a study before a critical sprint, the planner | Fable |
+
+The rows at high effort are a trial that begins with S15, part 2 of Epic 1: the record of
+that sprint states the number of review rounds and of findings by severity beside those of
+S15, part 1, and the owner decides from that whether the rows stay. An agent that stops on
+a usage limit is not retried in a loop; the owner is told.
+
 ## The plan
 
 The planner delivers an epic document in the form described in [README.md](README.md),
@@ -294,8 +317,11 @@ extensible.
 - **What becomes of it.** The planner goes through the list with the coordinator. Each
   entry is taken as a refactoring task, joined to a coming sprint that changes the same
   code, or refused with its reason written beside it. A taken entry is entered in the
-  [refactoring backlog](refactoring.md) with its status. What would change a rule or the
-  scope goes to the owner.
+  [refactoring backlog](refactoring.md) with its status. What would change a rule goes
+  to the owner. What would change the scope follows the
+  [limits on questions](#limits-on-review-and-on-questions): it waits for the owner only
+  when it changes an Acceptance or a guarantee written in a decision record, or cannot be
+  undone cheaply; otherwise it is taken and listed.
 - **The refactoring sprint.** After a sprint is merged and the architect's list is gone
   through, the entries that were taken are carried out as one sprint of their own, before
   the next sprint of the plan starts; it is named after the sprint it follows (S13R after
@@ -414,5 +440,6 @@ within the requirements is reported at the close.
 
 In the epic document: the list of sprints with the status of each. The coordinator updates
 it when a sprint closes. What a later agent needs to know is in the brief of its sprint.
-What nobody has answered yet is in the [open questions](open-questions.md). There are no
-other reports, logs or handoff files.
+What nobody has answered yet is in the [open questions](open-questions.md), and so is
+an answer the coordinator took, marked as taken. There are no other reports, logs or
+handoff files.

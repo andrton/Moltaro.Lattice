@@ -32,7 +32,9 @@ public sealed class LatticeFindOptions
 
     /// <summary>
     /// The largest number of matches to return; <see langword="null"/> for all of them.
-    /// It limits what is returned, not the work of finding it.
+    /// The search walks the matches <see cref="Offset"/> skips, returns at most this many, and
+    /// then looks once more, copying nothing, to say whether a match follows
+    /// (<see cref="LatticeFindResult{TEntity}.HasMore"/>); it walks no further.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The value is not positive.</exception>
     public int? Limit

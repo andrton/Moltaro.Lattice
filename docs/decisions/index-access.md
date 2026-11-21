@@ -17,7 +17,7 @@ The engine knows which physical index to use; it does not parse OQL or optimize 
 arbitrary predicate. Both typed objects and dynamic records use the same contract.
 
 The public contract declares this access as `ILatticeIndex`, `IndexKey`, `IndexBound` and
-`LatticeFindOptions`; the search behind it is not implemented yet. The calls below show the shape:
+`LatticeFindOptions`, and the engine implements the search behind it. The calls below show the shape:
 
 ```csharp
 await users.Index("ByEmail").FindAsync(

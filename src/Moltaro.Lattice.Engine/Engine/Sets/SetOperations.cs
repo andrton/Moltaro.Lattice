@@ -25,10 +25,9 @@ internal sealed class SetOperations
     // How long an operation waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    // The read limits of the options, which every enumeration takes (EntityPass); null for none.
-    private readonly long? _readMemoryLimit;
-
-    private readonly TimeSpan? _readTimeLimit;
+    // The options of the database, whose read limits every enumeration and every search takes
+    // (Entities.ReadLimits).
+    private readonly LatticeDatabaseOptions _options;
 
     public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options)
     {
@@ -37,11 +36,13 @@ internal sealed class SetOperations
         _forwarder = forwarder;
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
-        _readMemoryLimit = options.ReadMemoryLimit;
-        _readTimeLimit = options.ReadTimeLimit;
+        _options = options;
     }
 
     public EntityTable Table { get; }
+
+    // The options of the database, whose read limits a search takes (Entities.IndexSearch).
+    public LatticeDatabaseOptions Options => _options;
 
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
     // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
@@ -90,7 +91,7 @@ internal sealed class SetOperations
         new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
     // A new pass of an enumeration of the entity type, under the read limits of the options.
-    public EntityPass StartPass() => Table.StartPass(_readMemoryLimit, _readTimeLimit);
+    public EntityPass StartPass() => Table.StartPass(_options);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
     public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>
@@ -127,23 +128,25 @@ internal sealed class SetOperations
     }
 
     // The next entity of a search through the index, for the key bound to it, as Next takes the next of
-    // an enumeration: built from its copy outside the protection of reads, and only then is the search
-    // moved past it, so that an entity whose build throws is read again by the next step; null at the end,
-    // with the sequence of the end (Entities.IndexSearch).
+    // an enumeration: built from its copy outside the protection of reads. The step gives the place past the
+    // entity, which the search takes only once the entity is built, so that a build that throws leaves the
+    // search before that entity and the next step reads it again, while what the step spent of the read
+    // limits and a failure it recorded stay; null at the end, with the sequence of the end
+    // (Entities.IndexSearch).
     public TResult? Next<TCopy, TResult>(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
         try
         {
-            if (!search.TryReadNext<TCopy, TResult>(Table, index, key, ref copy, out var next, out sequence, cancellationToken))
+            if (!Table.TrySearch<TCopy, TResult>(index, key, ref search, ref copy, out sequence, out var next, cancellationToken))
             {
                 return null;
             }
 
             var result = copy.Build();
 
-            search = next;
+            search.Commit(next);
 
             return result;
         }
@@ -151,6 +154,30 @@ internal sealed class SetOperations
         {
             copy.Return();
         }
+    }
+
+    // For FindAsync once it has returned its Limit: whether a match follows where the search stands
+    // (Entities.EntityTable.SearchHasMore), with the sequence of that answer.
+    public bool HasMore(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
+        Table.SearchHasMore(index, key, ref search, out sequence, cancellationToken);
+
+    // For FindAsync, which holds its answer until it returns: what its result holds grows by the bytes given,
+    // which counts, once the search has a WalkProgress, against the memory limit of a read with what the
+    // search remembers; before that, an answer of one entity whose step saw the end and that passed over no
+    // match by Offset, nothing of it counts, as a read by key does not, and nothing is counted without a
+    // memory limit. Over the limit the search fails with ReadLimitExceeded and lets go of what it remembers.
+    // The check looks at the token first, as every look at a limit does (Entities.ReadLimits), so that a
+    // cancellation is reported before the limit is, also one the code of the application made while it built
+    // the entity just added.
+    public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes, CancellationToken cancellationToken)
+    {
+        if (search.Progress is not { } progress || !search.Limits.LimitsMemory)
+        {
+            return;
+        }
+
+        progress.Hold(bytes);
+        search.CheckMemory(progress.Bytes + progress.Held, cancellationToken, Table.EntityType.Name, index?.Definition.Name);
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>

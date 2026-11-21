@@ -84,8 +84,9 @@ internal sealed class ReadEpochs
     // of it on its ordinary path. A bit, once set, stays set.
     private int _state;
 
-    // What the next read by key that finds its root runs inside the protection, for the tests of
-    // the engine (EngineDatabase.ArmReadSwitch); null when no test armed it, which is all a read pays.
+    // What the next read by key that finds its root, or the next root a step of a search takes, runs
+    // inside the protection, for the tests of the engine (EngineDatabase.ArmReadSwitch); null when no
+    // test armed it, which is all a read pays.
     private Action<RootHandle>? _readSwitch;
 
     public ReadEpochs(object owner)
@@ -230,7 +231,8 @@ internal sealed class ReadEpochs
         return Volatile.Read(ref epoch) == Free && Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) == Free;
     }
 
-    // Arms the read switch of the tests: the next read by key that finds its root runs the action once.
+    // Arms the read switch of the tests: the next read by key that finds its root, or the next root a
+    // step of a search takes, runs the action once.
     public void ArmReadSwitch(Action<RootHandle> action) => Volatile.Write(ref _readSwitch, action);
 
     // Runs the read switch of the tests when it is armed, inside the protection, with the handle of the

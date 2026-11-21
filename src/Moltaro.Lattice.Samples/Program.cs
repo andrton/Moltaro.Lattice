@@ -36,7 +36,7 @@ LatticeSchema schema = null!;
     (MemoryLimitSample.RunAsync, Implemented),
     (ReadLimitsSample.RunAsync, Implemented),
     (MasterAndChildSample.RunAsync, Implemented),
-    (IndexSample.RunAsync, Planned),
+    (IndexSample.RunAsync, Implemented),
     (UniqueIndexSample.RunAsync, Planned),
     (DependencyInjectionSample.RunAsync, Implemented),
     (IdentitySample.RunAsync, Planned),

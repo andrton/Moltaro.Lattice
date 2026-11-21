@@ -36,6 +36,46 @@ internal static class ValueComparer
     public static uint TextHash(LatticeField field, ReadOnlySpan<char> text, ulong seed) =>
         ComparisonOf(field).IgnoresCase ? TextHashWithoutCase(text, seed) : Marvin.Hash(text, seed);
 
+    // The same hash of a stored text, read a piece at a time, so that the key a root stores is hashed as
+    // the text of that key a caller gives is: for the keys a search through a secondary index remembers
+    // (Entities.PrimaryKeys.StoredHash). The pieces are hashed one after the other as one text, and a
+    // piece of a stored text never ends inside a surrogate pair, so a pair is mapped whole without case.
+    // Allocates nothing.
+    public static uint TextHash(LatticeField field, StoredTextReader text, ulong seed)
+    {
+        Span<char> piece = stackalloc char[PieceLength];
+        Span<char> mapped = stackalloc char[PieceLength];
+        var ignoresCase = ComparisonOf(field).IgnoresCase;
+        var marvin = new Marvin(seed);
+
+        while (true)
+        {
+            var read = text.Read(piece);
+
+            if (read == 0)
+            {
+                return marvin.Finish();
+            }
+
+            var left = piece[..read];
+
+            while (!left.IsEmpty)
+            {
+                if (!ignoresCase)
+                {
+                    marvin.Append(left);
+
+                    break;
+                }
+
+                var length = TextComparison.ToUpper(left, mapped);
+
+                marvin.Append(mapped[..length]);
+                left = left[length..];
+            }
+        }
+    }
+
     // The hash without case: the text mapped a piece of PieceLength code units at a time, and the
     // pieces hashed one after the other as one text. A method of its own, so that the hash with
     // Ordinal does not set up the buffer on the stack: measured in isolation on keys of 13 characters,

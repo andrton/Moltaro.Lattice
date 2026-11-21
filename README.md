@@ -13,14 +13,15 @@ repository run on it.
 The engine is being built in steps. Today it works in MemoryOnly mode: it stores and
 reads entities of scalar and Enum fields by primary key, under every key type and both
 text comparisons, in UTF-8 and UTF-16, within the memory budget of the instance. Every
-declared secondary index is kept with the data, and an application finds entities by
-the full key of an index. A child loads the whole database from its master over TCP
-while the master keeps writing, builds its own indexes, then follows its changes, and
-forwards its own writes to the master. A schema can already declare more than the
-engine stores: an entity type with an owned value, a List, a Map, a Set or a reference
-compiles, but cannot be written yet. A search by the leading fields of an index, with a
-range, in reverse or in pages, unique indexes, write batches and PostgreSQL persistence
-are not implemented yet, and the contract may still change.
+declared secondary index is kept with the data, and an application finds entities
+through an index by its full key, by its leading fields and a range on the next, in the
+order of the index or its reverse and in pages, each entity at most once. A child loads
+the whole database from its master over TCP while the master keeps writing, builds its
+own indexes, then follows its changes, and forwards its own writes to the master. A
+schema can already declare more than the engine stores: an entity type with an owned
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Unique
+indexes, write batches and PostgreSQL persistence are not implemented yet, and the
+contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -157,11 +158,7 @@ foreach (var record in settings.Enumerate())
 
 Both ways work on the same data and follow the same rules.
 
-**Finding by index.** *The search by the full key of an index works; a search by its
-leading fields, with a range, in reverse or with `Offset` or `Limit` is in the contract
-and not implemented yet, and is refused with `NotSupportedException`. An entity that is
-deleted and created again while a search runs may be returned twice; returning every
-entity at most once is not implemented yet.* An entity type
+**Finding by index.** An entity type
 declares its secondary indexes in the schema, each with a name and the fields it covers,
 in order:
 
@@ -174,7 +171,10 @@ in order:
 
 The application names the index it searches; there is no query language, and nothing
 falls back to reading every entity. An index answers equality on all of its fields, or on
-the leading ones followed by a range on the next:
+the leading ones followed by a range on the next, in its order, where an entity without a
+value in a field comes after those with one, or in the exact reverse of it. A search is not
+a snapshot; it returns each entity at most once, also one deleted and created again while
+it runs, and every entity that keeps its indexed values for the whole search:
 
 ```csharp
 var byEmail = users.Index("ByEmail");                             // keep and reuse
@@ -392,8 +392,7 @@ path, from simple to complex.
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
-In the contract but not implemented yet: searching an index by its leading fields, with a
-range, in reverse or in pages, unique indexes, executing a
+In the contract but not implemented yet: unique indexes, executing a
 write batch, Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and

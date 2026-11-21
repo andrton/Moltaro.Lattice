@@ -51,13 +51,18 @@ internal sealed class UserDatabase : IDisposable
 
     // Generates the fixture, opens the database, under the read limits given or none and accepting
     // children at the address given or at none, and inserts the users by name; with Region in Dictionary
-    // storage when dictionaryRegion is true.
-    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false)
+    // storage when dictionaryRegion is true; without the three indexes of User when withoutIndexes is
+    // true, the same users of a type that declares none.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false)
     {
         var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
         var records = ReferenceFixture.Generate(scalar).ToList();
-        var schema = dictionaryRegion ? LatticeSchema.Compile(WithDictionaryRegion(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)))) : scalar;
-        var users = records.Where(record => record.EntityType.Name == "User").Select(user => dictionaryRegion ? CopyInto(schema, user) : user).ToList();
+        var json = WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false));
+        var schema = dictionaryRegion || withoutIndexes
+            ? LatticeSchema.Compile(withoutIndexes ? WithoutUserIndexes(json) : WithDictionaryRegion(json))
+            : scalar;
+        var copies = dictionaryRegion || withoutIndexes;
+        var users = records.Where(record => record.EntityType.Name == "User").Select(user => copies ? CopyInto(schema, user) : user).ToList();
 
         var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
@@ -83,7 +88,7 @@ internal sealed class UserDatabase : IDisposable
         return new UserDatabase(
             database,
             users,
-            $"Fixture: the scalar form without its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
+            $"Fixture: the scalar form without its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}{(withoutIndexes ? ", User without its indexes" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
             $"Database: the engine, MemoryOnly; {ReadSeries.Number(users.Count)} users inserted by name in {ReadSeries.Seconds(loading.Elapsed)} s");
     }
 
@@ -184,6 +189,23 @@ internal sealed class UserDatabase : IDisposable
         }
 
         return json.Replace(Region, $"{Region}, \"StringStorage\": \"Dictionary\"", StringComparison.Ordinal);
+    }
+
+    // The descriptor with User declaring no index: its three indexes, ByLogin, ByEmail and
+    // ByRegionAndLogin, taken out of the list, which stays, empty.
+    private static string WithoutUserIndexes(string json)
+    {
+        var first = json.IndexOf("{ \"Id\": 1, \"Name\": \"ByLogin\"", StringComparison.Ordinal);
+        var last = json.IndexOf("\"Name\": \"ByRegionAndLogin\"", StringComparison.Ordinal);
+        var open = first < 0 ? -1 : json.LastIndexOf('[', first);
+        var close = last < 0 ? -1 : json.IndexOf(']', json.IndexOf(']', last) + 1);
+
+        if (open < 0 || close < 0)
+        {
+            throw new InvalidOperationException("The descriptor of the fixture does not declare the indexes of User as this scenario expects.");
+        }
+
+        return string.Concat(json.AsSpan(0, open), "[]", json.AsSpan(close + 1));
     }
 
     // A user of the fixture as a record of the entity type User of the schema, field by field.

@@ -7,10 +7,8 @@ namespace Moltaro.Lattice.Tests.Indexes;
 //   User.ByAgeAndName (Age, Name)
 //   Setting.ByPriority (Priority)
 //
-// The search by the full key of an index comes first; the search by its leading fields, with a
-// range, in reverse and in pages comes after it. A test that needs a search that is not built yet
-// is written and skipped: when the search exists its Skip is removed, and it has to pass. Until
-// then such a search is refused with NotSupportedException, as RefusedSearchTests states.
+// A search by the full key of an index, by its leading fields, with a range, in reverse and in
+// pages; the walk of these is stated in detail by the tests of Indexes/Walk.
 public sealed class IndexTests
 {
     [Fact]
@@ -29,7 +27,7 @@ public sealed class IndexTests
         Assert.Equal("Alan", Assert.Single(byEmail.Find(IndexKey.Equal<string?>(null))).Name);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Index_on_two_fields_finds_by_both_or_by_the_first()
     {
         await using var database = await OpenWithUsersAsync();
@@ -45,7 +43,7 @@ public sealed class IndexTests
         Assert.Equal(3, byAgeAndName.Find(IndexKey.Equal(36L)).Count());
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Range_narrows_the_field_after_the_equal_ones()
     {
         await using var database = await OpenWithUsersAsync();
@@ -75,7 +73,7 @@ public sealed class IndexTests
             user => user.Name == "Edsger");
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Whole_index_is_traversed_in_its_order()
     {
         await using var database = await OpenWithUsersAsync();
@@ -87,7 +85,7 @@ public sealed class IndexTests
             byAgeAndName.Find(IndexKey.All).Select(user => user.Name));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Options_choose_direction_and_page()
     {
         await using var database = await OpenWithUsersAsync();
@@ -172,7 +170,7 @@ public sealed class IndexTests
         Assert.Throws<InvalidOperationException>(() => IndexKey.All.Range(IndexBound.Inclusive(1), null).Range(null, IndexBound.Inclusive(2)));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Records_are_found_through_indexes_the_same_way()
     {
         await using var database = await TestData.OpenMasterAsync();

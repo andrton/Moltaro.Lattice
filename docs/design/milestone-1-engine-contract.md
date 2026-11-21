@@ -301,27 +301,26 @@ combinations require an explicitly typed caller value. This closes the shared
 Q07.3.6 binding boundary without OQL or silent rounding. Null ordering and explicit
 primary-key tie-breaking stay unchanged.
 
-The two paragraphs below predate the structure; the sprint of ranges and paging (S15)
-rewrites them for the tree, whose step holds nothing and seeks after the last key and
-identity ([ordered index](ordered-index.md#how-a-range-will-be-walked)).
+Enumeration and index traversal are a step at a time and hold nothing between two steps: no
+node, no cursor, no slot of the protection. A step enters the protection of reads, walks a
+bounded number of entries, takes each root by its stamp and rechecks it against the key of
+the entry that led to it, copies what it returns and leaves; the entity is built outside.
+Keep a budgeted set of the primary keys already returned or passed over, so updates, key
+movement or delete/reinsert cannot duplicate a key during one pass; charge retained key
+text too. Exhausting traversal memory/time gives an explicit error, not a partial success
+disguised as a complete result. Offset skips matches, which are remembered and counted
+once; Limit bounds returned matches. The live result set can change; no cross-call
+snapshot is introduced.
 
-Enumeration and index traversal copy bounded candidate batches and claim root
-lifetimes before releasing index protection. Recheck predicate/liveness while reading
-the current root. Keep a budgeted set of logical type/key identities already visited,
-so updates or delete/reinsert cannot duplicate a key during one pass. Charge retained
-key text too. Exhausting traversal memory/time gives an explicit error, not a partial
-success disguised as a complete result. Offset skips visited matches; Limit bounds
-returned matches. The live result set can change; no cross-call snapshot is introduced.
-
-For ordered traversal, retain a budgeted copy of the last key and an index mutation
-version. A managed package-node cursor is used only while that version is unchanged
-and only under index protection. After a mutation, discard that cursor and seek the
-last key inclusively, skipping visited logical identities. Inclusive reseek preserves
-unchanged matches in equal-key groups; an exclusive key seek would lose them. This
-may repeat scanning work under churn but cannot silently duplicate/omit unchanged
-equal-key matches. Cursor/visited key copies own their bytes until disposal; they do
-not keep unprotected pointers into removable text. Internal continuation adds no
-public sort-key tie breaker or keyset-paging contract.
+An ordered traversal is the walk of the [ordered index](ordered-index.md#how-a-range-is-walked):
+the entries between two search keys of the leading values and the bounds of the range, each
+standing before or after every entry its parts equal; one descent to where a step starts, in
+either direction, and the next leaf by a new descent at the fence. A step seeks strictly after
+the last (key, identity) it returned, which it holds in detached form, a copy that owns its
+text, so it returns no pair twice and every pair that is there throughout, also inside a run
+of equal keys; the set of primary keys covers what the pairs cannot, a key moved ahead of the
+walk and an entity created again. Internal continuation adds no public sort-key tie breaker or
+keyset-paging contract.
 
 ## Write coordinator and revision semantics
 

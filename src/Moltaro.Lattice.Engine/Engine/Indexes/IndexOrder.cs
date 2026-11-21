@@ -60,21 +60,16 @@ internal sealed class IndexOrder
     public bool SameKey(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) =>
         _oneNumber ? NumberOf(left) == NumberOf(right) : CompareKeys(left, right) == 0;
 
-    // The order of a search key, with the identity it starts at, against an entry: below zero when the
-    // key comes first. For a reader inside the protection of reads.
+    // The order of a search key, with the identity it starts at or its edge, against an entry: below zero
+    // when the key comes first. Only the leading parts the key gives are compared, then its identity, so a
+    // key of fewer parts stands before or after every entry those parts equal, as its edge says
+    // (SearchKey.From). For a reader inside the protection of reads.
     public int Compare(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
-        var order = _oneNumber ? probe.Number.CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
+        var order = _oneNumber && probe.Parts == 1 ? probe.Number.CompareTo(NumberOf(entry)) : CompareKey(probe, entry);
 
         return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
     }
-
-    // Whether the entry has the key of the search, whatever its identity: where the run of the key ends.
-    // Inlined into the three places of OrderedTree.TryFindFirst that ask it, so that an index of one
-    // number makes no call for it, also at the fence (JIT listing at full optimization).
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool SameKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry) =>
-        _oneNumber ? probe.Number == NumberOf(entry) : CompareKey(probe, entry) == 0;
 
     // Whether the two roots contribute entries of equal keys by the order, read from their stored fields
     // as the entries would hold them: a copy of a text or the text entry its root references is the text
@@ -247,21 +242,22 @@ internal sealed class IndexOrder
                 return order;
             }
 
-            leftOffset += part.IsText ? IndexLayout.TextPartBytes(left[leftOffset]) : part.Width;
-            rightOffset += part.IsText ? IndexLayout.TextPartBytes(right[rightOffset]) : part.Width;
+            // Either entry may be one a search holds in detached form (IndexLayout.Detach).
+            leftOffset += part.IsText ? IndexLayout.TextPartBytes(left[leftOffset..]) : part.Width;
+            rightOffset += part.IsText ? IndexLayout.TextPartBytes(right[rightOffset..]) : part.Width;
         }
 
         return 0;
     }
 
-    // The parts of a search key against those of an entry (see the class): the fixed parts of the key
+    // The parts a search key gives against those of an entry (see the class): the fixed parts of the key
     // are stored values in its scratch, its texts as they were given.
     private int CompareKey(scoped in SearchKey probe, ReadOnlySpan<byte> entry)
     {
         var parts = _layout.Parts;
         var offset = IndexLayout.IdentityBytes + _layout.NullBitmapBytes;
 
-        for (var place = 0; place < parts.Length; place++)
+        for (var place = 0; place < probe.Parts; place++)
         {
             ref readonly var part = ref parts[place];
             var probeNull = probe.IsNull(place);

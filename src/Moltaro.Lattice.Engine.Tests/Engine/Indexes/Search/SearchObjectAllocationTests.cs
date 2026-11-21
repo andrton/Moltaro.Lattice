@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search.SearchAllocation;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
@@ -23,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 [Collection<ManagedAllocationCollection>]
 public sealed class SearchObjectAllocationTests
 {
-    // The object of a search through the class (Engine.Sets.IndexMatches), 328 bytes:
+    // The object of a search through the class (Engine.Sets.IndexMatches), 360 bytes:
     // - 16 bytes that every object has, its header and the pointer to its type;
     // - the key, bound to the fields of the index, 232 bytes (IndexKey): four values of 32 bytes, each two
     //   64-bit words of bits, a reference to a text and the byte of its field type, padded to 8
@@ -32,14 +33,17 @@ public sealed class SearchObjectAllocationTests
     //   it, 8 bytes together;
     // - three references, 24 bytes: the operations of the set, the index and the current entity;
     // - the copy of a root the set makes, 24 bytes (ClassCopy: the copier and the two arrays it rents);
-    // - where the search stands, 24 bytes (Entities.IndexSearch): the identity after the last entity
-    //   returned, 8 bytes, and the sequence of an end a step saw, a nullable 64-bit number, 16;
+    // - where the search stands, 56 bytes (Entities.IndexSearch): the identity after the last entity
+    //   returned, 8 bytes; the sequence of an end a step saw, a 64-bit number with 0 for none, 8; the read
+    //   limits, 24 (Entities.ReadLimits: the options, the ticks spent and the limit that failed, a nullable
+    //   enum of 8); the one reference to what a walk remembers, 8 (Entities.FirstKey or WalkProgress); and
+    //   the Offset, the direction, whether it holds its answer and whether its key is full, 7, padded to 8;
     // - the state of the search, 4 bytes, and 4 of padding to a multiple of 8.
-    private const long ClassSearch = 328;
+    private const long ClassSearch = 360;
 
-    // The object of a search by name, 320 bytes: the same but for the copy of a root, which is a record's,
+    // The object of a search by name, 352 bytes: the same but for the copy of a root, which is a record's,
     // 16 bytes (RecordCopy: the entity type and the record).
-    private const long NameSearch = 320;
+    private const long NameSearch = 352;
 
     // What a search returns through the class, as a read by key does, 32 bytes: the Counted object, its 16
     // bytes and its two Int64.
@@ -81,33 +85,5 @@ public sealed class SearchObjectAllocationTests
         Assert.True(classNone == ClassSearch, $"A search through the class that finds nothing allocated {classNone} bytes, not the {ClassSearch} of its object.");
         Assert.True(nameOne == NameSearch + NameEntity, $"A search by name that returns one entity allocated {nameOne} bytes, not the {NameSearch} of its object and the {NameEntity} of the record.");
         Assert.True(nameNone == NameSearch, $"A search by name that finds nothing allocated {nameNone} bytes, not the {NameSearch} of its object.");
-    }
-
-    // What one call allocates on this thread, after a first call; the call returns the number of entities
-    // found.
-    private static long Measure(Func<int> call, int found)
-    {
-        Assert.Equal(found, call());
-
-        var start = GC.GetAllocatedBytesForCurrentThread();
-        var count = call();
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - start;
-
-        Assert.Equal(found, count);
-
-        return allocated;
-    }
-
-    // Enumerates the matches as an application does, to the end, without keeping them.
-    private static int Count<TEntity>(IEnumerable<TEntity> matches)
-    {
-        var count = 0;
-
-        foreach (var _ in matches)
-        {
-            count++;
-        }
-
-        return count;
     }
 }
