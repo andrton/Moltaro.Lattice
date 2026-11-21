@@ -61,7 +61,7 @@ internal static class EveryType
             WriterMembers.SetValid(ref writer, field);
         }
 
-        return writer.Complete();
+        return item.Publish(writer.Complete());
     }
 
     private static string Fields()

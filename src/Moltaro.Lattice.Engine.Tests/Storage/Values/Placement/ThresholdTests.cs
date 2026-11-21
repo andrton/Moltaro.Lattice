@@ -42,7 +42,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetBinary(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));
@@ -59,7 +59,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetString(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));
@@ -76,7 +76,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetString(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));

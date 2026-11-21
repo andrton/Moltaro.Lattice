@@ -20,7 +20,7 @@ internal static class IndexEntries
         writer.SetInteger(item.Field("Id"), identity.Slot);
         writer.SetInteger(item.Field("Number"), number);
 
-        return EntryOf(item, index.Layout, writer.Complete(), identity);
+        return EntryOf(item, index.Layout, item.Publish(writer.Complete()), identity);
     }
 
     // The entry of the root, under the identity given.

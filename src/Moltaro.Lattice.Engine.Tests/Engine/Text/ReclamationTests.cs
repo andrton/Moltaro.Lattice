@@ -344,7 +344,7 @@ public sealed class ReclamationTests
         writer.SetInteger(item.Field("Id"), id);
         writer.SetString(item.Field("Region"), region);
 
-        return writer.Complete();
+        return item.Publish(writer.Complete());
     }
 
     // The number of the text the read returned among the texts given, after the read; null when it found

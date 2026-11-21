@@ -32,7 +32,7 @@ public sealed class RewriteTests
             writer.SetInteger(item.Field("Id"), 1);
             writer.SetBinary(item.Field("Value"), value);
             writer.SetBinary(item.Field("Maybe"), value);
-            var root = writer.Complete();
+            var root = item.Publish(writer.Complete());
 
             if (!previous.IsNull)
             {
@@ -68,7 +68,7 @@ public sealed class RewriteTests
             var writer = item.Writer();
             writer.SetInteger(item.Field("Id"), 1);
             writer.SetString(item.Field("Value"), value);
-            var root = writer.Complete();
+            var root = item.Publish(writer.Complete());
 
             if (!previous.IsNull)
             {
@@ -150,6 +150,6 @@ public sealed class RewriteTests
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Value"), Payloads.Bytes(length));
 
-        return writer.Complete();
+        return item.Publish(writer.Complete());
     }
 }

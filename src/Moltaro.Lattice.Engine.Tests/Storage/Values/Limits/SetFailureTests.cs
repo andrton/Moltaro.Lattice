@@ -48,7 +48,7 @@ public sealed class SetFailureTests
 
         // The allocator works again; the second SetBinary of the field is not refused as a second set.
         writer.SetBinary(item.Field("Value"), Chunked);
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
 
         Assert.Equal(Chunked, item.Reader(root).GetBinary(item.Field("Value")));
         Assert.Equal(StoredBytes.Of(item.Layout.FixedSize, Chunked.Length), StoredBytes.In(item.Arena));
@@ -73,7 +73,7 @@ public sealed class SetFailureTests
 
         FailSetting(item, ref writer, "Maybe");
 
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
         var reader = item.Reader(root);
 
         Assert.True(reader.IsNull(item.Field("Maybe")));

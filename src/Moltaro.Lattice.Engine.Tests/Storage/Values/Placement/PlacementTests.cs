@@ -28,7 +28,7 @@ public sealed class PlacementTests
         writer.SetString(item.Field("Nickname"), "");
         writer.SetBinary(item.Field("Photo"), Payloads.Bytes(10));
         writer.SetNull(item.Field("Thumbnail"));
-        writer.Complete();
+        item.Publish(writer.Complete());
 
         // One header, the fixed part and the 74 bytes of the inline values.
         Assert.Equal(item.Layout.FixedSize + RootLayout.InlineLimit + 10, item.Arena.Counters.LiveBytes);
@@ -43,7 +43,7 @@ public sealed class PlacementTests
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "short");
         writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.InlineLimit + 1));
-        writer.Complete();
+        item.Publish(writer.Complete());
 
         Assert.Equal(item.Layout.FixedSize + 5 + (32 + RootLayout.InlineLimit + 1), item.Arena.Counters.LiveBytes);
     }
@@ -57,7 +57,7 @@ public sealed class PlacementTests
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), Payloads.Ascii(RootLayout.SingleBlockLimit));
         writer.SetBinary(item.Field("Photo"), []);
-        writer.Complete();
+        item.Publish(writer.Complete());
 
         Assert.Equal(item.Layout.FixedSize + (32 + RootLayout.SingleBlockLimit), item.Arena.Counters.LiveBytes);
     }
@@ -71,7 +71,7 @@ public sealed class PlacementTests
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "");
         writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.SingleBlockLimit + 1));
-        writer.Complete();
+        item.Publish(writer.Complete());
 
         // The directory holds one descriptor of 16 bytes; the chunk holds the whole value.
         Assert.Equal(item.Layout.FixedSize + (32 + 16) + (32 + RootLayout.SingleBlockLimit + 1), item.Arena.Counters.LiveBytes);
@@ -86,7 +86,7 @@ public sealed class PlacementTests
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Login"), "");
         writer.SetBinary(item.Field("Photo"), Payloads.Bytes(RootLayout.ChunkPayload + 1));
-        writer.Complete();
+        item.Publish(writer.Complete());
 
         Assert.Equal(
             item.Layout.FixedSize + (32 + 2 * 16) + (32 + RootLayout.ChunkPayload) + (32 + 1),
@@ -120,7 +120,7 @@ public sealed class PlacementTests
         writer.SetBinary(item.Field("D"), d);
         writer.SetString(item.Field("E"), e);
         writer.SetBinary(item.Field("F"), f);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(a, reader.GetString(item.Field("A")));
         Assert.Equal(b, reader.GetBinary(item.Field("B")));
@@ -143,7 +143,7 @@ public sealed class PlacementTests
         var fits = wide.Writer();
         WideSchema.SetKeyAndFillers(ref fits, wide);
         fits.SetString(wide.Field("Text"), Payloads.Ascii(10));
-        var inline = fits.Complete();
+        var inline = wide.Publish(fits.Complete());
 
         Assert.Equal(Arena.MaxBlockSize, wide.Arena.Counters.LiveBytes);
         Assert.Equal(Payloads.Ascii(10), wide.Reader(inline).GetString(wide.Field("Text")));
@@ -153,7 +153,7 @@ public sealed class PlacementTests
         var overflows = wide.Writer();
         WideSchema.SetKeyAndFillers(ref overflows, wide);
         overflows.SetString(wide.Field("Text"), Payloads.Ascii(11));
-        var outside = overflows.Complete();
+        var outside = wide.Publish(overflows.Complete());
 
         Assert.Equal(wide.Layout.FixedSize + (32 + 11), wide.Arena.Counters.LiveBytes);
         Assert.Equal(Payloads.Ascii(11), wide.Reader(outside).GetString(wide.Field("Text")));
@@ -166,7 +166,7 @@ public sealed class PlacementTests
 
         var writer = widest.Writer();
         WideSchema.SetKeyAndFillers(ref writer, widest);
-        var reader = widest.Reader(writer.Complete());
+        var reader = widest.Reader(widest.Publish(writer.Complete()));
 
         Assert.Equal(Arena.MaxBlockSize, widest.Arena.Counters.LiveBytes);
         Assert.Equal(1, reader.GetInteger(widest.Field("Id")));
