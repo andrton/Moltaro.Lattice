@@ -52,35 +52,27 @@ internal sealed class EntityPass
     // The start of a step, for its time: a timestamp, or 0 when there is no time limit.
     public long StartStep() => _limits.StartStep();
 
-    // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
+    // The look of a round of the step that started at the timestamp (ReadLimits.FailureOfRound): the token, a
     // failure the pass kept and the time limit; on a failure of a limit the pass lets its keys go.
     public void CheckRound(long started, CancellationToken cancellationToken)
     {
-        try
-        {
-            _limits.CheckRound(started, cancellationToken, _entityName, null);
-        }
-        catch (LatticeException)
+        if (_limits.FailureOfRound(started, cancellationToken, _entityName, null) is { } failure)
         {
             Returned.Clear();
 
-            throw;
+            throw failure;
         }
     }
 
-    // The look at the memory (ReadLimits.CheckMemory): the token, then whether the keys would take more
+    // The look at the memory (ReadLimits.FailureOfMemory): the token, then whether the keys would take more
     // bytes than the memory limit; on a failure of the limit the pass lets its keys go.
     public void CheckMemory(long bytes, CancellationToken cancellationToken)
     {
-        try
-        {
-            _limits.CheckMemory(bytes, cancellationToken, _entityName, null);
-        }
-        catch (LatticeException)
+        if (_limits.FailureOfMemory(bytes, cancellationToken, _entityName, null) is { } failure)
         {
             Returned.Clear();
 
-            throw;
+            throw failure;
         }
     }
 

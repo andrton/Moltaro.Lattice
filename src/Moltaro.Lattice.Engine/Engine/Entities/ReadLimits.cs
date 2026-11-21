@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // alike; a read without a limit pays nothing for the time, not even a timestamp, and nothing for the
 // memory.
 //
-// What each limit counts is the holder's: the memory a read holds is given to CheckMemory by its holder,
+// What each limit counts is the holder's: the memory a read holds is given to FailureOfMemory by its holder,
 // the keys an enumeration remembers or what a search remembers and, for FindAsync, the result it holds
 // until it returns (docs/decisions/queries.md, Q07.1.1). The time is that of the steps from their start
 // to their end, a wait inside a step included, checked where a step can stop safely; the time between two
@@ -22,10 +22,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // A step that would exceed a limit fails with LatticeException, ReadLimitExceeded, and the limit; the
 // failure is kept, so that every later step fails the same way and the read never ends as if it were
 // complete. A cancellation is reported before a limit: the two looks at the limits, that of a round when
-// it enters the protection (CheckRound) and that at the memory (CheckMemory), take the token of the read
-// and look at it first, so that no place of a step can look at a limit before the token. 24 bytes: the
-// options, the ticks spent and the limit that failed. Mutable, and only the thread that takes a step of
-// its read changes it.
+// it enters the protection (FailureOfRound) and that at the memory (FailureOfMemory), take the token of
+// the read and look at it first, so that no place of a step can look at a limit before the token. 24
+// bytes: the options, the ticks spent and the limit that failed. Mutable, and only the thread that takes
+// a step of its read changes it.
 internal struct ReadLimits
 {
     private readonly LatticeDatabaseOptions _options;
@@ -59,27 +59,32 @@ internal struct ReadLimits
     // reads, in this order: the token; a failure the read kept, which fails the step again; and the time
     // limit, which fails it when the steps, this one so far included, have spent more than it, and the
     // failure is kept. The names, of the entity type and of the index of a search, null for an enumeration,
-    // go into the message, which is made only when the read fails.
-    public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
+    // go into the message, which is made only when the read fails. A cancellation is thrown here; the
+    // failure of a limit is returned, for the holder to let go of what it remembers before it throws it,
+    // and null when the round may go on.
+    public LatticeException? FailureOfRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (_failed is { } failed)
         {
-            throw Exceeded(failed, entityName, indexName);
+            return Exceeded(failed, entityName, indexName);
         }
 
         if (_options.ReadTimeLimit is { } limit && _spentTicks + (Stopwatch.GetTimestamp() - started) > TicksOf(limit))
         {
             _failed = LatticeLimitEnum.ReadTime;
 
-            throw Exceeded(LatticeLimitEnum.ReadTime, entityName, indexName);
+            return Exceeded(LatticeLimitEnum.ReadTime, entityName, indexName);
         }
+
+        return null;
     }
 
     // The look at the memory: the token, then whether the read would hold more bytes than the memory limit,
-    // which fails the step; the failure is kept.
-    public void CheckMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
+    // which fails the step; the failure is kept. As FailureOfRound, a cancellation is thrown here and the
+    // failure of the limit is returned, null when the read may hold the bytes.
+    public LatticeException? FailureOfMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -87,8 +92,10 @@ internal struct ReadLimits
         {
             _failed = LatticeLimitEnum.ReadMemory;
 
-            throw Exceeded(LatticeLimitEnum.ReadMemory, entityName, indexName);
+            return Exceeded(LatticeLimitEnum.ReadMemory, entityName, indexName);
         }
+
+        return null;
     }
 
     // The time limit in ticks of Stopwatch, at most what they count.

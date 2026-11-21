@@ -97,38 +97,30 @@ internal struct IndexSearch
     // saw, and no key kept of a first entity.
     public readonly (RootHandle From, ulong EndsAt, FirstKey? First) Place => (From, EndsAt, null);
 
-    // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
+    // The look of a round of the step that started at the timestamp (ReadLimits.FailureOfRound): the token, a
     // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
     // remembers: a search that failed returns nothing more, and every later step fails at the failure the
     // read limits keep before it would read it.
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
-        try
-        {
-            Limits.CheckRound(started, cancellationToken, entityName, indexName);
-        }
-        catch (LatticeException)
+        if (Limits.FailureOfRound(started, cancellationToken, entityName, indexName) is { } failure)
         {
             Progress = null;
 
-            throw;
+            throw failure;
         }
     }
 
-    // The look at the memory (ReadLimits.CheckMemory): the token, then whether the search would hold more
+    // The look at the memory (ReadLimits.FailureOfMemory): the token, then whether the search would hold more
     // bytes than the memory limit; on a failure of the limit it lets go of what it remembers, as CheckRound
     // does. Every place a search looks at the memory limit looks through here.
     public void CheckMemory(long bytes, CancellationToken cancellationToken, string entityName, string? indexName)
     {
-        try
-        {
-            Limits.CheckMemory(bytes, cancellationToken, entityName, indexName);
-        }
-        catch (LatticeException)
+        if (Limits.FailureOfMemory(bytes, cancellationToken, entityName, indexName) is { } failure)
         {
             Progress = null;
 
-            throw;
+            throw failure;
         }
     }
 

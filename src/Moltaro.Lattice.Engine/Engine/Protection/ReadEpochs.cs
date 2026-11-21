@@ -117,6 +117,19 @@ internal sealed class ReadEpochs
     // for it.
     public int Enter(CancellationToken cancellationToken = default)
     {
+        if (!TryEnter(cancellationToken, out var slot))
+        {
+            ThrowForState();
+        }
+
+        return slot;
+    }
+
+    // Enters a read as Enter does, but returns false, holding no slot, where Enter refuses the read after
+    // the close or once the database is faulted, so that the caller can let go of what it holds before it
+    // reports the refusal (ThrowForState).
+    public bool TryEnter(CancellationToken cancellationToken, out int slot)
+    {
         var start = Thread.GetCurrentProcessorId();
         var spinner = default(SpinWait);
 
@@ -124,7 +137,7 @@ internal sealed class ReadEpochs
         {
             for (var probe = 0; probe < _slots.Length; probe++)
             {
-                var slot = (start + probe) & _mask;
+                slot = (start + probe) & _mask;
 
                 if (!TryClaim(slot))
                 {
@@ -134,15 +147,18 @@ internal sealed class ReadEpochs
                 if (Volatile.Read(ref _state) != 0)
                 {
                     Exit(slot);
-                    ThrowForState();
+
+                    return false;
                 }
 
-                return slot;
+                return true;
             }
 
             if (Volatile.Read(ref _state) != 0)
             {
-                ThrowForState();
+                slot = 0;
+
+                return false;
             }
 
             cancellationToken.ThrowIfCancellationRequested();

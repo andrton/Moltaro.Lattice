@@ -512,16 +512,13 @@ internal sealed class EntityTable
     // remembers, as when a read limit fails it.
     private int EnterProtection(ref IndexSearch search, CancellationToken cancellationToken)
     {
-        try
-        {
-            return _epochs.Enter(cancellationToken);
-        }
-        catch (Exception exception) when (exception is ObjectDisposedException or LatticeException { Error: LatticeErrorEnum.Unavailable })
+        if (!_epochs.TryEnter(cancellationToken, out var protection))
         {
             search.Progress = null;
-
-            throw;
+            _epochs.ThrowForState();
         }
+
+        return protection;
     }
 
     // A step of a search (TrySearch), or a look at whether a match follows when it copies nothing
