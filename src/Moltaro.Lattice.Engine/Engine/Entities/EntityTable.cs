@@ -438,9 +438,10 @@ internal sealed class EntityTable
     // One step of a search through the index, from where the search stands (IndexSearch), as the key and
     // the search say: by the leading parts of the key and a range on the next, in the index order or its
     // exact reverse, passing over the matches its Offset still skips. True when there is an entity, copied
-    // into the copy, with the search moved past it and what only a walk needs staged, which the caller
-    // commits once it has built the entity (IndexSearch.Commit) and puts back if it cannot
-    // (SetOperations.Next); false at the end, with the sequence under which the index showed no more match.
+    // into the copy, with the place past it, which the caller takes once it has built the entity, and what
+    // only a walk needs staged, which it commits then (IndexSearch.Commit); a build that fails takes neither,
+    // so the next step reads that entity again (SetOperations.Next). False at the end, with the sequence under
+    // which the index showed no more match.
     // A search of an entity type the engine does not store, which has no index, finds nothing, as a read by
     // key does. ObjectDisposedException after the close; LatticeException with ReadLimitExceeded from a
     // step that would exceed a read limit and from every step after it (ReadLimits). The token ends the wait
@@ -450,12 +451,12 @@ internal sealed class EntityTable
     //
     // docs/design/ordered-index.md, "How a range is walked", says what a step does and why it returns an
     // entity at most once, every entity that keeps its key, and its entities in the order of the walk.
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, out (RootHandle From, ulong EndsAt) next, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class =>
         index is null || search.EndsAt != 0
-            ? StepWithoutWalk(index, ref search, out sequence, cancellationToken)
-            : Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, cancellationToken);
+            ? StepWithoutWalk(index, ref search, out sequence, out next, cancellationToken)
+            : Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, out next, cancellationToken);
 
     // For FindAsync, once it has returned its Limit: whether a match follows where the search stands, by a
     // step that copies nothing and moves nothing; false without a descent when a step saw the end of the
@@ -464,12 +465,12 @@ internal sealed class EntityTable
     {
         if (index is null || search.EndsAt != 0)
         {
-            return StepWithoutWalk(index, ref search, out sequence, cancellationToken);
+            return StepWithoutWalk(index, ref search, out sequence, out _, cancellationToken);
         }
 
         var none = default(NoCopy);
 
-        return Step<NoCopy, object>(index, key, ref search, ref none, copies: false, out sequence, cancellationToken);
+        return Step<NoCopy, object>(index, key, ref search, ref none, copies: false, out sequence, out _, cancellationToken);
     }
 
     // A step of a search that has nothing to walk: one whose step before saw its end, which ends at the
@@ -478,8 +479,10 @@ internal sealed class EntityTable
     // keys, which such a step needs neither of. It still enters the protection of reads, so that a step after
     // the close or the fault is refused as every step is and the search lets go of what it remembers, and it
     // looks at the limits as every round does.
-    private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
+    private bool StepWithoutWalk(SecondaryIndex? index, ref IndexSearch search, out ulong sequence, out (RootHandle From, ulong EndsAt) next, CancellationToken cancellationToken)
     {
+        next = search.Place;
+
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
 
@@ -538,7 +541,7 @@ internal sealed class EntityTable
     // is made in one place of the frame, which every round writes anew: the frame of a step is zeroed at
     // every call for the references in it, so each place in it costs every step.
     [SkipLocalsInit]
-    private bool Step<TCopy, TResult>(SecondaryIndex index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, CancellationToken cancellationToken)
+    private bool Step<TCopy, TResult>(SecondaryIndex index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, out (RootHandle From, ulong EndsAt) next, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
@@ -622,6 +625,7 @@ internal sealed class EntityTable
                         if (!copies && !skips)
                         {
                             sequence = Math.Max(at, stamp);
+                            next = search.Place;
 
                             return true;
                         }
@@ -684,12 +688,9 @@ internal sealed class EntityTable
                             }
                         }
 
-                        if (full)
-                        {
-                            search.From = PlaceOf(identity, search.Reverse, after: true);
-                        }
-
-                        search.EndsAt = ends ? sequence : 0;
+                        // The place past the entity, which the owner takes once it has built the entity: a
+                        // search by a full key goes on after its identity, any other after the entry staged.
+                        next = (full ? PlaceOf(identity, search.Reverse, after: true) : search.From, ends ? sequence : 0);
 
                         return true;
                     }
@@ -700,6 +701,7 @@ internal sealed class EntityTable
                     if (exhausted && _clock.Sequence == before)
                     {
                         sequence = before;
+                        next = search.Place;
 
                         return false;
                     }

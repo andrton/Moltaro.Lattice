@@ -128,37 +128,25 @@ internal sealed class SetOperations
     }
 
     // The next entity of a search through the index, for the key bound to it, as Next takes the next of
-    // an enumeration: built from its copy outside the protection of reads. The step moves the search past
-    // the entity, and the place it stood at before is kept here and put back when the build throws, so that
-    // the next step reads that entity again, while what the step spent of the read limits and a failure it
-    // recorded stay; null at the end, with the sequence of the end (Entities.IndexSearch).
+    // an enumeration: built from its copy outside the protection of reads. The step gives the place past the
+    // entity, which the search takes only once the entity is built, so that a build that throws leaves the
+    // search before that entity and the next step reads it again, while what the step spent of the read
+    // limits and a failure it recorded stay; null at the end, with the sequence of the end
+    // (Entities.IndexSearch).
     public TResult? Next<TCopy, TResult>(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, TCopy copy, out ulong sequence, CancellationToken cancellationToken = default)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var place = search.Place;
-
         try
         {
-            if (!Table.TrySearch<TCopy, TResult>(index, key, ref search, ref copy, out sequence, cancellationToken))
+            if (!Table.TrySearch<TCopy, TResult>(index, key, ref search, ref copy, out sequence, out var next, cancellationToken))
             {
                 return null;
             }
 
-            TResult result;
+            var result = copy.Build();
 
-            try
-            {
-                result = copy.Build();
-            }
-            catch
-            {
-                search.PutBack(place);
-
-                throw;
-            }
-
-            search.Commit();
+            search.Commit(next);
 
             return result;
         }

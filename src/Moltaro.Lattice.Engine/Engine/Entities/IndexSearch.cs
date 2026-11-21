@@ -18,10 +18,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
-// its end at once (Sets.SetIndex.FindAsync). The owner keeps the place of the search before a step and puts
-// it back when it cannot build the entity the step returned (Sets.SetOperations.Next), so that the next
-// step reads that entity again, while the time spent and a failure the step recorded stay; and it commits
-// what the step staged once the entity is built (Commit). A read limit that fails the search, and a step
+// its end at once (Sets.SetIndex.FindAsync). A step gives the place past the entity it returns, which the
+// owner takes with what the step staged once it has built the entity (Commit), so that an entity whose build
+// fails is read again by the next step, while the time spent and a failure the step recorded stay
+// (Sets.SetOperations.Next). A read limit that fails the search, and a step
 // after the close or after the database faulted, make it let go of its WalkProgress (CheckRound,
 // CheckMemory, EntityTable.TrySearch), and a lazy search lets go of it at its end and on Dispose. An entity
 // whose build fails keeps it: the next step reads that entity again.
@@ -69,21 +69,9 @@ internal struct IndexSearch
     // What only a walk of more than one entity needs; null until a step makes it.
     public WalkProgress? Progress { get; set; }
 
-    // Where the search stands, which its owner keeps before a step and puts back when it cannot build the
-    // entity the step returned.
+    // Where the search stands: the identity a search by a full key goes on from, and the sequence of an end
+    // a step saw.
     public readonly (RootHandle From, ulong EndsAt) Place => (From, EndsAt);
-
-    // Puts the place of the search back to where it stood before a step, and forgets what that step
-    // staged. From and EndsAt are what the step moved past the entity it returned, or set to the end it saw,
-    // so they go back. The entry a search other than by a full key stands at (WalkProgress.Last) may have
-    // moved in an earlier round of the same step, and stays: such a round stood at an entry before that
-    // entity, after entries it returned none of and whose matches skipped by Offset it remembered, so the next
-    // step still meets the entity and counts none of those twice.
-    public void PutBack((RootHandle From, ulong EndsAt) place)
-    {
-        (From, EndsAt) = place;
-        Progress?.Unstage();
-    }
 
     // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
     // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
@@ -120,7 +108,18 @@ internal struct IndexSearch
         }
     }
 
-    // The entity the last step returned was built and is returned: what only a walk needs takes what that
-    // step staged.
-    public readonly void Commit() => Progress?.Commit();
+    // The entity the last step returned was built and is returned: the search stands at the place that step
+    // gave, past the entity, and what only a walk needs takes what the step staged. A build that fails calls
+    // nothing here, and the search stays before that entity: From and EndsAt are as they were before the step,
+    // but for a round of the step that ended at the bound of its work, where a search by a full key stood at
+    // the identity of the entry it ended before (EntityTable.StandAt); and the entry a search of any other
+    // key stands at (WalkProgress.Last) may also have moved in such a round. Either lies before that entity,
+    // after entries it returned none of and whose matches skipped by Offset it remembered, so the next step
+    // still meets the entity and counts none of those twice. What the failed step staged stays until the
+    // next step that returns an entity stages anew over it, before anything commits it.
+    public void Commit((RootHandle From, ulong EndsAt) place)
+    {
+        (From, EndsAt) = place;
+        Progress?.Commit();
+    }
 }
