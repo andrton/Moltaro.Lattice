@@ -7526,6 +7526,20 @@ any block; the walks over the descriptors of a root and the validation of a rece
 root are tied to the root layout, and entry A4 of the
 [refactoring backlog](refactoring.md) prepares them.
 
+**Added by the planner on 21 November 2026, from Q55 of `open-questions.md`.** The sprint
+also gives a value written by name the rule of a search: `FieldValues.Normalize` accepts
+what `IndexValue.Bind` accepts, by the same code and not a second list, for the value of a
+field of a record and of an owned value. The elements, keys and values of a collection
+stay as declared, and a primary key keeps its rule. The remarks of the indexer of
+`LatticeRecord` and of `LatticeOwnedValue` state the one rule and point to `IndexKey`.
+Tests, beside the tests of record values: each pair of the allowlist written by name and
+read back as the value of the field's type; each refused pair (a Decimal for a
+floating-point field and back, a floating-point value or a Decimal for an integer field,
+42.0 included, an integer a Float32 does not hold exactly, a Float64 that does not convert
+back) refused with the message of J2; an Enum field refuses an integer its enum type does
+not declare, as today. If this needs a sentence of the Acceptance of S18, the coordinator
+of S18 asks the owner for it.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
