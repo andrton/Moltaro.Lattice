@@ -43,7 +43,7 @@ public sealed class EnumAndFlagsTests
             (RangeEnd.Excluding(1), RangeEnd.Including(5)));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15Part2)]
+    [Fact]
     public async Task Integer_that_the_enum_type_does_not_allow_is_refused_as_a_value_and_as_a_bound()
     {
         await using var database = await BindingSchema.OpenAsync();

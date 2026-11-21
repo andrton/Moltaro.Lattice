@@ -35,7 +35,7 @@ public sealed class ConvertedValueAllocationTests
         }
         """);
 
-    [Fact(Skip = SkipReason.BeforeSprint15Part2)]
+    [Fact]
     public async Task Search_by_a_converted_value_allocates_what_the_search_by_the_value_in_the_type_of_the_field_allocates()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);

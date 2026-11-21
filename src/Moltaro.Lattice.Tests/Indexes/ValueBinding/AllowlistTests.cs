@@ -29,7 +29,7 @@ public sealed class AllowlistTests
     private static readonly Dictionary<string, AllowlistCase> Cases = Rows().ToDictionary(row => row.Name);
 
     public static IEnumerable<TheoryDataRow<string>> Names =>
-        Cases.Values.Select(row => new TheoryDataRow<string>(row.Name) { Skip = row.BindsBeforeTheRules ? null : SkipReason.BeforeSprint15Part2 });
+        Cases.Values.Select(row => new TheoryDataRow<string>(row.Name));
 
     [Theory]
     [MemberData(nameof(Names))]

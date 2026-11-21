@@ -59,7 +59,7 @@ public sealed class RangeOfEveryFamilyTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15Part2)]
+    [Fact]
     public async Task Bound_given_in_another_type_of_the_allowlist_finds_what_the_bound_in_the_type_of_the_field_finds()
     {
         await using var database = await BindingSchema.OpenAsync();

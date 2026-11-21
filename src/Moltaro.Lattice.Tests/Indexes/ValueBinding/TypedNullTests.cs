@@ -42,7 +42,7 @@ public sealed class TypedNullTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15Part2)]
+    [Fact]
     public async Task Null_of_a_type_the_part_does_not_accept_is_refused()
     {
         await using var database = await BindingSchema.OpenAsync();
