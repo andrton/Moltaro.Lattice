@@ -23,10 +23,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // its end at once (Sets.SetIndex.FindAsync). A step gives the place past the entity it returns, which the
 // owner takes with what the step staged once it has built the entity (Commit), so that an entity whose build
 // fails is read again by the next step, while the time spent and a failure the step recorded stay
-// (Sets.SetOperations.Next). A read limit that fails the search, and a step
-// after the close or after the database faulted, make it let go of its WalkProgress (CheckRound,
-// CheckMemory, EntityTable.TrySearch), and a lazy search lets go of it at its end and on Dispose. An entity
-// whose build fails keeps it: the next step reads that entity again.
+// (Sets.SetOperations.Next). A read limit that fails the search, and a step after the close or after the
+// database faulted, make it let go of its WalkProgress (CheckRound, CheckMemory, EntityTable.TrySearch), and
+// a lazy search lets go of it at its end and on Dispose. An entity whose build fails keeps it: the next step
+// reads that entity again.
 internal struct IndexSearch
 {
     // The read limits of the options and what the search has spent of them, which the step checks and
@@ -98,9 +98,9 @@ internal struct IndexSearch
 
     // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
     // failure the search kept and the time limit. It is taken when anything it could end the step for is set
-    // at all, a token that can be cancelled, a kept failure, a time limit or a memory limit (ReadLimits.AnySet,
-    // with the token); without any, it can end nothing, and the step passes it inline. That question knows no
-    // order: the look itself, with its order, is ReadLimits.CheckRound's, out of line.
+    // at all, a token that can be cancelled, a kept failure or a time limit (ReadLimits.AnySet, with the
+    // token); without any, it can end nothing, and the step passes it inline. That question knows no order:
+    // the look itself, with its order, is ReadLimits.CheckRound's, out of line.
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         if (cancellationToken.CanBeCanceled || Limits.AnySet)

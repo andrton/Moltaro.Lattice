@@ -42,14 +42,15 @@ internal struct ReadLimits
     // Whether the options limit the memory of a read.
     public readonly bool LimitsMemory => _options.ReadMemoryLimit is not null;
 
-    // Whether anything of the read limits is set at all: a failure the read kept, a time limit or a memory
-    // limit. With none, and with a token that cannot be cancelled, a look of a round can end nothing.
+    // Whether anything the look of a round looks at is set: a failure the read kept, a failed memory limit
+    // among them, or a time limit. The look never looks at the memory limit itself. With neither, and with a
+    // token that cannot be cancelled, a look of a round can end nothing.
     // AggressiveInlining, because the step of a search, whose many inlinees use up the budget of the JIT, left
     // it as a call on every round (JIT listing at Tier 0 switched to full optimization).
     public readonly bool AnySet
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _failed is not null || _options.ReadTimeLimit is not null || _options.ReadMemoryLimit is not null;
+        get => _failed is not null || _options.ReadTimeLimit is not null;
     }
 
     // The start of a step, for its time: a timestamp, or 0 when there is no time limit.
