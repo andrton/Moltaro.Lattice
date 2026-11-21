@@ -109,12 +109,15 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
+    // The follower of the connection given, with the sender of that connection and the table of the calls
+    // it sends, which are made beside the forwarder the sender serves (EngineDatabase), and which this
+    // follower attaches, runs and ends.
+    public Follower(MasterLink link, ChildSender sender, PendingRequests pending, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
-        _pending = new PendingRequests(clock.History);
-        _sender = new ChildSender(link, _pending);
+        _pending = pending;
+        _sender = sender;
         _clock = clock;
         _changes = changes;
         _assembler = new TransactionAssembler(memoryLimit);

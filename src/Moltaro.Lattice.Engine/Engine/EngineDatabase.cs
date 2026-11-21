@@ -693,8 +693,12 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
                 _state = LatticeDatabaseStateEnum.CatchingUp;
             }
 
-            // Build made the forwarder of the writes of a child.
-            var follower = new Follower(master, parts.Forwarder!, parts.Clock, changes, memoryLimit, _options.OpenTimeout);
+            // The writes of the child go to its master through the sender of its connection, made here beside
+            // the forwarder Build made for a child, which the follower attaches it to once the child has
+            // caught up; their replies come back to the table of the calls sent.
+            var pending = new PendingRequests(parts.Clock.History);
+            var sender = new ChildSender(master, pending);
+            var follower = new Follower(master, sender, pending, parts.Forwarder!, parts.Clock, changes, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
