@@ -10,7 +10,8 @@ delivered over several sprints.
 | [3. After the first milestone](epic-3-after-the-first-milestone.md) | Change subscription, the lookup of referring entities, and what the first milestone left out | Outline; opened 18 November 2026. Comes after Epic 2 |
 
 The [refactoring backlog](refactoring.md) holds what the architect's review and the
-reviews of understandability have named, until a refactoring sprint carries it out.
+reviews of understandability have named, and the P3 findings a review left after its last
+round, until a refactoring sprint carries it out.
 
 Epic 2 comes after Epic 1. It is the first real consumer of the database and adapts to it:
 the scope of the engine is set by its accepted design, not by a consumer.
@@ -20,8 +21,9 @@ How an epic is planned, carried out sprint by sprint and reviewed is described i
 version is released is in [branches and releases](branches.md). Every place where the
 project departs from a rule of `AGENTS.md` is recorded, with its reason, in
 [exceptions to the rules](exceptions.md). A question that a sprint finds and that nothing
-answers yet is written down in the [open questions](open-questions.md), and they are gone
-through with the owner when an epic closes.
+answers yet is written down in the [open questions](open-questions.md); the owner reads
+those a sprint added when it closes, and they are gone through with him when an epic
+closes.
 
 ## How an epic document is written
 

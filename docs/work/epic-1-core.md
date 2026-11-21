@@ -562,6 +562,9 @@ first step. The [development process](process.md#the-plan) now says so. *Not cho
 writing the whole public API of the milestone into the briefs before the plan is
 approved. The types and members of the first stages, sprints S02 to S12, are written
 into their briefs below and are approved with the plan.
+*Note of 21 November 2026:* the contract author is no longer a role of its own; by the
+owner's word of that day the implementer of a sprint puts its contract into code in step 1
+of the [development process](process.md).
 
 **P2. Answered on 14 November 2026: sprints that join several behaviors are split.** The
 first plan had 32 sprints. Seven of them were split in two after the first review and
@@ -659,6 +662,9 @@ puts them into code, documented and refusing, so that the tests are
 still written first and by another agent. This is exception X3 of the
 [exceptions register](exceptions.md); `AGENTS.md` gets the approved text in S01. The
 answer to P4 above extends it to the provider tests and the cluster tests.
+*Note of 21 November 2026:* by the owner's word of that day the tests are still written
+first, in step 1 of the [development process](process.md), now by the implementer of the
+sprint; the independent view moved to the reviewer and the breaker.
 
 **O6. Protected views in both forms.** A view by name through field handles, and a typed
 view with properties for an entity class. The typed view needs code written for each
@@ -992,8 +998,9 @@ settles. They are approved with the plan, each by name.
 
 ### Rules for every sprint
 
-- The [development process](process.md) applies. On the full track: contract, then tests
-  by another agent, then implementation, each its own commit.
+- The [development process](process.md) applies. On the full track one implementer puts
+  the contract into code and writes the tests in commits that come before any of its
+  implementation; the reviewer and the breaker give the independent view.
 - A sprint on the full track has its own branch, `epic-1/sprint-NN-name`, cut from
   `main` and merged back when the sprint closes, as [branches and releases](branches.md)
   says; the light sprint S01 uses a light-track branch. One sprint runs at a time. `main` stays green after every merge: what is not implemented refuses and
@@ -1001,8 +1008,8 @@ settles. They are approved with the plan, each by name.
 - Every document under **To read** is read at its baseline of 14 November 2026. If one
   changes, the coordinator stops and has this plan corrected.
 - The briefs of S02 to S12 name their types and members exactly, under "Types and
-  members"; the owner approves them with the plan, and the contract author puts them into
-  code as written. A later brief says what its contract must be able to do, and the
+  members"; the owner approves them with the plan, and the implementer of the sprint puts
+  them into code as written. A later brief says what its contract must be able to do, and the
   planner writes its types and members before its stage begins: S13–S17, S18–S25,
   S26–S32, S33–S36, S37–S39. The owner approves the contract of each stage before its
   first sprint, as the [development process](process.md#the-plan) says.
@@ -1021,11 +1028,11 @@ settles. They are approved with the plan, each by name.
   [exceptions to the rules](exceptions.md) when it is approved and moved to **In force**
   there by the change that introduces it.
 - The physical specification is not repeated here. A brief names the section that owns it.
-- A verification sprint is on the full track: the test author writes the scenarios and
-  the harness, the implementer fixes what they expose.
+- A verification sprint is on the full track: its implementer writes the scenarios and
+  the harness in step 1 and then fixes what they expose.
 - A test that only asserts that a feature is not implemented, such as
-  `Search_is_not_implemented_yet`, is removed by the test author in the tests step of the
-  sprint that implements the feature. "Assertions unchanged" speaks of the tests of the
+  `Search_is_not_implemented_yet`, is removed by the implementer in step 1 of the sprint
+  that implements the feature. "Assertions unchanged" speaks of the tests of the
   behavior.
 - An acceptance item that says what the code must not do — hold a lock across an `await`,
   perform I/O inside publication, run user code inside a gate — is checked by the two
@@ -6504,9 +6511,10 @@ kinds of work.
      - an unsupported key or bound shape refused;
      - enum order numeric;
      - text by its field policy in UTF-8 and UTF-16.
-     Full track, no study, not critical: one reviewer. It needs part 1 only for bounds. Its
-     tests of exact keys may be written while part 1 is implemented, by another test author,
-     where the coordinator judges that it shortens the way.
+     Full track, no study, not critical: one reviewer, and a breaker that takes the
+     Acceptance as its list, as the development process says. It needs part 1 only for
+     bounds. Its tests of exact keys may be written while part 1 is implemented, by the
+     implementer of part 2, where the coordinator judges that it shortens the way.
 2. **The study of part 1** (Fable) may start on `main`, read-only, beside S14R: it reads the
    tree, not the loops S14R merges. Its questions, beside those below:
    - which of the three ways gives "at most once across a delete and a re-creation", each
@@ -6519,8 +6527,8 @@ kinds of work.
      search just measured;
    - what a traversal allocates: one object, as a search does, and nothing for each entity
      beyond what it returns.
-3. **Tests first for part 1**, by the test author, in this order, after the study and the
-   contract step; each sentence of the acceptance gets its smallest set:
+3. **Tests first for part 1**, by its implementer in step 1, with the contract and after
+   the study, in this order; each sentence of the acceptance gets its smallest set:
    1. The six that wait, unskipped by the implementer, their assertions unchanged.
    2. Order and bounds against an oracle of values:
       - composite indexes of two to four parts with a null in every position;
@@ -6628,7 +6636,7 @@ Decided by the planner on 20 November 2026, on the study:
 - The read limits count what the search holds: until `FindAsync` returns, its list by the
   capacity of its array and each entity by the stored bytes of its root (Q07.1.1); the lazy
   `Find` counts none. The documentation of `ReadMemoryLimit` says what is counted. Before
-  the test author writes group 6, it checks the default of `ReadMemoryLimit` against an
+  the implementer writes group 6, it checks the default of `ReadMemoryLimit` against an
   ordinary `FindAsync`, such as 10,000 entities of the fixture; a default that would refuse
   ordinary load comes to the planner first.
 - Taken from the study: the early end for a range, the one descent with a side, the key
@@ -6639,8 +6647,8 @@ Decided by the planner on 20 November 2026, on the study:
   for a handle held outside the protection (the start measures the share of descents in a
   range of 100); counts for each subtree for Offset.
 
-**A question for the contract step of part 1, before any test of group 7 is written (the
-planner, 21 November 2026): is the check of the sequence at the early end needed at all?**
+**A question for step 1 of part 1, before any test of group 7 is written (the planner, 21
+November 2026): is the check of the sequence at the early end needed at all?**
 The check, in `EntityTable.TrySearch`, decides only which sequence the end reports:
 `before`, or a later one after one more step. The entities returned are the same either
 way, since an entity whose entry was taken away during the step is missed in both. Its
@@ -6682,7 +6690,7 @@ Two smaller points, from the same reading:
   and Limit bounds without reading every match first. With a `ReadMemoryLimit` that admits
   the identities of Offset plus Limit but not those of the whole set of matches, the
   limited search succeeds and the unlimited one fails with the error of the limit. No
-  counter of steps and no test member is needed. The test author may find a plainer way;
+  counter of steps and no test member is needed. The implementer may find a plainer way;
   this one exists.
 
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a

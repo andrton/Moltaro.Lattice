@@ -14,7 +14,10 @@ in the meantime.
 - **Who writes.** The coordinator, when an agent or a reviewer reports a gap, or when it
   finds one itself. An agent reports; it does not decide.
 - **What an entry says.** Where the question was found, the question itself, what the
-  code or the tests do until it is answered, and who has to answer it.
+  code or the tests do until it is answered, and who has to answer it. An entry may be
+  *taken*: the coordinator took the recommended answer and the work went on, as the
+  [limits on questions](process.md#limits-on-review-and-on-questions) say. A taken
+  answer counts as answered for an entry that names a sprint as its limit.
 - **When it is looked at.** When a sprint closes, the coordinator names the entries the
   sprint added in its report to the owner. When the coordinator prepares a sprint, it
   reads the open entries that name that sprint and does not start it before each of them

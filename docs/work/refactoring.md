@@ -1,7 +1,8 @@
 # Refactoring backlog
 
-What the architect's review and the reviews of understandability have named, kept in one
-place until a refactoring sprint carries it out. The [development process](process.md)
+What the architect's review and the reviews of understandability have named, and the P3
+findings a review left after its last round, kept in one place until a refactoring sprint
+carries it out. The [development process](process.md)
 says how an entry gets here and how it leaves.
 
 An entry changes no behavior and no assertion of a test. KISS holds for a refactoring as
