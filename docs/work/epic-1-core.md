@@ -6728,15 +6728,24 @@ exists.
 signature changes, but for what the reverse with nulls last needed: the implementer names
 what of the four-argument `EntryProbe`, of `nullNext` and of the use of `KeyEdgeEnum` goes,
 and commits the contract after it. Two departures from the text above:
-- The form of G4: a step stages its move in the search, and `Commit` takes it after the
-  entity is built, instead of stepping a copy, so that a step that throws keeps the time
-  it spent and a failure it recorded.
+- The form of G4: `SetOperations.Next` keeps the place of the search on its stack and puts
+  it back if the build of the entity throws, so that a step that throws keeps the time it
+  spent and a failure it recorded without the search paying for a staged move. This
+  replaces the staged move first accepted, which made a search of one entity larger than
+  the condition below allows (the planner, after step 1).
 - A search that finds one entity or none grows only by the read limits and one reference.
   What only a walk needs, the remembered set and the detached last entry with its staging,
-  sits in one object made at the same moment as the set, the first step that returns an
-  entity without seeing the end. If a figure shows that this second object costs a walk
+  sits in one object, `WalkProgress`, made at the same moment as the set, the first step
+  that returns an entity without seeing the end; the Offset still to skip and the bytes an
+  answer holds live there too. If a figure shows that this second object costs a walk
   more than its bytes would cost an exact search, it comes to the planner with the figure.
   Group 8 pins both: the search of one entity and a walk.
+- So an answer of one entity whose step saw the end is not counted against
+  `ReadMemoryLimit`, as a read by key is not. From the first step that returns an entity
+  without seeing the end, everything the answer holds counts, the first entity included.
+  The documentation of `ReadMemoryLimit` says it in those terms, and group 6 has one case
+  for it: under a limit smaller than one entity, a search that finds exactly one succeeds,
+  and one that finds two fails with the error of the limit.
 
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
