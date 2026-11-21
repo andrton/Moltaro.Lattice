@@ -95,6 +95,21 @@ public sealed class DynamicSetTests
     }
 
     [Fact]
+    public async Task Value_a_field_cannot_take_is_refused_in_words_that_name_the_field_its_type_and_the_value()
+    {
+        await using var database = await TestDatabases.OpenMasterAsync();
+        var record = new LatticeRecord(database.Set("Setting").EntityType);
+
+        var text = Assert.Throws<ArgumentException>(() => record["Priority"] = "high");
+        var tooLarge = Assert.Throws<ArgumentException>(() => record["Priority"] = long.MaxValue);
+
+        Assert.Equal("value", text.ParamName);
+        Assert.Equal("Field 'Priority' is Int32; the String value 'high' cannot be used for it. (Parameter 'value')", text.Message);
+        Assert.Equal("value", tooLarge.ParamName);
+        Assert.Equal("Field 'Priority' is Int32; the Int64 value '9223372036854775807' cannot be used for it. (Parameter 'value')", tooLarge.Message);
+    }
+
+    [Fact]
     public async Task The_database_keeps_its_own_copy_of_every_record()
     {
         await using var database = await TestDatabases.OpenMasterAsync();

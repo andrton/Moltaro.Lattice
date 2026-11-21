@@ -38,6 +38,21 @@ public sealed class RefusedShapeTests
         await BindingSearch.ExpectRefusedAsync(database, "ByExact", IndexKey.All.Range(IndexBound.Inclusive("a"), IndexBound.Exclusive('b')), "ByExact from \"a\" to 'b'");
     }
 
+    [Fact]
+    public async Task Value_a_part_cannot_take_is_refused_in_words_that_name_the_field_its_type_and_the_value()
+    {
+        await using var database = await BindingSchema.OpenAsync();
+        var byInt32 = database.Set("Item").Index("ByInt32");
+
+        var text = Assert.Throws<ArgumentException>(() => byInt32.Find(IndexKey.Equal("high")).ToList());
+        var tooLarge = Assert.Throws<ArgumentException>(() => byInt32.Find(IndexKey.Equal(long.MaxValue)).ToList());
+
+        Assert.Equal("key", text.ParamName);
+        Assert.Equal("Field 'Int32' is Int32; the String value 'high' cannot be used for it. (Parameter 'key')", text.Message);
+        Assert.Equal("key", tooLarge.ParamName);
+        Assert.Equal("Field 'Int32' is Int32; the Int64 value '9223372036854775807' cannot be used for it. (Parameter 'key')", tooLarge.Message);
+    }
+
     private static async Task ExpectRefusedInEveryFormAsync<T>(ILatticeDatabase database, string index, T value, string shape)
         where T : notnull
     {
