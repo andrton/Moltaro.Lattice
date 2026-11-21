@@ -140,7 +140,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // for it; the writes it waits for in step 2 are finite, no later one begins, and each ends with its
 // persistence step; a read leaves within a step; no write admitted later prolongs it. Its token ends it at
 // any step, and the deferred writes then go on. The switch of the tests runs at the first wait of the
-// resolution of a write, whichever it is (HoldNextRefusedWriteWait).
+// resolution of a write, whichever it is (ArmWaitSwitch).
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of

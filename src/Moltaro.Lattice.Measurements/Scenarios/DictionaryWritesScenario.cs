@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //   text the database holds (a hit), one to a text it does not hold (a miss), and a delete; the time of
 //   one write and the managed memory its thread allocated, in the mean over the 100,000. In MemoryOnly a
 //   write runs on the thread of its call, so that thread's allocation is the write's.
-// - A drain whose roots hold references: while a read is held inside the protection (HoldNextRead),
+// - A drain whose roots hold references: while a read is held inside the protection (ArmReadSwitch),
 //   every item is replaced, so that 100,000 roots are retired and wait; the read leaves, and one drain
 //   (DrainRetired) frees them, and with a Dictionary field releases a reference for each.
 // - One repeated text of 100 KiB: 1,000 items that hold it, the time to insert each, the time to read
@@ -175,7 +175,7 @@ internal static class DictionaryWritesScenario
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
 
-        items.Database.HoldNextRead(_ =>
+        items.Database.ArmReadSwitch(_ =>
         {
             entered.Set();
             release.Wait();

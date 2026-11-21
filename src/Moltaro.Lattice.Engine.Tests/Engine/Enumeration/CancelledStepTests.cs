@@ -201,7 +201,7 @@ public sealed class CancelledStepTests
         // The growth, after the pass has returned every entity, and the delete of the key that grew it.
         var grown = false;
 
-        database.HoldNextGrowth(records.EntityType, () => Volatile.Write(ref grown, true));
+        database.ArmGrowthSwitch(records.EntityType, () => Volatile.Write(ref grown, true));
         await records.InsertAsync(KeySchema.RecordOf(records, (long)Long, "fresh"));
 
         Assert.True(Volatile.Read(ref grown), "The insert after the last entity did not grow the primary index.");

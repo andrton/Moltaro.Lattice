@@ -217,8 +217,8 @@ internal sealed class EntityTable
     public void Remove(in EntityKey key, RootHandle handle) => _index!.Remove(Keys.HashOf(key), handle.Slot);
 
     // Arms the switch of the tests on the primary index of an entity type the engine stores
-    // (EngineDatabase.HoldNextGrowth).
-    public void HoldNextGrowth(Action hold) => _index!.HoldNextGrowth(hold);
+    // (EngineDatabase.ArmGrowthSwitch).
+    public void ArmGrowthSwitch(Action action) => _index!.ArmGrowthSwitch(action);
 
     // For a replace of a stored entity, and an upsert that replaces one: makes the key among the values
     // the key as it is stored. The primary key is immutable (decision on mutation commands, "Immutable
@@ -292,7 +292,7 @@ internal sealed class EntityTable
             ref var entry = ref _roots.EntryOfSlot(slot);
 
             // The switch of the tests, after the read found its root and before it copies it.
-            _epochs.OfferHold(new RootHandle(entry.Generation, slot));
+            _epochs.OfferReadSwitch(new RootHandle(entry.Generation, slot));
 
             return TryCopy<TCopy, TResult>(ref entry, ref copy, out revision, out sequence);
         }

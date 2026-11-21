@@ -204,60 +204,60 @@ internal sealed partial class EngineDatabase
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next read by key that
-    // finds its root in the index runs hold, once, on its own thread and inside the protection of
+    // finds its root in the index runs the action, once, on its own thread and inside the protection of
     // reads, after it has found the root and before it copies it, with the handle of the root entry
-    // it found. A test waits inside hold, with a bounded wait, to keep that read inside the
-    // protection while the test writes, drains, counts and closes; when hold returns, the read goes
+    // it found. A test waits inside the action, with a bounded wait, to keep that read inside the
+    // protection while the test writes, drains, counts and closes; when the action returns, the read goes
     // on as it would have. Every other read passes the point without running anything. The switch
     // can be armed again while a read it held earlier is still held, so that two reads are held at
     // once. A read when no test has armed the switch pays nothing for it beyond reading one field
-    // that is null (ReadEpochs.OfferHold). Unavailable before the open, ObjectDisposedException after
+    // that is null (ReadEpochs.OfferReadSwitch). Unavailable before the open, ObjectDisposedException after
     // the close.
-    public void HoldNextRead(Action<RootHandle> hold)
+    public void ArmReadSwitch(Action<RootHandle> action)
     {
-        ArgumentNullException.ThrowIfNull(hold);
+        ArgumentNullException.ThrowIfNull(action);
         ThrowIfNotReady();
 
-        _epochs.HoldNext(hold);
+        _epochs.ArmReadSwitch(action);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the
-    // primary index of the entity type runs hold, once, on the thread of the write that grows it and
+    // primary index of the entity type runs the action, once, on the thread of the write that grows it and
     // inside the lock of the writes, after it has published the grown table and before it retires the
     // old one, while a step that entered before may still walk the old table and a step that enters
-    // now walks the new one. A test waits inside hold, with a bounded wait, to keep the growth there
+    // now walks the new one. A test waits inside the action, with a bounded wait, to keep the growth there
     // while it takes steps of an enumeration, or counts the growths; it neither writes nor counts the
-    // counters meanwhile, since the lock of the writes is held. When hold returns the growth goes on
+    // counters meanwhile, since the lock of the writes is held. When the action returns the growth goes on
     // as it would have. A growth when no test has armed the switch pays one load of a field that is
     // null, and a read pays nothing. The entity type has to be one the engine stores. Unavailable
     // before the open, ObjectDisposedException after the close.
-    public void HoldNextGrowth(LatticeEntityType entityType, Action hold)
+    public void ArmGrowthSwitch(LatticeEntityType entityType, Action action)
     {
         ArgumentNullException.ThrowIfNull(entityType);
-        ArgumentNullException.ThrowIfNull(hold);
+        ArgumentNullException.ThrowIfNull(action);
         ThrowIfNotReady();
 
-        Part(_parts).Operations[entityType].Table.HoldNextGrowth(hold);
+        Part(_parts).Operations[entityType].Table.ArmGrowthSwitch(action);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
-    // refused twice runs hold, once, at the first wait of its resolution, outside every lock, when it
+    // refused twice runs the action, once, at the first wait of its resolution, outside every lock, when it
     // knows it has to wait and before it waits, so that a test can tell that the write waits instead of
     // giving it a window of time. A refused write is resolved alone: while it holds back the preparation
     // of later writes it waits for the writes prepared and not published yet, then for the reads that
     // hold retired memory (WriteCoordinator, "The refusal"); the switch runs at the first of these waits
     // that the write has to make. On a child, which admits no write, the switch runs for the next
     // transaction its arena refused twice, once its applier knows it waits for the reads that hold
-    // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When hold returns the
+    // retired memory and before it waits (Child.Loading.ReceivedChanges.Apply). When the action returns the
     // write or the transaction waits as it would have. Only a write or a transaction the arena refused
     // loads the switch: no other write and no read pays anything for it (RetiredMemory.RunWaitSwitch).
     // Unavailable before the open, ObjectDisposedException after the close.
-    public void HoldNextRefusedWriteWait(Action hold)
+    public void ArmWaitSwitch(Action action)
     {
-        ArgumentNullException.ThrowIfNull(hold);
+        ArgumentNullException.ThrowIfNull(action);
         ThrowIfNotReady();
 
-        Part(_parts).Retired.ArmWaitSwitch(hold);
+        Part(_parts).Retired.ArmWaitSwitch(action);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through

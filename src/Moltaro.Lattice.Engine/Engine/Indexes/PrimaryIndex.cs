@@ -61,9 +61,9 @@ internal sealed class PrimaryIndex
     // (Writes.WriteCoordinator). The writer's alone, under the lock of the writes.
     private int _reserved;
 
-    // What the next growth runs for the tests of the engine (EngineDatabase.HoldNextGrowth); null when
+    // What the next growth runs for the tests of the engine (EngineDatabase.ArmGrowthSwitch); null when
     // no test armed it, which is all a growth pays: one load of a field nothing else writes.
-    private Action? _growthHold;
+    private Action? _growthSwitch;
 
     public PrimaryIndex(RetiredMemory retired)
     {
@@ -155,8 +155,9 @@ internal sealed class PrimaryIndex
     // Removes the entry of the slot, which the index holds under the hash.
     public void Remove(uint hash, uint slot) => _table.Remove(hash, slot);
 
-    // Arms the switch of the tests: the next growth runs hold once (EngineDatabase.HoldNextGrowth).
-    public void HoldNextGrowth(Action hold) => Volatile.Write(ref _growthHold, hold);
+    // Arms the growth switch of the tests: the next growth runs the action once
+    // (EngineDatabase.ArmGrowthSwitch).
+    public void ArmGrowthSwitch(Action action) => Volatile.Write(ref _growthSwitch, action);
 
     private void Grow()
     {
@@ -189,9 +190,9 @@ internal sealed class PrimaryIndex
 
         // The switch of the tests, after the store that publishes the grown table and before the old
         // one is retired; it changes nothing when no test armed it.
-        if (_growthHold is not null)
+        if (_growthSwitch is not null)
         {
-            Interlocked.Exchange(ref _growthHold, null)?.Invoke();
+            Interlocked.Exchange(ref _growthSwitch, null)?.Invoke();
         }
 
         _replacementBytes = 0;

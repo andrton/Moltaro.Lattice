@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 //   its key, and every entity of the start, for a String key without case in a UTF-8 and in a UTF-16
 //   database, for Guid keys, and for Int16, Int64 and UInt64 keys.
 // The index grows by the count of its entries, and a test inserts new entities until it has grown
-// once, which the switch of the engine tells (EngineDatabase.HoldNextGrowth). The seed of the index is
+// once, which the switch of the engine tells (EngineDatabase.ArmGrowthSwitch). The seed of the index is
 // fixed (EngineMaster with a seed), so where an entry lies, and with it what a wrong pass would lose or
 // return twice, is the same at every run.
 public sealed class PassAcrossGrowthTests
@@ -147,7 +147,7 @@ public sealed class PassAcrossGrowthTests
         var grown = false;
         var inserted = new HashSet<object>();
 
-        database.HoldNextGrowth(records.EntityType, () => Volatile.Write(ref grown, true));
+        database.ArmGrowthSwitch(records.EntityType, () => Volatile.Write(ref grown, true));
 
         foreach (var key in supply)
         {

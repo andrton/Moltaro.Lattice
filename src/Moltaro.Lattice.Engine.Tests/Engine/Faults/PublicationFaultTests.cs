@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // - The call of the write fails with IndeterminateOutcome, whose InnerException is the injected
 //   InvalidOperationException, which names the point; the instance is Faulted.
 // - No read returns a mixture of two states and none is left retrying. A read held inside the
-//   protection (HoldNextRead) when the fault comes, after it found the root and before it copied it,
+//   protection (ArmReadSwitch) when the fault comes, after it found the root and before it copied it,
 //   and readers that read the entity from before the fault until a read reports Unavailable, each
 //   end within the bound, with the state before the write, the whole state of the write, or
 //   Unavailable. For a replace the Acceptance names the two that can be: the old state or

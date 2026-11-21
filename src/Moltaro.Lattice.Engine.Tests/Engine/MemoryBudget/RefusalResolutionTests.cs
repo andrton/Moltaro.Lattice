@@ -59,7 +59,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // formed, because the write before it was withdrawn there, waits for the writes of that group, which
 // hold prepared memory, and is not refused for memory they hold only for a time: once they are
 // published it completes. The cancellation comes inside the hold that forms the group, from the growth
-// of the primary index that the preparation of an insert makes there (EngineDatabase.HoldNextGrowth).
+// of the primary index that the preparation of an insert makes there (EngineDatabase.ArmGrowthSwitch).
 // Every wait is bounded; the storage of the test releases every commit when a test ends.
 public sealed class RefusalResolutionTests
 {
@@ -613,7 +613,7 @@ public sealed class RefusalResolutionTests
             // and withdraws the replace, which makes W the write being resolved.
             var grown = false;
 
-            database.HoldNextGrowth(pieces.EntityType, () =>
+            database.ArmGrowthSwitch(pieces.EntityType, () =>
             {
                 Volatile.Write(ref grown, true);
                 cancellation.Cancel();

@@ -165,8 +165,8 @@ internal sealed class UserDatabase : IDisposable
     }
 
     // Runs the action inside the next growth of the main table of the primary index of the users, on
-    // the thread of the insert that grows it (EngineDatabase.HoldNextGrowth).
-    public void OnNextGrowth(Action action) => _database.HoldNextGrowth(ByName.EntityType, action);
+    // the thread of the insert that grows it (EngineDatabase.ArmGrowthSwitch).
+    public void OnNextGrowth(Action action) => _database.ArmGrowthSwitch(ByName.EntityType, action);
 
     // What the primary indexes hold, in bytes: it doubles when the index of the users grows.
     public long IndexBytes => _database.Counters.PrimaryIndexBytes;

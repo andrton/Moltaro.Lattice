@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 // after the first step and run a fixed program over the keys of the second set: each key is inserted,
 // replaced, deleted, inserted again and replaced, and every third is deleted at the end, so the count
 // of entities grows from 200 to 800 and the main table of the index grows by the count twice or more.
-// The switch of the engine that runs inside a growth (EngineDatabase.HoldNextGrowth), armed again
+// The switch of the engine that runs inside a growth (EngineDatabase.ArmGrowthSwitch), armed again
 // each time it runs, counts the growths; the code that walks the pass waits, between two steps, until
 // the first growth has come before it takes its 60th step and the second before its 120th, so both
 // come during the pass whatever the threads do. Every wait is bounded. For an Int64 key and for a
@@ -82,10 +82,10 @@ public sealed class WritersDuringEnumerationTests
                     grown[count - 1].TrySetResult();
                 }
 
-                database.HoldNextGrowth(entityType, Grew);
+                database.ArmGrowthSwitch(entityType, Grew);
             }
 
-            database.HoldNextGrowth(entityType, Grew);
+            database.ArmGrowthSwitch(entityType, Grew);
 
             var writing = Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => OwnThread.Run(() => Write(records, writer))));
 

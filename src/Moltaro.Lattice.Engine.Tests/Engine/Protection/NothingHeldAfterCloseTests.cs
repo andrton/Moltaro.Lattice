@@ -13,7 +13,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 // - The parts a test can reach are held by weak references: the sets the instance gives out, and two
 //   delegates of the switches of the tests, which only the part they are given to references until it
 //   runs them, the hold of the next growth in the primary index of Place and the hold of the next refused
-//   write in the write coordinator (EngineDatabase.HoldNextGrowth, HoldNextRefusedWriteWait). Neither runs:
+//   write in the write coordinator (EngineDatabase.ArmGrowthSwitch, ArmWaitSwitch). Neither runs:
 //   nothing grows and nothing is refused after they are given.
 // - The parts no test can reach are measured: the managed memory the whole process holds after a full
 //   garbage collection, with the instance open, closed and let go of. 200,000 places, each with a text of
@@ -127,8 +127,8 @@ public sealed class NothingHeldAfterCloseTests
         var refusal = Marker();
 
         OwnThread.Wait(places.InsertAsync(new TextSchema.Place { Id = 1, Region = "North", Label = "label" }));
-        database.HoldNextGrowth(place, growth);
-        database.HoldNextRefusedWriteWait(refusal);
+        database.ArmGrowthSwitch(place, growth);
+        database.ArmWaitSwitch(refusal);
 
         return
         [

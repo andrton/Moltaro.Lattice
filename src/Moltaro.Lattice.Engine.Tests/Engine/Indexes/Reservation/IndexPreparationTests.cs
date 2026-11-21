@@ -417,7 +417,7 @@ public sealed class IndexPreparationTests
 
     // Fills the arena while the storage step holds the writes: inserts of Filler, whose fixed part takes a
     // slot of 1 KiB, the size of a node, each prepared and waiting behind the held writes, until the arena
-    // refuses one and that write begins to wait for memory (EngineDatabase.HoldNextRefusedWriteWait). The
+    // refuses one and that write begins to wait for memory (EngineDatabase.ArmWaitSwitch). The
     // fillers, the refused one among them.
     private static async Task<List<Task>> FillAsync(EngineDatabase database)
     {

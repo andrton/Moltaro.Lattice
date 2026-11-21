@@ -55,7 +55,7 @@ public sealed class ChildArenaFullTests
     }
 
     // The child shows that it waits for the read: the switch of the tests for a refused write
-    // (EngineDatabase.HoldNextRefusedWriteWait) runs, on a child, once for the next change its arena
+    // (EngineDatabase.ArmWaitSwitch) runs, on a child, once for the next change its arena
     // refused twice, when its applier knows it has to wait for the reads that hold retired memory and
     // before it waits; the child has not applied the insert then, and applies it once the read has left.
     [Fact]
@@ -70,7 +70,7 @@ public sealed class ChildArenaFullTests
 
         var deleted = await pieces.DeleteAsync(1L);
         await Eventually.AtAsync(child, deleted.Position);
-        child.HoldNextRefusedWriteWait(() => waits.TrySetResult());
+        child.ArmWaitSwitch(() => waits.TrySetResult());
         var inserted = await pieces.InsertAsync(Pieces.Versioned(2, version: 2, TwoAndAHalfMebibytes));
 
         await waits.Task.WaitAsync(Bound);

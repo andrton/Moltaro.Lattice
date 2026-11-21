@@ -193,7 +193,7 @@ The words of the engine, as its code and its comments use them, each with one me
 | Persistence step | Makes a group durable and assigns positions; instant in memory only |
 | Publish | Make a prepared write visible to readers and move the position on |
 | The lock of the writes | The one lock of a database under which writes are admitted, prepared, handed to the persistence step and published; held for work in memory only, never across I/O or a wait |
-| A hold | One time a thread takes the lock of the writes and releases it; what a hold decides for other threads, an outcome or a wake-up, is carried out after it |
+| A hold | One time a thread takes the lock of the writes and releases it; what a hold decides for other threads, an outcome or a wake-up, is carried out after it. The verb keeps its plain sense, as in the doubles of the tests that hold something back (`HeldPersistence`, `HeldRead`) |
 | The protection of reads | The epochs a read enters and leaves ([how reads are protected](epoch-protection.md)): memory that writes retire while a read is inside is freed only after it has left |
 | Storage | The form of the entities in memory: the arena, the roots and their layouts, and the Plain or Dictionary storage of a text |
 | Persistence | What makes a write durable: the persistence step of a Durable database, which MemoryOnly completes at once |
@@ -202,4 +202,4 @@ The words of the engine, as its code and its comments use them, each with one me
 | Capture | What a master gives a child that loads from it: its state at one sequence, copied a root at a time while writes go on |
 | Deliver | Send the children that follow a master the transactions after their capture |
 | Pass | One enumeration over the entities of a type, a step at a time |
-| Wait switch | The hook of the tests that runs at the first wait of such a resolution, so that a test knows that the write waits |
+| Switch | A hook of the tests that runs an action once at one place of the engine, so that a test knows a step has been reached: the read switch inside a read by key, the growth switch in the growth of a primary index, the wait switch at the first wait of such a resolution; armed by `ArmReadSwitch`, `ArmGrowthSwitch` and `ArmWaitSwitch` |

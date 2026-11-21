@@ -26,7 +26,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 //   is left empty: it completes, and so does a later write of its entity. And a write whose token is
 //   cancelled in the hold before its turn comes, while it waits behind a write of its entity, ends
 //   cancelled when its turn comes and is not prepared: its condition is not looked at. The cancellation
-//   comes inside the hold from the growth of the primary index (EngineDatabase.HoldNextGrowth) that the
+//   comes inside the hold from the growth of the primary index (EngineDatabase.ArmGrowthSwitch) that the
 //   preparation of an insert of entity 5 makes, the ninth entry of an index whose first table holds
 //   eight (InsertEightAsync); the hold cancels the token itself, which only hands the withdrawals to the
 //   thread pool.
@@ -523,7 +523,7 @@ public sealed class DispatchTests
     {
         var grown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        database.HoldNextGrowth(pieces.EntityType, () =>
+        database.ArmGrowthSwitch(pieces.EntityType, () =>
         {
             cancellation.Cancel();
             grown.TrySetResult();

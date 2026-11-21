@@ -24,7 +24,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Faults;
 // the other writes where it wants them: a replace prepared and waiting for the commit stage; a replace
 // of the same entity waiting behind it; an insert of 9 MiB, which an arena of two segments of 4 MiB
 // refuses, and which then waits for the writes admitted before it, as the switch of a refused write
-// tells (EngineDatabase.HoldNextRefusedWriteWait). The point, named by the test since the enum of the
+// tells (EngineDatabase.ArmWaitSwitch). The point, named by the test since the enum of the
 // engine is internal, is armed so that the first write of the group passes it and the second fails there
 // (EngineDatabase.ArmFault with the times to let through); each write passes BeforePublication before
 // its own stores. Which write the group holds first is known by its encoded size, which differs from

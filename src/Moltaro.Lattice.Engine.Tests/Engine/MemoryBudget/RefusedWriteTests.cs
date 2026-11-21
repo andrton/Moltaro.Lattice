@@ -22,9 +22,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 // states of it fit, three do not. A replace retires the state it replaced, which stays retired: a look
 // of the writer comes only after a segment of retired bytes or a table's worth of retired things. So:
 // - A replace whose new state fits only once the retired one is freed, which no read holds, succeeds.
-// - When a read held inside the protection (HoldNextRead) holds the retired state, the replace waits
+// - When a read held inside the protection (ArmReadSwitch) holds the retired state, the replace waits
 //   for it, which the switch of the engine that runs when a refused write begins to wait tells
-//   (EngineDatabase.HoldNextRefusedWriteWait): it has not ended when it begins to wait, its token cancels
+//   (EngineDatabase.ArmWaitSwitch): it has not ended when it begins to wait, its token cancels
 //   the wait and the write changes nothing, and a replace that waits again succeeds once the read has
 //   left.
 // - An entity that does not fit even after everything retired is freed is WriteRejected, and nothing

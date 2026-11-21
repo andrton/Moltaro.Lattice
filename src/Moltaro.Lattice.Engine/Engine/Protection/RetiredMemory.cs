@@ -113,7 +113,7 @@ internal sealed class RetiredMemory
 
     // What the next write the arena refused runs at the first wait of its resolution, and on a child what
     // the next transaction its arena refused twice runs before its applier waits for the reads, for the
-    // tests of the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it, and only
+    // tests of the engine (EngineDatabase.ArmWaitSwitch); null when no test armed it, and only
     // a refused write or transaction loads it. The one field of this class written and read outside the
     // lock of the writes: a test arms it from its own thread and the waiter takes it before it waits,
     // outside every lock, so it is written with release semantics and taken by an interlocked exchange,
