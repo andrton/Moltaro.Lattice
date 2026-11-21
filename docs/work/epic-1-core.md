@@ -7309,6 +7309,12 @@ touches anyway.
 
 #### S17 · Atomic write batch
 
+**Carried from the architect's review after S15, part 1 (21 November 2026), for the study
+of this sprint:** the position of an answer, the larger of the sequence of a step and the
+stamp of the entity, is written at three places of `EntityTable`, and the end at an
+unchanged sequence at three more; `TakeEntry` is the one home of the stamp. What "exposed
+whole or not at all" changes for a read has these places to change, all in one file.
+
 **Carried from the review of S11:** a child applies a transaction of several effects in
 three steps (every insert installed and every replace or delete marked; the position
 published once; the stamps), built in S11 and reasoned, not tested, because no master
