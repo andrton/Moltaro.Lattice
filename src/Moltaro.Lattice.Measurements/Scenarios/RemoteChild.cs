@@ -23,12 +23,7 @@ internal sealed class RemoteChild : IDisposable
     // Starts the process and returns once its child is Ready.
     public static RemoteChild Start(Uri masterUri)
     {
-        var start = new ProcessStartInfo(Environment.ProcessPath!, [Mode, masterUri.ToString()])
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
+        var start = ProgramProcess.StartInfo(Mode, masterUri.ToString());
         var process = Process.Start(start) ?? throw new InvalidOperationException("The process of a remote child did not start.");
 
         if (process.StandardOutput.ReadLine() != "ready")

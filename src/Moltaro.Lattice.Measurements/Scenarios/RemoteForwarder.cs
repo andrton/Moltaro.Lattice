@@ -17,12 +17,7 @@ internal static class RemoteForwarder
     // master allocated per counted write, and what the process of the child reported.
     public static (long MasterBytesPerWrite, string Child) Run(Uri masterUri, int writes)
     {
-        var start = new ProcessStartInfo(Environment.ProcessPath!, [Mode, masterUri.ToString(), writes.ToString(System.Globalization.CultureInfo.InvariantCulture)])
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
+        var start = ProgramProcess.StartInfo(Mode, masterUri.ToString(), writes.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The process of a remote forwarder did not start.");
 
