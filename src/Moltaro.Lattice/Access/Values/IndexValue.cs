@@ -106,24 +106,32 @@ internal readonly struct IndexValue
     // one (see the struct).
     public static IndexValue Of<T>(T value)
     {
-        if (typeof(T) == typeof(string))
+        // A reference type, whose conversion through object is no box: a null reference is the null of a
+        // string, one without a type given as an object, or one of a type no scalar field has; a string is
+        // a String; any other object is taken by its type (OfObject). A value type is not tested here,
+        // where an unoptimized build would box it.
+        if (!typeof(T).IsValueType)
         {
-            // A reference type: the conversion through object is no box.
-            return value is null
-                ? NullOf(LatticeFieldTypeEnum.String)
-                : new IndexValue(LatticeFieldTypeEnum.String, 0, 0, (string)(object)value);
+            if (value is null)
+            {
+                if (typeof(T) == typeof(string))
+                {
+                    return NullOf(LatticeFieldTypeEnum.String);
+                }
+
+                return typeof(T) == typeof(object) ? default : NullOf(OtherType);
+            }
+
+            if (value is string text)
+            {
+                return new IndexValue(LatticeFieldTypeEnum.String, 0, 0, text);
+            }
+
+            return OfObject(value);
         }
 
-        // A null reference: given as an object it has no type; given as any other reference type, a type
-        // no scalar field has. A Nullable without a value is a null of its type in Is. A value type is not
-        // tested here, where an unoptimized build would box it.
-        if (!typeof(T).IsValueType && value is null)
-        {
-            return typeof(T) == typeof(object) ? default : NullOf(OtherType);
-        }
-
-        // A value of a scalar field type or a Nullable of one; otherwise an object, which is not boxed
-        // again, or a value of a type no scalar field has, which is (OfOther).
+        // A value of a scalar field type or a Nullable of one; otherwise a value of a type no scalar field
+        // has, which is boxed, or a Nullable of one without a value (OfOther).
         return Is<T, bool>(ref value, LatticeFieldTypeEnum.Boolean, out var result)
             || Is<T, sbyte>(ref value, LatticeFieldTypeEnum.Int8, out result)
             || Is<T, byte>(ref value, LatticeFieldTypeEnum.UInt8, out result)
@@ -373,9 +381,8 @@ internal readonly struct IndexValue
         _ => Fixed(type, (ulong)value),
     };
 
-    // A value of a type no scalar field has, or an object: boxed when it is of a value type, and an object
-    // not boxed again (see the struct). A null reference was taken by Of, so a box that is null is a
-    // Nullable without a value of a type no scalar field has.
+    // A value of a value type no scalar field has, boxed (see the struct). A box that is null is a Nullable
+    // without a value of such a type.
     private static IndexValue OfOther<T>(T value)
     {
         object? held = value;
