@@ -64,6 +64,13 @@ internal static class IndexSample
             new LatticeFindOptions { Reverse = true, Limit = 2 });
         Console.WriteLine($"Research, last two by name: {string.Join(", ", page.Items.Select(user => user.Name))}; more: {page.HasMore}");
 
+        // The next page: Offset skips the two already shown. Each page is a search of its own, so a
+        // write between two pages can shift what a later page shows.
+        var nextPage = await byDepartmentAndName.FindAsync(
+            IndexKey.Equal("Research"),
+            new LatticeFindOptions { Reverse = true, Offset = 2, Limit = 2 });
+        Console.WriteLine($"Research, the two before them: {string.Join(", ", nextPage.Items.Select(user => user.Name))}; more: {nextPage.HasMore}");
+
         // Records are found the same way, without a class.
         var settings = master.Set("Setting");
         await settings.InsertAsync(new LatticeRecord(settings.EntityType)
