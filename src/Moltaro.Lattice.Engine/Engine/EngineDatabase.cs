@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
@@ -166,49 +165,16 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // instance, which uses what each null member of EngineTestInputs stands for.
     private readonly EngineTestInputs? _testInputs;
 
-    // The sets of classes, made once for each class and shared; null once the close has let go of the
-    // parts of the database.
-    private ConcurrentDictionary<Type, object>? _classSets = new();
-
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
 
     // The close, once a call has begun it: completes when the arena has been freed. Set under the lock
     // of the state by the call that sets Closed, and never changed afterwards.
     private TaskCompletionSource? _closed;
 
-    // The parts of the open database. Set by the open before the state becomes Ready, which a member
-    // reads first, and let go of by the close once it has freed the arena, all but the schema, the clock
-    // and the lock of the writes, which are small and which a member may still read after the close
-    // (FreeAfterOperationsAsync, Part).
-    private LatticeSchema? _schema;
-
-    private Arena? _arena;
-
-    private RootTable? _roots;
-
-    private RetiredMemory? _retired;
-
-    private PositionClock? _clock;
-
-    // The lock of the writes, which the counters and the drain take as well (WriteExecutor).
-    private Lock? _writes;
-
-    private WriteCoordinator? _coordinator;
-
-    // What the coordinator executes writes with, and the loader of a child places roots with.
-    private WriteExecutor? _executor;
-
-    // The tail of the transactions a master holds for its children; on a child it never retains.
-    private DeliveryTail? _delivery;
-
-    // On a child: where its writes go, to its master (Forwarding.Forwarder); null on a master.
-    private Forwarder? _forwarder;
-
-    private EntityTables? _tables;
-
-    private Dictionary<LatticeEntityType, SetOperations>? _operations;
-
-    private Dictionary<LatticeEntityType, RecordSet>? _recordSets;
+    // The parts of the open database (DatabaseParts). Published by the open before the state becomes
+    // Ready, which a member reads first, and let go of by the close once it has freed the arena
+    // (FreeAfterOperationsAsync); a member reads it once (Part).
+    private DatabaseParts? _parts;
 
     // The network of the instance, set under the lock of the state and let go of only by the close: the
     // listener of a master with a ListenUri, set by the open while it is inside the barrier of the close,
@@ -281,32 +247,34 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
             try
             {
-                lock (_writes!)
+                var parts = Part(_parts);
+
+                lock (parts.Writes)
                 {
                     var indexBytes = 0L;
                     var replacementBytes = 0L;
 
-                    foreach (var operations in _operations!.Values)
+                    foreach (var operations in parts.Operations.Values)
                     {
                         indexBytes += operations.Table.IndexBytes;
                         replacementBytes += operations.Table.ReplacementIndexBytes;
                     }
 
                     return new EngineCounters(
-                        _arena!.Counters,
+                        parts.Arena.Counters,
                         indexBytes,
-                        _retired!.IndexBytes,
+                        parts.Retired.IndexBytes,
                         replacementBytes,
-                        _roots!.Count,
-                        (long)_clock!.Sequence,
-                        _coordinator!.QueuedWrites,
-                        _coordinator.LargestCommitGroup,
-                        _coordinator.LargestCommitGroupBytes,
-                        _arena.MemoryLimit,
-                        _delivery!.ActiveCaptures,
-                        _delivery.PendingBytes,
-                        _arena.Texts.Count,
-                        _arena.Texts.Bytes);
+                        parts.Roots.Count,
+                        (long)parts.Clock.Sequence,
+                        parts.Coordinator.QueuedWrites,
+                        parts.Coordinator.LargestCommitGroup,
+                        parts.Coordinator.LargestCommitGroupBytes,
+                        parts.Arena.MemoryLimit,
+                        parts.Delivery.ActiveCaptures,
+                        parts.Delivery.PendingBytes,
+                        parts.Arena.Texts.Count,
+                        parts.Arena.Texts.Bytes);
                 }
             }
             finally
@@ -328,9 +296,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         try
         {
-            lock (_writes!)
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
             {
-                return _arena!.Texts.References();
+                return parts.Arena.Texts.References();
             }
         }
         finally
@@ -362,9 +332,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         try
         {
-            lock (_writes!)
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
             {
-                var table = Part(_operations)[entityType].Table;
+                var table = parts.Operations[entityType].Table;
                 var nodes = new List<(int Level, List<(object?[] Key, object? Entity)> Items)>();
 
                 if (table.IndexOf(definition) is not { } index)
@@ -383,13 +355,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
                         var key = new object?[definition.Parts.Count];
                         object? entity = null;
 
-                        index.Layout.ReadValues(_arena!, entry, key);
+                        index.Layout.ReadValues(parts.Arena, entry, key);
 
                         if (level == 0)
                         {
-                            var root = _roots!.Entry(IndexLayout.IdentityOf(entry)).Root;
+                            var root = parts.Roots.Entry(IndexLayout.IdentityOf(entry)).Root;
 
-                            RootValues.Read(new RootReader(_arena!, table.Layout!, root), entityType, values);
+                            RootValues.Read(new RootReader(parts.Arena, table.Layout!, root), entityType, values);
                             entity = values[entityType.Key.Ordinal];
                         }
 
@@ -422,9 +394,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         try
         {
-            lock (_writes!)
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
             {
-                _retired!.Drain();
+                parts.Retired.Drain();
             }
         }
         finally
@@ -467,7 +441,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        Part(_operations)[entityType].Table.HoldNextGrowth(hold);
+        Part(_parts).Operations[entityType].Table.HoldNextGrowth(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next write that the arena
@@ -487,7 +461,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentNullException.ThrowIfNull(hold);
         ThrowIfNotReady();
 
-        Part(_retired).HoldNextWait(hold);
+        Part(_parts).Retired.HoldNextWait(hold);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the next pass of a write through
@@ -512,7 +486,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentOutOfRangeException.ThrowIfNegative(skippedPasses);
         ThrowIfNotReady();
 
-        Part(_coordinator).ArmFault(point, skippedPasses);
+        Part(_parts).Coordinator.ArmFault(point, skippedPasses);
     }
 
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the internal switch that holds
@@ -546,7 +520,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             ThrowIfNotReady();
 
-            return _schema!;
+            return Part(_parts).Schema;
         }
     }
 
@@ -556,7 +530,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             ThrowIfNotReady();
 
-            return _clock!.Position;
+            return Part(_parts).Clock.Position;
         }
     }
 
@@ -601,14 +575,14 @@ internal sealed class EngineDatabase : ILatticeDatabase
     private async ValueTask WaitAfterChecksAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ThrowIfNotReady();
-        await Part(_clock).WaitAsync(position, timeout, cancellationToken).ConfigureAwait(false);
+        await Part(_parts).Clock.WaitAsync(position, timeout, cancellationToken).ConfigureAwait(false);
     }
 
     // The same for the position a session depends on, with the timeout of the session or of the options.
     private async ValueTask WaitAfterChecksAsync(LatticeSession session, CancellationToken cancellationToken)
     {
         ThrowIfNotReady();
-        await Part(_clock).WaitAsync(session, _options.SynchronizationTimeout, cancellationToken).ConfigureAwait(false);
+        await Part(_parts).Clock.WaitAsync(session, _options.SynchronizationTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     // Opens the database. A master compiles the root layout of every entity type, makes the parts of an
@@ -666,7 +640,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ThrowIfNotReady();
 
         // A class that does not bind throws from the factory, and nothing is kept for it.
-        return (ILatticeSet<TEntity>)Part(_classSets).GetOrAdd(typeof(TEntity), static (_, database) => database.ClassSetOf<TEntity>(), this);
+        var parts = Part(_parts);
+
+        return (ILatticeSet<TEntity>)parts.ClassSets.GetOrAdd(typeof(TEntity), static (_, parts) => ClassSetOf<TEntity>(parts), parts);
     }
 
     public ILatticeSet Set(string entityName)
@@ -674,8 +650,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ArgumentException.ThrowIfNullOrEmpty(entityName);
         ThrowIfNotReady();
 
-        return _schema!.TryGetEntityType(entityName, out var entityType)
-            ? Part(_recordSets)[entityType]
+        var parts = Part(_parts);
+
+        return parts.Schema.TryGetEntityType(entityName, out var entityType)
+            ? parts.RecordSets[entityType]
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
@@ -683,7 +661,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
     {
         ThrowIfNotReady();
 
-        return new WriteBatch(_schema!);
+        return new WriteBatch(Part(_parts).Schema);
     }
 
     // Lets no operation start any more, ends the waits for a position, and frees the arena once the
@@ -733,7 +711,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
         if (begins)
         {
             // Steps 2 to 5 (see above).
-            _clock?.Close();
+            _parts?.Clock.Close();
 
             var mark = _epochs.Close();
 
@@ -831,13 +809,13 @@ internal sealed class EngineDatabase : ILatticeDatabase
             // placement end and admits none, the network has stopped, and the reads have left — so the
             // close takes it all the same, to keep that rule without an exception, and frees the arena
             // under it.
-            if (_arena is { } arena)
+            if (_parts is { } parts)
             {
-                lock (_writes!)
+                lock (parts.Writes)
                 {
-                    _retired!.Drain();
-                    _retired.Clear();
-                    arena.Dispose();
+                    parts.Retired.Drain();
+                    parts.Retired.Clear();
+                    parts.Arena.Dispose();
                 }
             }
         }
@@ -848,21 +826,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
 
         // Nothing uses the parts any more: every member reaches them only once it has found the state
         // Ready, through the barrier, which admits nothing now, or through Part. So an instance kept
-        // alive after its close holds none of them, nor the managed memory of its root entries, its
-        // indexes and its text table.
+        // alive after its close holds none of them, nor its network.
         lock (_stateLock)
         {
-            _arena = null;
-            _roots = null;
-            _retired = null;
-            _coordinator = null;
-            _executor = null;
-            _delivery = null;
-            _forwarder = null;
-            _tables = null;
-            _operations = null;
-            _recordSets = null;
-            _classSets = null;
+            _parts = null;
             _listener = null;
             _master = null;
             _follower = null;
@@ -903,15 +870,15 @@ internal sealed class EngineDatabase : ILatticeDatabase
         {
             // A new history at every open: nothing of a MemoryOnly database survives it, so no position
             // of an earlier run may be taken for one of this run.
-            Build(schema, (ulong)Random.Shared.NextInt64(1, long.MaxValue), child: false);
+            var parts = Build(schema, (ulong)Random.Shared.NextInt64(1, long.MaxValue), child: false);
 
             if (listenUri is not null)
             {
                 // A new identity of the database at every open, for the same reason; its children are
                 // told it in the handshake.
-                var hello = HelloCheck.Of(Guid.NewGuid(), _clock!.History, schema.Fingerprint, LatticeRoleEnum.Master);
-                var capture = new Capture(_arena!, _roots!, _epochs, _clock, _writes!, _delivery!, _tables!, hello, SchemaTransfer.Saved(schema));
-                var forwarded = new ForwardedWrites(_coordinator!, _tables!, _arena!);
+                var hello = HelloCheck.Of(Guid.NewGuid(), parts.Clock.History, schema.Fingerprint, LatticeRoleEnum.Master);
+                var capture = new Capture(parts.Arena, parts.Roots, _epochs, parts.Clock, parts.Writes, parts.Delivery, parts.Tables, hello, SchemaTransfer.Saved(schema));
+                var forwarded = new ForwardedWrites(parts.Coordinator, parts.Tables, parts.Arena);
                 var listener = Listen(listenUri, capture, forwarded);
 
                 lock (_stateLock)
@@ -1012,12 +979,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master at {masterUri} sent a schema whose fingerprint {schema.Fingerprint} is not the {master.Master.SchemaFingerprint} its HelloReply announced.");
             }
 
-            Build(schema, master.Master.History, child: true);
+            var parts = Build(schema, master.Master.History, child: true);
+            var tables = parts.Tables;
+            var changes = new ReceivedChanges(parts.Arena, parts.Roots, parts.Retired, parts.Clock, _epochs, tables, parts.Writes, _barrier, Fault);
 
-            var tables = _tables!;
-            var changes = new ReceivedChanges(_arena!, _roots!, _retired!, _clock!, _epochs, tables, _writes!, _barrier, Fault);
-
-            PresizeIndexes(tables.InSchemaOrder, counts, memoryLimit);
+            PresizeIndexes(parts, counts, memoryLimit);
 
             var end = await master.ReceiveRootsAsync(new RootPlacement(changes, tables), memoryLimit, token).ConfigureAwait(false);
 
@@ -1033,7 +999,8 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 _state = LatticeDatabaseStateEnum.CatchingUp;
             }
 
-            var follower = new Follower(master, _forwarder!, _clock!, changes, memoryLimit, _options.OpenTimeout);
+            // Build made the forwarder of the writes of a child.
+            var follower = new Follower(master, parts.Forwarder!, parts.Clock, changes, memoryLimit, _options.OpenTimeout);
 
             var catchUp = await follower.CatchUpAsync(end, token).ConfigureAwait(false);
 
@@ -1060,8 +1027,9 @@ internal sealed class EngineDatabase : ILatticeDatabase
     // not grow it root by root. A count of roots of a type the engine does not store is not valid; counts
     // that need more than the memory limit, each root at least one block of its fixed part, cannot be held,
     // and the open ends with Unavailable.
-    private void PresizeIndexes(IReadOnlyList<EntityTable> tables, long[] counts, long memoryLimit)
+    private static void PresizeIndexes(DatabaseParts parts, long[] counts, long memoryLimit)
     {
+        var tables = parts.Tables.InSchemaOrder;
         var least = 0.0;
 
         for (var index = 0; index < tables.Count; index++)
@@ -1084,7 +1052,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             throw new LatticeException(LatticeErrorEnum.Unavailable, $"The master announces roots that take at least {least:F0} bytes, more than the memory limit of this child, {memoryLimit} bytes: the child cannot hold the database of its master.");
         }
 
-        lock (_writes!)
+        lock (parts.Writes)
         {
             for (var index = 0; index < tables.Count; index++)
             {
@@ -1127,10 +1095,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
         ?? _options.MemoryLimit
         ?? Math.Max(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 2, LatticeDatabaseOptions.ArenaSegmentSize);
 
-    // Builds the parts of an empty database of the schema in the history given, and publishes them, with
-    // the forwarder of its writes on a child; the caller makes the instance Ready. A close that came meanwhile wins: what was built is freed, and the
-    // open fails with ObjectDisposedException.
-    private void Build(LatticeSchema schema, ulong history, bool child)
+    // Builds the parts of an empty database of the schema in the history given, with the forwarder of its
+    // writes on a child, publishes them as one and returns them; the caller makes the instance Ready. A
+    // close that came meanwhile wins: what was built is freed, and the open fails with
+    // ObjectDisposedException.
+    private DatabaseParts Build(LatticeSchema schema, ulong history, bool child)
     {
         // The seed of the hashes of the primary indexes and of the text table, drawn at every open from the
         // random source of the system unless a test fixed it, so that nobody who does not know it can choose
@@ -1175,6 +1144,22 @@ internal sealed class EngineDatabase : ILatticeDatabase
                 recordSets.Add(table.EntityType, new RecordSet(forType));
             }
 
+            var parts = new DatabaseParts
+            {
+                Schema = schema,
+                Arena = arena,
+                Roots = roots,
+                Retired = retired,
+                Clock = clock,
+                Writes = writes,
+                Coordinator = coordinator,
+                Delivery = delivery,
+                Forwarder = forwarder,
+                Tables = tables,
+                Operations = operations,
+                RecordSets = recordSets,
+            };
+
             lock (_stateLock)
             {
                 if (_state == LatticeDatabaseStateEnum.Closed)
@@ -1182,20 +1167,10 @@ internal sealed class EngineDatabase : ILatticeDatabase
                     throw new ObjectDisposedException(GetType().FullName);
                 }
 
-                _schema = schema;
-                _arena = arena;
-                _roots = roots;
-                _retired = retired;
-                _clock = clock;
-                _writes = writes;
-                _coordinator = coordinator;
-                _executor = executor;
-                _delivery = delivery;
-                _forwarder = forwarder;
-                _tables = tables;
-                _operations = operations;
-                _recordSets = recordSets;
+                _parts = parts;
             }
+
+            return parts;
         }
         catch
         {
@@ -1224,7 +1199,7 @@ internal sealed class EngineDatabase : ILatticeDatabase
             }
         }
 
-        _clock!.Fault();
+        Part(_parts).Clock.Fault();
     }
 
     // 64 bits from the random source of the system (RandomNumberGenerator).
@@ -1237,12 +1212,12 @@ internal sealed class EngineDatabase : ILatticeDatabase
         return BinaryPrimitives.ReadUInt64LittleEndian(bytes);
     }
 
-    private ClassSet<TEntity> ClassSetOf<TEntity>()
+    private static ClassSet<TEntity> ClassSetOf<TEntity>(DatabaseParts parts)
         where TEntity : class
     {
-        var binding = EntityBinding<TEntity>.For(_schema!);
+        var binding = EntityBinding<TEntity>.For(parts.Schema);
 
-        return new ClassSet<TEntity>(Part(_operations)[binding.EntityType], binding);
+        return new ClassSet<TEntity>(parts.Operations[binding.EntityType], binding);
     }
 
     private void ThrowIfNotReady()
@@ -1257,11 +1232,11 @@ internal sealed class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // After ThrowIfNotReady, for a member that reaches a part of the open database without passing the
-    // barrier of the close: the part, which is null only once the close has let go of it, and the state
-    // was Closed before that (FreeAfterOperationsAsync). So a member that read the state Ready just
-    // before a close that then ran to its end reports ObjectDisposedException as every member after the
-    // close does.
+    // After ThrowIfNotReady, for a member that reaches the parts of the open database or its network: the
+    // part, read once, which is null only once the close has let go of it, and the state was Closed before
+    // that (FreeAfterOperationsAsync). So a member that read the state Ready just before a close that then
+    // ran to its end reports ObjectDisposedException as every member after the close does; inside the
+    // barrier of the close it is never null.
     private T Part<T>(T? part)
         where T : class
     {
