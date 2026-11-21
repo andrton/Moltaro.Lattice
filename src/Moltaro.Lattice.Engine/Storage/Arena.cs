@@ -34,8 +34,8 @@ namespace Moltaro.Lattice.Storage;
 // Who uses the arena at the same time. The arena takes no lock. One thread at a time changes it, by
 // TryAllocate, TryAllocatePrepared, Publish, Retire and Free: in the database that is the thread
 // that holds the lock of the writes (Engine.Writes.WriteCoordinator), which also prepares every write
-// under that lock. Reads inside the protection of reads (Engine.Protection) call IsValid, Header and
-// Payload at the same time, for the blocks of the roots they reached, which are live or retired and
+// under that lock. Reads inside the protection of reads (Engine.Protection) call Header and Payload at
+// the same time, for the blocks of the roots they reached, which are live or retired and
 // are not freed while such a read is inside. Those read only the metadata of the block's own slot,
 // region and segment, which no change of the arena alters while the block is allocated; a change for
 // another block writes other bits of the same words and other elements of the same arrays, and a
@@ -379,19 +379,11 @@ internal sealed unsafe class Arena : IDisposable
         ReturnRegion((int)address.Segment, segment, regionIndex);
     }
 
-    // Whether the address is that of a block of this arena that is allocated and not freed. The
-    // null address is never valid. Nothing is read through the address to decide this.
-    public bool IsValid(ArenaAddress address)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        return Locate(address, out _, out _) is not null;
-    }
-
     // A reference to the header of a valid block, in native memory. It refers to the block only
     // until the block is freed or moved or the arena is disposed, and it must not leave the
     // protected scope in which it was obtained (arena protocol, "Lock and lifetime order").
-    // ArgumentException when IsValid refuses the address.
+    // ArgumentException when the address is not that of a block of this arena that is allocated and not
+    // freed, which is decided without reading through the address; the null address never is one.
     public ref BlockHeader Header(ArenaAddress address)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -403,7 +395,7 @@ internal sealed unsafe class Arena : IDisposable
 
     // The payload of a valid block, in native memory: the header's PayloadLength bytes after the
     // header, never beyond the capacity of the slot. The span has the same lifetime as the
-    // reference Header returns. ArgumentException when IsValid refuses the address;
+    // reference Header returns. ArgumentException when Header refuses the address;
     // InvalidOperationException when the header's length exceeds the capacity of the slot, before
     // any byte of the payload is reached.
     public Span<byte> Payload(ArenaAddress address)
