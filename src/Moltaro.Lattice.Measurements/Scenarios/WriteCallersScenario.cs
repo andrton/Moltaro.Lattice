@@ -42,8 +42,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 //
 // The users without indexes. The same users, of the entity type User declaring none of its three indexes,
 // in a database of their own, which 16 callers replace while 16 readers read it, so that a run can state
-// on many callers and readers that a type without indexes loses nothing; the line is compared between
-// builds, not with the lines of the users with indexes.
+// on many callers and readers that a type without indexes loses nothing. The line is compared with the
+// same line of another build of this program, a build from before the line with the line added to its
+// program as it is here, and not with the lines of the users with indexes.
 //
 // What a write of an entity of 32 MiB costs the other writers is the scenario large-writes
 // (LargeWritesScenario).
