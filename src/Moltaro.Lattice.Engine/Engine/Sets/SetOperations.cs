@@ -25,10 +25,9 @@ internal sealed class SetOperations
     // How long an operation waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    // The read limits of the options, which every enumeration takes (EntityPass); null for none.
-    private readonly long? _readMemoryLimit;
-
-    private readonly TimeSpan? _readTimeLimit;
+    // The options of the database, whose read limits every enumeration and every search takes
+    // (Entities.ReadLimits).
+    private readonly LatticeDatabaseOptions _options;
 
     public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options)
     {
@@ -37,8 +36,7 @@ internal sealed class SetOperations
         _forwarder = forwarder;
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
-        _readMemoryLimit = options.ReadMemoryLimit;
-        _readTimeLimit = options.ReadTimeLimit;
+        _options = options;
     }
 
     public EntityTable Table { get; }
@@ -90,7 +88,7 @@ internal sealed class SetOperations
         new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
     // A new pass of an enumeration of the entity type, under the read limits of the options.
-    public EntityPass StartPass() => Table.StartPass(_readMemoryLimit, _readTimeLimit);
+    public EntityPass StartPass() => Table.StartPass(_options);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
     public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>

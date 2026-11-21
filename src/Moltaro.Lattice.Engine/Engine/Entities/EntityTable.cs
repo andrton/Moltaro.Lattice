@@ -312,8 +312,8 @@ internal sealed class EntityTable
 
     // A new enumeration of the entity type under the read limits of the options, standing before its
     // first step.
-    public EntityPass StartPass(long? memoryLimit, TimeSpan? timeLimit) =>
-        new(EntityType.Name, new ReturnedKeys(Keys), memoryLimit, timeLimit);
+    public EntityPass StartPass(LatticeDatabaseOptions options) =>
+        new(EntityType.Name, new ReturnedKeys(Keys), options);
 
     // Reads the next entity of the enumeration into the copy and stages it in the pass, as
     // docs/design/arena-protocol.md, "An enumeration", says: true when there is one, which the caller

@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Globalization;
+
 namespace Moltaro.Lattice.Engine.Entities;
 
 // The read limits of the options of a database (LatticeDatabaseOptions.ReadMemoryLimit and ReadTimeLimit,
@@ -11,7 +14,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the keys an enumeration remembers or what a search remembers and, for FindAsync, the result it holds
 // until it returns (docs/decisions/queries.md, Q07.1.1). The time is that of the steps from their start
 // to their end, a wait inside a step included, checked where a step can stop safely; the time between two
-// steps, the wait for the position of a session and the build of an entity are not counted.
+// steps, the wait for the position of a session and the build of an entity are not counted. It is counted
+// in ticks of Stopwatch, and a limit longer than they can count, such as TimeSpan.MaxValue, is the most
+// they count, so nothing overflows.
 //
 // A step that would exceed a limit fails with LatticeException, ReadLimitExceeded, and the limit; the
 // failure is kept, so that every later step fails the same way and the read never ends as if it were
@@ -19,30 +24,88 @@ namespace Moltaro.Lattice.Engine.Entities;
 // thread that takes a step of its read changes it.
 internal struct ReadLimits
 {
+    private readonly LatticeDatabaseOptions _options;
+
+    // The ticks of Stopwatch the steps have spent.
+    private long _spentTicks;
+
+    // The limit that failed the read, null while none did.
+    private LatticeLimitEnum? _failed;
+
     // The read limits of the options of the database, which every read takes.
-    public ReadLimits(LatticeDatabaseOptions options) =>
-        throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public ReadLimits(LatticeDatabaseOptions options) => _options = options;
 
     // Whether the options limit the memory of a read.
-    public readonly bool LimitsMemory => throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public readonly bool LimitsMemory => _options.ReadMemoryLimit is not null;
 
     // The start of a step, for its time: a timestamp, or 0 when there is no time limit.
-    public readonly long StartStep() => throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public readonly long StartStep() => _options.ReadTimeLimit is null ? 0 : Stopwatch.GetTimestamp();
 
     // Adds the time of the step that started at the timestamp.
-    public void EndStep(long started) => throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public void EndStep(long started)
+    {
+        if (_options.ReadTimeLimit is not null)
+        {
+            _spentTicks += Stopwatch.GetTimestamp() - started;
+        }
+    }
 
     // Fails the step when the read failed before; the names, of the entity type and of the index of a
     // search, null for an enumeration, go into the message, which is made only when the read fails.
-    public readonly void ThrowIfFailed(string entityName, string? indexName) =>
-        throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public readonly void ThrowIfFailed(string entityName, string? indexName)
+    {
+        if (_failed is { } limit)
+        {
+            throw Exceeded(limit, entityName, indexName);
+        }
+    }
 
     // Fails the step that started at the timestamp when the steps, this one so far included, have spent
     // more than the time limit; the failure is kept.
-    public void CheckTime(long started, string entityName, string? indexName) =>
-        throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public void CheckTime(long started, string entityName, string? indexName)
+    {
+        if (_options.ReadTimeLimit is { } limit && _spentTicks + (Stopwatch.GetTimestamp() - started) > TicksOf(limit))
+        {
+            _failed = LatticeLimitEnum.ReadTime;
+
+            throw Exceeded(LatticeLimitEnum.ReadTime, entityName, indexName);
+        }
+    }
 
     // Fails the step when the read would hold more bytes than the memory limit; the failure is kept.
-    public void CheckMemory(long bytes, string entityName, string? indexName) =>
-        throw new NotSupportedException("The read limits of a search are not implemented yet.");
+    public void CheckMemory(long bytes, string entityName, string? indexName)
+    {
+        if (bytes > _options.ReadMemoryLimit)
+        {
+            _failed = LatticeLimitEnum.ReadMemory;
+
+            throw Exceeded(LatticeLimitEnum.ReadMemory, entityName, indexName);
+        }
+    }
+
+    // The time limit in ticks of Stopwatch, at most what they count.
+    private static long TicksOf(TimeSpan limit)
+    {
+        var ticks = (Int128)limit.Ticks * Stopwatch.Frequency / TimeSpan.TicksPerSecond;
+
+        return ticks > long.MaxValue ? long.MaxValue : (long)ticks;
+    }
+
+    private readonly LatticeException Exceeded(LatticeLimitEnum limit, string entityName, string? indexName)
+    {
+        var read = indexName is null
+            ? $"The enumeration of {entityName}"
+            : $"The search of {entityName} through its index {indexName}";
+        var exceeded = limit == LatticeLimitEnum.ReadMemory
+            ? string.Create(CultureInfo.InvariantCulture, $"{read} would hold more than the {_options.ReadMemoryLimit:N0} bytes of {nameof(LatticeDatabaseOptions.ReadMemoryLimit)}.")
+            : string.Create(CultureInfo.InvariantCulture, $"{read} has spent more than the {_options.ReadTimeLimit} of {nameof(LatticeDatabaseOptions.ReadTimeLimit)} inside the engine.");
+        var rest = indexName is null
+            ? "The entities it returned stay valid, but it is not complete and returns no more; start a new enumeration."
+            : "The entities it returned stay valid, but it is not complete and returns no more; start a new search.";
+
+        return new LatticeException(LatticeErrorEnum.ReadLimitExceeded, $"{exceeded} {rest}")
+        {
+            Limit = limit,
+        };
+    }
 }
