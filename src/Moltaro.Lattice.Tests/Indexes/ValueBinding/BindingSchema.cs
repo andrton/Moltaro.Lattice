@@ -30,6 +30,34 @@ internal static class BindingSchema
 
     public static LatticeSchema Of(string encoding) => encoding == "Utf8" ? Utf8 : Utf16;
 
+    // The smallest and the largest value of the type of a field of Item, as a record holds it: for an Enum
+    // the smallest and the largest member, for the Flags type Rights no bit and every declared bit, for a
+    // String the empty text and one of the last scalar value, U+10FFFF.
+    public static object[] EndsOf(string field) => field switch
+    {
+        "Boolean" => [false, true],
+        "Int8" => [sbyte.MinValue, sbyte.MaxValue],
+        "UInt8" => [byte.MinValue, byte.MaxValue],
+        "Int16" => [short.MinValue, short.MaxValue],
+        "UInt16" => [ushort.MinValue, ushort.MaxValue],
+        "Int32" => [int.MinValue, int.MaxValue],
+        "UInt32" => [uint.MinValue, uint.MaxValue],
+        "Int64" => [long.MinValue, long.MaxValue],
+        "UInt64" => [ulong.MinValue, ulong.MaxValue],
+        "Float32" => [float.MinValue, float.MaxValue],
+        "Float64" => [double.MinValue, double.MaxValue],
+        "Decimal" => [decimal.MinValue, decimal.MaxValue],
+        "Guid" => [Guid.Empty, Guid.AllBitsSet],
+        "DateTimeOffset" => [DateTimeOffset.MinValue, DateTimeOffset.MaxValue],
+        "DateOnly" => [DateOnly.MinValue, DateOnly.MaxValue],
+        "TimeOnly" => [TimeOnly.MinValue, TimeOnly.MaxValue],
+        "TimeSpan" => [TimeSpan.MinValue, TimeSpan.MaxValue],
+        "Level" => [(short)-300, (short)300],
+        "Rights" => [0, 7],
+        "Exact" or "Folded" => ["", "\U0010FFFF"],
+        _ => throw new ArgumentOutOfRangeException(nameof(field), field, "Item has no nullable field of this name."),
+    };
+
     // A master of the schema of Item, in the encoding given.
     public static ValueTask<ILatticeDatabase> OpenAsync(string encoding = "Utf8") =>
         TestData.OpenMasterAsync(schema: Of(encoding));

@@ -89,33 +89,36 @@ public sealed class RangeOfEveryFamilyTests
         }
     }
 
-    // Five values of the type of the field, in their order, from the smallest of the type to the largest,
-    // with values where the bytes order otherwise: a sign, the high bit of an unsigned value, the scale of a
-    // Decimal, the parts of a Guid.
-    private static object[] ValuesOf(string family) => family switch
+    // Five values of the type of the field, in their order: the smallest of the type, three between with
+    // values where the bytes order otherwise (a sign, the high bit of an unsigned value, the scale of a
+    // Decimal, the parts of a Guid), and the largest of the type.
+    private static object[] ValuesOf(string family)
     {
-        "Boolean" => [false, false, false, true, true],
-        "Int8" => [sbyte.MinValue, (sbyte)-1, (sbyte)0, (sbyte)1, sbyte.MaxValue],
-        "UInt8" => [byte.MinValue, (byte)1, (byte)0x7f, (byte)0x80, byte.MaxValue],
-        "Int16" => [short.MinValue, (short)-1, (short)0, (short)256, short.MaxValue],
-        "UInt16" => [ushort.MinValue, (ushort)1, (ushort)0x7fff, (ushort)0x8000, ushort.MaxValue],
-        "UInt32" => [uint.MinValue, 1u, 0x7fff_ffffu, 0x8000_0000u, uint.MaxValue],
-        "UInt64" => [ulong.MinValue, 1ul, (ulong)long.MaxValue, (ulong)long.MaxValue + 1, ulong.MaxValue],
-        "Float32" => [float.MinValue, -1.5f, 0f, 2f, float.MaxValue],
-        "Float64" => [double.MinValue, -1.5, 0d, 2d, double.MaxValue],
-        "Decimal" => [decimal.MinValue, -0.5m, 1.00m, 1.5m, decimal.MaxValue],
+        var ends = BindingSchema.EndsOf(family);
+
+        return [ends[0], .. Between(family), ends[1]];
+    }
+
+    private static object[] Between(string family) => family switch
+    {
+        "Boolean" => [false, false, true],
+        "Int8" => [(sbyte)-1, (sbyte)0, (sbyte)1],
+        "UInt8" => [(byte)1, (byte)0x7f, (byte)0x80],
+        "Int16" => [(short)-1, (short)0, (short)256],
+        "UInt16" => [(ushort)1, (ushort)0x7fff, (ushort)0x8000],
+        "UInt32" => [1u, 0x7fff_ffffu, 0x8000_0000u],
+        "UInt64" => [1ul, (ulong)long.MaxValue, (ulong)long.MaxValue + 1],
+        "Float32" => [-1.5f, 0f, 2f],
+        "Float64" => [-1.5, 0d, 2d],
+        "Decimal" => [-0.5m, 1.00m, 1.5m],
         "Guid" =>
         [
-            Guid.Empty, Guid.Parse("00000001-ffff-ffff-ffff-ffffffffffff"), Guid.Parse("7fffffff-0000-0000-0000-000000000001"),
-            Guid.Parse("80000000-0000-0000-0000-000000000000"), Guid.AllBitsSet,
+            Guid.Parse("00000001-ffff-ffff-ffff-ffffffffffff"), Guid.Parse("7fffffff-0000-0000-0000-000000000001"),
+            Guid.Parse("80000000-0000-0000-0000-000000000000"),
         ],
-        "DateTimeOffset" =>
-        [
-            DateTimeOffset.MinValue, DateTimeOffset.UnixEpoch.AddTicks(-1), DateTimeOffset.UnixEpoch,
-            new DateTimeOffset(2026, 11, 21, 8, 0, 0, TimeSpan.Zero), DateTimeOffset.MaxValue,
-        ],
-        "DateOnly" => [DateOnly.MinValue, new DateOnly(1969, 12, 31), new DateOnly(1970, 1, 1), new DateOnly(2026, 11, 21), DateOnly.MaxValue],
-        "TimeOnly" => [TimeOnly.MinValue, new TimeOnly(1), new TimeOnly(11, 59), new TimeOnly(12, 0), TimeOnly.MaxValue],
-        _ => [TimeSpan.MinValue, TimeSpan.FromTicks(-1), TimeSpan.Zero, TimeSpan.FromDays(1), TimeSpan.MaxValue],
+        "DateTimeOffset" => [DateTimeOffset.UnixEpoch.AddTicks(-1), DateTimeOffset.UnixEpoch, new DateTimeOffset(2026, 11, 21, 8, 0, 0, TimeSpan.Zero)],
+        "DateOnly" => [new DateOnly(1969, 12, 31), new DateOnly(1970, 1, 1), new DateOnly(2026, 11, 21)],
+        "TimeOnly" => [new TimeOnly(1), new TimeOnly(11, 59), new TimeOnly(12, 0)],
+        _ => [TimeSpan.FromTicks(-1), TimeSpan.Zero, TimeSpan.FromDays(1)],
     };
 }

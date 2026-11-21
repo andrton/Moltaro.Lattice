@@ -53,19 +53,7 @@ public sealed class OneValueEveryWayTests
     [MemberData(nameof(OtherFamilies))]
     public async Task Value_of_every_other_family_is_found_by_an_index_through_a_class_and_by_name_at_both_ends_of_its_type(string family)
     {
-        object[] ends = family switch
-        {
-            "Boolean" => [false, true],
-            "Float32" => [float.MinValue, float.MaxValue],
-            "Float64" => [double.MinValue, double.MaxValue],
-            "Decimal" => [decimal.MinValue, decimal.MaxValue],
-            "DateTimeOffset" => [DateTimeOffset.MinValue, DateTimeOffset.MaxValue],
-            "DateOnly" => [DateOnly.MinValue, DateOnly.MaxValue],
-            "TimeOnly" => [TimeOnly.MinValue, TimeOnly.MaxValue],
-            "TimeSpan" => [TimeSpan.MinValue, TimeSpan.MaxValue],
-            "Level" => [(short)-300, (short)300],
-            _ => [0, 7],
-        };
+        var ends = BindingSchema.EndsOf(family);
 
         await using var database = await BindingSchema.OpenAsync();
         var stored = BindingSearch.Numbered(ends[0], ends[1], null);

@@ -36,7 +36,7 @@ public sealed class AllowlistTests
     public async Task Value_of_a_key_or_a_bound_is_bound_to_the_same_number_in_the_type_of_its_field_or_refused(string name)
     {
         var row = Cases[name];
-        var ends = EndsOf(row.Field);
+        var ends = BindingSchema.EndsOf(row.Field);
         object?[] values = row.Bound is null ? ends : [row.Bound, .. ends, .. row.AlsoStored];
         var stored = BindingSearch.Numbered(values);
 
@@ -163,27 +163,4 @@ public sealed class AllowlistTests
 
         yield return AllowlistCase.Refused("DateTimeOffset", new DateTime(2026, 11, 21, 8, 0, 0, DateTimeKind.Utc));
     }
-
-    // The smallest and the largest value of the type of the field, stored beside the bound one.
-    private static object[] EndsOf(string field) => field switch
-    {
-        "Boolean" => [false, true],
-        "Int8" => [sbyte.MinValue, sbyte.MaxValue],
-        "UInt8" => [byte.MinValue, byte.MaxValue],
-        "Int16" => [short.MinValue, short.MaxValue],
-        "UInt16" => [ushort.MinValue, ushort.MaxValue],
-        "Int32" => [int.MinValue, int.MaxValue],
-        "UInt32" => [uint.MinValue, uint.MaxValue],
-        "Int64" => [long.MinValue, long.MaxValue],
-        "UInt64" => [ulong.MinValue, ulong.MaxValue],
-        "Float32" => [float.MinValue, float.MaxValue],
-        "Float64" => [double.MinValue, double.MaxValue],
-        "Decimal" => [decimal.MinValue, decimal.MaxValue],
-        "Guid" => [Guid.Empty, Guid.AllBitsSet],
-        "DateTimeOffset" => [DateTimeOffset.MinValue, DateTimeOffset.MaxValue],
-        "DateOnly" => [DateOnly.MinValue, DateOnly.MaxValue],
-        "TimeOnly" => [TimeOnly.MinValue, TimeOnly.MaxValue],
-        "TimeSpan" => [TimeSpan.MinValue, TimeSpan.MaxValue],
-        _ => ["", "\U0010FFFF"],
-    };
 }
