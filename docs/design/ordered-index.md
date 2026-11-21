@@ -298,7 +298,7 @@ Nothing grows inside a publication. In the hold that prepares a write, each inde
 changes reserves the nodes the publication can take, as prepared blocks of the arena,
 counted in its prepared bytes and in the budget, and as many places in the retired list.
 A write withdrawn before its publication gives them back; a prepared, unpublished write
-holds them while the storage step is busy, and no reader can reach them. A reservation
+holds them while the persistence step is busy, and no reader can reach them. A reservation
 the arena cannot hold takes nothing and is refused as a write the memory budget cannot
 hold is: before its commit. So is a reservation whose need the pool cannot count, more
 nodes than an Int32 holds.
@@ -384,7 +384,7 @@ What it costs when many changes wait: the *k*-th insert is counted at the height
 inserts before it can reach, so the need grows with the square of the inserts prepared
 and not published, divided by *I*. By the formula, 600 inserts waiting on an index of one
 Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
-13 MiB. No mode built today lets more than one change wait: the storage step of
+13 MiB. No mode built today lets more than one change wait: the persistence step of
 MemoryOnly completes in the hold that prepares the write, write batches are not built,
 and a child prepares one root of its load, or one transaction of its stream, at a time. A
 write batch, or a transaction of many changes, prepared whole before its publication,

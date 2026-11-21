@@ -5,7 +5,7 @@ namespace Moltaro.Lattice.Storage;
 internal sealed class ArenaOptions
 {
     // The most native capacity, in bytes, that the arena may obtain: Segments times SegmentSize,
-    // the reserve included. An allocation that would need more fails (Arena.TryAllocate). The
+    // the reserve included. An allocation that would need more fails (Arena.TryAllocatePrepared). The
     // limit is required: nothing means "unlimited", and a limit smaller than one segment, the
     // default 0 among them, is refused.
     public long MemoryLimit { get; init; }

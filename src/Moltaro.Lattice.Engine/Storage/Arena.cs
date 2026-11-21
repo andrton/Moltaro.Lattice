@@ -19,10 +19,9 @@ namespace Moltaro.Lattice.Storage;
 // it closes and no read is in progress any more. The arena has no finalizer, so an arena that is
 // never disposed keeps its native memory until the process ends.
 //
-// The states of a block. A block is free, prepared, live or retired. TryAllocate gives a live
-// block, as in S04. TryAllocatePrepared gives a prepared one, which no reader can reach, taken for a
-// write that has not published it yet or held in the standing reserve of an index for no write, and
-// Publish makes it live when a write publishes it. Retire detaches a live
+// The states of a block. A block is free, prepared, live or retired. TryAllocatePrepared gives a
+// prepared block, which no reader can reach, taken for a write that has not published it yet or held in
+// the standing reserve of an index for no write, and Publish makes it live when a write publishes it. Retire detaches a live
 // block from its owner while reads may still reach it: a write that replaced or deleted its root
 // retires the blocks of the old root, and frees them once the reads that could reach them have left
 // (arena protocol, "Deferred reclamation, 16 November 2026"). Every kind is valid from its
@@ -32,7 +31,7 @@ namespace Moltaro.Lattice.Storage;
 // slot in RetiredBytes.
 //
 // Who uses the arena at the same time. The arena takes no lock. One thread at a time changes it, by
-// TryAllocate, TryAllocatePrepared, Publish, Retire and Free: in the database that is the thread
+// TryAllocatePrepared, Publish, Retire and Free: in the database that is the thread
 // that holds the lock of the writes (Engine.Writes.WriteCoordinator), which also prepares every write
 // under that lock. Reads inside the protection of reads (Engine.Protection) call Header and Payload at
 // the same time, for the blocks of the roots they reached, which are live or retired and
@@ -166,15 +165,50 @@ internal sealed unsafe class Arena : IDisposable
     // native allocator cannot supply a new segment, its OutOfMemoryException leaves the arena as
     // it was.
     //
-    // The block is live: its header and payload length count in LiveBytes, the rest of its slot in
-    // ClassSlackBytes.
-    public bool TryAllocate(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address) =>
-        TryTake(payloadLength, kind, root, prepared: false, out address);
+    // The block is prepared: no reader can reach it, its whole slot counts in PreparedBytes, and nothing of it
+    // in LiveBytes or ClassSlackBytes, until Publish makes it live.
+    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-    // Allocates a block as TryAllocate does, with the same refusals, but prepared: its whole slot
-    // counts in PreparedBytes, and nothing of it in LiveBytes or ClassSlackBytes, until Publish.
-    public bool TryAllocatePrepared(int payloadLength, BlockKindEnum kind, RootHandle root, out ArenaAddress address) =>
-        TryTake(payloadLength, kind, root, prepared: true, out address);
+        var sizeClass = SizeClasses.IndexFor(payloadLength);
+
+        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass))
+        {
+            address = default;
+
+            return false;
+        }
+
+        var regionNumber = _regionsWithFreeSlot[sizeClass];
+        var segmentSlot = SegmentSlotOf(regionNumber);
+        var regionIndex = RegionIndexOf(regionNumber);
+        var segment = _segments[segmentSlot]!;
+        var blockSize = SizeClasses.SizeOf(sizeClass);
+        var slotCount = ArenaSegment.RegionSize / blockSize;
+
+        var slot = segment.TakeSlot(regionIndex, slotCount);
+
+        if (segment.Regions[regionIndex].Allocated == slotCount)
+        {
+            Unlink(ref _regionsWithFreeSlot[sizeClass], regionNumber);
+        }
+
+        var offset = regionIndex * ArenaSegment.RegionSize + slot * blockSize;
+
+        *(BlockHeader*)(segment.Memory + offset) = new BlockHeader
+        {
+            Root = root,
+            PayloadLength = (uint)payloadLength,
+            Kind = kind,
+        };
+
+        segment.SetPrepared(regionIndex, slot, prepared: true);
+        _tally.PreparedBytes += blockSize;
+        address = new ArenaAddress((uint)segmentSlot, (uint)offset);
+
+        return true;
+    }
 
     // Makes a prepared block live, when a write publishes it: its slot leaves
     // PreparedBytes, its header and the payload length its header gives join LiveBytes, and the rest
@@ -251,59 +285,6 @@ internal sealed unsafe class Arena : IDisposable
         var segment = Locate(address, out var regionIndex, out var slot);
 
         return segment is not null && segment.IsPrepared(regionIndex, slot);
-    }
-
-    // Allocates a block, live or prepared; see TryAllocate.
-    private bool TryTake(int payloadLength, BlockKindEnum kind, RootHandle root, bool prepared, out ArenaAddress address)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var sizeClass = SizeClasses.IndexFor(payloadLength);
-
-        if (_regionsWithFreeSlot[sizeClass] == NoRegion && !TryTakeRegion(sizeClass))
-        {
-            address = default;
-
-            return false;
-        }
-
-        var regionNumber = _regionsWithFreeSlot[sizeClass];
-        var segmentSlot = SegmentSlotOf(regionNumber);
-        var regionIndex = RegionIndexOf(regionNumber);
-        var segment = _segments[segmentSlot]!;
-        var blockSize = SizeClasses.SizeOf(sizeClass);
-        var slotCount = ArenaSegment.RegionSize / blockSize;
-
-        var slot = segment.TakeSlot(regionIndex, slotCount);
-
-        if (segment.Regions[regionIndex].Allocated == slotCount)
-        {
-            Unlink(ref _regionsWithFreeSlot[sizeClass], regionNumber);
-        }
-
-        var offset = regionIndex * ArenaSegment.RegionSize + slot * blockSize;
-
-        *(BlockHeader*)(segment.Memory + offset) = new BlockHeader
-        {
-            Root = root,
-            PayloadLength = (uint)payloadLength,
-            Kind = kind,
-        };
-
-        if (prepared)
-        {
-            segment.SetPrepared(regionIndex, slot, prepared: true);
-            _tally.PreparedBytes += blockSize;
-        }
-        else
-        {
-            _tally.LiveBytes += BlockHeader.Size + payloadLength;
-            _tally.ClassSlackBytes += blockSize - BlockHeader.Size - payloadLength;
-        }
-
-        address = new ArenaAddress((uint)segmentSlot, (uint)offset);
-
-        return true;
     }
 
     // Returns the block's slot to its region, where the next allocation of its class can reuse it.

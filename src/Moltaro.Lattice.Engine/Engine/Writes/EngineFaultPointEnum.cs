@@ -1,19 +1,18 @@
 namespace Moltaro.Lattice.Engine.Writes;
 
 // The points of the path of a write at which a test of the engine can make the next write fail
-// (EngineDatabase.ArmFault; exception X3, docs/work/exceptions.md). A point does nothing unless a
-// test arms it and cannot be reached through the public API (brief of Epic 1, sprint S09, "Types and
-// members of S09", "Faulted" and the answers of the planner to the contract author).
+// (EngineDatabase.ArmFault; exception X3, docs/work/exceptions.md). A point does nothing unless a test
+// arms it and cannot be reached through the public API.
 //
-// Both points lie after the storage step of the group of the write, and a failure at either puts the
+// Both points lie after the persistence step of the group of the write, and a failure at either puts the
 // instance into Faulted. An armed point throws InvalidOperationException with a message that names
 // the point. A preparation that fails, releases everything and leaves the instance Ready needs no
 // point: real failures of a preparation show it (a refusal of the arena, a cancelled write, a value
 // the writer refuses).
 internal enum EngineFaultPointEnum
 {
-    // The storage step of the group has completed and no store of the publication of the write has
-    // been made. In MemoryOnly "committed" means that the storage step returned.
+    // The persistence step of the group has completed and no store of the publication of the write has
+    // been made. In MemoryOnly "committed" means that the persistence step returned.
     BeforePublication = 1,
 
     // Inside the publication of the write. For a replace, after the store of the root and before the

@@ -1,4 +1,4 @@
-# How a write is executed: one at a time, grouped at the storage step
+# How a write is executed: one at a time, grouped at the persistence step
 
 An explanation for a reader who uses the database or wants to understand it, not a
 specification. The rule itself is in the
@@ -7,8 +7,8 @@ an animated version of this page is [write-path.html](write-path.html). How read
 protected while writes run is explained in [epoch-protection.md](epoch-protection.md).
 
 **Status.** Decided by the owner on 17 November 2026 and being built in Epic 1, sprint
-S09, part 2. This page describes the intended behavior. Storage in PostgreSQL is not
-built yet; where this page speaks of a slow storage step, it describes what the path is
+S09, part 2. This page describes the intended behavior. Persistence in PostgreSQL is not
+built yet; where this page speaks of a slow persistence step, it describes what the path is
 prepared for.
 
 ## What a write has to guarantee
@@ -24,50 +24,50 @@ Any number of threads may write. What is single is that point.
 ## The idea
 
 > A write is prepared and published under one lock, one write at a time. Writes are
-> gathered into a group only where something slow has to happen: at the storage step.
+> gathered into a group only where something slow has to happen: at the persistence step.
 
-When the storage step takes no time, as in a database kept in memory only, a write goes
+When the persistence step takes no time, as in a database kept in memory only, a write goes
 straight through: one lock, taken once, by the thread that made the call. When the
-storage step is slow, the writes that arrive meanwhile are prepared and form the next
-group, and one commit of the storage serves the whole group.
+persistence step is slow, the writes that arrive meanwhile are prepared and form the next
+group, and one commit of the persistence step serves the whole group.
 
 ## The parts
 
 - **The lock of the writes.** One per database. Whoever holds it is the only one
   changing the database. Reads never take it.
-- **The open group.** The writes that are prepared and wait for the storage step.
-- **The storage step.** Makes a group durable and gives its writes their positions. In
+- **The open group.** The writes that are prepared and wait for the persistence step.
+- **The persistence step.** Makes a group durable and gives its writes their positions. In
   memory only it completes at once. With PostgreSQL it is a commit, which takes time.
 - **Publication.** The moment readers can find the new state, and the position of the
   database moves on.
 
-## A write when storage takes no time
+## A write when persistence takes no time
 
 1. The calling thread takes the lock of the writes.
 2. It prepares the write: looks the key up, checks the condition of the write (for an
    insert, that no such entity exists; for an expected revision, that it still holds),
    and encodes the values into memory that no reader can see yet.
-3. The storage step completes at once and gives the write its position.
+3. The persistence step completes at once and gives the write its position.
 4. Still holding the lock, the thread publishes the write and releases the lock.
 5. The call returns the result.
 
 Nothing is handed to another thread, and nothing waits.
 
-## Writes when the storage step is slow
+## Writes when the persistence step is slow
 
-1. A group is in the storage step. The lock of the writes is free meanwhile: the wait
-   for storage happens outside it.
+1. A group is in the persistence step. The lock of the writes is free meanwhile: the wait
+   for persistence happens outside it.
 2. Another caller takes the lock, prepares its write as above, puts it into the open
    group and releases the lock. It now waits for its result.
 3. More callers do the same. A group holds at most 32 writes or 8 MiB; a larger write
    forms a group alone. A group never waits to fill: it takes what is there.
-4. The storage step completes. The writes of its group are published in order, each at
+4. The persistence step completes. The writes of its group are published in order, each at
    its own position, and their callers get their results.
-5. The open group goes to the storage step, as one commit.
+5. The open group goes to the persistence step, as one commit.
 
 One slow commit is thus shared by all the writes that arrived while the one before it
 ran. The more callers write, the larger the groups, and the less each write pays for
-storage.
+persistence.
 
 ## Two writes to one entity
 
@@ -80,7 +80,7 @@ When the earlier write completes in any way, published, refused or cancelled, th
 one takes its turn and is checked against the state that is published then. So a later
 write never overtakes an earlier one, whatever became of it.
 
-When storage takes no time this happens only while a write refused for lack of memory is
+When persistence takes no time this happens only while a write refused for lack of memory is
 being settled: otherwise a write is published in the same hold of
 the lock that prepared it.
 
@@ -136,7 +136,7 @@ mark then gives up instead of waiting for a stamp that will never come.
   between them.
 - **A write is whole.** Readers see the state before a write or after it, never a
   mixture.
-- **Cancellation is honest.** Before a write is handed to the storage step, cancelling
+- **Cancellation is honest.** Before a write is handed to the persistence step, cancelling
   it withdraws it: it did not run and left nothing behind. After that, the call returns
   what really happened.
 - **Nothing is refused for being busy.** Writes that arrive faster than they complete
@@ -149,7 +149,7 @@ mark then gives up instead of waiting for a stamp that will never come.
 - **Writes do not speed up with more writing threads.** The work in memory is serial,
   so several threads write about as much in total as one, or somewhat less. Every
   database that keeps one order of writes in memory pays this; what scales with callers
-  is the storage step, through groups.
+  is the persistence step, through groups.
 - **A very large entity holds the others back.** Its values are encoded under the lock,
   so other writes wait for it. Reads do not. Measured: one write of 32 MiB holds the
   lock for about 3 ms.
@@ -183,10 +183,23 @@ decades.
 
 ## Words
 
+The words of the engine, as its code and its comments use them, each with one meaning.
+
 | Word | Meaning |
 | --- | --- |
 | Position | The place of a write in the one order of the database |
 | Prepare | Check the condition of a write and encode its values where no reader sees them yet |
-| Group | The prepared writes that one storage commit takes together |
-| Storage step | Makes a group durable and assigns positions; instant in memory only |
+| Group | The prepared writes that one commit of the persistence step takes together |
+| Persistence step | Makes a group durable and assigns positions; instant in memory only |
 | Publish | Make a prepared write visible to readers and move the position on |
+| The lock of the writes | The one lock of a database under which writes are admitted, prepared, handed to the persistence step and published; held for work in memory only, never across I/O or a wait |
+| A hold | One time a thread takes the lock of the writes and releases it; what a hold decides for other threads, an outcome or a wake-up, is carried out after it. The verb keeps its plain sense, as in the doubles of the tests that hold something back (`HeldPersistence`, `HeldRead`) |
+| The protection of reads | The epochs a read enters and leaves ([how reads are protected](epoch-protection.md)): memory that writes retire while a read is inside is freed only after it has left |
+| Storage | The form of the entities in memory: the arena, the roots and their layouts, and the Plain or Dictionary storage of a text |
+| Persistence | What makes a write durable: the persistence step of a Durable database, which MemoryOnly completes at once |
+| Deferred write | A write admitted while a write the arena refused twice is resolved; it waits, first in first out, until the resolution ends |
+| Wait for reads | The last step of that resolution: outside every lock it waits for the reads that hold retired memory, then tries once more |
+| Capture | What a master gives a child that loads from it: its state at one sequence, copied a root at a time while writes go on |
+| Deliver | Send the children that follow a master the transactions after their capture |
+| Pass | One enumeration over the entities of a type, a step at a time |
+| Switch | A hook of the tests that runs an action once at one place of the engine, so that a test knows a step has been reached: the read switch inside a read by key, the growth switch in the growth of a primary index, the wait switch at the first wait of such a resolution; armed by `ArmReadSwitch`, `ArmGrowthSwitch` and `ArmWaitSwitch` |

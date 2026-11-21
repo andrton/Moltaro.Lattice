@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Primary;
 // keys shows, since the index grows by the count of its entries, at the same insert whatever the seed.
 // It enumerates half of the entities, then lets that insert grow the index and holds the growth after
 // it has published the grown table and before it retires the old one, through the switch of the engine
-// (EngineDatabase.HoldNextGrowth). While the growth is held there it takes the rest of the steps, on a
+// (EngineDatabase.ArmGrowthSwitch). While the growth is held there it takes the rest of the steps, on a
 // thread of its own: they find the grown table, of another version than their position, and walk it
 // from its start, skipping the keys the pass has returned (PassAcrossGrowthTests states the same for
 // larger tables and every key type). The test lets the growth go once the steps have ended, or after a
@@ -61,7 +61,7 @@ public sealed class GrowthDuringEnumerationTests
             // The next insert grows the index, and the switch holds the growth halfway.
             var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            database.HoldNextGrowth(clashes.EntityType, () =>
+            database.ArmGrowthSwitch(clashes.EntityType, () =>
             {
                 inside.TrySetResult();
 
@@ -114,7 +114,7 @@ public sealed class GrowthDuringEnumerationTests
         var clashes = database.Set<ClashSchema.Clash>();
         var growths = 0;
 
-        database.HoldNextGrowth(clashes.EntityType, Grew);
+        database.ArmGrowthSwitch(clashes.EntityType, Grew);
 
         for (var key = 0; key < MostKeys; key++)
         {
@@ -132,7 +132,7 @@ public sealed class GrowthDuringEnumerationTests
                 return key;
             }
 
-            database.HoldNextGrowth(clashes.EntityType, Grew);
+            database.ArmGrowthSwitch(clashes.EntityType, Grew);
         }
 
         Assert.Fail($"The main table of the index did not grow {growth} times in {MostKeys} inserts.");

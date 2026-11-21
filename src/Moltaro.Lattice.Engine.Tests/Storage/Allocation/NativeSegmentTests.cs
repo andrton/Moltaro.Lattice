@@ -160,7 +160,7 @@ public sealed class NativeSegmentTests
         // their own.
         var tagOfNext = blocks.Count;
 
-        while (arena.TryAllocate(SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out var address))
+        while (ArenaBlocks.TryAllocateLive(arena, SpecifiedSizeClasses.LargestPayload, BlockKindEnum.Value, new RootHandle(1, 1), out var address))
         {
             Mark(arena, address, tagOfNext);
             kept.Add((address, tagOfNext));

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // The count of the table of root entries and the head of its list of free slots, on cache lines of
 // their own (RootTable). The thread that publishes changes them at every insert and delete, while

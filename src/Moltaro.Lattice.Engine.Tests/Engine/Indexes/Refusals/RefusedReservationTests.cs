@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Refusals;
 // WriteRejected with Limit Memory, and the write has had no effect).
 //
 // The arena of these tests holds all it may beside one entity of Ranked: its fill ends by a refusal of a
-// filler and leaves no free slot of the class of the nodes (Refusals.FullArena). A write of Ranked then
+// filler and leaves no free slot of the class of the nodes (Indexes.FullArena). A write of Ranked then
 // finds a place for its root and for its long Login, and none for the nodes its indexes need: it is
 // WriteRejected with Limit Memory and leaves nothing behind — no root entry, no prepared, live or retired
 // byte, no native segment, no text entry and no reference, nothing found by a search; every counter is as

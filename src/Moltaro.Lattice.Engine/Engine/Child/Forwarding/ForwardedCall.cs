@@ -1,6 +1,6 @@
 using Moltaro.Lattice.Replication.Forwarding;
 
-namespace Moltaro.Lattice.Engine.Forwarding;
+namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // One write a child forwards to its master, from the call that made it to its reply (Forwarder): its
 // request, its correlation id once the sender has taken it, where it stands (ForwardedCallStateEnum), and

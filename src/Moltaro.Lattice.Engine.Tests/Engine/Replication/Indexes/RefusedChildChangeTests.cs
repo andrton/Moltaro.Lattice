@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Indexes;
 // it and keeps its local data intact and readable (decision on write admission, Q14, "Child replica memory
 // pressure"). The pause and the resume that decision accepts are not built; until they are, such a child
 // stops following: it ends its connection and keeps serving its reads at the position it has, Ready, and
-// does not resume by itself (Following.Follower, "Stopping"). The nodes its indexes reserve are part of
+// does not resume by itself (Child.Following.Follower, "Stopping"). The nodes its indexes reserve are part of
 // what it prepares, as on a master (Entities.ChangePublisher; docs/design/ordered-index.md, "The
 // reservation" and "A child"), so a transaction whose roots and texts its arena holds and whose index
 // nodes it cannot hold is such a change: the child gives back the roots and the text entries it placed

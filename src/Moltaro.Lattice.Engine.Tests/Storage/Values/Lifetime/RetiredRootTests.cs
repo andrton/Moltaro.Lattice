@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
@@ -34,7 +35,7 @@ public sealed class RetiredRootTests
         writer.SetString(item.Field("Note"), Note);
         writer.SetBinary(item.Field("Photo"), Photo);
 
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
         var held = StoredBytes.In(item.Arena);
 
         RootStorage.Retire(item.Arena, item.Layout, root);

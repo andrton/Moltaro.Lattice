@@ -20,7 +20,7 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Closing;
 // replies it recorded, then what the tail holds for that child, then exactly one frame Closed, then the
 // end of its sending side; a request that arrives after Closed is read and dropped, with no reply. A child
 // made by hand (LoadedPeer) forwards an upsert that the storage step of the master holds
-// (HeldCommitStorage) while the master begins to close, and reads to the end.
+// (HeldPersistence) while the master begins to close, and reads to the end.
 //
 // Slow: the first test waits out the constant of 5 seconds, which is not a setting and cannot be
 // shortened for a test.
@@ -59,8 +59,8 @@ public sealed class ConnectionEndTests
     [Fact]
     public async Task Closing_master_sends_the_replies_then_the_tail_then_one_Closed_then_the_end_and_answers_no_request_after_Closed()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var master = await LoadedPeer.OpenMasterAsync(inputs: new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var master = await LoadedPeer.OpenMasterAsync(inputs: new EngineTestInputs { Persistence = storage });
 
         try
         {

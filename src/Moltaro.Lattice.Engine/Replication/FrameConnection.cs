@@ -91,7 +91,7 @@ internal sealed class FrameConnection : IDisposable
 
     // Whether a whole frame has been received and waits to be taken by the next ReceiveAsync, which then
     // returns it without waiting: a child acknowledges what it has applied when no more of the stream
-    // waits (Engine.Following.Follower). Whether the frame is valid is not looked at here.
+    // waits (Engine.Child.Following.Follower). Whether the frame is valid is not looked at here.
     public bool HoldsFrame
     {
         get

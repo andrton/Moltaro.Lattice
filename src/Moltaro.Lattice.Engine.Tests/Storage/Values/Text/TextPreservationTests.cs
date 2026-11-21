@@ -1,5 +1,6 @@
 using System.Text;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Text;
 
@@ -105,7 +106,7 @@ public sealed class TextPreservationTests
         // The samples repeated until the text needs several chunks in either encoding.
         var builder = new StringBuilder();
 
-        while (builder.Length < 3 * RootLayout.ChunkPayload)
+        while (builder.Length < 3 * ValueBlocks.ChunkPayload)
         {
             foreach (var sample in TextSamples.WellFormed)
             {

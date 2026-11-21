@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Sets;
 

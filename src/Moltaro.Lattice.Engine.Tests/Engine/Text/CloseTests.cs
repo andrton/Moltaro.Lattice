@@ -107,8 +107,8 @@ public sealed class CloseTests
     public async Task Close_of_an_instance_that_a_write_with_a_new_text_faulted_returns_every_piece_of_native_memory(string point)
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { Arena = Arena, Allocator = allocator, CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { Arena = Arena, Allocator = allocator, Persistence = storage });
 
         try
         {

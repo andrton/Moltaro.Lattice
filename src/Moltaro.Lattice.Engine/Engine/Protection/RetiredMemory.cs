@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Protection;
 
@@ -106,18 +107,18 @@ internal sealed class RetiredMemory
     private int _capacity;
 
     // The places reserved for things that writes prepared and not published yet will retire: while a
-    // group is in the storage step, later writes are prepared and published after it, in their order
+    // group is in the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator).
     private int _reserved;
 
     // What the next write the arena refused runs at the first wait of its resolution, and on a child what
     // the next transaction its arena refused twice runs before its applier waits for the reads, for the
-    // tests of the engine (EngineDatabase.HoldNextRefusedWriteWait); null when no test armed it, and only
+    // tests of the engine (EngineDatabase.ArmWaitSwitch); null when no test armed it, and only
     // a refused write or transaction loads it. The one field of this class written and read outside the
     // lock of the writes: a test arms it from its own thread and the waiter takes it before it waits,
     // outside every lock, so it is written with release semantics and taken by an interlocked exchange,
     // which runs it once.
-    private Action? _waitHold;
+    private Action? _waitSwitch;
 
     public RetiredMemory(ReadEpochs epochs, Arena arena, RootTable roots)
     {
@@ -241,19 +242,19 @@ internal sealed class RetiredMemory
         return _epochs.Advance() < _newest ? _newest + 1 : 0;
     }
 
-    // Arms the switch of the tests for a refused write (_waitHold): the next one runs hold once, at the
-    // first wait of its resolution.
-    public void HoldNextWait(Action hold) => Volatile.Write(ref _waitHold, hold);
+    // Arms the switch of the tests for a refused write (_waitSwitch): the next one runs the action once,
+    // at the first wait of its resolution.
+    public void ArmWaitSwitch(Action action) => Volatile.Write(ref _waitSwitch, action);
 
     // Runs the switch of the tests for a refused write once, when one is armed, outside every lock: for a
     // write at the first wait of its resolution (Writes.WriteCoordinator), and on a child for a transaction
     // its arena refused twice, once its applier knows it waits for the reads that hold retired memory and
-    // before it waits (Loading.ReceivedChanges.Apply).
-    public void RunWaitHold()
+    // before it waits (Child.Loading.ReceivedChanges.Apply).
+    public void RunWaitSwitch()
     {
-        if (_waitHold is not null)
+        if (_waitSwitch is not null)
         {
-            Interlocked.Exchange(ref _waitHold, null)?.Invoke();
+            Interlocked.Exchange(ref _waitSwitch, null)?.Invoke();
         }
     }
 

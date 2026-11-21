@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Storage.Ordered;
@@ -53,7 +54,7 @@ internal sealed class IndexLayout
     // The most bytes of a String value an entry holds a copy of: the most a root holds inline, the same
     // number by the decision on index structures (the note of 19 November 2026), so an indexed value is
     // copied exactly when it could lie in its root, and shared exactly when it lies in a text entry.
-    public const int TextCopyLimit = RootLayout.InlineLimit;
+    public const int TextCopyLimit = ValueBlocks.InlineLimit;
 
     // The head of a String part that references a text entry. The head 254 is kept for a shared key that
     // carries its first bytes beside the reference, which the measurement of ordered-index.md, "Text
@@ -244,8 +245,7 @@ internal sealed class IndexLayout
     // in one place, Values.StoredScalars, which the root writer uses. A String part of TextCopyLimit bytes
     // or less is copied from wherever its value lies, the root or the text entry of a Dictionary field,
     // and a longer one references the text entry the root's descriptor names. Allocates nothing. For the
-    // writer under the lock of the writes, and for a reader inside the protection of reads that checks a
-    // root against a key.
+    // writer, under the lock of the writes.
     public int WriteEntry(in RootReader root, RootHandle identity, Span<byte> destination)
     {
         MemoryMarshal.Write(destination, in identity);

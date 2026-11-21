@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 
@@ -17,19 +18,19 @@ public sealed class ThresholdTests
     // Encoded lengths in bytes.
     public static readonly TheoryData<int> Lengths = new(
         0, 1,
-        RootLayout.InlineLimit - 1, RootLayout.InlineLimit, RootLayout.InlineLimit + 1,
-        RootLayout.SingleBlockLimit - 1, RootLayout.SingleBlockLimit, RootLayout.SingleBlockLimit + 1,
-        RootLayout.ChunkPayload - 1, RootLayout.ChunkPayload, RootLayout.ChunkPayload + 1,
-        2 * RootLayout.ChunkPayload, 3 * RootLayout.ChunkPayload + 17,
+        ValueBlocks.InlineLimit - 1, ValueBlocks.InlineLimit, ValueBlocks.InlineLimit + 1,
+        ValueBlocks.SingleBlockLimit - 1, ValueBlocks.SingleBlockLimit, ValueBlocks.SingleBlockLimit + 1,
+        ValueBlocks.ChunkPayload - 1, ValueBlocks.ChunkPayload, ValueBlocks.ChunkPayload + 1,
+        2 * ValueBlocks.ChunkPayload, 3 * ValueBlocks.ChunkPayload + 17,
         SeventeenChunks);
 
     // Encoded lengths of UTF-16 text, in bytes: two for every code unit.
     public static readonly TheoryData<int> EvenLengths = new(
         0, 2,
-        RootLayout.InlineLimit - 2, RootLayout.InlineLimit, RootLayout.InlineLimit + 2,
-        RootLayout.SingleBlockLimit - 2, RootLayout.SingleBlockLimit, RootLayout.SingleBlockLimit + 2,
-        RootLayout.ChunkPayload - 2, RootLayout.ChunkPayload, RootLayout.ChunkPayload + 2,
-        3 * RootLayout.ChunkPayload + 18,
+        ValueBlocks.InlineLimit - 2, ValueBlocks.InlineLimit, ValueBlocks.InlineLimit + 2,
+        ValueBlocks.SingleBlockLimit - 2, ValueBlocks.SingleBlockLimit, ValueBlocks.SingleBlockLimit + 2,
+        ValueBlocks.ChunkPayload - 2, ValueBlocks.ChunkPayload, ValueBlocks.ChunkPayload + 2,
+        3 * ValueBlocks.ChunkPayload + 18,
         SeventeenChunks);
 
     [Theory]
@@ -42,7 +43,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetBinary(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetBinary(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));
@@ -59,7 +60,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetString(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));
@@ -76,7 +77,7 @@ public sealed class ThresholdTests
         var writer = item.Writer();
         writer.SetInteger(item.Field("Id"), 1);
         writer.SetString(item.Field("Value"), value);
-        var reader = item.Reader(writer.Complete());
+        var reader = item.Reader(item.Publish(writer.Complete()));
 
         Assert.Equal(value, reader.GetString(item.Field("Value")));
         Assert.Equal(length, reader.GetLength(item.Field("Value")));

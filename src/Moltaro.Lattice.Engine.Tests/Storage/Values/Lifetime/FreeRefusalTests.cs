@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
@@ -18,7 +19,7 @@ public sealed class FreeRefusalTests
         using var item = RootArena.Of(Fields);
         var root = Write(item);
         var payload = item.Arena.Payload(root);
-        Assert.True(item.Arena.TryAllocate(payload.Length, BlockKindEnum.Value, RootArena.Handle, out var copy));
+        Assert.True(ArenaBlocks.TryAllocateLive(item.Arena, payload.Length, BlockKindEnum.Value, RootArena.Handle, out var copy));
         payload.CopyTo(item.Arena.Payload(copy));
         item.Arena.Header(copy).LayoutVersion = item.Layout.LayoutVersion;
         var before = item.Arena.Counters;

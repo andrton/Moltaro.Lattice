@@ -3,6 +3,7 @@ using Moltaro.Lattice.Engine.Tests.Engine.Text;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Order;

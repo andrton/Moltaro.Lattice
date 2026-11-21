@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Storage;
 
 // The first 32 bytes of every block of the arena, read and written in place in native memory.
 // The fields, their widths and their order are those of the milestone contract ("Native layout
-// and allocation"), and a test asserts the size. Arena.TryAllocate writes the whole header. What
+// and allocation"), and a test asserts the size. Arena.TryAllocatePrepared writes the whole header. What
 // the header does not hold, the allocator keeps in its own metadata: the size class of the slot,
 // its capacity and its state.
 //

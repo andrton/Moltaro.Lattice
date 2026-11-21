@@ -4,6 +4,7 @@ using System.Text;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
@@ -11,11 +12,12 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // and for one setting of the reference fixture without their collections, against the sum of their
 // logical field sizes. It is the scalar form without its Unique marks, the form S05 can store.
 //
-// The users and the settings are written through RootWriter, each entity type into an arena of its
-// own, so that the counters of an arena are those of one entity type: the live bytes, the headers
-// and payloads of the blocks; the class slack, what their size classes add to them; and the native
-// capacity the arena obtained, Segments times the segment size, which also holds the tails of its
-// regions and the slots and regions it has not filled. Each entity gets an entry in a RootTable, as
+// The users and the settings are written through RootWriter in prepared blocks and then published, as
+// a write of the database writes a root, each entity type into an arena of its own, so that the
+// counters of an arena are those of one entity type: the live bytes, the headers and payloads of the
+// blocks; the class slack, what their size classes add to them; and the native capacity the arena
+// obtained, Segments times the segment size, which also holds the tails of its regions and the slots
+// and regions it has not filled. Each entity gets an entry in a RootTable, as
 // the engine will give it one; the entries live in managed pages, outside the arena, and are
 // reported apart. The logical size of a field is what its value takes in the scalar catalog: 8 bytes
 // for an Int64, 1 for a Boolean, and the UTF-8 bytes of a String.
@@ -115,7 +117,11 @@ internal static class RootBytesScenario
             }
         }
 
-        return writer.Complete();
+        var root = writer.Complete();
+
+        RootStorage.Publish(arena, layout, root);
+
+        return root;
     }
 
     private static string Number(long value) => value.ToString("N0", CultureInfo.InvariantCulture);

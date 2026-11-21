@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -87,7 +88,7 @@ internal readonly struct PrimaryKeys
 
     // A key of the String key type from its text, hashed under the seed of this instance: for the loader
     // of a child, which reads the text from a root it received before it places it
-    // (Loading.ReceivedChanges).
+    // (Child.Loading.ReceivedChanges).
     public EntityKey KeyOfText(string text) => EntityKey.OfText(text, TextHash(text));
 
     // The bytes a key of this entity type takes in a Delete of the replication stream

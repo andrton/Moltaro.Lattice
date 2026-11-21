@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
@@ -49,7 +50,7 @@ public sealed class ReaderRefusalTests
         {
             // A block as large as a root of the layout, with the layout version of the layout, so
             // that only its kind is wrong.
-            Assert.True(item.Arena.TryAllocate(item.Layout.FixedSize - 32, kind, RootArena.Handle, out var block));
+            Assert.True(ArenaBlocks.TryAllocateLive(item.Arena, item.Layout.FixedSize - 32, kind, RootArena.Handle, out var block));
             item.Arena.Header(block).LayoutVersion = item.Layout.LayoutVersion;
 
             Assert.Throws<ArgumentException>(() => item.Reader(block));

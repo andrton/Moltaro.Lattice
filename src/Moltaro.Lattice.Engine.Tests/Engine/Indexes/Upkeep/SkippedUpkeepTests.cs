@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Upkeep;
 // entry stays as it was, each in a database of its own:
 // - one that changes only a field in no index;
 // - one whose Plain key keeps its text while its place in the root moves: a root holds its values of 64
-//   bytes or less inline, in the order of the fields (Storage.RootWriter), so a longer Label, declared
+//   bytes or less inline, in the order of the fields (Storage.Roots.RootWriter), so a longer Label, declared
 //   before Code, moves Code in the root and changes its descriptor, which the entry, a copy of the text,
 //   does not hold;
 // - one that gives a Login longer than 64 bytes an equal text: the new root takes the same text entry,

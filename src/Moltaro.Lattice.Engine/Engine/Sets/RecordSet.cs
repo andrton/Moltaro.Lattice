@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Sets;
 // what it holds, and nothing else. A key given to a read or a delete is converted as ClassSet
 // converts it, without a box (KeyArgument). A write takes the byte arrays of the fields of a record
 // as the record holds them, and the engine copies each once, into its own memory, while the write runs
-// (LatticeRecord.Capture), since the application keeps the input of a write unchanged until the write
+// (LatticeRecord.ValuesForWrite), since the application keeps the input of a write unchanged until the write
 // completes (docs/decisions/mutation-commands.md, "Stable write inputs until completion").
 internal sealed class RecordSet : ILatticeSet
 {
@@ -123,7 +123,7 @@ internal sealed class RecordSet : ILatticeSet
 
         try
         {
-            values = record.Capture(copyBinary: false);
+            values = record.ValuesForWrite(copyBinary: false);
         }
         catch (LatticeException exception)
         {

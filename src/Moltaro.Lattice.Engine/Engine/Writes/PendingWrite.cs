@@ -78,7 +78,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public PendingWriteStateEnum State { get; set; }
 
     // The writes of the same entity just before and just after it in the chain of that entity: the
-    // first of the chain has not completed — it is prepared and not published yet, held back, or in
+    // first of the chain has not completed — it is prepared and not published yet, deferred, or in
     // the resolution of a refusal of the arena — and the others wait behind it in the order of their
     // admission (PendingWriteStateEnum.Chained).
     public PendingWrite? EarlierOfEntity { get; set; }
@@ -95,8 +95,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
 
     public bool IsWaiter { get; set; }
 
-    // The next write of the list it is in: the queue of the prepared writes, the held list, or the
-    // writes a hold of the lock has to start (WriteCoordinator.Drive).
+    // The next write of the list it is in: the queue of the prepared writes, the deferred list, or the
+    // writes a hold of the lock has to start (WriteCoordinator.StartReadyAndCommit).
     public PendingWrite? Next { get; set; }
 
     // The next write whose outcome a hold of the lock decided and gives after it.
@@ -110,7 +110,7 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public CancellationTokenRegistration Registration { get; set; }
 
     // Whether the switch of the tests was offered at a wait of its resolution, which it is at the first
-    // only (WriteCoordinator.OfferWaitHold).
+    // only (WriteCoordinator.RunWaitSwitch).
     public bool Waited { get; set; }
 
     // Set when the coordinator handed the end of its resolution to the thread pool, and taken by the

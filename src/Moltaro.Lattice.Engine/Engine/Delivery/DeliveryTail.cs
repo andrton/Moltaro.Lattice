@@ -354,12 +354,12 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
         }
         else
         {
-            PassWholeBlocks(lowest);
+            AdvanceReleasedByBlocks(lowest);
 
             while (TryUnreleased(out var sequence, out var length) && sequence <= lowest)
             {
                 _releasedBytes += length;
-                Pass(length);
+                AdvanceReleased(length);
             }
         }
 
@@ -380,7 +380,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     // that only the headers inside that block are read (Release): a block in which a transaction ends
     // records the last of them at Commit, and the transactions of a block are in the order of their
     // sequences. A block in which none ends lies inside one transaction, and the search goes on past it.
-    private void PassWholeBlocks(ulong lowest)
+    private void AdvanceReleasedByBlocks(ulong lowest)
     {
         var block = _released!;
 
@@ -435,7 +435,7 @@ internal sealed class DeliveryTail : IBufferWriter<byte>
     }
 
     // Moves the start of what is not released past the bytes given, from block to block.
-    private void Pass(long length)
+    private void AdvanceReleased(long length)
     {
         while (true)
         {

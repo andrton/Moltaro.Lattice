@@ -8,8 +8,7 @@ namespace Moltaro.Lattice.Storage;
 // of the slots in use are LiveBytes + ClassSlackBytes + PreparedBytes + RetiredBytes.
 //
 // LiveBytes: for every live block, its 32-byte header and the payload length given at its
-// allocation. A block is live from TryAllocate, or from the Publish of a prepared block, until it
-// is freed.
+// allocation. A block is live from the Publish of a prepared block until it is retired or freed.
 //
 // ClassSlackBytes: the rest of the slots of those blocks; for each, its size class minus its
 // header and payload length. Slack inside a slot is not free space, and moving the block

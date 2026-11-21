@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // withdrawn, cancelled or ended by a fault drops its references where its blocks are freed; decision on
 // strings, Q04.4, point 2: failed mutations leave no leaked counts):
 // - a write prepared with a new text and an existing one, withdrawn before its dispatch because its token
-//   was cancelled while the storage step of the test (HeldCommitStorage) held the commit stage, leaves no
+//   was cancelled while the storage step of the test (HeldPersistence) held the commit stage, leaves no
 //   entry of the new text and the count of the existing one as before;
 // - a write whose token is cancelled while it is being prepared, held there by the allocator of the test
 //   at the moment the entry of its large new text needs a new segment (HeldPreparation), is withdrawn
@@ -24,8 +24,8 @@ public sealed class ReleasedWriteTests
     [Fact]
     public async Task Write_withdrawn_before_its_dispatch_leaves_no_entry_of_its_new_text_and_the_count_of_its_existing_text_as_before()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -78,12 +78,12 @@ public sealed class ReleasedWriteTests
     public async Task Write_cancelled_while_it_is_being_prepared_leaves_no_entry_of_its_new_text_and_the_count_of_its_existing_text_as_before()
     {
         var allocator = new CountingNativeAllocator();
-        var storage = new HeldCommitStorage(holding: false);
+        var storage = new HeldPersistence(holding: false);
         var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs
         {
             Arena = new ArenaOptions { MemoryLimit = 64L * new ArenaOptions().SegmentSize },
             Allocator = allocator,
-            CommitStorage = storage,
+            Persistence = storage,
         });
 
         try

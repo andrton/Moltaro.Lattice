@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Replication.Load;
 

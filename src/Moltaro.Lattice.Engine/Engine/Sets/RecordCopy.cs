@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Sets;
 

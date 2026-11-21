@@ -55,9 +55,9 @@ internal readonly struct StoredField
 
     // Whether a text of this field that takes the encoded bytes given lies in an entry of the text table,
     // which its descriptor of kind Text names, and never inline (RootLayout): every text but the empty one
-    // of a field with Dictionary storage, and every text longer than RootLayout.InlineLimit of a field that
+    // of a field with Dictionary storage, and every text longer than ValueBlocks.InlineLimit of a field that
     // is part of a secondary index, whatever its storage, so that an index entry can share it with its root
     // (decision on index structures, the note of 19 November 2026). Every other text, and every Binary
     // value, is placed by its length.
-    public bool LiesInTextEntry(long length) => length > 0 && (_shared || (_indexed && length > RootLayout.InlineLimit));
+    public bool LiesInTextEntry(long length) => length > 0 && (_shared || (_indexed && length > ValueBlocks.InlineLimit));
 }

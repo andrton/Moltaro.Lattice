@@ -4,19 +4,19 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 
-// The storage step of MemoryOnly assigns the positions of a group: the first group of a new database
+// The persistence step of MemoryOnly assigns the positions of a group: the first group of a new database
 // the sequence 1, and every group the sequences after those of the group before it, one for each of its
-// writes (brief of Epic 1, sprint S09, "Positions"; Writes.MemoryOnlyStorage). The tests of the groups
-// use a storage of their own (HeldCommitStorage), which assigns positions itself; here the database has
-// the storage it makes for itself. Several callers write at once, each to entities of its own and on a
-// thread of its own (OwnThread), since a write of MemoryOnly completes at once and a caller never gives
-// its thread back: every published write has a position of its own, and their sequences are exactly 1
-// to the number of writes, none skipped and none repeated, the last of them the position of the
-// database. How many writes a group holds is not stated: under a storage step that completes at once
-// every group is one write on the write path of S09, part 2 (milestone contract, "Write coordinator and
-// revision semantics"), and may be more on another. A storage step that gave two writes one position,
-// the same first sequence to two groups or one sequence to two writes of a group, repeats a sequence,
-// and one that skipped a sequence leaves a gap; either differs from 1 to the number of writes.
+// writes (Writes.MemoryOnlyPersistence). The tests of the groups use a persistence of their own
+// (HeldPersistence), which assigns positions itself; here the database has the persistence it makes for
+// itself. Several callers write at once, each to entities of its own and on a thread of its own
+// (OwnThread), since a write of MemoryOnly completes at once and a caller never gives its thread back:
+// every published write has a position of its own, and their sequences are exactly 1 to the number of
+// writes, none skipped and none repeated, the last of them the position of the database. How many writes
+// a group holds is not stated: under a persistence step that completes at once every group is one write
+// on the write path as it is built (milestone contract, "Write coordinator and revision semantics"), and
+// may be more on another. A persistence step that gave two writes one position, the same first sequence
+// to two groups or one sequence to two writes of a group, repeats a sequence, and one that skipped a
+// sequence leaves a gap; either differs from 1 to the number of writes.
 public sealed class MemoryOnlyPositionsTests
 {
     private const int Callers = 8;

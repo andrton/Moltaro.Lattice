@@ -1,13 +1,13 @@
 using System.Buffers;
 using System.Diagnostics;
-using Moltaro.Lattice.Engine.Forwarding;
-using Moltaro.Lattice.Engine.Loading;
+using Moltaro.Lattice.Engine.Child.Forwarding;
+using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 
-namespace Moltaro.Lattice.Engine.Following;
+namespace Moltaro.Lattice.Engine.Child.Following;
 
 // How a child follows its master after its load: it receives the transactions the master sends after LoadEnd,
 // puts each together whole (Replication.Transactions.TransactionAssembler), applies it under its own lock of
@@ -109,12 +109,15 @@ internal sealed class Follower
     // it.
     private ulong _applied;
 
-    public Follower(MasterLink link, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
+    // The follower of the connection given, with the sender of that connection and the table of the calls
+    // it sends, which are made beside the forwarder the sender serves (EngineDatabase), and which this
+    // follower attaches, runs and ends.
+    public Follower(MasterLink link, ChildSender sender, PendingRequests pending, Forwarder forwarder, PositionClock clock, ReceivedChanges changes, long memoryLimit, TimeSpan openTimeout)
     {
         _link = link;
         _forwarder = forwarder;
-        _pending = new PendingRequests(clock.History);
-        _sender = new ChildSender(link, _pending);
+        _pending = pending;
+        _sender = sender;
         _clock = clock;
         _changes = changes;
         _assembler = new TransactionAssembler(memoryLimit);

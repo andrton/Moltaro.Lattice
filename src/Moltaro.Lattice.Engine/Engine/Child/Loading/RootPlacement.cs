@@ -3,7 +3,7 @@ using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 
-namespace Moltaro.Lattice.Engine.Loading;
+namespace Moltaro.Lattice.Engine.Child.Loading;
 
 // Places the roots a child receives from its master in the child's arena and publishes them, and ends
 // the load (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").

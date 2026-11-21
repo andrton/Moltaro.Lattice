@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Engine.Following;
+namespace Moltaro.Lattice.Engine.Child.Following;
 
 // One hold on the application of a child, from Follower.Suspend to its Dispose, which resumes it once no
 // other hold is left. Disposing it twice, or after the close of the child, does nothing.

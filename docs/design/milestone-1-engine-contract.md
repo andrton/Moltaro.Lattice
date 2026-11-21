@@ -273,7 +273,7 @@ its publication — with p inserts and q removes prepared and unpublished, the m
 their publications can take from the tree as it is, each insert counted at the height
 the inserts before it can reach and each remove at the height after all of them
 ([ordered index](ordered-index.md#the-reservation)) — and releases them if
-the write is withdrawn. With the storage step busy a prepared, unpublished write holds
+the write is withdrawn. With the persistence step busy a prepared, unpublished write holds
 them and no reader can reach them. A reservation the arena cannot hold refuses the write
 for memory before its commit. Once a write has touched an index, its pool keeps a
 standing reserve, the need of one change of key, counted in the prepared bytes and
@@ -327,18 +327,18 @@ public sort-key tie breaker or keyset-paging contract.
 
 Durable operation admission follows the [retry protocol](operation-retry-protocol.md).
 Writes are executed one at a time under one lock of the writes, with a group commit at
-the storage boundary (the owner's decision of 17 November 2026 to put the write path on a
+the persistence boundary (the owner's decision of 17 November 2026 to put the write path on a
 proven source; the study of S09, part 2 names the sources). A call takes the lock once
 and prepares its write in place: it looks the key up, checks its conditions against the
 published state, encodes its values into prepared blocks and reserves everything its
 publication needs. No other write runs meanwhile, so nothing has to be reserved against
 another writer. A WriteBatch is prepared the same way, all of its entities in one hold.
 
-The prepared write joins the open group. When no group is in the storage step, the group
+The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
-publishes in the same hold and returns its result. While a group is in the storage step,
+publishes in the same hold and returns its result. While a group is in the persistence step,
 later calls prepare under the lock and form the next group — at most 32 writes or 8 MiB,
-a larger write alone, never waiting to fill — and whoever completes the storage step
+a larger write alone, never waiting to fill — and whoever completes the persistence step
 publishes its group in order and hands over the next. A write to an entity that has an
 earlier write not yet completed — prepared and unpublished, or itself waiting — waits
 behind the latest such write, first in first out, and holds nothing while it waits; so
@@ -350,7 +350,7 @@ Prepared blocks stay valid until
 they are published or abandoned, because nothing else can reach them. Everything is
 released on a failure before the commit.
 
-The storage step is called under the lock and only takes the group; its work is behind
+The persistence step is called under the lock and only takes the group; its work is behind
 the task it returns. It assigns positions transactionally and, in Durable, awaits
 PostgreSQL. Independent operations in one commit retain their own tokens and positions;
 they do not become an application transaction. Publish each operation in order, with a

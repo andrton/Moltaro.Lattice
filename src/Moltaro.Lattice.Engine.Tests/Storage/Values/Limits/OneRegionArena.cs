@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 
@@ -30,7 +31,7 @@ internal sealed class OneRegionArena : IDisposable
 
         for (var index = 0; index < reservedSegments; index++)
         {
-            Assert.True(Arena.TryAllocate(Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out var block));
+            Assert.True(ArenaBlocks.TryAllocateLive(Arena, Arena.MaxBlockSize - 32, BlockKindEnum.Value, default, out var block));
             blocks.Add(block);
         }
 
@@ -56,7 +57,11 @@ internal sealed class OneRegionArena : IDisposable
         return field;
     }
 
+    // Writes a root as a write of the database does, in prepared blocks, until Publish makes them live.
     public RootWriter Writer() => new(Arena, Layout, RootArena.Handle);
+
+    // Publishes the root a writer of the arena completed (RootArena.Publish). Returns the root.
+    public ArenaAddress Publish(ArenaAddress root) => RootArena.Publish(Arena, Layout, root);
 
     public RootReader Reader(ArenaAddress root) => new(Arena, Layout, root);
 

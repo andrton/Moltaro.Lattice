@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes;
 // history, or one whose session another database bound first, is refused with HistoryMismatch and
 // changes nothing; a write that committed returns its result, and the session is never a reason to
 // replace that result with a failure. The storage step of the first database holds its commit
-// (HeldCommitStorage), so that its write is admitted and executed while a write on another database
+// (HeldPersistence), so that its write is admitted and executed while a write on another database
 // takes the same empty session. A write that completes in the hold of its own call has no test of its
 // own: the binding runs before execution on every path, and nothing can hold a write between that hold
 // and its outcome.
@@ -19,8 +19,8 @@ public sealed class SessionHistoryTests
     [Fact]
     public async Task Write_admitted_with_an_empty_session_binds_it_so_that_a_write_on_another_database_with_it_is_refused_and_the_first_returns_its_result()
     {
-        var storage = new HeldCommitStorage();
-        await using var first = await EngineMaster.OpenAsync(StampSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence();
+        await using var first = await EngineMaster.OpenAsync(StampSchema.Schema, new EngineTestInputs { Persistence = storage });
         await using var other = await EngineMaster.OpenAsync(StampSchema.Schema);
         var session = new LatticeSession();
 

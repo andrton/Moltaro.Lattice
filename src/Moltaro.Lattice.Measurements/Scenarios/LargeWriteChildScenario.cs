@@ -11,6 +11,7 @@ using Moltaro.Lattice.Measurements.Fixture;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
@@ -107,6 +108,9 @@ internal static class LargeWriteChildScenario
         RootValues.Write(ref writer, entityType, [.. entityType.Fields.Select(field => user[field.Name])]);
 
         var root = writer.Complete();
+
+        RootStorage.Publish(arena, layout, root);
+
         var tail = new TailCopy();
         var times = new List<double>();
 
@@ -173,6 +177,9 @@ internal static class LargeWriteChildScenario
         writer.SetBinary(value!, data);
 
         var root = writer.Complete();
+
+        RootStorage.Publish(arena, layout, root);
+
         var buffer = new TransferBuffer();
         var reused = new byte[BlockExport.Length(arena, layout, root)];
         var tail = new TailCopy();

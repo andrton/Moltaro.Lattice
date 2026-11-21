@@ -35,8 +35,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // step that loads the current table finds its version in it, with no second load to frame, so the
 // table and the version a step takes are always one pair (review round 1 of S08, part 1: a step had
 // applied a position of the old table to the new one). An insert or a delete changes entries of the
-// current table, which a step reads as they change, and not its version (Entities.EntityTable says
-// why a walk stays correct through both).
+// current table, which a step reads as they change, and not its version (docs/design/arena-protocol.md,
+// "An enumeration", says why a walk stays correct through both).
 //
 // Who calls what. Find and TableAndVersion from reads, inside the protection of reads; Find also from a
 // write being prepared, under the lock of the writes and outside the protection of reads, which is
@@ -57,13 +57,13 @@ internal sealed class PrimaryIndex
     private long _replacementBytes;
 
     // The inserts that have room reserved and are not published or withdrawn yet: while a group is in
-    // the storage step, later writes are prepared and published after it, in their order
+    // the persistence step, later writes are prepared and published after it, in their order
     // (Writes.WriteCoordinator). The writer's alone, under the lock of the writes.
     private int _reserved;
 
-    // What the next growth runs for the tests of the engine (EngineDatabase.HoldNextGrowth); null when
+    // What the next growth runs for the tests of the engine (EngineDatabase.ArmGrowthSwitch); null when
     // no test armed it, which is all a growth pays: one load of a field nothing else writes.
-    private Action? _growthHold;
+    private Action? _growthSwitch;
 
     public PrimaryIndex(RetiredMemory retired)
     {
@@ -155,8 +155,9 @@ internal sealed class PrimaryIndex
     // Removes the entry of the slot, which the index holds under the hash.
     public void Remove(uint hash, uint slot) => _table.Remove(hash, slot);
 
-    // Arms the switch of the tests: the next growth runs hold once (EngineDatabase.HoldNextGrowth).
-    public void HoldNextGrowth(Action hold) => Volatile.Write(ref _growthHold, hold);
+    // Arms the growth switch of the tests: the next growth runs the action once
+    // (EngineDatabase.ArmGrowthSwitch).
+    public void ArmGrowthSwitch(Action action) => Volatile.Write(ref _growthSwitch, action);
 
     private void Grow()
     {
@@ -189,9 +190,9 @@ internal sealed class PrimaryIndex
 
         // The switch of the tests, after the store that publishes the grown table and before the old
         // one is retired; it changes nothing when no test armed it.
-        if (_growthHold is not null)
+        if (_growthSwitch is not null)
         {
-            Interlocked.Exchange(ref _growthHold, null)?.Invoke();
+            Interlocked.Exchange(ref _growthSwitch, null)?.Invoke();
         }
 
         _replacementBytes = 0;

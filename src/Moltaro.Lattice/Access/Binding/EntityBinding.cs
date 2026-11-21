@@ -64,7 +64,7 @@ internal sealed class EntityBinding<TEntity>
     // as a copy is: the engine copies each once, into its own memory, while the write runs, and the
     // caller keeps the entity unchanged until the write completes (BoundProperty.Take;
     // RecordValues.Submit says the same of a record).
-    public object?[] Capture(TEntity entity, bool copyBinary)
+    public object?[] ValuesForWrite(TEntity entity, bool copyBinary)
     {
         var values = new object?[_properties.Length];
         foreach (var property in _properties)

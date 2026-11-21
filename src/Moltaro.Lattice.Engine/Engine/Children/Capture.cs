@@ -5,6 +5,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -22,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Children;
 // inserted later, in a slot beyond it, arrives through the tail. The copy of a slot may find a state later
 // than S, a root deleted since, or another key in a slot given out again: the child applies every copy and
 // every transaction after S by one rule, by the key in the root and the sequence of its last mutation, so
-// none of these needs anything of the capture (Loading.ReceivedChanges). Nothing is retained for a
+// none of these needs anything of the capture (Child.Loading.ReceivedChanges). Nothing is retained for a
 // capture: no slot, no deleted root, no mark of a deletion. Once the last root is copied, R is read in a
 // hold of the lock of the writes (End): an insert stores the sequence of its entry before it publishes the
 // sequence of the database, so a copy can carry a sequence the published clock does not show yet outside

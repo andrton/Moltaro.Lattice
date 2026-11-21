@@ -1,4 +1,6 @@
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Text;
 
@@ -84,7 +86,7 @@ public sealed class MalformedTextTests
         // Lengths that would be stored in one block of its own and in chunks; the surrogate at the
         // start, in the middle, at the first byte of the second chunk and at the very end.
         using var item = TypedItem.Open("'Type': 'String'", encoding: encoding);
-        var secondChunk = encoding == "Utf8" ? RootLayout.ChunkPayload : RootLayout.ChunkPayload / 2;
+        var secondChunk = encoding == "Utf8" ? ValueBlocks.ChunkPayload : ValueBlocks.ChunkPayload / 2;
 
         foreach (var length in new[] { 1_000, 40_000, 100_000 })
         {

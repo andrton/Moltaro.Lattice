@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Text;
 // points during the churn, after a drain, and at its end, when everything is deleted and nothing is left.
 // The same holds while a read is held inside the protection, whose retired roots keep their references,
 // and while writes are prepared and not published because the storage step of the test holds the commit
-// stage (HeldCommitStorage), whose prepared roots hold theirs; a prepared write that is withdrawn takes its
+// stage (HeldPersistence), whose prepared roots hold theirs; a prepared write that is withdrawn takes its
 // references with it.
 public sealed class TallyTests
 {
@@ -85,8 +85,8 @@ public sealed class TallyTests
     [Fact]
     public async Task Counts_equal_the_tally_while_writes_are_prepared_and_not_published_and_a_withdrawn_one_takes_its_references_with_it()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        var database = await EngineMaster.OpenAsync(TextSchema.Utf8, new EngineTestInputs { Persistence = storage });
 
         try
         {

@@ -2,12 +2,13 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Moltaro.Lattice.Engine.Child.Loading;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
 using Moltaro.Lattice.Schema;
 
-namespace Moltaro.Lattice.Engine.Loading;
+namespace Moltaro.Lattice.Engine.Child;
 
 // The connection of a child to its master, from the first attempt to reach it to the end of the load and
 // on, while the child follows its master (docs/design/milestone-1-engine-contract.md, "Replication

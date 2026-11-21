@@ -1,5 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Storage.Values.Placement;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 
@@ -12,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Limits;
 // last (3); see OneRegionArena.
 public sealed class SetFailureTests
 {
-    private static readonly byte[] Chunked = Payloads.Bytes(3 * RootLayout.ChunkPayload);
+    private static readonly byte[] Chunked = Payloads.Bytes(3 * ValueBlocks.ChunkPayload);
 
     [Theory]
     [InlineData(0)]
@@ -48,7 +50,7 @@ public sealed class SetFailureTests
 
         // The allocator works again; the second SetBinary of the field is not refused as a second set.
         writer.SetBinary(item.Field("Value"), Chunked);
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
 
         Assert.Equal(Chunked, item.Reader(root).GetBinary(item.Field("Value")));
         Assert.Equal(StoredBytes.Of(item.Layout.FixedSize, Chunked.Length), StoredBytes.In(item.Arena));
@@ -73,7 +75,7 @@ public sealed class SetFailureTests
 
         FailSetting(item, ref writer, "Maybe");
 
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
         var reader = item.Reader(root);
 
         Assert.True(reader.IsNull(item.Field("Maybe")));

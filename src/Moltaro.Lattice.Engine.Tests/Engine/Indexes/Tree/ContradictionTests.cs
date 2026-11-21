@@ -2,6 +2,7 @@ using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Engine.Tests.Storage.Values;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Tree;

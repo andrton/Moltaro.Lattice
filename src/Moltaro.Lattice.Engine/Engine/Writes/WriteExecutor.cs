@@ -8,6 +8,7 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Writes;
@@ -33,16 +34,17 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    prepared and unpublished when a write of it is prepared (WriteCoordinator). A failed condition
 //    changes nothing. A replace through another spelling of a key compared without case keeps the
 //    stored one.
-// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into prepared
-//    blocks (Storage.RootWriter), whose slots the writer counts as it allocates them, which is the encoded
-//    size of the write; then what its publication uses is reserved (Entities.ChangePublisher.TryReserve): the
-//    nodes of the secondary indexes it changes, room in the primary index for an insert, which may grow it,
-//    and for a replace or a delete a place in the retired list, beside what the writes prepared before it
-//    and not published yet reserved. A failure frees all of it, so nothing of a failed write is left in any
-//    counter. An entity has no size limit of its own; only the memory of the arena, the memory budget of the
-//    database, refuses one or the nodes of its indexes (docs/decisions/write-admission.md, "Configurable
-//    root-object size limit"): then TryPrepare returns false with everything freed, and the coordinator
-//    decides what the write waits for before it tries again (WriteCoordinator, "The refusal").
+// 2. It prepares what it publishes: an insert takes a new root entry; the values are encoded into
+//    prepared blocks (Storage.Roots.RootWriter), whose slots the writer counts as it allocates them,
+//    which is the encoded size of the write; then what its publication uses is reserved
+//    (Entities.ChangePublisher.TryReserve): the nodes of the secondary indexes it changes, room in the
+//    primary index for an insert, which may grow it, and for a replace or a delete a place in the
+//    retired list, beside what the writes prepared before it and not published yet reserved. A failure
+//    frees all of it, so nothing of a failed write is left in any counter. An entity has no size limit
+//    of its own; only the memory of the arena, the memory budget of the database, refuses one or the
+//    nodes of its indexes (docs/decisions/write-admission.md, "Configurable root-object size limit"):
+//    then TryPrepare returns false with everything freed, and the coordinator decides what the write
+//    waits for before it tries again (WriteCoordinator, "The refusal").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
 // A write a child forwarded brings the root the child wrote, in the load format, instead of values
@@ -54,14 +56,14 @@ namespace Moltaro.Lattice.Engine.Writes;
 // without case, which keeps the spelling the entity was created with, as KeepStoredKey does for a write of
 // values.
 //
-// A publication (Publish), of the writes of a group in its order, after the storage step: it only
+// A publication (Publish), of the writes of a group in its order, after the persistence step: it only
 // installs what was prepared. The change of each write is published at the sequence of the write, with
 // the stores before the position, the position and the stores after it (Entities.ChangePublisher;
 // docs/design/write-path.md, "How a publication is made"); a delete of an absent key changes no entity and
 // publishes only its sequence. After each write RetiredMemory frees what no read can reach any more, once
 // enough was retired since its last look, a write that retired nothing counting as one thing from a look
 // that left something behind until a look leaves nothing (RetiredMemory.AfterWrite). A publication fails
-// only at a fault point a test armed (Pass), for a defect, or when the managed heap cannot hold a
+// only at a fault point a test armed (ReachFaultPoint), for a defect, or when the managed heap cannot hold a
 // block of the tail of the children (below); the write that failed and those after it stay unpublished,
 // and the coordinator faults the database.
 //
@@ -75,7 +77,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // Every write that passes its condition and its preparation and is committed is published at a position of
 // its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
 // entry's LastMutationSequence: every position changes at most one entity, so the revision of one entity
-// never satisfies a condition on another, and a recreated entity has a new one.
+// never satisfies a condition on another, and a recreated entity has a new one. LatticeRevision is two opaque
+// 64-bit values, so this composition is internal and can change; how a revision binds its entity when several
+// entities change at one position belongs to the stage with the batch (docs/design/
+// milestone-1-engine-contract.md, "Write coordinator and revision semantics").
 internal sealed class WriteExecutor
 {
     private readonly Arena _arena;
@@ -94,11 +99,11 @@ internal sealed class WriteExecutor
     // children receives one, and used under the lock of the writes alone.
     private BlockImport? _import;
 
-    // The fault point a test armed, with the passes it lets through first (Arm); default when none is
-    // armed, which is all a pass loads.
+    // The fault point a test armed, with the times it lets through first (Arm); default when none is
+    // armed, which is all reaching a point loads.
     private EngineFaultPointEnum _armedPoint;
 
-    private int _skippedPasses;
+    private int _timesToLetThrough;
 
     // Whether a publication appended to the tail since the coordinator last
     // looked (TakeDelivered).
@@ -201,12 +206,12 @@ internal sealed class WriteExecutor
         return delivered;
     }
 
-    // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): the given number of
-    // passes go through it, and the next one throws.
-    public void Arm(EngineFaultPointEnum point, int skippedPasses)
+    // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault): it lets the given
+    // number of times through, and the next one throws.
+    public void Arm(EngineFaultPointEnum point, int timesToLetThrough)
     {
         _armedPoint = point;
-        _skippedPasses = skippedPasses;
+        _timesToLetThrough = timesToLetThrough;
     }
 
     private LatticeRevision RevisionOf(RootHandle handle) =>
@@ -342,12 +347,12 @@ internal sealed class WriteExecutor
     }
 
     // Writes the values into a new root of prepared blocks for the lifetime the handle names, with the
-    // bytes of the slots the writer allocated for it (Storage.RootWriter.SlotBytes). The null address,
+    // bytes of the slots the writer allocated for it (Storage.Roots.RootWriter.SlotBytes). The null address,
     // with the refusal, when the arena has no room for the entity; then, and after any failure, the
     // writer has freed everything it allocated.
     private ArenaAddress Encode(EntityTable table, RootHandle handle, object?[] values, out long size, out LatticeException? refusal)
     {
-        var writer = new RootWriter(_arena, table.Layout!, handle, prepared: true);
+        var writer = new RootWriter(_arena, table.Layout!, handle);
 
         refusal = null;
 
@@ -470,9 +475,9 @@ internal sealed class WriteExecutor
         var payload = layout.RootPayload(_arena, root);
         var size = (long)Arena.BlockSizeFor(payload.Length);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            size += ValueBlocks.SlotBytes(ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+            size += RootStorage.ValueSlotBytes(descriptor);
         }
 
         return size;
@@ -483,7 +488,7 @@ internal sealed class WriteExecutor
     // to hold it leaves the write unpublished, and appended after them.
     private void PublishOne(PreparedWrite prepared, ulong sequence)
     {
-        Pass(EngineFaultPointEnum.BeforePublication);
+        ReachFaultPoint(EngineFaultPointEnum.BeforePublication);
 
         var write = prepared.Write;
         var delivers = _delivery.Retains;
@@ -501,7 +506,7 @@ internal sealed class WriteExecutor
         // of an absent key, with no change, does not make.
         if (!changes.IsEmpty)
         {
-            Pass(EngineFaultPointEnum.DuringPublication);
+            ReachFaultPoint(EngineFaultPointEnum.DuringPublication);
         }
 
         _changes.PublishPositionAndAfter(changes, sequence, publishesPosition: true);
@@ -540,18 +545,18 @@ internal sealed class WriteExecutor
         }
     }
 
-    // A pass through a fault point: nothing unless a test armed this point; then the passes it lets
+    // Reaching a fault point: nothing unless a test armed this point; then the times it lets
     // through go on, and the next one throws, once.
-    private void Pass(EngineFaultPointEnum point)
+    private void ReachFaultPoint(EngineFaultPointEnum point)
     {
         if (_armedPoint != point)
         {
             return;
         }
 
-        if (_skippedPasses > 0)
+        if (_timesToLetThrough > 0)
         {
-            _skippedPasses--;
+            _timesToLetThrough--;
 
             return;
         }

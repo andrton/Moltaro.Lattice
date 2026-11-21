@@ -4,9 +4,10 @@ using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
-namespace Moltaro.Lattice.Engine.Forwarding;
+namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // The writes of a child: each is forwarded to its master over the one connection of the child, and the
 // call returns once the master has executed it and this child has applied it
@@ -17,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // 1. The set of the child (Sets.SetOperations) calls WriteAsync, which checks the write, encodes its
 //    request and queues it (steps 1 to 3 of a call, below).
 // 2. The sender of the child's connection (ChildSender) registers the call (PendingRequests) and sends
-//    the frames of the request (Loading.MasterLink).
+//    the frames of the request (Child.MasterLink).
 // 3. On the master, the receiver of the connection (Children.ChildConnection, Children.RequestReceiver)
 //    puts the request together (Replication.Forwarding.MessageAssembler), checks it and its root
 //    (Replication.Load.BlockImport) and submits it to the write path (Writes.WriteCoordinator.Forward).
@@ -43,7 +44,7 @@ namespace Moltaro.Lattice.Engine.Forwarding;
 // 2. The request (Replication.Forwarding.ForwardEncoding): the kind, the entity type, the expected
 //    revision, the position of the session, the key, and for an insert, a replace or an upsert the root of
 //    the entity in the load format, which the root writer writes without the arena of the child
-//    (Storage.RootWriter, "A root for a forwarded write"). No timeout travels.
+//    (Storage.Roots.RootWriter, "A root for a forwarded write"). No timeout travels.
 // 3. The queue of the sender of the connection (ChildSender), unless the child has no connection to its
 //    master: then Unavailable, not executed. The sender is looked for before the request is encoded, and a
 //    call it refuses to queue leaves no registration on the token, so that a refused write keeps nothing

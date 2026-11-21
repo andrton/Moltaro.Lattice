@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 // planner's block of 17 November 2026, point 2): writes of one entity made through one child are executed
 // in the order of their calls. The child sends its requests in that order without waiting for replies, and
 // the receiver of the master submits each to the write path without awaiting the one before. The storage
-// step of the master is held (HeldCommitStorage): while the first write is in it, the second has been
+// step of the master is held (HeldPersistence): while the first write is in it, the second has been
 // submitted and waits behind it as a write of the same entity (EngineCounters.QueuedWrites is 2); released,
 // the first takes the earlier position, and the entity ends in the state the second wrote, on the master
 // and on the child.
@@ -17,8 +17,8 @@ public sealed class OrderThroughAChildTests
     [Fact]
     public async Task Two_writes_of_one_entity_through_one_child_without_awaiting_the_first_are_executed_in_the_order_of_the_calls()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {

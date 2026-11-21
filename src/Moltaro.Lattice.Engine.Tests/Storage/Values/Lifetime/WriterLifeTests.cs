@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values.Lifetime;
 
@@ -79,7 +80,7 @@ public sealed class WriterLifeTests
         using var item = EveryType.Open();
         var writer = item.Writer();
         EveryType.SetRequired(ref writer, item);
-        var root = writer.Complete();
+        var root = item.Publish(writer.Complete());
         var after = StoredBytes.In(item.Arena);
 
         foreach (var call in EveryEnd(item))

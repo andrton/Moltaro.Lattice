@@ -42,9 +42,9 @@ tracked in [Epic 1](../work/epic-1-core.md).
 | [Milestone 1 implementation contract](milestone-1-engine-contract.md) | Selected mechanisms, starting limits, deterministic fixture, consumer compatibility and release checks |
 | [Operation retry protocol](operation-retry-protocol.md) | Concrete admission/result/retirement state machine, with bounded PostgreSQL evidence |
 | [Engine foundation](engine-foundation.md) | Fixed requirements and the ownership overview. Its physical proposal is the earlier text; the milestone contract fixes the mechanisms it leaves open |
-| [Arena protocol](arena-protocol.md) | Concrete bounded-experiment protocol for root/text protection, preparation, deletion, relocation and reclamation; production integration limits |
+| [Arena protocol](arena-protocol.md) | Concrete bounded-experiment protocol for root/text protection, preparation, deletion, relocation and reclamation; production integration limits; the stamp of a root entry, the reads of an entity table and the comparison of a key |
 | [How reads are protected](epoch-protection.md) | An explanation for a reader, not a specification: epochs, memory that is freed later, and what an application can rely on; with an [animated version](epoch-protection.html) |
-| [How a write is executed](write-path.md) | An explanation for a reader, not a specification: the lock of the writes, groups at the storage step, the order of writes to one entity and what it costs; with an [animated version](write-path.html) |
+| [How a write is executed](write-path.md) | An explanation for a reader, not a specification: the lock of the writes, groups at the persistence step, the order of writes to one entity and what it costs; with an [animated version](write-path.html). Its Words are the vocabulary of the engine |
 | [The ordered secondary index](ordered-index.md) | The copy-on-write B+tree of a declared index: entries and their order, nodes in the arena, how a reader descends without a lock, writes and their reservation, text keys, the search by a full key; built, but for the walk of ranges, order and paging |
 | [Architecture](index.html) | Illustrated design; generated from [Markdown](architecture.md) |
 | [Decision register](questions.md) | Settled contracts and the specified engineering areas; nothing in it awaits a decision |

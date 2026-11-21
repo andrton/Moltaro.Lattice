@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Replication;
 // settings", the row "Reconnect / applier failure pauses"): 100 ms, doubling after each, at most 5 s.
 // They are the pace of the attempts, not a timeout or a limit: what bounds how long a node goes on
 // trying is said where it tries — the OpenTimeout of a child that tries to reach its master
-// (Engine.Loading.MasterLink), the close of a master whose accepting failed (Engine.Children.ChildListener).
+// (Engine.Child.MasterLink), the close of a master whose accepting failed (Engine.Children.ChildListener).
 // They are constants in the code until S34, which builds reconnection and makes them options (exception
 // X6).
 //

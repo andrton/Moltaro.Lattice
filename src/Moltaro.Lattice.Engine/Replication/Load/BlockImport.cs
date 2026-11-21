@@ -4,6 +4,7 @@ using System.Text;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Replication.Load;
@@ -20,10 +21,10 @@ namespace Moltaro.Lattice.Replication.Load;
 //   not has a descriptor of a value;
 // - the kind of each descriptor against its length and the storage of its field, as RootWriter places
 //   values: a text that lies in an entry of the text table (Storage.Values.StoredField.LiesInTextEntry:
-//   one that is not empty of a field with Dictionary storage, one longer than RootLayout.InlineLimit of
+//   one that is not empty of a field with Dictionary storage, one longer than ValueBlocks.InlineLimit of
 //   a field that is part of an index) of kind Text, up to ValueBlocks.MostValueBytes bytes out of line;
-//   any other value inline at most RootLayout.InlineLimit bytes, after the fixed part, in a block of its
-//   own 1 to RootLayout.SingleBlockLimit bytes, in chunks more than that and at most
+//   any other value inline at most ValueBlocks.InlineLimit bytes, after the fixed part, in a block of its
+//   own 1 to ValueBlocks.SingleBlockLimit bytes, in chunks more than that and at most
 //   ValueBlocks.MostValueBytes; no other kind, so a Text descriptor of a value that does not lie in an
 //   entry, a Text descriptor of length 0 and a text that lies in an entry of kind Inline, Block or
 //   Chunked are not valid. The location of a value out of line is 0 on the wire: nothing received is
@@ -32,7 +33,7 @@ namespace Moltaro.Lattice.Replication.Load;
 //   exactly, and the payload fits one block; each value inline lies inside the payload.
 // Each failure is a LatticeException with ValidationFailed, and nothing is allocated (Check). The child
 // then reads the key of the root from what was checked (FixedPart, Text), so that it knows whether the
-// root is the state of a key it holds before it takes anything for it (Engine.Loading.ReceivedChanges).
+// root is the state of a key it holds before it takes anything for it (Engine.Child.Loading.ReceivedChanges).
 // Then the root block is allocated, prepared, and filled with the payload, and each value out of line is
 // stored through ValueBlocks, the store the write path uses, which allocates its blocks and writes every
 // header and location itself; the root block is named as their parent (Place). The bytes of a Dictionary
@@ -42,7 +43,7 @@ namespace Moltaro.Lattice.Replication.Load;
 //
 // A refusal of the arena for its budget returns the null address, and an OutOfMemoryException of the
 // native allocator passes through; either way nothing of the root is left allocated. The caller decides
-// what a refusal means (Engine.Loading).
+// what a refusal means (Engine.Child.Loading).
 //
 // The arena has one changing thread at a time: the caller holds the lock of the writes of the child.
 internal sealed class BlockImport
@@ -77,17 +78,18 @@ internal sealed class BlockImport
     }
 
     // A reader of the fixed part of the root checked last, which reads its fixed fields and descriptors
-    // (Storage.RootReader, a reader of a copy).
+    // (Storage.Roots.RootReader, a reader of a copy).
     public RootReader FixedPart(in ReceivedRoot root) =>
         new(root.Layout, _payload.AsSpan(0, RootReader.FixedPartLength(root.Layout)));
 
     // The text of a String field of the root checked last, which is not null, as a new string decoded
     // from the encoding of the database, where the root holds it: inline in its payload, or out of line;
-    // for the key of the root (Engine.Loading.ReceivedChanges), the one text of a root that is decoded on
-    // receipt. ValidationFailed when it is not well-formed in that encoding, as a key received in a Delete
-    // is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is well-formed, since every
-    // write checks its text (docs/decisions/strings.md, "Input validity and preservation"), so such a root
-    // did not come from one. Every other text of a root is placed as the bytes it is and not decoded.
+    // for the key of the root (Engine.Child.Loading.ReceivedChanges), the one text of a root that is
+    // decoded on receipt. ValidationFailed when it is not well-formed in that encoding, as a key
+    // received in a Delete is not (Engine.Entities.PrimaryKeys.ReadKey): a key that a master stores is
+    // well-formed, since every write checks its text (docs/decisions/strings.md, "Input validity and
+    // preservation"), so such a root did not come from one. Every other text of a root is placed as the
+    // bytes it is and not decoded.
     public string Text(in ReceivedRoot root, LatticeField field)
     {
         var layout = root.Layout;
@@ -103,17 +105,11 @@ internal sealed class BlockImport
         {
             // The values out of line follow one another in the order of their descriptors.
             var before = 0L;
+            var others = new RootDescriptors(layout, _payload);
 
-            for (var index = 0; index < layout.DescriptorCount; index++)
+            while (others.MoveNext() && others.Offset != stored.Offset)
             {
-                ref readonly var other = ref layout.DescriptorField(index);
-
-                if (other.Offset == stored.Offset)
-                {
-                    break;
-                }
-
-                var value = ValueBlocks.Read(_payload.AsSpan(other.Offset - BlockHeader.Size));
+                var value = others.Current;
 
                 if (ValueBlocks.LiesOutOfLine(value))
                 {
@@ -174,11 +170,15 @@ internal sealed class BlockImport
 
             _payload.AsSpan(0, root.PayloadLength).CopyTo(target);
 
-            for (; index < layout.DescriptorCount; index++)
+            var descriptors = new RootDescriptors(layout, target);
+
+            while (descriptors.MoveNext())
             {
-                var offset = layout.DescriptorField(index).Offset;
-                var place = target.Slice(offset - BlockHeader.Size, ValueBlocks.DescriptorSize);
-                var received = ValueBlocks.Read(place);
+                // The descriptors before it are placed, and an abandon frees what they hold.
+                index = descriptors.Index;
+
+                var place = descriptors.Place;
+                var received = descriptors.Current;
 
                 if (!ValueBlocks.LiesOutOfLine(received))
                 {
@@ -193,7 +193,7 @@ internal sealed class BlockImport
                 // it as it was.
                 if (received.Kind == DescriptorKindEnum.Text)
                 {
-                    if (!_arena.Texts.TryAcquire(bytes, prepared: true, place, out _))
+                    if (!_arena.Texts.TryAcquire(bytes, place, out _))
                     {
                         Abandon(block, layout, index);
 
@@ -204,14 +204,14 @@ internal sealed class BlockImport
                 {
                     var source = ValueSource.Received(bytes);
 
-                    if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, prepared: true, length, ref source, place))
+                    if (!ValueBlocks.TryStore(_arena, handle, layout.LayoutVersion, length, ref source, place))
                     {
                         Abandon(block, layout, index);
 
                         return default;
                     }
 
-                    ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, offset);
+                    ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, descriptors.Offset);
                 }
 
                 values = values.Slice(length);
@@ -253,11 +253,12 @@ internal sealed class BlockImport
 
         var inline = 0L;
         var outOfLine = 0L;
+        var received = new RootDescriptors(layout, payload);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        while (received.MoveNext())
         {
-            ref readonly var field = ref layout.DescriptorField(index);
-            var descriptor = ValueBlocks.Read(payload[(field.Offset - BlockHeader.Size)..]);
+            ref readonly var field = ref received.Field;
+            var descriptor = received.Current;
             var isNull = field.IsNullable && (payload[field.NullBit / 8] & (1 << (field.NullBit % 8))) != 0;
 
             if (isNull)
@@ -277,12 +278,12 @@ internal sealed class BlockImport
 
             switch (descriptor.Kind)
             {
-                case DescriptorKindEnum.Inline when !inEntry && descriptor.Length <= RootLayout.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
+                case DescriptorKindEnum.Inline when !inEntry && descriptor.Length <= ValueBlocks.InlineLimit && descriptor.Location >= (ulong)layout.FixedSize:
                     inline += descriptor.Length;
                     break;
 
-                case DescriptorKindEnum.Block when !inEntry && descriptor.Length is > 0 and <= RootLayout.SingleBlockLimit && descriptor.Location == 0:
-                case DescriptorKindEnum.Chunked when !inEntry && descriptor.Length is > RootLayout.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
+                case DescriptorKindEnum.Block when !inEntry && descriptor.Length is > 0 and <= ValueBlocks.SingleBlockLimit && descriptor.Location == 0:
+                case DescriptorKindEnum.Chunked when !inEntry && descriptor.Length is > ValueBlocks.SingleBlockLimit and <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                 case DescriptorKindEnum.Text when inEntry && descriptor.Length <= ValueBlocks.MostValueBytes && descriptor.Location == 0:
                     outOfLine += descriptor.Length;
                     break;
@@ -303,11 +304,12 @@ internal sealed class BlockImport
         // A received location is compared without adding the length to it, which could wrap around the
         // range of the number and pass a value that lies anywhere.
         var end = (ulong)(BlockHeader.Size + payloadLength);
+        var placed = new RootDescriptors(layout, payload);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        while (placed.MoveNext())
         {
-            ref readonly var field = ref layout.DescriptorField(index);
-            var descriptor = ValueBlocks.Read(payload[(field.Offset - BlockHeader.Size)..]);
+            ref readonly var field = ref placed.Field;
+            var descriptor = placed.Current;
 
             if (descriptor.Kind == DescriptorKindEnum.Inline && (descriptor.Location > end || descriptor.Length > end - descriptor.Location))
             {
@@ -339,11 +341,11 @@ internal sealed class BlockImport
     // name no block of this arena.
     private void Abandon(ArenaAddress block, RootLayout layout, int before)
     {
-        var target = _arena.Payload(block);
+        var descriptors = new RootDescriptors(layout, _arena.Payload(block));
 
-        for (var index = 0; index < before; index++)
+        while (descriptors.MoveNext() && descriptors.Index < before)
         {
-            RootStorage.FreeValue(_arena, ValueBlocks.Read(target[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+            RootStorage.FreeValue(_arena, descriptors.Current);
         }
 
         _arena.Free(block);

@@ -197,7 +197,7 @@ public sealed class HeldReadTests
             var grown = false;
             var table = 0L;
 
-            database.HoldNextGrowth(stamps.EntityType, () => Volatile.Write(ref grown, true));
+            database.ArmGrowthSwitch(stamps.EntityType, () => Volatile.Write(ref grown, true));
 
             await ReadersAndWriter.RunAsync(
                 Readers,

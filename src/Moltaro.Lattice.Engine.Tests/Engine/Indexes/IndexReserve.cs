@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 

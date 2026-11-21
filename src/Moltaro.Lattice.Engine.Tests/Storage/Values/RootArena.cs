@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Allocation;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values;
 
@@ -54,7 +55,21 @@ internal sealed class RootArena : IDisposable
         return field;
     }
 
+    // Writes a root as a write of the database does, in prepared blocks, until Publish makes them live.
     public RootWriter Writer() => new(Arena, Layout, Handle);
+
+    // Publishes the root a writer of the arena completed (see the static Publish). Returns the root.
+    public ArenaAddress Publish(ArenaAddress root) => Publish(Arena, Layout, root);
+
+    // Publishes a root of the layout that a writer completed in the arena, as a write of the database
+    // publishes its root (RootStorage.Publish): its blocks are live from then on. Returns the root. For
+    // every arena of these tests, this one and OneRegionArena.
+    public static ArenaAddress Publish(Arena arena, RootLayout layout, ArenaAddress root)
+    {
+        RootStorage.Publish(arena, layout, root);
+
+        return root;
+    }
 
     public RootReader Reader(ArenaAddress root) => new(Arena, Layout, root);
 

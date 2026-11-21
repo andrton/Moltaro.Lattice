@@ -18,7 +18,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Enumeration;
 //   enumeration that stands between two steps. The database has an arena of two segments of 8 MiB
 //   (exception X3), and a piece holds a Binary value of 3 MiB, as in RefusedWriteTests: the second
 //   replace of it fits only once the state the first replaced is freed, and a write that has to wait
-//   for reads for that runs the switch of the engine that tells it (HoldNextRefusedWriteWait).
+//   for reads for that runs the switch of the engine that tells it (ArmWaitSwitch).
 // Every form of an enumeration; every wait is bounded.
 public sealed class NothingHeldBetweenStepsTests
 {
@@ -97,7 +97,7 @@ public sealed class NothingHeldBetweenStepsTests
         Assert.True(database.Counters.Arena.RetiredBytes > 0, "The replaced state was freed before the write that needs its memory.");
 
         var waits = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        database.HoldNextRefusedWriteWait(() => waits.TrySetResult());
+        database.ArmWaitSwitch(() => waits.TrySetResult());
 
         var write = Task.Run(() => pieces.ReplaceAsync(PieceSchema.Of(1, name: 12, data: Large)).AsTask());
 

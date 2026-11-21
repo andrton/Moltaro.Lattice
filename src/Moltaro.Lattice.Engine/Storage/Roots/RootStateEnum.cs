@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Storage;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // Where a root entry stands: whether its slot holds a lifetime, and how far that lifetime has
 // come. Free is zero, so the entries of a new page are free as the page is allocated.

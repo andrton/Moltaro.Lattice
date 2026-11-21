@@ -49,13 +49,14 @@ namespace Moltaro.Lattice.Engine.Children;
 // (ChildListener).
 //
 // Why Closed is true when it is sent. It is sent after the barrier of the close has drained: every write
-// that entered it, forwarded ones included, had its reply recorded before it left, and the sender has sent
-// every reply recorded before it read the close (DeliverAsync). A request that did not enter the barrier
-// was not executed, and none is executed after the drain. A reply the receiver records itself after the
-// sender has sent its last one, the refusal of a request that came too late, is not sent; its request was
-// not executed. The same holds for a master that faulted: its fault ended every write admitted with its
-// reply recorded, IndeterminateOutcome for those the storage step took and Unavailable for the others, and
-// refuses every write after it before it is executed, so it sends Closed as well.
+// that entered it, forwarded ones included, had its reply recorded before it left, and the sender has
+// sent every reply recorded before it read the close (DeliverAsync). A request that did not enter the
+// barrier was not executed, and none is executed after the drain. A reply the receiver records itself
+// after the sender has sent its last one, the refusal of a request that came too late, is not sent; its
+// request was not executed. The same holds for a master that faulted: its fault ended every write
+// admitted with its reply recorded, IndeterminateOutcome for those the persistence step took and
+// Unavailable for the others, and refuses every write after it before it is executed, so it sends Closed
+// as well.
 //
 // The waits, and how each ends. The Hello: within OpenTimeout, or the close of the master. A send: until
 // the child has taken the bytes, which a child that does not read never does; it has no deadline yet, and

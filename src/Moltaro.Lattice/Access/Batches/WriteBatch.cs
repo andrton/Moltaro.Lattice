@@ -83,7 +83,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         ArgumentNullException.ThrowIfNull(entity);
 
         var binding = EntityBinding<TEntity>.For(_schema);
-        Add(kind, binding.EntityType, binding.Capture(entity, copyBinary: true), expectedRevision);
+        Add(kind, binding.EntityType, binding.ValuesForWrite(entity, copyBinary: true), expectedRevision);
     }
 
     private void Save(WriteKindEnum kind, LatticeRecord record, LatticeRevision? expectedRevision)
@@ -94,7 +94,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             throw new ArgumentException($"The record is a '{record.EntityType.Name}' of another schema, not of this database.", nameof(record));
         }
 
-        Add(kind, entityType, record.Capture(copyBinary: true), expectedRevision);
+        Add(kind, entityType, record.ValuesForWrite(copyBinary: true), expectedRevision);
     }
 
     private void Add(WriteKindEnum kind, LatticeEntityType entityType, object?[] values, LatticeRevision? expectedRevision)

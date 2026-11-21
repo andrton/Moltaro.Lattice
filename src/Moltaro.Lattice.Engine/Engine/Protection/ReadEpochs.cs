@@ -85,8 +85,8 @@ internal sealed class ReadEpochs
     private int _state;
 
     // What the next read by key that finds its root runs inside the protection, for the tests of
-    // the engine (EngineDatabase.HoldNextRead); null when no test armed it, which is all a read pays.
-    private Action<RootHandle>? _hold;
+    // the engine (EngineDatabase.ArmReadSwitch); null when no test armed it, which is all a read pays.
+    private Action<RootHandle>? _readSwitch;
 
     public ReadEpochs(object owner)
     {
@@ -109,7 +109,7 @@ internal sealed class ReadEpochs
     // When every slot is held it waits for one to be left, spinning and then yielding its processor.
     // The wait ends: a read holds its slot only while it looks up and copies, which waits for nothing
     // and runs no code of the application (Entities.IRootCopy), so every held slot is left within one
-    // step of a read; a test that holds reads through HoldNextRead holds each for a bounded time. A
+    // step of a read; a test that holds reads through ArmReadSwitch holds each for a bounded time. A
     // waiting read takes part in no refusal and never fails for the wait. The token of an asynchronous
     // read ends the wait, with OperationCanceledException; it is looked at only after every slot was
     // found held, so a read that finds a slot, and a synchronous read, which has no token, pay nothing
@@ -230,21 +230,21 @@ internal sealed class ReadEpochs
         return Volatile.Read(ref epoch) == Free && Interlocked.CompareExchange(ref epoch, Volatile.Read(ref _current), Free) == Free;
     }
 
-    // Arms the switch of the tests: the next read by key that finds its root runs hold once.
-    public void HoldNext(Action<RootHandle> hold) => Volatile.Write(ref _hold, hold);
+    // Arms the read switch of the tests: the next read by key that finds its root runs the action once.
+    public void ArmReadSwitch(Action<RootHandle> action) => Volatile.Write(ref _readSwitch, action);
 
-    // Runs the switch of the tests when it is armed, inside the protection, with the handle of the
+    // Runs the read switch of the tests when it is armed, inside the protection, with the handle of the
     // root entry the read found; otherwise a read pays one load of a field nothing writes.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void OfferHold(RootHandle handle)
+    public void OfferReadSwitch(RootHandle handle)
     {
-        if (_hold is not null)
+        if (_readSwitch is not null)
         {
-            RunHold(handle);
+            RunReadSwitch(handle);
         }
     }
 
-    private void RunHold(RootHandle handle) => Interlocked.Exchange(ref _hold, null)?.Invoke(handle);
+    private void RunReadSwitch(RootHandle handle) => Interlocked.Exchange(ref _readSwitch, null)?.Invoke(handle);
 
     // The oldest epoch a slot holds, or the given one when no slot holds an older one.
     private long OldestHeld(long epoch)

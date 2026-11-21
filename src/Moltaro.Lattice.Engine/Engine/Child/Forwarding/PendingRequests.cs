@@ -1,7 +1,7 @@
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 
-namespace Moltaro.Lattice.Engine.Forwarding;
+namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
 // The writes a child has begun to send to its master and that have no reply yet, by their correlation id,
 // for one connection, and the receipt of their replies.

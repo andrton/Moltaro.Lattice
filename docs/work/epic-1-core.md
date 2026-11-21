@@ -1240,7 +1240,7 @@ Why this order:
 | S13R, part 2 | Refactoring that owes a measured figure | Full | Done |
 | S14 | Secondary indexes and exact search | Full | Done |
 | S14, part 2 | The cost of index upkeep and of a search | Full | Done |
-| S14R | Refactoring after S14: structure only | Full | In progress: part 1 done on 21 November 2026, part 2 open ([refactoring backlog](refactoring.md), its order) |
+| S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Not started |
 | S15, part 2 | The binding rules | Full | Not started |
 | S16 | Unique indexes | Full | Not started |
@@ -6639,6 +6639,52 @@ Decided by the planner on 20 November 2026, on the study:
   for a handle held outside the protection (the start measures the share of descents in a
   range of 100); counts for each subtree for Offset.
 
+**A question for the contract step of part 1, before any test of group 7 is written (the
+planner, 21 November 2026): is the check of the sequence at the early end needed at all?**
+The check, in `EntityTable.TrySearch`, decides only which sequence the end reports:
+`before`, or a later one after one more step. The entities returned are the same either
+way, since an entity whose entry was taken away during the step is missed in both. Its
+comment gives the reason as "an end at before would hide an entity that had the key
+there", which is a statement about the index at exactly one sequence, a snapshot. The
+public contract promises less:
+- `LatticeFindResult.Position`: "the node had applied everything up to it when it searched
+  the index". `before` is always such a position.
+- `ILatticeIndex`: a search "is not a snapshot: entities written while it runs may or may
+  not be included".
+- Q07.3.5: "there is no common snapshot".
+- A session needs a position that is not overstated; `before` understates at worst.
+The breaker of S14, part 2 found the same from the other side: no probe through the
+public API tells the mutant from the code. So the check may enforce an exactness nobody
+promised, at a price: beside a writer, the early end is lost whenever the sequence moves
+during a step, and the code keeps a condition no public test can state, which is why F5
+exists. The contract step:
+1. answers from the code one question: does anything rely on "no entity of the key at
+   exactly the reported sequence", as opposed to "the node had applied at least that
+   sequence"? That means a public guarantee, a session, a child, or another part of the
+   engine. The implementer reads, and the breaker of part 1 is asked the same question
+   independently, as its first task;
+2. if nothing does: the check goes, in the first structural commit with G4. The end is
+   reported at `before` whenever the tree shows it. The comment and
+   `docs/design/ordered-index.md` say what the sequence of an answer means, in the words of
+   the public contract. F5 closes as removed with its subject, group 7 of the tests is
+   dropped, and the range form of the early end is designed without the check from the
+   start;
+3. if something does: that something is the consumer F5 was waiting for, and group 7 is
+   the test of it through that consumer.
+Either way the finding goes to the planner before it is acted on.
+
+Two smaller points, from the same reading:
+- The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
+  `FindAsync`, while leading parts and ranges exist for both. The remembered set of a lazy
+  `Find` lives in its search object between steps and counts against `ReadMemoryLimit`
+  there; nothing of the database holds it.
+- Group 5 can be stated through the public contract alone: Offset skips without returning,
+  and Limit bounds without reading every match first. With a `ReadMemoryLimit` that admits
+  the identities of Offset plus Limit but not those of the whole set of matches, the
+  limited search succeeds and the unlimited one fails with the error of the limit. No
+  counter of steps and no test member is needed. The test author may find a plainer way;
+  this one exists.
+
 **Added by the planner on 17 November 2026, against the engine as S10 left it.** Where a
 sentence above or below says otherwise, these replace it. The owner asked for this check
 of the briefs of S13, S14 and S15. The sprint begins with a study by the rule of the
@@ -7155,6 +7201,14 @@ structure, so the refactoring sprint after S13 did not take it.
 - **Out of scope.** Children, PostgreSQL, the burst. No number from a prototype.
 
 ### Stage 6. Durability
+
+**The word for the durable store**, a note of the planner of 21 November 2026 until the
+contracts of the stage are written: the engine says "persistence" for what makes a write
+durable and "storage" for the form of the entities in memory, while the public contract
+says "storage" for the durable store of a provider: `LatticeDatabaseOptions` with its
+`StorageConnectionString`, and the documentation of `ILatticeSet`,
+`LatticeDatabaseStateEnum`, `LatticeErrorEnum` and `LatticePersistenceModeEnum`. The
+contract of the stage, before S26, changes it and lists it, or keeps it with its reason.
 
 #### S26 · Operation identity and safe retry
 

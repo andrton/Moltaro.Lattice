@@ -7,7 +7,7 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 
 // A transaction names each key once (the rule of a child that applies what it receives,
-// Engine.Loading.ReceivedChanges; MalformedTransactionTests states it for two effects that are both
+// Engine.Child.Loading.ReceivedChanges; MalformedTransactionTests states it for two effects that are both
 // applied), and so does one whose effect on a key the rule skips: a delete of a key the child does not
 // hold, and a state the child holds already, count as a naming of the key as much as an applied effect.
 // A transaction that names a key again after such an effect is malformed and refused whole.

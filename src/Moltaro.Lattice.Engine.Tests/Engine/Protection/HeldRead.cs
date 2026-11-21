@@ -4,7 +4,7 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Protection;
 
 // One read by key that a test holds inside the protection of reads, through the switch of the engine
-// (EngineDatabase.HoldNextRead): the read runs on a thread of its own, finds its root in the index
+// (EngineDatabase.ArmReadSwitch): the read runs on a thread of its own, finds its root in the index
 // and stops before it copies it, until the test releases it. Every wait is bounded: StartAsync fails
 // when the read does not stop within the bound, and a read the test never releases goes on after
 // it. Dispose releases the read, so that a test that fails before ReleaseAsync does not keep it.
@@ -28,7 +28,7 @@ internal sealed class HeldRead : IDisposable
         var held = new HeldRead();
         var inside = new TaskCompletionSource<RootHandle>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        database.HoldNextRead(handle =>
+        database.ArmReadSwitch(handle =>
         {
             inside.TrySetResult(handle);
 

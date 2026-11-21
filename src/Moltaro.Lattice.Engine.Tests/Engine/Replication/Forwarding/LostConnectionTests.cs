@@ -16,7 +16,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Forwarding;
 //   frame it did not receive is stated with a child made by hand (IncompleteRequestTests).
 // - The connection ends after the master received the whole request and before the reply: the outcome is
 //   not known to the child, IndeterminateOutcome, never Unavailable; the request, received whole, runs
-//   although its connection ended. The storage step of the master holds it (HeldCommitStorage) while a
+//   although its connection ended. The storage step of the master holds it (HeldPersistence) while a
 //   link between the two (LoopbackLink) is cut; released, the master has executed it.
 // - The same, when the connection ends in order without the frame Closed: IndeterminateOutcome too.
 // - The connection ends while a write holds its reply and waits for its application: the call ends at
@@ -50,8 +50,8 @@ public sealed class LostConnectionTests
     [Fact]
     public async Task Connection_that_ends_after_the_master_received_the_whole_request_gives_IndeterminateOutcome_and_the_write_runs()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {
@@ -84,8 +84,8 @@ public sealed class LostConnectionTests
     [Fact]
     public async Task Connection_that_ends_in_order_without_Closed_after_the_master_received_the_whole_request_gives_IndeterminateOutcome()
     {
-        var storage = new HeldCommitStorage(holding: false);
-        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { CommitStorage = storage });
+        var storage = new HeldPersistence(holding: false);
+        await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema, new EngineTestInputs { Persistence = storage });
 
         try
         {

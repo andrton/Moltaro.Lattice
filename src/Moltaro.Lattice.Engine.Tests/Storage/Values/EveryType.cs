@@ -1,6 +1,7 @@
 using System.Text;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Storage.Values;
 
@@ -61,7 +62,7 @@ internal static class EveryType
             WriterMembers.SetValid(ref writer, field);
         }
 
-        return writer.Complete();
+        return item.Publish(writer.Complete());
     }
 
     private static string Fields()
