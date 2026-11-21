@@ -328,8 +328,11 @@ dotnet run --project Moltaro.Lattice.Samples
   [exceptions to the rules](docs/work/exceptions.md) in the same change: which rule,
   where, why and until when.
 - Before designing a change to the contract, read the decision record that covers it.
-- Make routine, reversible choices within the task. Ask only when a missing decision
-  changes behavior, the contract or the scope. Say what was left out.
+- Make routine, reversible choices within the task. Ask only when a wrong answer cannot
+  be undone cheaply, or when it would change the acceptance the task was given; the
+  [development process](docs/work/process.md#limits-on-review-and-on-questions) says
+  which questions those are. Otherwise take the recommended answer, and say what was
+  taken and what was left out.
 - Review the whole affected flow before finishing: contract, engine, tests, samples,
   `README.md`, `docs`.
 - Keep plans, progress and findings in the conversation. Do not create report, audit or
