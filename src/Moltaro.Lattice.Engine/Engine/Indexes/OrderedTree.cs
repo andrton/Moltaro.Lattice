@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Indexes;
 
@@ -950,12 +951,12 @@ internal sealed class OrderedTree
             return;
         }
 
-        Span<ArenaAddress> texts = stackalloc ArenaAddress[_layout.TextParts];
+        Span<ValueDescriptor> texts = stackalloc ValueDescriptor[_layout.TextParts];
         var count = _layout.SharedTexts(entry, texts);
 
         for (var text = 0; text < count; text++)
         {
-            _arena.Texts.Publish(texts[text]);
+            _arena.Texts.Publish(ValueBlocks.AddressOf(texts[text]));
         }
     }
 

@@ -1,3 +1,5 @@
+using Moltaro.Lattice.Storage.Values;
+
 namespace Moltaro.Lattice.Storage.Ordered;
 
 // Operations on one whole node of an ordered index in the arena, by the layout of its index, as
@@ -26,7 +28,7 @@ internal static class NodeStorage
         }
 
         var reading = new IndexNode(layout, arena.Payload(node));
-        Span<ArenaAddress> texts = stackalloc ArenaAddress[layout.TextParts];
+        Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
         for (var place = 0; place < reading.Count; place++)
         {
@@ -34,7 +36,7 @@ internal static class NodeStorage
 
             for (var text = 0; text < count; text++)
             {
-                arena.Texts.AddReference(texts[text]);
+                arena.Texts.AddReference(ValueBlocks.AddressOf(texts[text]));
             }
         }
     }
@@ -49,10 +51,16 @@ internal static class NodeStorage
         if (layout.HasText)
         {
             var reading = new IndexNode(layout, arena.Payload(node));
+            Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
             for (var place = 0; place < reading.Count; place++)
             {
-                textBytes += layout.SharedTextSlotBytes(reading.EntryAt(place));
+                var count = layout.SharedTexts(reading.EntryAt(place), texts);
+
+                for (var text = 0; text < count; text++)
+                {
+                    textBytes += ValueBlocks.SlotBytesOf((int)texts[text].Length);
+                }
             }
         }
 
@@ -68,7 +76,7 @@ internal static class NodeStorage
         if (layout.HasText)
         {
             var reading = new IndexNode(layout, arena.Payload(node));
-            Span<ArenaAddress> texts = stackalloc ArenaAddress[layout.TextParts];
+            Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
             for (var place = 0; place < reading.Count; place++)
             {
@@ -76,7 +84,7 @@ internal static class NodeStorage
 
                 for (var text = 0; text < count; text++)
                 {
-                    arena.Texts.Release(texts[text]);
+                    arena.Texts.Release(ValueBlocks.AddressOf(texts[text]));
                 }
             }
         }

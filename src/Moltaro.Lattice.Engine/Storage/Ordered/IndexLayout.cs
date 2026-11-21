@@ -340,11 +340,14 @@ internal sealed class IndexLayout
         return true;
     }
 
-    // The text entries the String parts of an entry reference, into the span, which has a place for each
-    // String part, and how many there are: for the count of a node, which holds one reference for each
-    // shared key among its entries or separators from the moment it is written until it is freed
-    // (Text.TextTable; ordered-index.md, "Text references").
-    public int SharedTexts(ReadOnlySpan<byte> entry, Span<ArenaAddress> texts)
+    // The descriptors of the text entries the String parts of an entry reference, its shared keys, into
+    // the span, which has a place for each String part, and how many there are, as a root names them: for
+    // the count of a node, which holds one reference for each shared key among its entries or separators
+    // from the moment it is written until it is freed (Text.TextTable; ordered-index.md, "Text
+    // references"), for the text entries an insert publishes before the node that holds its entry, and for
+    // the bytes of their slots, which a retired node counts toward the next look of the drain, as a retired
+    // root counts the text entries it names (Values.ValueBlocks.SlotBytesOf).
+    public int SharedTexts(ReadOnlySpan<byte> entry, Span<ValueDescriptor> texts)
     {
         if (!HasText)
         {
@@ -365,41 +368,13 @@ internal sealed class IndexLayout
 
             if (entry[offset] == SharedTextHead)
             {
-                texts[count++] = ValueBlocks.AddressOf(SharedDescriptorOf(entry[offset..]));
+                texts[count++] = SharedDescriptorOf(entry[offset..]);
             }
 
             offset += TextPartBytes(entry[offset]);
         }
 
         return count;
-    }
-
-    // The bytes of the slots of the text entries the shared String parts of an entry name, each as a text
-    // of its length out of line takes them (Values.ValueBlocks.SlotBytesOf): what a retired node counts
-    // for them toward the next look of the drain, as a retired root counts the text entries it names.
-    public long SharedTextSlotBytes(ReadOnlySpan<byte> entry)
-    {
-        var bytes = 0L;
-        var offset = IdentityBytes + NullBitmapBytes;
-
-        foreach (ref readonly var part in Parts)
-        {
-            if (!part.IsText)
-            {
-                offset += part.Width;
-
-                continue;
-            }
-
-            if (entry[offset] == SharedTextHead)
-            {
-                bytes += ValueBlocks.SlotBytesOf((int)SharedDescriptorOf(entry[offset..]).Length);
-            }
-
-            offset += TextPartBytes(entry[offset]);
-        }
-
-        return bytes;
     }
 
     // For the tests of the engine (EngineDatabase.IndexNodes): the value of each part of an entry as a
