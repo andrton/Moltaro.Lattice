@@ -510,10 +510,10 @@ internal sealed class EntityTable
                 {
                     protection = _epochs.Enter(cancellationToken);
                 }
-                catch (ObjectDisposedException)
+                catch (Exception exception) when (exception is ObjectDisposedException or LatticeException { Error: LatticeErrorEnum.Unavailable })
                 {
-                    // After the close every step fails here, so the search is over for good and lets go of
-                    // what it remembers, as when a read limit fails it.
+                    // After the close, and once the database is faulted, every step fails here, so the search
+                    // is over for good and lets go of what it remembers, as when a read limit fails it.
                     search.Progress = null;
 
                     throw;

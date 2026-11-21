@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Sets;
+using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.TestSupport.Enumeration;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
@@ -9,12 +10,13 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 // A lazy search, Find, lets go of what it remembers once it is over (docs/decisions/queries.md, Q07.3.5,
 // released on completion, disposal or error; docs/design/ordered-index.md, "How a range is walked": the keys
 // it returned and the entries it stands at, its WalkProgress): at its end, when it is disposed, when a read
-// limit fails it, ReadTime as well as ReadMemory, and at its step after the close, since every later step
-// fails the same way before it would read any of it. So an application that keeps the enumerable after that
-// keeps only the object of the search. The test walks the 50 entities of a key of ByNumber of Counted
-// (IndexSchema), takes a weak reference to what the search remembers once it has returned two of them, ends
-// the search one of the five ways, and collects the garbage while it holds the enumerable: what the search
-// remembered is collected. ReadTime is spent inside a step held at a root it takes, through the switch of the
+// limit fails it, ReadTime as well as ReadMemory, and at its step after the close or after the database
+// faulted, since every later step fails the same way before it would read any of it. So an application that
+// keeps the enumerable after that keeps only the object of the search. The test walks the 50 entities of a
+// key of ByNumber of Counted (IndexSchema), takes a weak reference to what the search remembers once it has
+// returned two of them, ends the search one of the six ways, and collects the garbage while it holds the
+// enumerable: what the search remembered is collected. The database faults at a write whose publication a
+// fault point of the engine fails (EngineDatabase.ArmFault, BeforePublication). ReadTime is spent inside a step held at a root it takes, through the switch of the
 // engine (EngineDatabase.ArmReadSwitch), for longer than the limit of ReadTimes; that step still returns its
 // entity, and the next one fails.
 public sealed class LazySearchLetGoTests
@@ -26,7 +28,7 @@ public sealed class LazySearchLetGoTests
     private const long MemoryLimit = 200;
 
     public static TheoryData<string> Ends =>
-        ["walked to its end", "disposed before its end", "failed with ReadTime", "failed with ReadMemory", "failed after the close"];
+        ["walked to its end", "disposed before its end", "failed with ReadTime", "failed with ReadMemory", "failed after the close", "failed after a fault"];
 
     [Theory]
     [MemberData(nameof(Ends))]
@@ -66,6 +68,12 @@ public sealed class LazySearchLetGoTests
             case "failed after the close":
                 await database.CloseAsync();
                 Assert.IsType<ObjectDisposedException>(Record.Exception(() => walk.MoveNext()), exactMatch: false);
+                break;
+            case "failed after a fault":
+                database.ArmFault(EngineFaultPointEnum.BeforePublication);
+                Assert.IsType<LatticeException>(await Record.ExceptionAsync(async () =>
+                    await database.Set<IndexSchema.Counted>().ReplaceAsync(new IndexSchema.Counted { Id = 1, Number = 7 })));
+                Assert.Equal(LatticeErrorEnum.Unavailable, Assert.IsType<LatticeException>(Record.Exception(() => walk.MoveNext())).Error);
                 break;
             default:
                 ExpectLimit(LatticeLimitEnum.ReadMemory, Record.Exception(() =>

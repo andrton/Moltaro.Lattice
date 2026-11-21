@@ -22,9 +22,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // it back when it cannot build the entity the step returned (Sets.SetOperations.Next), so that the next
 // step reads that entity again, while the time spent and a failure the step recorded stay; and it commits
 // what the step staged once the entity is built (Commit). A read limit that fails the search, and a step
-// after the close, make it let go of its WalkProgress (CheckRound, CheckMemory, EntityTable.TrySearch), and a
-// lazy search lets go of it at its end and on Dispose. An entity whose build fails keeps it: the next step
-// reads that entity again.
+// after the close or after the database faulted, make it let go of its WalkProgress (CheckRound,
+// CheckMemory, EntityTable.TrySearch), and a lazy search lets go of it at its end and on Dispose. An entity
+// whose build fails keeps it: the next step reads that entity again.
 internal struct IndexSearch
 {
     // The read limits of the options and what the search has spent of them, which the step checks and
