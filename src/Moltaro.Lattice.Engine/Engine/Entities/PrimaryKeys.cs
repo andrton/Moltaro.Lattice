@@ -211,6 +211,21 @@ internal readonly struct PrimaryKeys
         _ => _entityType.Key.Declaration.TextComparison!.Equals(left.Text, right.Text),
     };
 
+    // The words of the integer or Guid key a root stores, as a place of the set of a walk holds them
+    // (ReturnedKeys): the integer and 0, or the two halves of the Guid.
+    public (long First, long Second) StoredWords(in RootReader stored)
+    {
+        if (KeyKind == KeyKindEnum.Integer)
+        {
+            return (StoredInteger(stored), 0);
+        }
+
+        var guid = stored.GetGuid(_entityType.Key);
+        ref var halves = ref Unsafe.As<Guid, long>(ref guid);
+
+        return (halves, Unsafe.Add(ref halves, 1));
+    }
+
     // The integer key a root stores, as EntityKey.Integer holds it: read as the unsigned type it is
     // stored as when the key type is unsigned.
     public long StoredInteger(in RootReader stored) =>

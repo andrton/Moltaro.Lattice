@@ -176,7 +176,7 @@ internal sealed class ReturnedKeys
             return FindText(hash, stored);
         }
 
-        var (first, second) = WordsOf(stored);
+        var (first, second) = _keys.StoredWords(stored);
 
         return first == 0 && second == 0 ? _holdsZero : Find(hash, first, second);
     }
@@ -259,8 +259,17 @@ internal sealed class ReturnedKeys
         }
         else
         {
-            (_first, _second) = WordsOf(stored);
+            (_first, _second) = _keys.StoredWords(stored);
         }
+    }
+
+    // Remembers the integer or Guid key of the words and the hash given, which this does not hold and has
+    // room for: the key a walk kept of its first entity before it made this set (FirstKey).
+    public void Add(uint hash, long first, long second)
+    {
+        _hash = hash;
+        (_first, _second) = (first, second);
+        Commit();
     }
 
     // Remembers the key staged last; once for each Stage.
@@ -292,21 +301,6 @@ internal sealed class ReturnedKeys
         _chunkCount = 0;
         _used = 0;
         _textBytes = 0;
-    }
-
-    // The words of the integer or Guid key the root stores: the integer and 0, or the two halves of the
-    // Guid.
-    private (long First, long Second) WordsOf(in RootReader stored)
-    {
-        if (_kind == KeyKindEnum.Integer)
-        {
-            return (_keys.StoredInteger(stored), 0);
-        }
-
-        var guid = stored.GetGuid(_key);
-        ref var halves = ref Unsafe.As<Guid, long>(ref guid);
-
-        return (halves, Unsafe.Add(ref halves, 1));
     }
 
     // The page that holds a place, and the index of the first word of the place in it.

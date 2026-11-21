@@ -11,7 +11,8 @@ namespace Moltaro.Lattice.Engine.Entities;
 // until it returns. A search that finds one entity or none and passes over no match by Offset never makes
 // one: it is made at the first step that returns an entity without seeing the end of the search, or that
 // has to remember a key or stand at an entry (IndexSearch), and from then on everything the answer holds
-// counts, the first entity included.
+// counts, the first entity included. A lazy search by a full key of an integer or Guid key makes it at its
+// second step instead, which begins the set with the key its first step kept (FirstKey).
 //
 // Managed memory of the search alone: the engine holds no reference to it, and it holds nothing of the
 // engine, so a search that is abandoned leaves nothing behind. What it holds counts against the memory

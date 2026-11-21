@@ -530,7 +530,13 @@ protection.
    key it remembers. The set, the detached entry and its staging sit in one object
    (`WalkProgress`), made at the first step that returns an entity without seeing the end of
    the search, or that passes over a match by Offset; a search that finds one entity or none
-   and passes over no match never makes it.
+   and passes over no match never makes it. A lazy search by a full key of an integer or a
+   Guid key makes it one step later: its first step keeps only the primary key of the entity
+   it returns (`FirstKey`), taken from the root it copied in that step, and the next step
+   makes the set and begins it with that key, so a search that takes the first of many
+   entities and stops allocates no set and reads that entity once. A String key would have
+   to be copied out of the root inside the protection, so such a search makes the set at its
+   first step.
 6. **The early end.** With the entity it returns, a step sees the end of the search when it
    can: the entry after it on the side of travel is not of the search, or the fence on that
    side lies beyond the end, or there is none. The search then keeps the sequence of that
@@ -554,7 +560,9 @@ Q07.3.2), is the query layer's to build over the two regions.
 What a walk allocates: the object of a lazy search, the entities it returns, and once it
 returns more than the entities of one step its `WalkProgress`, with the set of its keys,
 whose room grows as an enumeration's does, and two arrays of the detached entry; nothing
-for each entity beyond what it returns and that room (`WalkAllocationTests`).
+for each entity beyond what it returns and that room (`WalkAllocationTests`). A lazy search
+by a full key that takes the first of many entities allocates its object, the entity and
+the key it keeps, 40 bytes.
 
 ## A child
 

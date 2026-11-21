@@ -19,6 +19,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 //   returns one entity, whose step sees the end: the object of the search and the entity, nothing more.
 // - A walk of a range that returns ten rows, through the class: that object, ten entities, and Walk for what
 //   the walk remembers, which ten keys of one word fill no more than the first table of the set.
+// - A lazy search by a full key that takes the first of many entities and is disposed, through the class:
+//   that object, the entity, and the primary key of that entity, which the step that returned it keeps for
+//   the set the next step would make (Entities.FirstKey), and nothing of the set.
 [Collection<ManagedAllocationCollection>]
 public sealed class WalkAllocationTests
 {
@@ -46,6 +49,10 @@ public sealed class WalkAllocationTests
     // - the two arrays of the detached entry, 88 each, 24 bytes and the 64 of the first capacity, which the
     //   entry of 16 bytes of an Int64 index fits.
     private const long Walk = 72 + 136 + 184 + (2 * 88);
+
+    // The key of the first entity a walk by a full key returned, 40 bytes (Entities.FirstKey): 16 bytes that
+    // every object has; the two words of the key, 16; its hash in the primary index, 4, padded to 8.
+    private const long FirstKey = 16 + 16 + 8;
 
     [Fact]
     public async Task Search_that_finds_one_entity_or_none_allocates_its_object_and_the_entity_and_nothing_more()
@@ -76,6 +83,31 @@ public sealed class WalkAllocationTests
         var walk = Measure(() => Count(byClass.Find(IndexKey.All.Range(IndexBound.Inclusive(41L), IndexBound.Inclusive(50L)))), found: 10);
 
         Assert.True(walk == ClassSearch + (10 * ClassEntity) + Walk, $"A walk of ten rows allocated {walk} bytes, not {ClassSearch} for its object, {10 * ClassEntity} for the entities and {Walk} for what it remembers.");
+    }
+
+    [Fact]
+    public async Task Search_that_takes_the_first_of_many_entities_allocates_its_object_the_entity_and_the_key_it_keeps()
+    {
+        await using var database = await OpenWithRowsAsync();
+        var counted = database.Set<IndexSchema.Counted>();
+
+        for (var id = 101L; id <= 110; id++)
+        {
+            await counted.InsertAsync(new IndexSchema.Counted { Id = id, Number = 200 });
+        }
+
+        var byClass = counted.Index("ByNumber");
+        var first = Measure(() => First(byClass.Find(IndexKey.Equal(200L))), found: 1);
+
+        Assert.True(first == ClassSearch + ClassEntity + FirstKey, $"A search through the class that takes the first of ten entities allocated {first} bytes, not {ClassSearch} for its object, {ClassEntity} for the entity and {FirstKey} for the key it keeps.");
+    }
+
+    // Takes the first entity of the matches and lets the search go, as an application that wants one does.
+    private static int First<TEntity>(IEnumerable<TEntity> matches)
+    {
+        using var steps = matches.GetEnumerator();
+
+        return steps.MoveNext() ? 1 : 0;
     }
 
     private static async Task<EngineDatabase> OpenWithRowsAsync()

@@ -11,10 +11,12 @@ namespace Moltaro.Lattice.Engine.Entities;
 // until it returns; no node, no address and no slot of the protection. What only a walk of more than one
 // entity needs it holds in one object, made at the first step that returns an entity without seeing the
 // end of the search or passes over a match by Offset (WalkProgress): the keys it returned or passed over,
-// the entry it stands after, and the bytes of its answer. So a search that finds one entity or none and
-// passes over no match holds the read limits and one reference more than a search did before the walk,
-// and nothing else: 56 bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference,
-// 8, and the Offset, the direction, whether it holds its answer and whether its key is full, 7, padded to 8.
+// the entry it stands after, and the bytes of its answer. A lazy search by a full key of an integer or Guid
+// key makes it at its second step, and its first step keeps only the key of the entity it returned
+// (FirstKey), in the same reference. So a search that finds one entity or none and passes over no match
+// holds the read limits and one reference more than a search did before the walk, and nothing else: 56
+// bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference, 8, and the Offset, the
+// direction, whether it holds its answer and whether its key is full, 7, padded to 8.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
@@ -74,12 +76,25 @@ internal struct IndexSearch
     // memory limit of a read once it has a WalkProgress.
     public bool HoldsAnswer { get; }
 
-    // What only a walk of more than one entity needs; null until a step makes it.
-    public WalkProgress? Progress { get; set; }
+    // What the walk remembers between two steps, in the one reference the search holds for it: nothing; the
+    // key a lazy search by a full key kept of its first entity, until its next step makes the set (FirstKey);
+    // or what a walk of more than one entity needs (WalkProgress).
+    private object? _remembered;
 
-    // Where the search stands: the identity a search by a full key goes on from, and the sequence of an end
-    // a step saw.
-    public readonly (RootHandle From, ulong EndsAt) Place => (From, EndsAt);
+    // What only a walk of more than one entity needs; null until a step makes it.
+    public WalkProgress? Progress
+    {
+        readonly get => _remembered as WalkProgress;
+        set => _remembered = value;
+    }
+
+    // The key a lazy search by a full key kept of its first entity, until its next step makes the set; null
+    // otherwise. Letting go of the progress lets go of it too.
+    public readonly FirstKey? First => _remembered as FirstKey;
+
+    // Where the search stands: the identity a search by a full key goes on from, the sequence of an end a step
+    // saw, and no key kept of a first entity.
+    public readonly (RootHandle From, ulong EndsAt, FirstKey? First) Place => (From, EndsAt, null);
 
     // The look of a round of the step that started at the timestamp (ReadLimits.CheckRound): the token, a
     // failure the search kept and the time limit. It is taken when anything it could end the step for is set
@@ -136,10 +151,20 @@ internal struct IndexSearch
     // key stands at (WalkProgress.Last) may also have moved in such a round. Either lies before that entity,
     // after entries it returned none of and whose matches skipped by Offset it remembered, so the next step
     // still meets the entity and counts none of those twice. What the failed step staged stays until the
-    // next step that returns an entity stages anew over it, before anything commits it.
-    public void Commit((RootHandle From, ulong EndsAt) place)
+    // next step that returns an entity stages anew over it, before anything commits it; a key the failed step
+    // kept of a first entity (FirstKey) comes only with the place, so it is not taken either.
+    public void Commit((RootHandle From, ulong EndsAt, FirstKey? First) place)
     {
-        (From, EndsAt) = place;
+        From = place.From;
+        EndsAt = place.EndsAt;
+
+        if (place.First is { } first)
+        {
+            _remembered = first;
+
+            return;
+        }
+
         Progress?.Commit();
     }
 }
