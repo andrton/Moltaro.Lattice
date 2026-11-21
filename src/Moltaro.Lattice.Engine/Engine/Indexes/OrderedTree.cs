@@ -93,8 +93,8 @@ internal sealed class OrderedTree
 
     // For a read inside the protection of reads: the one descent of a reader, in either direction, from the
     // root to the leaf whose range holds the probe, with the place of the first entry at or after the probe
-    // or of the last entry before it, as the side says, and the fences of that leaf on both sides, the
-    // nearest separators beside the path, which lie in nodes that stay allocated while the read is inside
+    // or of the last entry before it, as the side says, and the fence of that leaf on that side, the nearest
+    // separator beside the path on it, which lies in a node that stays allocated while the read is inside
     // (TreePlace; ordered-index.md, "Fences"). It descends once: a place beyond the leaf, after its last
     // entry or before its first, is the walk's to follow at the fence on that side. For the last entry
     // before the probe the descent takes, at each inner node, the child left of a separator equal to the
@@ -110,26 +110,25 @@ internal sealed class OrderedTree
         }
 
         var before = side == SeekSideEnum.Before;
-        ReadOnlySpan<byte> lower = default;
-        ReadOnlySpan<byte> upper = default;
-        var hasLower = false;
-        var hasUpper = false;
+        ReadOnlySpan<byte> fence = default;
+        var hasFence = false;
         var node = NodeAt(address);
 
         while (!node.IsLeaf)
         {
             var child = EntriesBelow(node, probe, equalBelow: !before);
 
-            if (child > 0)
+            // The fence on the side of the descent: the separator left of the child for a descent before
+            // the probe, right of it for one at or after it.
+            if (before && child > 0)
             {
-                lower = node.EntryAt(child - 1);
-                hasLower = true;
+                fence = node.EntryAt(child - 1);
+                hasFence = true;
             }
-
-            if (child < node.Count)
+            else if (!before && child < node.Count)
             {
-                upper = node.EntryAt(child);
-                hasUpper = true;
+                fence = node.EntryAt(child);
+                hasFence = true;
             }
 
             node = NodeAt(node.ChildAt(child));
@@ -137,7 +136,7 @@ internal sealed class OrderedTree
 
         var place = EntriesBelow(node, probe, equalBelow: false) - (before ? 1 : 0);
 
-        return new TreePlace(node, place, lower, hasLower, upper, hasUpper);
+        return new TreePlace(node, place, fence, hasFence);
     }
 
     // The same descent by a whole entry, its identity included: a fence of a leaf, at which a walk goes on
@@ -153,26 +152,25 @@ internal sealed class OrderedTree
         }
 
         var before = side == SeekSideEnum.Before;
-        ReadOnlySpan<byte> lower = default;
-        ReadOnlySpan<byte> upper = default;
-        var hasLower = false;
-        var hasUpper = false;
+        ReadOnlySpan<byte> fence = default;
+        var hasFence = false;
         var node = NodeAt(address);
 
         while (!node.IsLeaf)
         {
             var child = EntriesBelow(node, entry, equalBelow: !before);
 
-            if (child > 0)
+            // The fence on the side of the descent: the separator left of the child for a descent before
+            // the probe, right of it for one at or after it.
+            if (before && child > 0)
             {
-                lower = node.EntryAt(child - 1);
-                hasLower = true;
+                fence = node.EntryAt(child - 1);
+                hasFence = true;
             }
-
-            if (child < node.Count)
+            else if (!before && child < node.Count)
             {
-                upper = node.EntryAt(child);
-                hasUpper = true;
+                fence = node.EntryAt(child);
+                hasFence = true;
             }
 
             node = NodeAt(node.ChildAt(child));
@@ -180,7 +178,7 @@ internal sealed class OrderedTree
 
         var place = EntriesBelow(node, entry, equalBelow: false) - (before ? 1 : 0);
 
-        return new TreePlace(node, place, lower, hasLower, upper, hasUpper);
+        return new TreePlace(node, place, fence, hasFence);
     }
 
     // For the writer, in the hold that prepares a write: reserves the nodes and the places in the retired

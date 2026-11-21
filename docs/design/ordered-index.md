@@ -508,7 +508,8 @@ protection.
    one end and ends at the other, which it never meets, since an edge equals no entry.
 2. **One descent.** A step enters the protection and descends once, in either direction,
    to the first entry at or after where it starts, or to the last entry before it
-   (`OrderedTree.Seek`): the leaf, the place, and the fences of the leaf on both sides.
+   (`OrderedTree.Seek`): the leaf, the place, and the fence of the leaf on the side it walks
+   to, the only one a walk follows.
    Forwards, the next leaf is found by a new descent at the separator above the leaf, at or
    after which every entry of the next leaf lies; backwards, at the separator below it,
    before which every entry of the leaf before lies: the same tree walked both ways, with no

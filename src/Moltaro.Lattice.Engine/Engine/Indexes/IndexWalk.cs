@@ -154,24 +154,12 @@ internal ref struct IndexWalk
                 return false;
             }
 
-            if (_reverse)
+            if (!_place.HasFence)
             {
-                if (!_place.HasLowerFence)
-                {
-                    return false;
-                }
-
-                _place = _index.Tree.Seek(_place.LowerFence, SeekSideEnum.Before);
+                return false;
             }
-            else
-            {
-                if (!_place.HasUpperFence)
-                {
-                    return false;
-                }
 
-                _place = _index.Tree.Seek(_place.UpperFence, SeekSideEnum.AtOrAfter);
-            }
+            _place = _index.Tree.Seek(_place.Fence, _reverse ? SeekSideEnum.Before : SeekSideEnum.AtOrAfter);
         }
 
         return true;
@@ -190,12 +178,14 @@ internal ref struct IndexWalk
             return IsOfSearch(_place.Leaf.EntryAt(next));
         }
 
-        if (_reverse)
+        if (!_place.HasFence)
         {
-            return _place.HasLowerFence && _index.Order.Compare(_end, _place.LowerFence) < 0;
+            return false;
         }
 
-        return _place.HasUpperFence && _index.Order.Compare(_end, _place.UpperFence) > 0;
+        var order = _index.Order.Compare(_end, _place.Fence);
+
+        return _reverse ? order < 0 : order > 0;
     }
 
     // The lower end of the search: its leading values and the lower bound of its range, before every entry
