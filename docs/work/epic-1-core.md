@@ -6792,12 +6792,15 @@ and commits the contract after it. Two departures from the text above:
   answer holds live there too. If a figure shows that this second object costs a walk
   more than its bytes would cost an exact search, it comes to the planner with the figure.
   Group 8 pins both: the search of one entity and a walk.
-- So an answer of one entity whose step saw the end is not counted against
-  `ReadMemoryLimit`, as a read by key is not. From the first step that returns an entity
-  without seeing the end, everything the answer holds counts, the first entity included.
-  The documentation of `ReadMemoryLimit` says it in those terms, and group 6 has one case
-  for it: under a limit smaller than one entity, a search that finds exactly one succeeds,
-  and one that finds two fails with the error of the limit.
+- So an answer of one entity whose step saw the end of the search and that passed over no
+  match is not counted against `ReadMemoryLimit`, as a read by key is not; once the search
+  remembers anything, an entity returned without seeing the end or a match passed over by
+  Offset, everything the answer holds counts, the first entity included. The documentation
+  of `ReadMemoryLimit` says it in those terms (worded so after the breaker found the first
+  wording too narrow for an Offset), and group 6 states both sides: under a limit smaller
+  than one entity, a search that finds exactly one succeeds and one that finds two fails
+  with the error of the limit; and with an Offset of 1 over two matches, the one entity
+  returned counts.
 
 Two smaller points, from the same reading:
 - The lazy `Find` takes no options, so Reverse, Offset and Limit exist only for
