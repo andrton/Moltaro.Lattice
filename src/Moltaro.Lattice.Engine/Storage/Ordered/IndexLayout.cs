@@ -88,7 +88,6 @@ internal sealed class IndexLayout
         NodeBytes = nodeBytes;
         LeastSeparators = leastSeparators;
         Encoding = encoding;
-        TextParts = parts.Count(part => part.IsText);
     }
 
     // The index the layout was compiled for.
@@ -122,9 +121,6 @@ internal sealed class IndexLayout
     // made by a split holds one, and gains at most one for each insert, which bounds how far the tree
     // can grow while writes are prepared (docs/design/ordered-index.md, "The reservation").
     public int LeastSeparators { get; }
-
-    // How many parts are Strings: the most text entries one entry can reference.
-    public int TextParts { get; }
 
     // The encoding of the database, in which a String part holds its copy.
     public LatticeStringEncodingEnum Encoding { get; }
@@ -329,37 +325,6 @@ internal sealed class IndexLayout
     // toward the next look of the drain, as a retired root counts the text entries it names
     // (Values.ValueBlocks.SlotBytesOf).
     public SharedKeys SharedKeysOf(ReadOnlySpan<byte> entry) => new(this, entry);
-
-    // The same descriptors into the span, which has a place for each String part, and how many there are.
-    public int SharedTexts(ReadOnlySpan<byte> entry, Span<ValueDescriptor> texts)
-    {
-        if (!HasText)
-        {
-            return 0;
-        }
-
-        var count = 0;
-        var offset = IdentityBytes + NullBitmapBytes;
-
-        foreach (ref readonly var part in Parts)
-        {
-            if (!part.IsText)
-            {
-                offset += part.Width;
-
-                continue;
-            }
-
-            if (entry[offset] == SharedTextHead)
-            {
-                texts[count++] = SharedDescriptorOf(entry[offset..]);
-            }
-
-            offset += TextPartBytes(entry[offset]);
-        }
-
-        return count;
-    }
 
     // For the tests of the engine (EngineDatabase.IndexNodes): the value of each part of an entry as a
     // record of the entity type holds it (LatticeValueDeclaration.ValueType), into the array, which has a
