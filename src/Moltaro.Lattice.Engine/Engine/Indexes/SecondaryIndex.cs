@@ -78,6 +78,9 @@ internal sealed class SecondaryIndex
     // Its tree, which a search descends inside the protection of reads.
     public OrderedTree Tree { get; }
 
+    // The order of its entries, by which a walk tells where it ends (IndexWalk).
+    public IndexOrder Order => _order;
+
     // The index of the declaration for the entity type whose roots have the layout given, empty and so
     // without a node, its nodes in the arena given, its replaced nodes retired into the list given; when
     // the database opens. An index the layout refuses fails the open with the LatticeException of

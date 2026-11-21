@@ -7,6 +7,7 @@ using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Hashing;
+using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Entities;
@@ -438,31 +439,30 @@ internal sealed class EntityTable
         }
     }
 
-    // One step of a search of the entities of the key through the index, from the identity given on
-    // (IndexSearch): true when there is an entity, copied into the copy, with the identity
-    // the next step starts from and the sequence of the answer, as a read by key gives it; false at the
-    // end, with the sequence under which the index showed no more entity of the key. The key is bound to
-    // the fields of the index and gives a value to each. A search of an entity type the engine does not
-    // store, which has no index, finds nothing, as a read by key does. ObjectDisposedException after the
-    // close; the token ends the wait for a slot of the protection, with OperationCanceledException.
-    // Allocates nothing but what the copy makes.
+    // One step of a search through the index, from where the search stands (IndexSearch): true when there
+    // is an entity, copied into the copy, with the search moved past it, which the caller puts back if it
+    // cannot build the entity (SetOperations.Next); false at the end, with the sequence under which the
+    // index showed no more entity of the key. The key is bound to the fields of the index and gives a value
+    // to each. A search of an entity type the engine does not store, which has no index, finds nothing, as a
+    // read by key does. ObjectDisposedException after the close; the token ends the wait for a slot of the
+    // protection, with OperationCanceledException. Allocates nothing but what the copy makes.
     //
-    // The end of the run seen by a step that copies an entity (docs/design/ordered-index.md, "The search
-    // by a full key", argues it): endsAt becomes before, the sequence read when the walk began, when the
-    // tree showed the end of the run (OrderedTree.TryFindFirst, runEnds) and the sequence is still
-    // before once the entity is copied, and null otherwise; a step given one ends there without a
-    // descent. It rests on one order: a write that takes an entry of the key away publishes its position
-    // before it removes the entry (ChangePublisher.PublishPositionAndAfter).
+    // The sequence of an answer is a position the node had applied when the step looked at the index, the
+    // larger of the sequence read between the two loads of the stamp of the root it copied and that stamp,
+    // as for a read by key (docs/design/ordered-index.md, "The search by a full key"). When the walk shows
+    // the end of the run with the entity it copies, the search keeps that sequence, and its next step ends
+    // there without a descent. A step that finds no entity ends at the sequence read when its walk began,
+    // when it is unchanged after the walk, and walks again otherwise.
     //
-    // The scratch of the search key is not zeroed: the key writes every byte the order reads of it.
+    // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it.
     [SkipLocalsInit]
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref RootHandle from, ref ulong? endsAt, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        // The key is written on the stack outside the protection, once for the step.
-        Span<byte> scratch = stackalloc byte[SearchKey.ScratchBytes];
-        var start = index is null ? default : new SearchKey(index.Layout, key, from, scratch);
+        // The keys of the walk are written on the stack outside the protection, once for the step.
+        Span<byte> scratch = stackalloc byte[2 * SearchKey.ScratchBytes];
+        var walk = index is null || search.EndsAt is not null ? default : new IndexWalk(index, key, reverse: false, search.From, default, scratch);
         var protection = _epochs.Enter(cancellationToken);
 
         try
@@ -474,7 +474,7 @@ internal sealed class EntityTable
                 return false;
             }
 
-            if (endsAt is { } end)
+            if (search.EndsAt is { } end)
             {
                 sequence = end;
 
@@ -484,28 +484,22 @@ internal sealed class EntityTable
             while (true)
             {
                 var before = _clock.Sequence;
-                var probe = start;
 
-                while (index.Tree.TryFindFirst(probe, out var identity, out var runEnds))
+                walk.Restart();
+
+                while (walk.TryNext(out var entry, out var ends))
                 {
+                    var identity = IndexLayout.IdentityOf(entry);
+
                     // The entry is a hint: its root entry is not released while the step is inside,
                     // since the entries of a delete leave the tree before the entry is retired.
-                    if (TryCopyFound<TCopy, TResult>(ref _roots.EntryOfSlot(identity.Slot), index, probe, ref copy, out sequence))
+                    if (TryCopyFound<TCopy, TResult>(ref _roots.EntryOfSlot(identity.Slot), index, walk.Key, ref copy, out sequence))
                     {
-                        from = probe.After(identity).From;
-                        endsAt = runEnds && _clock.Sequence == before ? before : null;
+                        search.From = identity.Next;
+                        search.EndsAt = ends ? sequence : null;
 
                         return true;
                     }
-
-                    // A hint passed over at the end of the run: the next descent would find no entry of the
-                    // key, so the walk ends here.
-                    if (runEnds)
-                    {
-                        break;
-                    }
-
-                    probe = probe.After(identity);
                 }
 
                 if (_clock.Sequence == before)
@@ -521,17 +515,6 @@ internal sealed class EntityTable
             _epochs.Exit(protection);
         }
     }
-
-    // One step of a search through the index, from where the search stands, as the search says: by the
-    // leading parts of the key and a range on the next, in either direction, skipping the matches its
-    // Offset still skips, in rounds inside the protection of reads (EntriesPerRound). True when there is an
-    // entity, copied into the copy, with its move staged in the search, which the caller commits once it
-    // has built the entity (IndexSearch.Commit); false at the end, with the sequence under which the index
-    // showed no more match. The walk of ranges is not implemented yet.
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
-        where TCopy : struct, IRootCopy<TResult>
-        where TResult : class =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
 
     // For FindAsync, once it has returned its Limit: whether a match follows where the search stands,
     // copying nothing; false without a step when a step saw the end of the search. The sequence is that of

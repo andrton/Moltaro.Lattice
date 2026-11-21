@@ -433,20 +433,25 @@ ends it with the set it remembers.
 The step that finds an entity sees the end of the run as well when it can: the entry
 after the one it found, in its leaf, has another key; or that entry is the last of its
 leaf, and the leaf has no fence, or a fence of another key, above which every entry of
-the next leaf lies. When the sequence read at the start of its walk is unchanged once it
-has copied the entity, that is the condition under which the next step would end at that
-sequence, so the next step ends there without a descent. The check of the sequence is for
-a write that takes an entry of the key away: a replace that moves an entity after the
-identity to another key, or its delete, publishes its position and only then removes the
-old entry. A descent that no longer meets that entry so comes after the position, and the
-sequence has changed; without the check the end would be given at a sequence at which that
-entity still had the key. A write that adds an entry of the key needs no check: it inserts
-the entry before its position, so the descent either meets the entry, and the run does not
-end there, or does not, and the entity has no state at that sequence. The next step still
-enters the protection, so that a step after a close is
-refused as every step is. A lazy search so ends at the sequence of the step that returned
-its last entity, not at the sequence of a later call. A fence of the key says nothing:
-then the next step descends as before.
+the next leaf lies. Then the search keeps the sequence of that step, the sequence of the
+entity it returned, and its next step ends there without a descent. A fence of the key
+says nothing: then the next step descends as before. The next step still enters the
+protection, so that a step after a close is refused as every step is. A lazy search so
+ends at the sequence of the step that returned its last entity, not at the sequence of a
+later call.
+
+What the sequence of an answer is, in the words of the contract (`LatticeFindResult`): a
+position the node had applied when the search looked at the index. It is read in the step
+after the descent, so it covers every write whose effect the descent saw, an entry a
+delete or a replace took away among them: such a write publishes its position before it
+removes the entry. It may be later than the last time the search looked at the index, so
+an entity written into the key while the search ran may be absent from an answer whose
+position covers that write. A session that moves to it waits for no less than the answer
+showed; the position is no snapshot of the run at one sequence, which the contract does not
+promise (`ILatticeIndex`: a search "is not a snapshot"). An end without an entity keeps its
+check: there the sequence read when the walk began is the only sequence the answer reports,
+and the walk again after the sequence moved keeps a session at or after a delete it passed
+over.
 
 The key is bound to the fields of the index once, outside the protection, and its fixed
 parts are written on the stack in their stored form, by the one writer of that form the

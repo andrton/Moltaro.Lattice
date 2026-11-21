@@ -3,10 +3,9 @@ using Moltaro.Lattice.Access;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // The step of a search that returns an entity sees the end of the run of its key when the entry after it
-// has another key, and the database published nothing over the step: the search then ends at the sequence
-// of that step, and its next step ends there without a descent (docs/design/ordered-index.md, "The search
-// by a full key"). So a lazy search ends at the sequence of the step that returned its last entity, not at
-// that of a later call. Three entities of Counted have the key and one more has the next key above it; a
+// has another key: the search then ends at the sequence of that step, and its next step ends there without
+// a descent (docs/design/ordered-index.md, "The search by a full key"). So a lazy search ends at the
+// sequence of the step that returned its last entity, not at that of a later call. Three entities of Counted have the key and one more has the next key above it; a
 // search takes the three, and before its next step a fourth entity of the key is inserted, whose root entry
 // is the next slot of the table, so that its identity lies after the three. The next step ends the search
 // without it. A search started after the insert finds all four. The step that ends still enters the
