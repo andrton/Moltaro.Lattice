@@ -34,10 +34,13 @@ internal static class FieldValues
             }
         }
 
-        throw new ArgumentException(
-            $"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.",
-            parameterName);
+        throw CannotBeUsed(field, value, parameterName);
     }
+
+    // The refusal of a value, not null, that cannot be used for the field, for the parameter named: of a
+    // value given by itself here, and of a value of an index key or a bound (IndexValue.Bind).
+    public static ArgumentException CannotBeUsed(LatticeField field, object value, string parameterName) =>
+        new($"Field '{field.Name}' is {field.Declaration.Type}; the {value.GetType().Name} value '{value}' cannot be used for it.", parameterName);
 
     public static object NormalizeKey(LatticeEntityType entityType, object key)
     {

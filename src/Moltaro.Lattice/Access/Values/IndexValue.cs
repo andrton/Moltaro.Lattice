@@ -288,9 +288,7 @@ internal readonly struct IndexValue
             return converted;
         }
 
-        throw new ArgumentException(
-            $"Field '{field.Name}' is {declaration.Type}; the {TypeName} value '{ToObject()}' cannot be used for it.",
-            parameterName);
+        throw FieldValues.CannotBeUsed(field, ToObject()!, parameterName);
     }
 
     // The value in the field type given, a pair of the allowlist with its own (Pairs), when it is the same
