@@ -75,7 +75,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // Every write that passes its condition and its preparation and is committed is published at a position of
 // its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
 // entry's LastMutationSequence: every position changes at most one entity, so the revision of one entity
-// never satisfies a condition on another, and a recreated entity has a new one.
+// never satisfies a condition on another, and a recreated entity has a new one. LatticeRevision is two opaque
+// 64-bit values, so this composition is internal and can change; how a revision binds its entity when several
+// entities change at one position belongs to the stage with the batch (docs/design/
+// milestone-1-engine-contract.md, "Write coordinator and revision semantics").
 internal sealed class WriteExecutor
 {
     private readonly Arena _arena;

@@ -24,73 +24,14 @@ using Moltaro.Lattice.Storage.Allocation;
 namespace Moltaro.Lattice.Engine;
 
 // The database of the engine: an ILatticeDatabase over the native arena, the table of root entries and the
-// root layouts of this assembly, with the primary index. It is what the public contract runs on:
-// LatticeDatabase opens it. It is a MemoryOnly master that inserts, reads, replaces, upserts and deletes
-// entities of scalar fields by primary key, by class and by name, for many callers at once through its write
-// coordinator, and that accepts children at a ListenUri; or a child that loads the whole database of its
-// master over TCP, serves its reads, follows the writes of its master, and forwards its own writes to its
-// master, each returning once this child has applied it.
-//
-// How it is made. LatticeDatabase.Create makes it, and the tests of the engine and the measurement program
-// make it with their inputs through Create (exception X3, docs/work/exceptions.md); the scenario tests of the
-// contract open it through LatticeDatabase, and every operation after it goes through the public interfaces.
-// An instance is a MemoryOnly master, with or without a ListenUri, or a child. It is made without being
-// opened, and the refusals come in the order of LatticeDatabase.Create: ArgumentNullException for null
-// options; Validate, which gives InvalidConfiguration, also for an address that does not have the form of the
-// transport; then NotSupportedException for Durable persistence, which is not built yet. A master that cannot
-// listen at its address fails its open with InvalidConfiguration.
-//
-// States. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child goes Connecting,
-// Loading, CatchingUp, Ready (docs/decisions/replication-and-hosting.md, option A): it is Connecting while it
-// has no connection to its master, the pauses between its attempts included, Loading from the accepted
-// handshake until the last root of its load is placed, and CatchingUp from then until it has applied the
-// transactions up to its readiness position R; in each every operation is Unavailable. OpenAsync compiles the
-// root layout of every entity type before any data is admitted: a fixed part larger than one block fails the
-// open with InvalidSchema, and an entity type with a field the engine cannot store yet gets no layout. A
-// failed open closes the instance. Before the open an operation is Unavailable; after a close it is
-// ObjectDisposedException. A failed publication makes the instance Faulted (Fault): from then on every
-// operation, reads included, is Unavailable, a read that retries on the mark of the write that failed gives
-// up, the writes in progress end as the write coordinator says, and a close works. A MemoryOnly instance that
-// faulted has lost its data.
-//
-// The close. It lets every write admitted before it reach its outcome and frees the arena once nothing can
-// reach it any more: it marks the reads closed, so that a read that enters afterwards leaves at once
-// (ReadEpochs), lets no write, drain or count of the counters start (CloseBarrier), waits for those in
-// progress, every admitted write in whatever step it is among them, and then for the reads that entered
-// before the mark, and only then frees the arena with everything retired; then it lets go of the parts of the
-// database, so that an instance kept alive after its close holds none of them (the steps are listed at
-// CloseAsync). It does not wait for that inside the call: CloseAsync returns a task that completes then, and
-// a cancellation of its token ends only the wait of the caller. A wait for a position ends with the close.
-// The close is one operation: the first call of CloseAsync or DisposeAsync begins it and keeps its task, and
-// every later call waits for that same task, so no call completes before the arena is freed, whichever call
-// it is and whatever became of the wait of the first; the synchronous Dispose blocks its thread until then.
-// The close covers the network: on a master, once its admitted writes have ended, each with its reply
-// recorded when a child forwarded it, it stops accepting children, has each connection send its child what it
-// owes it, the replies and then the tail, then the frame Closed, and end its side in order, waits for the
-// children to end theirs, all together and at most a fixed time, resets those still open, and completes only
-// when no task of the listener runs and its port is free (Children.ChildListener); on a child it ends the
-// open in progress and the following of its master, waits for their tasks, and closes the connection to the
-// master, without waiting for the master: its writes in flight end as the forwarding says (Forwarding). A
-// suspension of the application held at the close does not keep it from completing; a master whose child
-// holds one waits out the fixed time for that child.
-//
-// Master and children (docs/decisions/replication-and-hosting.md). A master with a ListenUri listens at it
-// from its open and serves every node that connects (Children): it checks its Hello, registers its capture
-// under the lock of the writes — its start S, its fence and its cursor in the tail of the transactions
-// (Delivery) —, sends the whole database, one root copied at a time under the protection of reads while it
-// goes on writing, then LoadEnd with S and R, and then every transaction after S, as long as the child is
-// connected; it releases a transaction once every child has applied it. No write is refused or delayed
-// because of a child. A child reaches its master at MasterUri (Loading.MasterLink), receives the schema,
-// builds the parts of an empty database with the history of its master, places every root it receives under
-// its own lock of the writes (Loading.RootPlacement), applies the transactions of (S, R] by the same rule
-// (Loading.ReceivedChanges, Following.Follower), and becomes Ready at R. It then follows its master, and
-// tells it what it applied, until the connection ends or it cannot apply a transaction; then it stops
-// following and stays Ready at its position (reconnection is not built yet). It forwards its writes to its
-// master on the same connection, and the master submits them to its write path as its own
-// (Forwarding.Forwarder, Children.RequestReceiver); a write through a child returns once that child has
-// applied it, and a child without its master refuses a write with Unavailable. What travels, and how it is
-// checked, is the protocol of Replication. The open of a child that fails, times out or is cancelled closes
-// the instance and completes only once the close has: no connection, no task and no memory of it is left.
+// root layouts of this assembly, with the primary and the secondary indexes. It is what the public contract
+// runs on: LatticeDatabase opens it. It is a MemoryOnly master that inserts, reads, replaces, upserts and
+// deletes entities by primary key and searches them by an index, by class and by name, for many callers at
+// once through its write coordinator, and that accepts children at a ListenUri; or a child that loads the
+// whole database of its master over TCP, serves its reads, follows the writes of its master, and forwards
+// its own writes to its master, each returning once this child has applied it. This type holds the life of
+// an instance, its states, its open and its close, and hands every operation to its parts; each member says
+// what it does, the parts what they guarantee.
 //
 // What the parts do, and where. The entity types and their reads are in Entities (EntityTable, one for each
 // entity type, with its root layout), the text entries of Dictionary strings in the arena
@@ -100,7 +41,10 @@ namespace Moltaro.Lattice.Engine;
 // retired and the barrier of the close in Protection, the history and the sequence in Positions
 // (PositionClock), the sets of the public interfaces in Sets, what a master gives its children in Children,
 // the tail of the transactions it holds for them in Delivery, how a child loads in Loading, how it follows
-// its master in Following, and how it forwards its writes in Forwarding.
+// its master in Following, and how it forwards its writes in Forwarding. The parts of an open database are
+// made together and held as one (DatabaseParts); the network of a master and of a child is kept beside
+// them. What only the tests of the engine and the measurement program reach is in
+// EngineDatabase.TestAccess.cs.
 //
 // The order of the locks and of the lifetimes. The database has two locks: the lock of the state,
 // for an open, a close and a fault that race; and the lock of the writes (WriteCoordinator, which says
@@ -118,37 +62,6 @@ namespace Moltaro.Lattice.Engine;
 // the close frees the arena only after the reads and the writes in progress have ended. No code of the
 // application runs, and nothing waits, while a read is inside.
 //
-// Position and revision. Each open of a master has a new random non-zero history, and a new random database
-// identity, which it sends its children; a child has the history of its master, and the revision of a loaded
-// entity is its revision on the master. On a master the sequence is 0 and grows by 1 with each published
-// write, also one that changed nothing; the storage step assigns it, consecutive within a group
-// (WriteCoordinator). A revision is the history and the root entry's LastMutationSequence: every position
-// changes at most one entity, so the revision of one entity never satisfies a condition on another, and a
-// recreated entity has a new one. LatticeRevision is two opaque 64-bit values, so this composition is
-// internal and can change; how a revision binds its entity when several entities change at one position
-// belongs to the stage with the batch (docs/design/milestone-1-engine-contract.md, "Write coordinator and
-// revision semantics").
-//
-// The memory budget. LatticeDatabaseOptions.MemoryLimit is the limit of the arena, the native memory in which
-// the entities are stored, with the blocks that writes in progress prepared there and what writes retired
-// until the reads that could reach it have left; without it, half of
-// GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, read at open, and never less than one segment
-// (docs/decisions/write-admission.md). The limit in force is fixed at open; EngineCounters.MemoryLimit
-// reports it. A write the arena cannot hold is WriteRejected with Limit Memory, as the write coordinator
-// decides. The indexes, the root entries and what an enumeration remembers are not counted yet. An entity has
-// no size limit of its own (docs/decisions/write-admission.md, "Configurable root-object size limit"); one
-// String or Binary value above 268,173,376 bytes, the capacity of one directory block of chunks, is
-// ValidationFailed with the field named, a fixed rule of the storage format, which the validation of the core
-// checks before a write reaches the engine.
-//
-// Sessions and the write batch. On a master the members that take a session, and WaitForPositionAsync, are
-// served: a master has applied every position it gave out; a child has applied every position of its history
-// up to the one it is at, and a wait for a later one ends when it applies it or at its timeout, and at once
-// on a child that has lost its master (Positions.PositionClock). WaitForPositionAsync throws at the call only
-// a mistake of its arguments; the state of the database, a close, a fault, another history and the loss of the
-// master come through its task, also when no wait is needed. CreateWriteBatch returns the batch of the
-// core: building it works, and its commit is NotSupportedException, since the commit of a batch is not built
-// yet.
 internal sealed partial class EngineDatabase : ILatticeDatabase
 {
     private readonly LatticeDatabaseOptions _options;
@@ -164,6 +77,14 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // instance, which uses what each null member of EngineTestInputs stands for.
     private readonly EngineTestInputs? _testInputs;
 
+    // The state. A master is Created, Loading during OpenAsync, Ready, Faulted, Closed. A child goes
+    // Connecting, Loading, CatchingUp, Ready (docs/decisions/replication-and-hosting.md, option A): it is
+    // Connecting while it has no connection to its master, the pauses between its attempts included,
+    // Loading from the accepted handshake until the last root of its load is placed, and CatchingUp from
+    // then until it has applied the transactions up to its readiness position R. Before Ready every
+    // operation is Unavailable, after a close it is ObjectDisposedException, and once the instance is
+    // Faulted (Fault) every operation, reads included, is Unavailable. Changed under the lock of the state,
+    // read without it.
     private volatile LatticeDatabaseStateEnum _state = LatticeDatabaseStateEnum.Created;
 
     // The close, once a call has begun it: completes when the arena has been freed. Set under the lock
@@ -206,7 +127,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         _epochs = new ReadEpochs(this);
     }
 
-    // The refusals of LatticeDatabase.Create, in their order, and of the Create of the tests.
+    // The refusals of LatticeDatabase.Create, in their order, and of the Create of the tests:
+    // ArgumentNullException for null options; Validate, which gives InvalidConfiguration, also for an address
+    // that does not have the form of the transport; then NotSupportedException for Durable persistence, which
+    // is not built yet. An instance is made without being opened; a master that cannot listen at its address
+    // fails its open (Listen).
     internal static void Check(LatticeDatabaseOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -252,6 +177,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
+    // Served on a master and on a child: a master has applied every position it gave out; a child has applied
+    // every position of its history up to the one it is at, and a wait for a later one ends when it applies
+    // it or at its timeout, and at once on a child that has lost its master (Positions.PositionClock). It
+    // throws at the call only a mistake of its arguments; the state of the database, a close, a fault,
+    // another history and the loss of the master come through its task, also when no wait is needed.
     public ValueTask WaitForPositionAsync(LatticePosition position, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         if (!position.IsValid)
@@ -275,8 +205,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     }
 
     // The wait of WaitForPositionAsync for a position, once the call has checked its arguments: every
-    // failure, also one that needs no wait, comes through the task (see the class). In a Release build an
-    // asynchronous method allocates nothing when it completes within its call: its state machine is a
+    // failure, also one that needs no wait, comes through the task (WaitForPositionAsync). In a Release build
+    // an asynchronous method allocates nothing when it completes within its call: its state machine is a
     // struct on the stack. A Debug build makes the state machine a class and allocates it at every call.
     private async ValueTask WaitAfterChecksAsync(LatticePosition position, TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -294,8 +224,10 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // Opens the database. A master compiles the root layout of every entity type, makes the parts of an
     // empty database, listens at its ListenUri when it has one, and becomes Ready: its work is
     // synchronous and short, so it completes before it returns. A child loads the database of its
-    // master (OpenChildAsync). A failure, and a cancellation, close the instance, and the call completes
-    // once the close has.
+    // master (OpenChildAsync). The root layout of every entity type is compiled before any data is
+    // admitted: a fixed part larger than one block fails the open with InvalidSchema, and an entity type
+    // with a field the engine cannot store yet gets no layout. A failure, and a cancellation, close the
+    // instance, and the call completes once the close has. Before the open an operation is Unavailable.
     public ValueTask OpenAsync(CancellationToken cancellationToken = default)
     {
         var child = _options.Role == LatticeRoleEnum.Child;
@@ -363,6 +295,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
+    // The batch of the core: building it works, and its commit is NotSupportedException, since the commit of
+    // a batch is not built yet.
     public ILatticeWriteBatch CreateWriteBatch()
     {
         ThrowIfNotReady();
@@ -370,10 +304,18 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         return new WriteBatch(Part(_parts).Schema);
     }
 
-    // Lets no operation start any more, ends the waits for a position, and frees the arena once the
-    // reads and writes in progress have ended (see the class). The first call begins the close; every
-    // later call, of this or of DisposeAsync, joins it. The cancellation token ends only the wait of
-    // its call: the database still closes, and the arena is freed when they have ended.
+    // Lets no operation start any more, ends the waits for a position, lets every write admitted before it
+    // reach its outcome, and frees the arena once nothing can reach it any more; then it lets go of the
+    // parts of the database and of its network, so that an instance kept alive after its close holds none of
+    // them. The close is one operation: the first call, of this or of DisposeAsync, begins it and keeps its
+    // task, and every later call waits for that same task, so no call completes before the arena is freed,
+    // whichever call it is; the synchronous Dispose blocks its thread until then. The cancellation token ends
+    // only the wait of its call. The close covers the network: on a master it stops the listener once the
+    // admitted writes have ended, each with its reply recorded when a child forwarded it
+    // (Children.ChildListener says how its connections end); on a child it ends the open in progress and the
+    // following of its master, waits for their tasks, and closes the connection to the master without
+    // waiting for the master: its writes in flight end as the forwarding says (Forwarding.Forwarder). A
+    // suspension of the application held at the close does not keep it from completing.
     //
     // The steps, in the order of the code, here and in FreeAfterOperationsAsync:
     // 1. Under the lock of the state the state becomes Closed and the task of the close is made: from
@@ -561,9 +503,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         ExceptionDispatchInfo.Throw(exception);
     }
 
-    // The open of a master (see OpenAsync). It passes the barrier of the close, so that a close that
-    // begins meanwhile finds the listener it starts (FreeAfterOperationsAsync). A close that came while
-    // it opened wins: the open fails with ObjectDisposedException.
+    // The open of a master (see OpenAsync). A master with a ListenUri serves every node that connects from
+    // its open on (Children.ChildListener); no write is refused or delayed because of a child
+    // (Delivery.DeliveryTail). It passes the barrier of the close, so that a close that begins meanwhile
+    // finds the listener it starts (FreeAfterOperationsAsync). A close that came while it opened wins: the
+    // open fails with ObjectDisposedException.
     private void OpenMaster()
     {
         // Validate has checked its form: lattice://host:port.
@@ -624,8 +568,9 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // The open of a child (see the class, "Master and children"). Every failure closes the instance, and
-    // the call completes once the close has completed.
+    // The open of a child (LoadFromMasterAsync). Every failure, a timeout and a cancellation close the
+    // instance, and the call completes once the close has completed: no connection, no task and no memory
+    // of the open is left.
     private async Task OpenChildAsync(CancellationToken cancellationToken)
     {
         try
@@ -647,8 +592,14 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // Connects to the master, loads its database and becomes Ready. The task ends when the open has
-    // ended, whatever ended it, and only then: the close waits for it (_loaded).
+    // Connects to the master at MasterUri (Loading.MasterLink), receives the schema, builds the parts of an
+    // empty database with the history of its master, so that the revision of a loaded entity is its revision
+    // on the master, places every root it receives under its own lock of the writes (Loading.ChildLoad,
+    // RootPlacement), applies the transactions of (S, R] by the same rule (Loading.ReceivedChanges,
+    // Following.Follower), and becomes Ready at R. It then follows its master, and tells it what it applied,
+    // until the connection ends or it cannot apply a transaction; then it stops following and stays Ready at
+    // its position (reconnection is not built yet). The task ends when the open has ended, whatever ended it,
+    // and only then: the close waits for it (_loaded).
     private async Task LoadFromMasterAsync(CancellationToken cancellationToken)
     {
         try
@@ -721,10 +672,17 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
         }
     }
 
-    // The memory budget is the limit of the arena (see the class): the option, or half of the memory of the
-    // process as .NET reports it, and never less than one segment (docs/decisions/write-admission.md), unless
-    // a test gave the options of the arena, which are then the options of the arena and the option is not
-    // read.
+    // The memory budget is the limit of the arena, the native memory in which the entities are stored, with
+    // the blocks that writes in progress prepared there and what writes retired until the reads that could
+    // reach it have left: the option, or half of the memory of the process as .NET reports it, read at open,
+    // and never less than one segment (docs/decisions/write-admission.md), unless a test gave the options of
+    // the arena, which are then the options of the arena and the option is not read. It is fixed at open
+    // (EngineCounters.MemoryLimit). A write the arena cannot hold is WriteRejected with Limit Memory, as the
+    // write coordinator decides. The indexes, the root entries and what an enumeration remembers are not
+    // counted yet. An entity has no size limit of its own (docs/decisions/write-admission.md, "Configurable
+    // root-object size limit"); one String or Binary value above 268,173,376 bytes, the capacity of one
+    // directory block of chunks, is ValidationFailed with the field named, a fixed rule of the storage
+    // format, which the validation of the core checks before a write reaches the engine.
     private long MemoryLimitInForce() =>
         _testInputs?.Arena?.MemoryLimit
         ?? _options.MemoryLimit
@@ -734,6 +692,11 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // writes on a child, publishes them as one and returns them; the caller makes the instance Ready. A
     // close that came meanwhile wins: what was built is freed, and the open fails with
     // ObjectDisposedException.
+    //
+    // What is live on a child. Its writes go to its master through the forwarder made here
+    // (Sets.SetOperations) and the sender its open makes beside it; the coordinator made here admits no
+    // write, and only its counters are read; what the child applies takes the lock of the writes itself
+    // (Loading.ReceivedChanges).
     private DatabaseParts Build(LatticeSchema schema, ulong history, bool child)
     {
         // The seed of the hashes of the primary indexes and of the text table, drawn at every open from the
@@ -821,7 +784,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
     // mark of the write that failed gives up at once, then the state, then the waits for a position end.
     // Called after the lock of the writes, since it takes the lock of the state; a child marks the reads
     // under the lock of the writes already (ReadEpochs.Fault, which takes no lock) and calls this after
-    // it.
+    // it. From then on every operation, reads included, is Unavailable, the writes in progress end as the
+    // write coordinator says, and a close works; a MemoryOnly instance that faulted has lost its data.
     private void Fault()
     {
         _epochs.Fault();
