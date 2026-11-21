@@ -6582,6 +6582,45 @@ kinds of work.
    and the carried texts of the study of S14 and of the architect's review (E6 here, E3 at
    S14R).
 
+**The plan of the start of S15, part 1** (the coordinator, 21 November 2026, for the
+planner to read before it). One start of the rented machine, after the review and the
+breaker have closed with no P1 to P3, on the head that passed them. Builds: `main` before
+S14R (22b8ee1), `main` after S14R (5cc64c8), the head and its variants. Every series
+rotates its builds in rounds, with a second build of one of them as the gauge. At most 8
+readers are judged on the 16 cores, 16 are reported and not judged, and a fall is called
+only after a series of three rounds.
+
+Before the start, in the measurement program, by the implementer of the sprint and
+reviewed with it:
+- the lines of the walk in `index-search`: a range that returns 100 entities, forwards and
+  in reverse, alone and beside the writer of the scenario; a page of 100 at Offset 10,000
+  beside the first page; and the share of the steps of a range of 100 that begin with a
+  descent, reported;
+- F7: a line of `write-callers` over a type without indexes, with its callers and its
+  readers beside them;
+- F9: its cause found by reading the old and the new harness for that one line; if reading
+  does not show it, series 6 carries it.
+The variants of `EntityTable.EntriesPerRound` are patches of the head, kept with the
+outputs of the start and never in the repository.
+
+| # | Series | Expected length | Decides |
+| --- | --- | --- | --- |
+| 1 | `index-search`, its exact lines, at 1 and 8 readers, alone and beside the writer, over 22b8ee1, 5cc64c8, the head and a second build of 5cc64c8 | about 15 minutes, four builds, three rounds | that the exact search of S14, part 2 does not lose, neither to S14R nor to this sprint, against its figures of 20 November 2026 |
+| 2 | The lines of the walk, over the head, a second build of the head and two variants of `EntriesPerRound`, 64 and 1,024 against 256 | about 20 minutes, four builds, three rounds | the figure of `EntriesPerRound`, which replaces the placeholder in one commit after the start with the figure beside it; the cost of the range of 100 alone and beside a writer, of the deep page, and of the share of descents; the cost of the first entity of a walk read twice |
+| 3 | `write-callers` and `read-by-key-threads` over 22b8ee1, 5cc64c8, the head and a second build of 5cc64c8, with the line of F7 | about 40 minutes, four builds, four rounds | that S14R and this sprint change neither the writes nor the reads by key of the fixture's users, and that a type without indexes loses nothing on many callers and readers (F7) |
+| 4 | `index-writes` and `index-read-by-key` over the same four builds | about 30 minutes, four builds, three rounds | the upkeep of an index after S14R (G5) and this sprint, against 1.27 times the bare tree of 20 November 2026 |
+| 5 | `forwarding-costs` over 5cc64c8 and the head, with a second build of the head | about 10 minutes, three builds, three rounds | that the forwarded write of F12, which counts its text entries and walks its descriptors once less, does not lose |
+| 6 | Only if reading has not found the cause of F9: the line of 0 indexes, 1 thread, alone, of `index-read-by-key`, three builds | about 10 minutes | F9 |
+
+The series run in the order 1, 2, 3, 4, 5, 6, the most decisive first, so that a start cut
+short still answers the sprint. Seven builds — 22b8ee1, two of 5cc64c8, two of the head
+and the two variants — take about 15 minutes more. The whole start is about two hours and
+twenty minutes. The lengths come from the start of 20 November 2026: a run of
+`index-search` about 64 seconds, `write-callers` 50, `read-by-key-threads` 96,
+`index-writes` 124, `index-read-by-key` 25; the lines of the walk are estimated at about a
+minute and a half for a run. A series is added during the start only for a reason the
+planner agrees to.
+
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
 read, the licence checked first:
