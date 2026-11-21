@@ -315,11 +315,11 @@ took.
 ## The architect's review
 
 After every merged sprint one more agent is started, in the role of the architect of the
-system: the coordinator of the next sprint starts it as its first task, before that
-sprint begins, since the coordinator of the merged sprint stops at the boundary. It is not a reviewer of the sprint: the reviewers of a sprint
-look for defects in a change, the architect looks at what the system has become. Its
-concern is the cleanliness of the code and whether the system stays manageable and
-extensible.
+system: the coordinator of the next sprint starts it as its first task, before that sprint
+begins, since the coordinator of the merged sprint stops at the boundary. It is not a
+reviewer of the sprint: the reviewers of a sprint look for defects in a change, the
+architect looks at what the system has become. Its concern is the cleanliness of the code
+and whether the system stays manageable and extensible.
 
 - **Who.** A separate agent that took no part in the sprint, on the strongest model in
   use, with the whole repository to read and nothing to write. Its brief says, every
