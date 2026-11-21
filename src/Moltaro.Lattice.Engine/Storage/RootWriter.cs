@@ -448,7 +448,7 @@ internal ref struct RootWriter
 
         while (descriptors.MoveNext())
         {
-            ValueBlocks.Adopt(_arena, descriptors.Current, root, descriptors.Offset);
+            RootStorage.AdoptValue(_arena, descriptors.Current, root, descriptors.Offset);
         }
 
         End(WriterStateEnum.Completed);
@@ -607,7 +607,7 @@ internal ref struct RootWriter
         }
         else if (ValueBlocks.TryStore(_arena, _root, _layout.LayoutVersion, length, ref source, descriptor))
         {
-            SlotBytes += ValueBlocks.SlotBytes(ValueBlocks.Read(descriptor));
+            SlotBytes += ValueBlocks.SlotBytesOf(length);
         }
         else
         {

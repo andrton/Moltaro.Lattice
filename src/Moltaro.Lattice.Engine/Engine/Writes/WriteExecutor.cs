@@ -475,7 +475,7 @@ internal sealed class WriteExecutor
 
         foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            size += ValueBlocks.SlotBytes(descriptor);
+            size += RootStorage.ValueSlotBytes(descriptor);
         }
 
         return size;

@@ -12,8 +12,8 @@ namespace Moltaro.Lattice.Storage.Values;
 // RootLayout.SingleBlockLimit bytes and a directory with chunks above, every block of it of kind
 // SharedText, and a root names it by a descriptor of kind Text. A Text descriptor is read as a value
 // in blocks is read, by its length, but its blocks belong to the entry and not to the root: Free,
-// Publish, Retire and Adopt of a root's descriptor leave them alone, and the text table frees and
-// publishes them (FreeText, PublishText).
+// Publish, Retire and Adopt take a Block or a Chunked descriptor, as Storage.RootStorage decides by the
+// kind, and the text table frees and publishes the blocks of an entry (FreeText, PublishText).
 //
 // A descriptor lies in a root block, or in a directory, at an offset the packed layout gives, which
 // need not be aligned: it is always read and written as 16 bytes, never through a reference.
@@ -97,47 +97,30 @@ internal static class ValueBlocks
     // header of the block.
     public static uint TextSlotOf(Arena arena, ArenaAddress address) => arena.Header(address).Root.Slot;
 
-    // Names the root block as the parent of the value block or the directory of a value, with the
-    // offset of its descriptor in the root block. A value inline or null has no block to adopt, and
-    // the blocks of a Text descriptor belong to their entry, which no root block is the parent of.
+    // Names the root block as the parent of the value block or the directory of a value, a Block or a
+    // Chunked descriptor, with the offset of its descriptor in the root block.
     public static void Adopt(Arena arena, in ValueDescriptor descriptor, ArenaAddress root, int descriptorOffset)
     {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
-        {
-            ref var header = ref arena.Header(AddressOf(descriptor));
+        ref var header = ref arena.Header(AddressOf(descriptor));
 
-            header.Parent = root;
-            header.DescriptorOffset = (uint)descriptorOffset;
-        }
+        header.Parent = root;
+        header.DescriptorOffset = (uint)descriptorOffset;
     }
 
-    // Frees every block of a value a root owns: its value block, or its chunks and then their
-    // directory. A directory entry that is still zero names no chunk: TryStore stopped before it
-    // allocated that chunk, and frees the rest of the value through this method. A value inline or null
-    // owns no block, and text of kind Text belongs to its text entry, not to the root: the reference the
-    // root holds to it is released by the text table (Storage.RootStorage.FreeValue).
-    public static void Free(Arena arena, in ValueDescriptor descriptor)
-    {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
-        {
-            FreeBlocks(arena, AddressOf(descriptor), descriptor.Kind == DescriptorKindEnum.Chunked);
-        }
-    }
+    // Frees every block of a value a root owns, a Block or a Chunked descriptor: its value block, or its
+    // chunks and then their directory. A directory entry that is still zero names no chunk: TryStore
+    // stopped before it allocated that chunk, and frees the rest of the value through this method.
+    public static void Free(Arena arena, in ValueDescriptor descriptor) =>
+        FreeBlocks(arena, AddressOf(descriptor), descriptor.Kind == DescriptorKindEnum.Chunked);
 
     // Frees the blocks of the entry of a Dictionary text of length bytes at the address: for the text
     // table, when the last reference to the entry went.
     public static void FreeText(Arena arena, ArenaAddress address, uint length) =>
         FreeBlocks(arena, address, length > RootLayout.SingleBlockLimit);
 
-    // The bytes of the slots of the blocks a root owns for a value, by the length its descriptor gives
-    // and the placement of TryStore: its value block, or its directory and its chunks, each the whole
-    // slot of its size class. A value inline or null owns no block, and neither does a Text descriptor,
-    // whose entry belongs to the text table.
-    public static long SlotBytes(in ValueDescriptor descriptor) =>
-        descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked ? SlotBytesOf((int)descriptor.Length) : 0;
-
     // The bytes of the slots that a value of this many bytes, more than lie inline, takes out of line:
-    // the placement of TryStore, which a text entry follows as well.
+    // the placement of TryStore, its value block, or its directory and its chunks, each the whole slot of
+    // its size class, which a text entry follows as well.
     public static long SlotBytesOf(int length)
     {
         if (length <= RootLayout.SingleBlockLimit)
@@ -153,47 +136,38 @@ internal static class ValueBlocks
             + Arena.BlockSizeFor(last);
     }
 
-    // Publishes every block of a value that TryStore stored as prepared: its value block, or its
-    // chunks and their directory (Arena.Publish). A value inline or null owns no block, and the entry
-    // of a Text descriptor is published by the text table (PublishText).
-    public static void Publish(Arena arena, in ValueDescriptor descriptor)
-    {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
-        {
-            PublishBlocks(arena, AddressOf(descriptor), descriptor.Kind == DescriptorKindEnum.Chunked);
-        }
-    }
+    // Publishes every block of a value that TryStore stored as prepared, a Block or a Chunked
+    // descriptor: its value block, or its chunks and their directory (Arena.Publish).
+    public static void Publish(Arena arena, in ValueDescriptor descriptor) =>
+        PublishBlocks(arena, AddressOf(descriptor), descriptor.Kind == DescriptorKindEnum.Chunked);
 
     // Publishes the blocks of the entry of a Dictionary text of length bytes that TryStoreText stored as
     // prepared, when the first root that refers to it is published.
     public static void PublishText(Arena arena, ArenaAddress address, uint length) =>
         PublishBlocks(arena, address, length > RootLayout.SingleBlockLimit);
 
-    // Retires every block of a value of a published root: its value block, or its chunks and their
-    // directory (Arena.Retire). A value inline or null owns no block. Nothing is read but the
-    // directory, which stays as it is, so the blocks can still be read and freed afterwards. The entry
-    // of a Text descriptor is never retired: it stays live, and the retired root keeps its reference
-    // until it is freed.
+    // Retires every block of a value of a published root, a Block or a Chunked descriptor: its value
+    // block, or its chunks and their directory (Arena.Retire). Nothing is read but the directory, which
+    // stays as it is, so the blocks can still be read and freed afterwards.
     public static void Retire(Arena arena, in ValueDescriptor descriptor)
     {
-        switch (descriptor.Kind)
+        var address = AddressOf(descriptor);
+
+        if (descriptor.Kind == DescriptorKindEnum.Block)
         {
-            case DescriptorKindEnum.Block:
-                arena.Retire(AddressOf(descriptor));
-                break;
+            arena.Retire(address);
 
-            case DescriptorKindEnum.Chunked:
-                var directory = AddressOf(descriptor);
-                var entries = arena.Payload(directory);
-
-                for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
-                {
-                    arena.Retire(AddressOf(Read(entries[entryOffset..])));
-                }
-
-                arena.Retire(directory);
-                break;
+            return;
         }
+
+        var entries = arena.Payload(address);
+
+        for (var entryOffset = 0; entryOffset < entries.Length; entryOffset += DescriptorSize)
+        {
+            arena.Retire(AddressOf(Read(entries[entryOffset..])));
+        }
+
+        arena.Retire(address);
     }
 
     // The bytes of a value that lies in one piece: inline in the root block, whose payload is given,
