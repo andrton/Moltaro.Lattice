@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -43,7 +44,13 @@ internal struct ReadLimits
 
     // Whether anything of the read limits is set at all: a failure the read kept, a time limit or a memory
     // limit. With none, and with a token that cannot be cancelled, a look of a round can end nothing.
-    public readonly bool AnySet => _failed is not null || _options.ReadTimeLimit is not null || _options.ReadMemoryLimit is not null;
+    // AggressiveInlining, because the step of a search, whose many inlinees use up the budget of the JIT, left
+    // it as a call on every round (JIT listing at Tier 0 switched to full optimization).
+    public readonly bool AnySet
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _failed is not null || _options.ReadTimeLimit is not null || _options.ReadMemoryLimit is not null;
+    }
 
     // The start of a step, for its time: a timestamp, or 0 when there is no time limit.
     public readonly long StartStep() => _options.ReadTimeLimit is null ? 0 : Stopwatch.GetTimestamp();
