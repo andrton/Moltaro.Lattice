@@ -279,11 +279,14 @@ Writing code:
   it does not sleep where a deterministic way exists.
 - A feature that is not implemented has its tests written and marked
   `[Fact(Skip = ...)]` with one shared reason. Skipping is never used for a flaky test.
-- Tests come first and from someone else. On the full track of the
-  [development process](docs/work/process.md), the tests of a sprint are written and
-  committed before its implementation, by a different agent than the one who implements
-  it. The implementer removes the skip and makes them pass; it does not change what they
-  assert. A test that looks wrong is reported, not edited.
+- Tests come first. On the full track of the
+  [development process](docs/work/process.md), the agent that implements a sprint writes
+  its tests from the brief and commits them before any of its implementation. After those
+  commits it does not change what they assert: a test that looks wrong is reported, not
+  edited. The independent view comes from others: a reviewer holds the tests against the
+  acceptance of the brief, sentence by sentence, and on a sprint that changes behavior a
+  second agent, the breaker, writes probe tests of its own against the guarantees the
+  sprint states.
 - The samples project shows intended use and runs to the end with `dotnet run`. A sample
   of an unimplemented feature is still written; the program reports where it stopped.
 - Code shown in `README.md` must compile against the current contract.
@@ -325,8 +328,11 @@ dotnet run --project Moltaro.Lattice.Samples
   [exceptions to the rules](docs/work/exceptions.md) in the same change: which rule,
   where, why and until when.
 - Before designing a change to the contract, read the decision record that covers it.
-- Make routine, reversible choices within the task. Ask only when a missing decision
-  changes behavior, the contract or the scope. Say what was left out.
+- Make routine, reversible choices within the task. Ask only when a wrong answer cannot
+  be undone cheaply, or when it would change the acceptance the task was given; the
+  [development process](docs/work/process.md#limits-on-review-and-on-questions) says
+  which questions those are. Otherwise take the recommended answer, and say what was
+  taken and what was left out.
 - Review the whole affected flow before finishing: contract, engine, tests, samples,
   `README.md`, `docs`.
 - Keep plans, progress and findings in the conversation. Do not create report, audit or
