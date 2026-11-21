@@ -53,6 +53,24 @@ that sprint states the number of review rounds and of findings by severity besid
 S15, part 1, and the owner decides from that whether the rows stay. An agent that stops on
 a usage limit is not retried in a loop; the owner is told.
 
+## New sessions at a sprint boundary
+
+The coordinator and the planner are sessions, and a session reads its whole history again
+at every turn. Both are therefore replaced when a sprint is closed.
+
+- The change happens only at a boundary: the sprint is merged, no agent is running and no
+  investigation is open. Unfinished work is not handed to another session.
+- Before the merge the coordinator checks that every decision of the sprint is in the
+  documents — the epic document, the briefs, `refactoring.md`, `open-questions.md`, this
+  file — and names to the planner what could not be put there. After the merge it stops
+  and does not start the next sprint.
+- The outgoing planner writes one starting text, for the new planner, and gives it to the
+  owner. It states the role, the state of `main`, the next work in order, what is owed to
+  the owner, the mistakes not to repeat, and this rule.
+- The new planner creates the new coordinator session, with the model and effort of the
+  table above, gives it its starting text and tells the owner its name.
+- The state lives in the repository. A starting text is not committed.
+
 ## The plan
 
 The planner delivers an epic document in the form described in [README.md](README.md),
