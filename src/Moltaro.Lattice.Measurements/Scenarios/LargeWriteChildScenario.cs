@@ -102,11 +102,14 @@ internal static class LargeWriteChildScenario
         var roots = new RootTable();
         var epochs = new ReadEpochs(roots);
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, new RetiredMemory(epochs, arena, roots), new PositionClock(1, roots), seed: 0);
-        var writer = new RootWriter(arena, layout, roots.Add((uint)entityType.Id));
+        var writer = new RootWriter(arena, layout, roots.Add((uint)entityType.Id), prepared: true);
 
         RootValues.Write(ref writer, entityType, [.. entityType.Fields.Select(field => user[field.Name])]);
 
         var root = writer.Complete();
+
+        RootStorage.Publish(arena, layout, root);
+
         var tail = new TailCopy();
         var times = new List<double>();
 
@@ -163,7 +166,7 @@ internal static class LargeWriteChildScenario
         var retired = new RetiredMemory(epochs, arena, roots);
         var table = EntityTable.Open(entityType, schema, arena, roots, epochs, retired, new PositionClock(1, roots), seed: 0);
         var handle = roots.Add((uint)entityType.Id);
-        var writer = new RootWriter(arena, layout, handle);
+        var writer = new RootWriter(arena, layout, handle, prepared: true);
         var data = new byte[LargeWritesScenario.LargeBytes];
 
         new Random(42).NextBytes(data);
@@ -173,6 +176,9 @@ internal static class LargeWriteChildScenario
         writer.SetBinary(value!, data);
 
         var root = writer.Complete();
+
+        RootStorage.Publish(arena, layout, root);
+
         var buffer = new TransferBuffer();
         var reused = new byte[BlockExport.Length(arena, layout, root)];
         var tail = new TailCopy();
