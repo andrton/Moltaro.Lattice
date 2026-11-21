@@ -6605,21 +6605,26 @@ outputs of the start and never in the repository.
 
 | # | Series | Expected length | Decides |
 | --- | --- | --- | --- |
-| 1 | `index-search`, its exact lines, at 1 and 8 readers, alone and beside the writer, over 22b8ee1, 5cc64c8, the head and a second build of 5cc64c8 | about 15 minutes, four builds, three rounds | that the exact search of S14, part 2 does not lose, neither to S14R nor to this sprint, against its figures of 20 November 2026 |
+| 1 | `index-search`, its exact lines, at 1 and 8 readers, alone and beside the writer, over 22b8ee1, 5cc64c8, the head and a second build of the head as the gauge | about 15 minutes, four builds, three rounds | that the exact search of S14, part 2 does not lose, neither to S14R nor to this sprint, against its figures of 20 November 2026 |
 | 2 | The lines of the walk, over the head, a second build of the head and two variants of `EntriesPerRound`, 64 and 1,024 against 256 | about 20 minutes, four builds, three rounds | the figure of `EntriesPerRound`, which replaces the placeholder in one commit after the start with the figure beside it; the cost of the range of 100 alone and beside a writer, of the deep page, and of the share of descents; the cost of the first entity of a walk read twice |
-| 3 | `write-callers` and `read-by-key-threads` over 22b8ee1, 5cc64c8, the head and a second build of 5cc64c8, with the line of F7 | about 40 minutes, four builds, four rounds | that S14R and this sprint change neither the writes nor the reads by key of the fixture's users, and that a type without indexes loses nothing on many callers and readers (F7) |
-| 4 | `index-writes` and `index-read-by-key` over the same four builds | about 30 minutes, four builds, three rounds | the upkeep of an index after S14R (G5) and this sprint, against 1.27 times the bare tree of 20 November 2026 |
-| 5 | `forwarding-costs` over 5cc64c8 and the head, with a second build of the head | about 10 minutes, three builds, three rounds | that the forwarded write of F12, which counts its text entries and walks its descriptors once less, does not lose |
+| 3 | `write-callers` and `read-by-key-threads` over 22b8ee1, 5cc64c8, the head and a second build of the head as the gauge, with the line of F7 | about 40 minutes, four builds, four rounds | that S14R and this sprint change neither the writes nor the reads by key of the fixture's users, and that a type without indexes loses nothing on many callers and readers (F7) |
+| 4 | `index-writes` and `index-read-by-key` over the same four builds, the gauge a second build of the head; and in each round once the bare tree of the prototype (`src/Prototypes/SecondaryIndexComparison`, `ordered writecost`), as on 20 November 2026, its restore in the build stage | about 35 minutes, four builds and the prototype, three rounds | the upkeep of an index after S14R (G5) and this sprint, as a ratio to the bare tree taken in this start; a ratio whose denominator is from another day is not judged |
+| 5 | `forwarding-costs` over 5cc64c8 and the head, with a second build of the head as the gauge | about 10 minutes, three builds, three rounds | that the forwarded write of F12, which counts its text entries and walks its descriptors once less, does not lose |
 | 6 | Only if reading has not found the cause of F9: the line of 0 indexes, 1 thread, alone, of `index-read-by-key`, three builds | about 10 minutes | F9 |
 
 The series run in the order 1, 2, 3, 4, 5, 6, the most decisive first, so that a start cut
-short still answers the sprint. Seven builds — 22b8ee1, two of 5cc64c8, two of the head
-and the two variants — take about 15 minutes more. The whole start is about two hours and
-twenty minutes. The lengths come from the start of 20 November 2026: a run of
-`index-search` about 64 seconds, `write-callers` 50, `read-by-key-threads` 96,
-`index-writes` 124, `index-read-by-key` 25; the lines of the walk are estimated at about a
-minute and a half for a run. A series is added during the start only for a reason the
-planner agrees to.
+short still answers the sprint. Over the four builds, 5cc64c8 against 22b8ee1 is S14R, the
+head against 5cc64c8 is this sprint with F12, and the two builds of the head are the
+spread. Series 1, 3, 4 and 5 can show a loss, and a loss is called only when the three
+rounds agree against the gauge; series 2 chooses a constant and reports costs with no
+target, so nothing in it is met or missed; the lines of 16 readers are reported and not
+judged (the planner, 21 November 2026). Six builds — 22b8ee1, 5cc64c8, two of the head and
+the two variants — and the prototype take about 15 minutes more. The whole start is about
+two hours and twenty-five minutes. The lengths come from the start of 20 November 2026: a
+run of `index-search` about 64 seconds, `write-callers` 50, `read-by-key-threads` 96,
+`index-writes` 124, `index-read-by-key` 25, the prototype's writecost about 20; the lines
+of the walk are estimated at about a minute and a half for a run. A series is added during
+the start only for a reason the planner agrees to.
 
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
