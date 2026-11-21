@@ -9,9 +9,29 @@ namespace Moltaro.Lattice.Samples.Indexes;
 //   Setting.BySectionAndName  (Section, Name)
 // The application names the index it wants; there is no query language behind this. A search
 // finds by the full key of an index, by its leading fields, with a range on the next field, in
-// reverse and in pages, and returns each entity at most once.
+// reverse and in pages, and returns each entity at most once. A value of a key has the type of its
+// field, or is the same number in another numeric type; an Enum field is given as its integer.
 internal static class IndexSample
 {
+    // Orders with a Decimal total and an Enum status, each indexed, in a database of their own.
+    private const string OrderSchema = """
+        {
+          "Enums": [ { "Id": 1, "Name": "Status", "Members": [ { "Name": "Open", "Value": 1 }, { "Name": "Shipped", "Value": 2 } ] } ],
+          "EntityTypes": [
+            {
+              "Id": 1, "Name": "Order",
+              "Fields": [
+                { "Id": 1, "Name": "Id", "Type": "Int64" },
+                { "Id": 2, "Name": "Total", "Type": "Decimal" },
+                { "Id": 3, "Name": "Status", "Type": "Enum", "Enum": "Status" }
+              ],
+              "PrimaryKey": [1],
+              "Indexes": [ { "Id": 1, "Name": "ByTotal", "Fields": [2] }, { "Id": 2, "Name": "ByStatus", "Fields": [3] } ]
+            }
+          ]
+        }
+        """;
+
     public static async Task RunAsync(LatticeSchema schema)
     {
         Console.WriteLine("== Finding by index ==");
@@ -83,7 +103,29 @@ internal static class IndexSample
         Console.WriteLine($"Setting mail/sender: {found.Items[0]["Value"]}");
 
         await SearchOnReplicaAsync(master, address);
+        await SearchByNumberAndEnumAsync();
         Console.WriteLine();
+    }
+
+    // A number of another type is accepted when it is the same number in the type of the field: an
+    // integer for a Decimal. An Enum field is searched by the integer of its member.
+    private static async Task SearchByNumberAndEnumAsync()
+    {
+        await using var database = await LatticeDatabase.OpenAsync(new LatticeDatabaseOptions
+        {
+            PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
+            Schema = LatticeSchema.Compile(OrderSchema),
+        });
+
+        var orders = database.Set("Order");
+        await orders.InsertAsync(new LatticeRecord(orders.EntityType) { ["Id"] = 1L, ["Total"] = 25.00m, ["Status"] = 1 });
+        await orders.InsertAsync(new LatticeRecord(orders.EntityType) { ["Id"] = 2L, ["Total"] = 40.50m, ["Status"] = 2 });
+
+        var totalOf25 = orders.Index("ByTotal").Find(IndexKey.Equal(25)).Single();
+        Console.WriteLine($"Order with a total of 25, given as an Int32: #{totalOf25["Id"]}, {totalOf25["Total"]}");
+
+        var shipped = orders.Index("ByStatus").Find(IndexKey.Equal(2)).Select(order => order["Id"]);
+        Console.WriteLine($"Shipped orders, by the integer of the member: {string.Join(", ", shipped)}");
     }
 
     // On a replica the indexes follow the master with a small delay. Two ways to search
