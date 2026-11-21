@@ -2,7 +2,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 
 // The order and the bounds of a walk, held against an oracle of values (WalkOracle), in a UTF-8 and in a
 // UTF-16 database (decision on index access; docs/decisions/queries.md, Q07.3.1 and Q07.3.6;
-// docs/design/ordered-index.md, "Entries and their order" and "How a range will be walked"):
+// docs/design/ordered-index.md, "Entries and their order" and "How a range is walked"):
 // - over composite indexes of one to four parts, each of which can be null, so that a null stands in
 //   every position of a key: a search by the leading parts of an index, every count of them, returns
 //   the rows whose leading parts are its values, a null equal to a null, in the order of the index, with
@@ -20,7 +20,7 @@ public sealed class OrderAndBoundsTests
 {
     public static IEnumerable<TheoryDataRow<string>> Encodings => WalkSchema.Encodings;
 
-    [Theory(Skip = SkipReason.BeforeSprint15)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Walk_by_leading_parts_and_a_range_returns_the_matches_of_the_oracle_in_the_index_order_and_in_its_exact_reverse(string encoding)
     {
@@ -43,7 +43,7 @@ public sealed class OrderAndBoundsTests
         }
     }
 
-    [Theory(Skip = SkipReason.BeforeSprint15)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Range_on_a_nullable_part_without_an_upper_end_leaves_out_its_nulls_in_both_directions(string encoding)
     {

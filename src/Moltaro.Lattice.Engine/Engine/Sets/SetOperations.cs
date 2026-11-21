@@ -41,6 +41,9 @@ internal sealed class SetOperations
 
     public EntityTable Table { get; }
 
+    // The options of the database, whose read limits a search takes (Entities.IndexSearch).
+    public LatticeDatabaseOptions Options => _options;
+
     // A read by key: the copy inside the protection of reads, then the result built from it, outside
     // the protection, only when the entity exists. Null when it does not. The token of an asynchronous
     // read ends its wait for a slot of the protection (EntityTable.TryRead).
@@ -155,11 +158,42 @@ internal sealed class SetOperations
                 throw;
             }
 
+            search.Commit();
+
             return result;
         }
         finally
         {
             copy.Return();
+        }
+    }
+
+    // For FindAsync once it has returned its Limit: whether a match follows where the search stands
+    // (Entities.EntityTable.SearchHasMore), with the sequence of that answer.
+    public bool HasMore(ref IndexSearch search, SecondaryIndex? index, in IndexKey key, out ulong sequence, CancellationToken cancellationToken) =>
+        Table.SearchHasMore(index, key, ref search, out sequence, cancellationToken);
+
+    // For FindAsync, until it returns: what its result holds grew by the bytes given, which counts, once the
+    // search has a WalkProgress, against the memory limit of a read with what the search remembers; over
+    // the limit the search fails with ReadLimitExceeded and lets go of what it remembers.
+    public void Hold(ref IndexSearch search, SecondaryIndex? index, long bytes)
+    {
+        search.Hold(bytes);
+
+        if (search.Progress is not { } progress || !search.HoldsAnswer || !search.Limits.LimitsMemory)
+        {
+            return;
+        }
+
+        try
+        {
+            search.Limits.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
+        }
+        catch (LatticeException)
+        {
+            progress.Clear();
+
+            throw;
         }
     }
 

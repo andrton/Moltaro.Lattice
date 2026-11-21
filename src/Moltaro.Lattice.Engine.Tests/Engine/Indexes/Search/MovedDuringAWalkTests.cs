@@ -23,7 +23,7 @@ public sealed class MovedDuringAWalkTests
 {
     private static readonly IndexKey Range = IndexKey.All.Range(IndexBound.Inclusive(1L), IndexBound.Inclusive(20L));
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Row_returned_by_a_walk_in_reverse_whose_key_then_moves_ahead_of_it_is_not_returned_again()
     {
         await using var database = await OpenWithTenAsync();

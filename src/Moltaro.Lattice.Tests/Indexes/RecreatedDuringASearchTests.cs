@@ -4,14 +4,12 @@ namespace Moltaro.Lattice.Tests.Indexes;
 // searched; after the search returned the first of them, that member is deleted and inserted again in the
 // same group, and the search goes on to its end, through a class and by name. A fourth member never has
 // the key.
-// - What a search guarantees today: every member that kept the key for the whole search is returned, the
-//   one recreated is returned as well, and nothing that never had the key is returned. It may return the
-//   recreated member a second time: a recreated entity has a new root entry, so a new identity, which can
-//   lie after the one the search returned (docs/design/ordered-index.md, "The search by a full key"). So
-//   the test does not count how often it comes.
-// - That no entity is returned twice, also across a delete and a re-creation, is chosen where ranges are
-//   walked (docs/design/ordered-index.md, "How a range will be walked"); its test is written and waits
-//   for it: the search returns each of the three exactly once.
+// - Every member that kept the key for the whole search is returned, the one recreated is returned as
+//   well, and nothing that never had the key is returned.
+// - No entity is returned twice, also across a delete and a re-creation: a recreated entity has a new root
+//   entry, so a new identity, which can lie after the one the search returned, and the search passes it
+//   over by the primary keys it remembers (docs/design/ordered-index.md, "How a range is walked"). The
+//   search returns each of the three exactly once.
 public sealed class RecreatedDuringASearchTests
 {
     [Fact]
@@ -25,7 +23,7 @@ public sealed class RecreatedDuringASearchTests
         }
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Search_across_a_delete_and_a_re_creation_returns_each_member_of_the_key_exactly_once()
     {
         foreach (var byName in new[] { false, true })

@@ -40,7 +40,7 @@ public sealed class WalkUnderChangeTests
 
     private static int Readers => Math.Clamp(Environment.ProcessorCount - 2, 2, 6);
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_beside_a_writer_returns_no_row_twice_every_unchanged_match_and_its_keys_in_order_in_both_directions()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8");

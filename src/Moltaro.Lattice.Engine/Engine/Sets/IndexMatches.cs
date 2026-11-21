@@ -53,6 +53,7 @@ internal sealed class IndexMatches<TCopy, TResult> : IEnumerable<TResult>, IEnum
         _index = index;
         _key = key;
         _prototype = prototype;
+        _search = new IndexSearch(operations.Options);
     }
 
     // The enumerator of a search of its own, which the constructor of a later one makes ready.

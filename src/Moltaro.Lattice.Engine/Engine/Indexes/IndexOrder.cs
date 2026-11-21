@@ -242,8 +242,9 @@ internal sealed class IndexOrder
                 return order;
             }
 
-            leftOffset += part.IsText ? IndexLayout.TextPartBytes(left[leftOffset]) : part.Width;
-            rightOffset += part.IsText ? IndexLayout.TextPartBytes(right[rightOffset]) : part.Width;
+            // Either entry may be one a search holds in detached form (IndexLayout.Detach).
+            leftOffset += part.IsText ? IndexLayout.TextPartBytes(left[leftOffset..]) : part.Width;
+            rightOffset += part.IsText ? IndexLayout.TextPartBytes(right[rightOffset..]) : part.Width;
         }
 
         return 0;

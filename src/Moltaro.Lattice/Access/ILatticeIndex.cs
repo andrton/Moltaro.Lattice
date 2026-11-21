@@ -18,7 +18,16 @@ namespace Moltaro.Lattice.Access;
 /// <para>
 /// An index is always in step with the entities on the same node: a write and its index
 /// changes become visible together. Like every read, a search returns owned copies and is
-/// not a snapshot: entities written while it runs may or may not be included.
+/// not a snapshot: entities written while it runs may or may not be included. A search
+/// returns an entity at most once, also one that is deleted and created again while it runs
+/// or whose indexed values move it ahead of the search, and every entity that keeps its
+/// indexed values for the whole search, in the order of the index or its reverse.
+/// </para>
+/// <para>
+/// The order is the order of the index: by its first field, then by its second, and so on,
+/// with the entities without a value in a field after those with one. In reverse it is the
+/// exact mirror of that order, so the entities without a value come first there. Entities
+/// with the same indexed values come in no particular order among themselves.
 /// </para>
 /// <para>
 /// As with the other reads there are two forms. <see cref="Find"/> answers at once from
@@ -29,11 +38,9 @@ namespace Moltaro.Lattice.Access;
 /// The object is safe to keep and to share between threads.
 /// </para>
 /// <para>
-/// <b>Not implemented yet:</b> a search by the leading fields of an index, with a range, in
-/// reverse, or with <see cref="LatticeFindOptions.Offset"/> or <see cref="LatticeFindOptions.Limit"/>.
-/// Such a key or such options are checked against the index as any are, and then refused with
-/// <see cref="NotSupportedException"/>. A search gives a value to every field of its index and
-/// returns every entity with that key.
+/// <b>Not implemented yet:</b> a search with <see cref="LatticeFindOptions.Offset"/> or
+/// <see cref="LatticeFindOptions.Limit"/>. Such options are refused with
+/// <see cref="NotSupportedException"/> when <see cref="FindAsync"/> is called.
 /// </para>
 /// </remarks>
 /// <typeparam name="TEntity">The entity class, or <see cref="LatticeRecord"/>.</typeparam>
@@ -54,10 +61,6 @@ public interface ILatticeIndex<TEntity>
     /// enumeration ended.
     /// </para>
     /// <para>
-    /// An entity that is deleted and created again while the enumeration runs may be returned
-    /// twice; returning every entity at most once is not implemented yet.
-    /// </para>
-    /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
     /// such as an owned value, a collection, a reference or a unique index, the search finds
     /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
@@ -69,9 +72,12 @@ public interface ILatticeIndex<TEntity>
     /// The index cannot serve the key, or the key is the default of <see cref="IndexKey"/>, which
     /// is no key.
     /// </exception>
-    /// <exception cref="NotSupportedException">
-    /// The key gives values to the leading fields only, or has a range, which is not implemented
-    /// yet.
+    /// <exception cref="LatticeException">
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the step would have exceeded a read
+    /// limit of the options, which <see cref="LatticeException.Limit"/> names, as
+    /// <see cref="LatticeDatabaseOptions.ReadMemoryLimit"/> and
+    /// <see cref="LatticeDatabaseOptions.ReadTimeLimit"/> state. The entities returned before stay
+    /// valid; every further step fails with the same error.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
     /// The database was closed: thrown by the step of the enumeration that meets the close, and by
@@ -85,17 +91,13 @@ public interface ILatticeIndex<TEntity>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// An entity that is deleted and created again while the search runs may be in the result
-    /// twice; returning every entity at most once is not implemented yet.
-    /// </para>
-    /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
     /// the result has no item, as a read by key finds nothing: such a type holds no entity.
     /// </para>
     /// </remarks>
     /// <param name="key">What to look for.</param>
     /// <param name="options">Consistency, direction and paging of the search.</param>
-    /// <param name="cancellationToken">Cancels the wait for the session's position.</param>
+    /// <param name="cancellationToken">Cancels the wait for the session's position and the search.</param>
     /// <returns>The matches and the position of the answer.</returns>
     /// <exception cref="ArgumentNullException">
     /// The options are <see langword="null"/>; thrown by the call.
@@ -110,10 +112,15 @@ public interface ILatticeIndex<TEntity>
     /// position of the session in time; nothing was searched.
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/>: the session belongs to another
     /// database history.
+    /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/>: the search would have exceeded a read
+    /// limit of the options, which <see cref="LatticeException.Limit"/> names; it returns nothing.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// The token was cancelled, before a read limit is looked at; through the returned task.
     /// </exception>
     /// <exception cref="NotSupportedException">
-    /// The key gives values to the leading fields only or has a range, or the options ask for the
-    /// reverse order, an offset or a limit, which are not implemented yet; thrown by the call.
+    /// The options ask for an offset or a limit, which are not implemented yet; thrown by the
+    /// call.
     /// </exception>
     /// <exception cref="ObjectDisposedException">
     /// The database was closed; through the returned task.

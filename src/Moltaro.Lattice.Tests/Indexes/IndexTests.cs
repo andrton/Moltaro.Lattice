@@ -29,7 +29,7 @@ public sealed class IndexTests
         Assert.Equal("Alan", Assert.Single(byEmail.Find(IndexKey.Equal<string?>(null))).Name);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Index_on_two_fields_finds_by_both_or_by_the_first()
     {
         await using var database = await OpenWithUsersAsync();
@@ -45,7 +45,7 @@ public sealed class IndexTests
         Assert.Equal(3, byAgeAndName.Find(IndexKey.Equal(36L)).Count());
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Range_narrows_the_field_after_the_equal_ones()
     {
         await using var database = await OpenWithUsersAsync();
@@ -75,7 +75,7 @@ public sealed class IndexTests
             user => user.Name == "Edsger");
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Whole_index_is_traversed_in_its_order()
     {
         await using var database = await OpenWithUsersAsync();

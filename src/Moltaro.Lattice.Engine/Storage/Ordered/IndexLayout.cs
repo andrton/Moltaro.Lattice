@@ -64,6 +64,13 @@ internal sealed class IndexLayout
     // The bytes of a String part that references a text entry: the head, the length, the address.
     public const int SharedTextBytes = 1 + sizeof(uint) + sizeof(ulong);
 
+    // The head of a String part of an entry in detached form, which holds a copy of the text a shared
+    // key references, after its length of 4 bytes (Detach). Never stored in a node.
+    public const byte DetachedTextHead = 253;
+
+    // The bytes of a String part in detached form before its text: the head and the length.
+    private const int DetachedTextStart = 1 + sizeof(uint);
+
     // The bytes of the identity that begins every entry.
     public const int IdentityBytes = sizeof(ulong);
 
@@ -195,20 +202,26 @@ internal sealed class IndexLayout
         part.NullBit != EntryPart.NoNullBit && (entry[IdentityBytes + (part.NullBit / 8)] & (1 << (part.NullBit % 8))) != 0;
 
     // The bytes of a String part that begins with the head given: the head and a copy, or the head and a
-    // reference to a text entry.
+    // reference to a text entry. A part of an entry in a node.
     public static int TextPartBytes(byte head) => head == SharedTextHead ? SharedTextBytes : 1 + head;
+
+    // The bytes of the String part that begins the span, of an entry in a node or in detached form.
+    public static int TextPartBytes(ReadOnlySpan<byte> part) => part[0] switch
+    {
+        SharedTextHead => SharedTextBytes,
+        DetachedTextHead => DetachedTextStart + (int)MemoryMarshal.Read<uint>(part[1..]),
+        var head => 1 + head,
+    };
 
     // The text of a String part that is not null, which begins the span, to be read a piece at a time
     // (Values.StoredTextReader): its copy, or the text entry it references, which the node that holds the
     // part keeps from being freed. Inside the protection of reads or under the lock of the writes.
-    public StoredTextReader ReadText(Arena arena, ReadOnlySpan<byte> part)
+    public StoredTextReader ReadText(Arena arena, ReadOnlySpan<byte> part) => part[0] switch
     {
-        var head = part[0];
-
-        return head == SharedTextHead
-            ? new StoredTextReader(arena, SharedDescriptorOf(part), default, Encoding)
-            : new StoredTextReader(part.Slice(1, head), Encoding);
-    }
+        SharedTextHead => new StoredTextReader(arena, SharedDescriptorOf(part), default, Encoding),
+        DetachedTextHead => new StoredTextReader(DetachedTextOf(part), Encoding),
+        var head => new StoredTextReader(part.Slice(1, head), Encoding),
+    };
 
     // The bytes of a String part that is not null, which begins the span, in the encoding of the database,
     // when they lie in one place: the copy of the part, or the text entry it references when that is not in
@@ -217,6 +230,13 @@ internal sealed class IndexLayout
     public static bool TryTextBytes(Arena arena, ReadOnlySpan<byte> part, out ReadOnlySpan<byte> bytes)
     {
         var head = part[0];
+
+        if (head == DetachedTextHead)
+        {
+            bytes = DetachedTextOf(part);
+
+            return true;
+        }
 
         if (head != SharedTextHead)
         {
@@ -239,20 +259,93 @@ internal sealed class IndexLayout
         return true;
     }
 
-    // The bytes the detached form of the entry takes (Detach). Inside the protection of reads. The walk of
-    // ranges is not implemented yet.
-    public int DetachedBytes(Arena arena, ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    // The bytes the detached form of the entry of a node takes (Detach): its bytes, but that a String part
+    // which references a text entry takes the head and the length of the detached form and the bytes of
+    // the text. Inside the protection of reads.
+    public int DetachedBytes(ReadOnlySpan<byte> entry)
+    {
+        if (!HasText)
+        {
+            return FixedEntryBytes;
+        }
 
-    // Writes the detached form of the entry into the destination, which has DetachedBytes, and returns its
-    // bytes: the entry as it lies, but that a String part which references a text entry holds a copy of
-    // that text, in the encoding of the database, under a head of its own, so that the form owns its bytes
-    // and points into nothing the engine may free. ReadText and TryTextBytes read such a part without the
-    // arena, so the order of the index compares a detached entry as any other. The form in which a search
-    // holds the entry it stands after between two steps; it is never stored in a node. Inside the
-    // protection of reads. The walk of ranges is not implemented yet.
-    public int Detach(Arena arena, ReadOnlySpan<byte> entry, Span<byte> destination) =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+        var offset = IdentityBytes + NullBitmapBytes;
+        var length = offset;
+
+        foreach (ref readonly var part in Parts)
+        {
+            if (!part.IsText)
+            {
+                offset += part.Width;
+                length += part.Width;
+
+                continue;
+            }
+
+            var bytes = TextPartBytes(entry[offset]);
+
+            length += entry[offset] == SharedTextHead ? DetachedTextStart + (int)SharedDescriptorOf(entry[offset..]).Length : bytes;
+            offset += bytes;
+        }
+
+        return length;
+    }
+
+    // Writes the detached form of the entry of a node into the destination, which has DetachedBytes, and
+    // returns its bytes: the entry as it lies, but that a String part which references a text entry holds a
+    // copy of that text, in the encoding of the database, under a head of its own, so that the form owns its
+    // bytes and points into nothing the engine may free. ReadText and TryTextBytes read such a part without
+    // the arena, so the order of the index compares a detached entry as any other. The form in which a
+    // search holds the entry it stands after between two steps; it is never stored in a node. Inside the
+    // protection of reads, where the text entry of a shared key stays allocated while the node is.
+    public int Detach(Arena arena, ReadOnlySpan<byte> entry, Span<byte> destination)
+    {
+        if (!HasText)
+        {
+            entry[..FixedEntryBytes].CopyTo(destination);
+
+            return FixedEntryBytes;
+        }
+
+        var offset = IdentityBytes + NullBitmapBytes;
+        var length = offset;
+
+        entry[..offset].CopyTo(destination);
+
+        foreach (ref readonly var part in Parts)
+        {
+            var bytes = part.IsText ? TextPartBytes(entry[offset]) : part.Width;
+
+            if (part.IsText && entry[offset] == SharedTextHead)
+            {
+                var descriptor = SharedDescriptorOf(entry[offset..]);
+
+                var textLength = descriptor.Length;
+
+                destination[length] = DetachedTextHead;
+                MemoryMarshal.Write(destination[(length + 1)..], in textLength);
+                ValueBlocks.CopyTo(arena, descriptor, default, destination.Slice(length + DetachedTextStart, (int)descriptor.Length));
+                length += DetachedTextStart + (int)descriptor.Length;
+            }
+            else
+            {
+                entry.Slice(offset, bytes).CopyTo(destination[length..]);
+                length += bytes;
+            }
+
+            offset += bytes;
+        }
+
+        return length;
+    }
+
+    // Writes the identity into an entry, at its start: for a search that stands after or at the entry it
+    // detached (IndexWalk).
+    public static void WriteIdentity(Span<byte> entry, RootHandle identity) => MemoryMarshal.Write(entry, in identity);
+
+    // The text of a String part in detached form (Detach).
+    private static ReadOnlySpan<byte> DetachedTextOf(ReadOnlySpan<byte> part) =>
+        part.Slice(DetachedTextStart, (int)MemoryMarshal.Read<uint>(part[1..]));
 
     // Writes the entry a root contributes to the index, under the identity of its root entry, into the
     // destination, which has WidestEntryBytes at least, and returns its bytes. A fixed part is copied from

@@ -68,6 +68,11 @@ internal readonly ref struct RootReader
         _layout = layout;
     }
 
+    // The bytes of the root block, its header, its fixed part and its inline values: what a search counts
+    // of an entity it holds in its answer (LatticeDatabaseOptions.ReadMemoryLimit). Not for a reader of a
+    // copy.
+    public int BlockBytes => BlockHeader.Size + _payload.Length;
+
     // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
     // copies.
     public static int FixedPartLength(RootLayout layout) => layout.FixedSize - BlockHeader.Size;

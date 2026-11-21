@@ -27,7 +27,7 @@ public sealed class SearchTimeInsideTheEngineTests
 
     private static readonly IndexKey Walk = IndexKey.All.Range(IndexBound.Inclusive(0L), null);
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Search_whose_step_waits_inside_the_engine_longer_than_the_time_limit_fails_with_ReadTime()
     {
         await using (var warm = await OpenWithRowsAsync(readTimeLimit: null))

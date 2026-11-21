@@ -115,8 +115,8 @@ public sealed class LatticeDatabaseOptions
     public TimeSpan SynchronizationTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// The temporary memory, in bytes, that one enumeration of this instance may use.
-    /// <see langword="null"/>, the default: no limit.
+    /// The temporary memory, in bytes, that one enumeration or one search through an index of
+    /// this instance may use. <see langword="null"/>, the default: no limit.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -128,17 +128,28 @@ public sealed class LatticeDatabaseOptions
     /// own, and several enumerations use it at the same time, each for itself.
     /// </para>
     /// <para>
-    /// An enumeration that would exceed it fails with
+    /// For a search through an index it counts what the search holds: the identities it has
+    /// returned or passed over, with the text of their keys, and the indexed values it stands
+    /// after; and, for <see cref="ILatticeIndex{TEntity}.FindAsync"/> until it returns, its
+    /// result, the list by its capacity and each entity by the bytes stored for it. The lazy
+    /// <see cref="ILatticeIndex{TEntity}.Find"/> counts no entity it returned. An answer of one
+    /// entity whose step saw the end of the search is not counted, as a read by key is not; from
+    /// the first step that returns an entity without seeing the end, everything the answer holds
+    /// counts, the first entity included.
+    /// </para>
+    /// <para>
+    /// An enumeration or a search that would exceed it fails with
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
     /// <see cref="LatticeLimitEnum.ReadMemory"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
-    /// states. Without a limit an enumeration of any length runs to its end.
+    /// and <see cref="ILatticeIndex{TEntity}"/> state. Without a limit an enumeration or a search
+    /// of any length runs to its end.
     /// </para>
     /// </remarks>
     public long? ReadMemoryLimit { get; init; }
 
     /// <summary>
-    /// The time that one enumeration of this instance may spend inside the engine.
-    /// <see langword="null"/>, the default: no limit.
+    /// The time that one enumeration, or one search through an index, of this instance may spend
+    /// inside the engine. <see langword="null"/>, the default: no limit.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -150,10 +161,10 @@ public sealed class LatticeDatabaseOptions
     /// end shortly after the limit is reached.
     /// </para>
     /// <para>
-    /// An enumeration that would exceed it fails with
+    /// An enumeration or a search that would exceed it fails with
     /// <see cref="LatticeErrorEnum.ReadLimitExceeded"/> and
     /// <see cref="LatticeLimitEnum.ReadTime"/>, as <see cref="ILatticeSet{TEntity}.Enumerate"/>
-    /// states. Without a limit an enumeration of any length runs to its end.
+    /// states. Without a limit an enumeration or a search of any length runs to its end.
     /// </para>
     /// </remarks>
     public TimeSpan? ReadTimeLimit { get; init; }

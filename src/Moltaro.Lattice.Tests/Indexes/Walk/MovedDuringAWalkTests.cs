@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 // the row is deleted and created again (docs/decisions/queries.md, Q07.3.5: "The same key must not be
 // counted once in the skipped prefix and returned again after it moves in the index", and "A delete
 // followed by insertion of the same key does not permit a second result"). A walk remembers the rows it
-// has returned or passed over (docs/design/ordered-index.md, "How a range will be walked"). The lazy Find
+// has returned or passed over (docs/design/ordered-index.md, "How a range is walked"). The lazy Find
 // is paused between two of its steps, and the test writes meanwhile:
 // - a row returned, whose key then moves ahead of the walk, inside its range, is not returned again;
 // - a row not reached yet whose key moves behind the walk is not returned, since it would come out of
@@ -17,7 +17,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 // Moltaro.Lattice.Engine.Tests).
 public sealed class MovedDuringAWalkTests
 {
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Row_returned_by_a_walk_whose_key_then_moves_ahead_of_it_is_not_returned_again()
     {
         await using var database = await OpenWithTenAsync();
@@ -36,7 +36,7 @@ public sealed class MovedDuringAWalkTests
         Assert.Equal([2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L], rest);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Rows_not_reached_whose_keys_move_behind_or_ahead_of_a_walk_come_at_most_once_and_in_order_and_every_row_that_kept_its_key_is_returned()
     {
         await using var database = await OpenWithTenAsync();
@@ -59,7 +59,7 @@ public sealed class MovedDuringAWalkTests
         Assert.Equal([3L, 5L, 6L, 7L, 9L, 10L], rest.Where(id => id != 4));
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_of_a_range_across_a_delete_and_a_re_creation_returns_each_row_of_the_range_exactly_once()
     {
         await using var database = await OpenWithTenAsync();

@@ -101,9 +101,18 @@ internal sealed class SecondaryIndex
     // For a walk inside the protection of reads, whose entries have different keys: whether the root, the
     // current state of the entity an entry of the walk names, still has the key of that entry, by the order
     // of the index, so that a walk returns an entity only at the place of its key and in the order it walks.
-    // Allocates nothing. The walk of ranges is not implemented yet.
-    public bool HasKeyOf(in RootReader root, ReadOnlySpan<byte> entry) =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    // The entry the root contributes is written on the stack by the writer of entries and compared with the
+    // entry as two entries are (IndexLayout.WriteEntry, IndexOrder.SameKey), so the check is the order the
+    // tree is ordered by and needs no comparison of its own. Allocates nothing; the scratch is not zeroed,
+    // since the entry writes every byte the order reads of it.
+    [SkipLocalsInit]
+    public bool HasKeyOf(in RootReader root, ReadOnlySpan<byte> entry)
+    {
+        Span<byte> written = stackalloc byte[Layout.WidestEntryBytes];
+        var length = Layout.WriteEntry(root, default, written);
+
+        return _order.SameKey(written[..length], entry);
+    }
 
     // For the writer, in the hold that prepares a replace, once its new root is written: what the replace
     // does to the index, from the root the entity has and the root the write publishes, both the write's

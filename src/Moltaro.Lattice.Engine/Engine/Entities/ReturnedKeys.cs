@@ -163,6 +163,10 @@ internal sealed class ReturnedKeys
     public static long PlaceBytes(long places, int wordsPerPlace) =>
         (places * wordsPerPlace * sizeof(long)) + ((long)PagesFor(places, wordsPerPlace).Pages * sizeof(long));
 
+    // The bytes it holds now, by the rule of the class: its places with the list of their pages, and its
+    // chunks of text with their list.
+    public long Bytes => (_places == 0 ? 0 : PlaceBytes(_places, _wordsPerPlace)) + _textBytes;
+
     // Whether the key the root stores has been returned. The hash is the one of the entry of the index
     // that led to the root. Inside the protection of reads, as the root reader is.
     public bool Contains(uint hash, in RootReader stored)

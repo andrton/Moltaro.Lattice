@@ -439,88 +439,290 @@ internal sealed class EntityTable
         }
     }
 
-    // One step of a search through the index, from where the search stands (IndexSearch): true when there
-    // is an entity, copied into the copy, with the search moved past it, which the caller puts back if it
-    // cannot build the entity (SetOperations.Next); false at the end, with the sequence under which the
-    // index showed no more entity of the key. The key is bound to the fields of the index and gives a value
-    // to each. A search of an entity type the engine does not store, which has no index, finds nothing, as a
-    // read by key does. ObjectDisposedException after the close; the token ends the wait for a slot of the
-    // protection, with OperationCanceledException. Allocates nothing but what the copy makes.
+    // One step of a search through the index, from where the search stands (IndexSearch), as the key and
+    // the search say: by the leading parts of the key and a range on the next, in the index order or its
+    // exact reverse, passing over the matches its Offset still skips. True when there is an entity, copied
+    // into the copy, with the search moved past it and what only a walk needs staged, which the caller
+    // commits once it has built the entity (IndexSearch.Commit) and puts back if it cannot
+    // (SetOperations.Next); false at the end, with the sequence under which the index showed no more match.
+    // A search of an entity type the engine does not store, which has no index, finds nothing, as a read by
+    // key does. ObjectDisposedException after the close; LatticeException with ReadLimitExceeded from a
+    // step that would exceed a read limit and from every step after it (ReadLimits). The token ends the wait
+    // of a round for a slot of the protection, and each round looks at it before it looks at the limits, so
+    // a cancellation is reported before a limit is; OperationCanceledException then. Allocates nothing but
+    // what the copy makes and what WalkProgress holds, which room made outside the protection grows.
     //
-    // The sequence of an answer is a position the node had applied when the step looked at the index, the
-    // larger of the sequence read between the two loads of the stamp of the root it copied and that stamp,
-    // as for a read by key (docs/design/ordered-index.md, "The search by a full key"). When the walk shows
-    // the end of the run with the entity it copies, the search keeps that sequence, and its next step ends
-    // there without a descent. A step that finds no entity ends at the sequence read when its walk began,
-    // when it is unchanged after the walk, and walks again otherwise.
+    // docs/design/ordered-index.md, "How a range is walked", says what a step does and why it returns an
+    // entity at most once, every entity that keeps its key, and its entities in the order of the walk.
+    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+        where TCopy : struct, IRootCopy<TResult>
+        where TResult : class =>
+        Step<TCopy, TResult>(index, key, ref search, ref copy, copies: true, out sequence, cancellationToken);
+
+    // For FindAsync, once it has returned its Limit: whether a match follows where the search stands, by a
+    // step that copies nothing and moves nothing; false without a descent when a step saw the end of the
+    // search. The sequence is that of the answer, as for a step.
+    public bool SearchHasMore(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken)
+    {
+        var none = default(NoCopy);
+
+        return Step<NoCopy, object>(index, key, ref search, ref none, copies: false, out sequence, cancellationToken);
+    }
+
+    // A step of a search (TrySearch), or a look at whether a match follows when it copies nothing
+    // (SearchHasMore). Each round enters the protection of reads, walks at most EntriesPerRound entries of the
+    // index (IndexWalk) and leaves it. A round ends before an entry when what the step needs to go on is not
+    // there: a WalkProgress, room for a key to remember or for an entry to stand at or after; it then stands
+    // at that entry, when it can write it, and the room is counted against the memory limit and made outside
+    // the protection, and the next round reads the entry anew. A round that cannot write where it stands goes
+    // on from where the search stood before it: what it remembered stays, so the next round passes over the
+    // keys it skipped and counts none twice.
     //
     // The scratch of the search keys is not zeroed: a key writes every byte the order reads of it.
     [SkipLocalsInit]
-    public bool TrySearch<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, out ulong sequence, CancellationToken cancellationToken)
+    private bool Step<TCopy, TResult>(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, ref TCopy copy, bool copies, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        // The keys of the walk are written on the stack outside the protection, once for the step.
         Span<byte> scratch = stackalloc byte[2 * SearchKey.ScratchBytes];
-        var walk = index is null || search.EndsAt is not null ? default : new IndexWalk(index, key, reverse: false, search.From, default, scratch);
-        var protection = _epochs.Enter(cancellationToken);
+        var entityName = EntityType.Name;
+        var indexName = index?.Definition.Name;
+        var full = index is not null && IndexWalk.IsFullKey(index.Layout, key);
+
+        // The time of the step begins before the protection, whose slot it may wait for.
+        var started = search.Limits.StartStep();
 
         try
         {
-            if (index is null)
-            {
-                sequence = _clock.Sequence;
-
-                return false;
-            }
-
-            if (search.EndsAt is { } end)
-            {
-                sequence = end;
-
-                return false;
-            }
-
             while (true)
             {
-                var before = _clock.Sequence;
+                // What the round ends for, made outside the protection: a WalkProgress, room for a key whose
+                // text takes at most keyBound code units, -1 for none, and room for an entry of entryLength.
+                var makesProgress = false;
+                var keyBound = -1;
+                var entryLength = 0;
 
-                walk.Restart();
+                // The keys of the walk are written on the stack outside the protection, once for the round.
+                var walk = index is null || search.EndsAt != 0
+                    ? default
+                    : new IndexWalk(index, key, search.Reverse, search.From, !full && search.Progress is { } walked ? walked.Last : default, scratch);
+                var protection = _epochs.Enter(cancellationToken);
 
-                while (walk.TryNext(out var entry, out var ends))
+                try
                 {
-                    var identity = IndexLayout.IdentityOf(entry);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    search.Limits.ThrowIfFailed(entityName, indexName);
+                    search.Limits.CheckTime(started, entityName, indexName);
 
-                    // The entry is a hint: its root entry is not released while the step is inside,
-                    // since the entries of a delete leave the tree before the entry is retired.
-                    if (TryCopyFound<TCopy, TResult>(ref _roots.EntryOfSlot(identity.Slot), index, walk.Key, ref copy, out sequence))
+                    if (index is null)
                     {
-                        search.From = identity.Next;
-                        search.EndsAt = ends ? sequence : null;
+                        sequence = _clock.Sequence;
+
+                        return false;
+                    }
+
+                    if (search.EndsAt != 0)
+                    {
+                        sequence = search.EndsAt;
+
+                        return false;
+                    }
+
+                    var before = _clock.Sequence;
+                    var passed = 0;
+                    var exhausted = true;
+
+                    while (walk.TryNext(out var entry, out var ends))
+                    {
+                        var identity = IndexLayout.IdentityOf(entry);
+
+                        // The bound of the work of a round: the next round goes on at this entry.
+                        if (++passed > EntriesPerRound)
+                        {
+                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            exhausted = false;
+
+                            break;
+                        }
+
+                        // The switch of the tests, at each root the step takes, before it reads it.
+                        _epochs.OfferReadSwitch(identity);
+
+                        // The entry is a hint: its root entry is not released while the step is inside,
+                        // since the entries of a delete leave the tree before the entry is retired. Every
+                        // entry the step meets is taken by its stamp, whatever its state, as a read takes it.
+                        ref var rootEntry = ref _roots.EntryOfSlot(identity.Slot);
+                        var stamp = TakeEntry(ref rootEntry, _epochs, _clock, out var state, out var root, out var at);
+
+                        if (state != RootStateEnum.Live)
+                        {
+                            continue;
+                        }
+
+                        var reader = new RootReader(_arena, Layout!, root);
+
+                        if (!(full ? index.HasKey(reader, walk.Key) : index.HasKeyOf(reader, entry)))
+                        {
+                            continue;
+                        }
+
+                        // A match. One the walk returned or passed over before is passed over again.
+                        var progress = search.Progress;
+                        var hash = progress is null ? 0 : Keys.StoredHash(reader);
+
+                        if (progress is not null && progress.Returned.Contains(hash, reader))
+                        {
+                            continue;
+                        }
+
+                        var skips = search.Offset > 0;
+
+                        if (!copies && !skips)
+                        {
+                            sequence = Math.Max(at, stamp);
+
+                            return true;
+                        }
+
+                        // What the walk needs from here: a WalkProgress, unless the step returns the one
+                        // entity of an answer whose end it sees; room for the key; room for the entry.
+                        var needsProgress = progress is not null || skips || !ends;
+                        var bound = 0;
+                        var length = full || skips ? 0 : index.Layout.DetachedBytes(entry);
+
+                        if (needsProgress && (progress is null || !progress.Returned.HasRoomFor(reader, out bound) || !progress.HasRoomFor(length)))
+                        {
+                            makesProgress = progress is null;
+                            keyBound = Keys.KeyKind == KeyKindEnum.Text ? Keys.TextBound(reader) : 0;
+                            entryLength = length;
+                            StandAt(index, entry, identity, full, ref search, ref makesProgress, ref entryLength);
+                            exhausted = false;
+
+                            break;
+                        }
+
+                        if (skips)
+                        {
+                            progress!.Remember(hash, reader, bound);
+                            search.Offset--;
+
+                            continue;
+                        }
+
+                        copy.Copy(reader);
+                        sequence = Math.Max(at, stamp);
+
+                        if (progress is not null)
+                        {
+                            progress.StageKey(hash, reader, bound);
+
+                            if (search.HoldsAnswer)
+                            {
+                                progress.StageHeld(reader.BlockBytes);
+                            }
+
+                            if (!full)
+                            {
+                                var staged = progress.StageEntry(length);
+
+                                index.Layout.Detach(_arena, entry, staged);
+                                IndexLayout.WriteIdentity(staged, PlaceOf(identity, search.Reverse, after: true));
+                            }
+                        }
+
+                        if (full)
+                        {
+                            search.From = PlaceOf(identity, search.Reverse, after: true);
+                        }
+
+                        search.EndsAt = ends ? sequence : 0;
 
                         return true;
                     }
+
+                    // The walk has no entry left: the end, when the database published nothing over it, as for
+                    // an absent key; otherwise the next round walks again from where the search stands.
+                    if (exhausted && _clock.Sequence == before)
+                    {
+                        sequence = before;
+
+                        return false;
+                    }
+                }
+                finally
+                {
+                    _epochs.Exit(protection);
                 }
 
-                if (_clock.Sequence == before)
-                {
-                    sequence = before;
+                // Outside the protection: what the round ended for is counted against the memory limit, then
+                // made; a cancellation is reported before the limit is.
+                cancellationToken.ThrowIfCancellationRequested();
 
-                    return false;
+                if (makesProgress)
+                {
+                    search.Progress = new WalkProgress(Keys);
+                }
+
+                if (search.Progress is { } made && (keyBound >= 0 || !made.HasRoomFor(entryLength)))
+                {
+                    if (search.Limits.LimitsMemory)
+                    {
+                        try
+                        {
+                            search.Limits.CheckMemory(made.BytesWithRoomFor(keyBound, entryLength), entityName, indexName);
+                        }
+                        catch (LatticeException)
+                        {
+                            made.Clear();
+
+                            throw;
+                        }
+                    }
+
+                    made.MakeRoom(keyBound, entryLength);
                 }
             }
         }
         finally
         {
-            _epochs.Exit(protection);
+            search.Limits.EndStep(started);
         }
     }
 
-    // For FindAsync, once it has returned its Limit: whether a match follows where the search stands,
-    // copying nothing; false without a step when a step saw the end of the search. The sequence is that of
-    // the answer, as for a step. The walk of ranges is not implemented yet.
-    public bool SearchHasMore(SecondaryIndex? index, in IndexKey key, ref IndexSearch search, out ulong sequence, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    // Where a search stands at or after the entity of the identity given, in the direction given: in the
+    // index order the next step starts at an identity, after an entity at the next one; in its reverse the
+    // next step stays before an identity, after an entity before it, at it before the next one.
+    private static RootHandle PlaceOf(RootHandle identity, bool reverse, bool after) =>
+        reverse == after ? identity : identity.Next;
+
+    // Inside the protection, when a round ends before an entry: the search stands at it, a search by a full
+    // key at its identity, any other at the entry, detached into the WalkProgress when it has room for it.
+    // Without a WalkProgress or without the room the search stays where it stood, and what the round needs is
+    // said to the step, which makes it outside the protection.
+    private void StandAt(SecondaryIndex index, ReadOnlySpan<byte> entry, RootHandle identity, bool full, ref IndexSearch search, ref bool makesProgress, ref int entryLength)
+    {
+        if (full)
+        {
+            search.From = PlaceOf(identity, search.Reverse, after: false);
+
+            return;
+        }
+
+        var length = index.Layout.DetachedBytes(entry);
+
+        if (search.Progress is not { } progress || !progress.HasRoomFor(length))
+        {
+            makesProgress |= search.Progress is null;
+            entryLength = Math.Max(entryLength, length);
+
+            return;
+        }
+
+        var place = progress.StandAt(length);
+
+        index.Layout.Detach(_arena, entry, place);
+        IndexLayout.WriteIdentity(place, PlaceOf(identity, search.Reverse, after: false));
+    }
 
     // Why the engine does not store an entity type yet, for what the root layout does not refuse
     // itself; null when nothing of this list applies. The root layout refuses an owned value, a
@@ -611,42 +813,6 @@ internal sealed class EntityTable
         return true;
     }
 
-    // Steps 2 to 4 of a step of a search (ordered-index.md, "The search by a full key"), inside the
-    // protection: takes the entry by its stamp, as a read takes it, and copies its root only when it is
-    // live and has the key of the search. False when the step passes over it.
-    // Every entry the step meets is taken by its stamp, whatever its state, so that a write between its
-    // mark and its stamp is waited for, as a read waits for it, and a step never ends at a position
-    // before a delete or a replace it passed over (docs/design/ordered-index.md, "The search by a full
-    // key", step 2, says why no entry it meets keeps the mark).
-    private bool TryCopyFound<TCopy, TResult>(ref RootEntry entry, SecondaryIndex index, scoped in SearchKey key, ref TCopy copy, out ulong sequence)
-        where TCopy : struct, IRootCopy<TResult>
-        where TResult : class
-    {
-        sequence = 0;
-
-        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
-
-        // The root is read only once the state is loaded Live: an insert stores its root before the
-        // state Live, which it stores with release semantics (ChangePublisher.Install), so the root
-        // loaded with another state may be that of an earlier lifetime of the slot.
-        if (state != RootStateEnum.Live)
-        {
-            return false;
-        }
-
-        var reader = new RootReader(_arena, Layout!, root);
-
-        if (!index.HasKey(reader, key))
-        {
-            return false;
-        }
-
-        copy.Copy(reader);
-        sequence = Math.Max(at, stamp);
-
-        return true;
-    }
-
     // For the capture of a load on a master (Children.Capture), inside the protection of reads the caller
     // entered, while the master goes on writing: takes the entry as one state, by its stamp, as a read does
     // (TryCopy), and returns true with its root and the sequence of its last mutation when the root is live.
@@ -723,6 +889,21 @@ internal sealed class EntityTable
             }
 
             return stamp;
+        }
+    }
+
+    // The copy of a step that copies nothing: for a look at whether a match follows (SearchHasMore). A
+    // value type, so that the step is compiled for it without virtual dispatch, as for every copy.
+    private struct NoCopy : IRootCopy<object>
+    {
+        public readonly void Copy(in RootReader reader)
+        {
+        }
+
+        public readonly object Build() => throw new InvalidOperationException("A look at whether a match follows builds nothing.");
+
+        public readonly void Return()
+        {
         }
     }
 }

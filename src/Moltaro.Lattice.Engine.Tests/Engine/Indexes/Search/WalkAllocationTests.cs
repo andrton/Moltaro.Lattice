@@ -3,7 +3,7 @@ using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search.SearchAllocation
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
-// What a search allocates once it walks (docs/design/ordered-index.md, "How a range will be walked"): the
+// What a search allocates once it walks (docs/design/ordered-index.md, "How a range is walked"): the
 // one object of a lazy search, which grows by the read limits it holds and one reference, and, only for a
 // walk that returns more than the entities of one step, one more object for what a walk remembers, with
 // the set of the keys it returned and the entry it stands after; nothing for each entity beyond what it

@@ -2,54 +2,94 @@ using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
-// Where one search of an entity table by the full key of one of its secondary indexes stands between two
-// steps: the read path of an index, a step at a time (docs/design/ordered-index.md, "The search by a full
-// key"). Plain state that the step reads and moves (EntityTable.TrySearch): the identity after the last
-// entity the search returned, and the sequence at which a step saw the end of the run of the key, if one
-// did; no node, no address and no slot of the protection. Its owner holds it with the key, bound to the
-// fields of the index (Access.Sets.IndexCriteria), for the whole search: the one object of a lazy search
-// (Sets.IndexMatches), or the stack of a search that runs to its end at once (Sets.SetIndex.FindAsync).
-// The owner keeps the place of the search before a step and puts it back when it cannot build the entity
-// the step returned (Sets.SetOperations.Next), so that the next step reads that entity again.
+// Where one search of an entity table through one of its secondary indexes stands between two steps: the
+// read path of an index, a step at a time (docs/design/ordered-index.md, "The search by a full key" and
+// "How a range is walked"). Plain state that the step reads and moves (EntityTable.TrySearch): the
+// identity after the last entity returned of a search by a full key, the sequence at which a step saw the
+// end of the search, if one did, the read limits and what the search has spent of them (ReadLimits), its
+// direction, the matches it still skips by Offset, and whether it holds its answer, as FindAsync does
+// until it returns; no node, no address and no slot of the protection. What only a walk of more than one
+// entity needs it holds in one object, made at the first step that returns an entity without seeing the
+// end of the search (WalkProgress): the keys it returned or passed over, the entry it stands after, and
+// the bytes of its answer. So a search that finds one entity or none holds the read limits and one
+// reference more than a search did before the walk, and nothing else: 56 bytes, the identity and the end,
+// 8 bytes each, the read limits, 24, the reference, 8, and the Offset, the direction and whether it holds
+// its answer, 6, padded to 8.
 //
-// A step runs in the table, where the read protocol of its entities is, inside the protection of reads and
-// without a lock; the owner builds the entity outside the protection. So every entity that has the key for
-// the whole search is returned once, and none under a key its state does not have; a step allocates
-// nothing but what the copy makes. An entity deleted and created again during a search has a new identity
-// and can be returned twice. ordered-index.md, "The search by a full key", says what a step does and why
-// that holds.
+// Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
+// whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
+// its end at once (Sets.SetIndex.FindAsync). The owner keeps the place of the search before a step and puts
+// it back when it cannot build the entity the step returned (Sets.SetOperations.Next), so that the next
+// step reads that entity again, while the time spent and a failure the step recorded stay; and it commits
+// what the step staged once the entity is built (Commit).
 internal struct IndexSearch
 {
-    // The walk of ranges, which is not built yet, stands here with the read limits of the options
-    // (ReadLimits), in either direction, and with the matches it still skips by Offset; what only a walk
-    // of more than one entity needs, it holds in one object, made at the first step that returns an
-    // entity without seeing the end of the search (WalkProgress). The search of a lazy Find goes forward
-    // and skips nothing.
-    public IndexSearch(LatticeDatabaseOptions options, bool reverse, int offset) =>
-        throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    // The read limits of the options and what the search has spent of them, which the step checks and
+    // moves where it lies.
+    public ReadLimits Limits;
 
-    // The identity the next step starts from: after the last entity returned, default before the first.
+    // The search of a lazy Find: forward, skipping nothing, and holding nothing of its answer.
+    public IndexSearch(LatticeDatabaseOptions options)
+    {
+        Limits = new ReadLimits(options);
+    }
+
+    // The search of FindAsync, in the direction given, which skips the matches of its Offset and holds its
+    // answer until it returns.
+    public IndexSearch(LatticeDatabaseOptions options, bool reverse, int offset)
+    {
+        Limits = new ReadLimits(options);
+        Reverse = reverse;
+        Offset = offset;
+        HoldsAnswer = true;
+    }
+
+    // For a search by a full key: in the index order, the identity the next step starts at, after the last
+    // entity returned; in its reverse, the identity the next step stays before, that of the last entity
+    // returned. Default before the first step, which starts at the start in either direction.
     public RootHandle From { get; set; }
 
-    // The sequence at which a step that returned an entity saw the end of the run of the key, null while
-    // none did.
-    public ulong? EndsAt { get; set; }
+    // The sequence at which a step that returned an entity saw the end of the search, 0 while none did: a
+    // step that copies an entity has a sequence of 1 at least, the sequence of the write that made it.
+    public ulong EndsAt { get; set; }
 
     // Whether the search walks the reverse of the index order.
-    public readonly bool Reverse => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    public bool Reverse { get; }
+
+    // The matches the search still passes over before it returns one.
+    public int Offset { get; set; }
+
+    // Whether the search holds its answer until it returns, as FindAsync does, which counts against the
+    // memory limit of a read once it has a WalkProgress.
+    public bool HoldsAnswer { get; }
+
+    // What only a walk of more than one entity needs; null until a step makes it.
+    public WalkProgress? Progress { get; set; }
 
     // Where the search stands, which its owner keeps before a step and puts back when it cannot build the
     // entity the step returned.
-    public readonly (RootHandle From, ulong? EndsAt) Place => (From, EndsAt);
+    public readonly (RootHandle From, ulong EndsAt) Place => (From, EndsAt);
 
-    // Puts the place of the search back to where it stood before a step.
-    public void PutBack((RootHandle From, ulong? EndsAt) place) => (From, EndsAt) = place;
+    // Puts the place of the search back to where it stood before a step, and forgets what that step
+    // staged.
+    public void PutBack((RootHandle From, ulong EndsAt) place)
+    {
+        (From, EndsAt) = place;
+        Progress?.Unstage();
+    }
 
-    // For FindAsync, until it returns: adds what its result holds, the capacity of its list and the stored
-    // bytes of each entity, which counts against the memory limit of a read with what the search remembers.
-    public void Hold(long bytes) => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    // For FindAsync, until it returns: adds what its result holds, the capacity its list grew by, once the
+    // search has a WalkProgress; before that, an answer of one entity whose step saw the end, nothing of it
+    // counts, as a read by key does not.
+    public readonly void Hold(long bytes)
+    {
+        if (HoldsAnswer)
+        {
+            Progress?.Hold(bytes);
+        }
+    }
 
     // The entity the last step returned was built and is returned: what only a walk needs takes what that
     // step staged.
-    public void Commit() => throw new NotSupportedException("The walk of ranges is not implemented yet.");
+    public readonly void Commit() => Progress?.Commit();
 }

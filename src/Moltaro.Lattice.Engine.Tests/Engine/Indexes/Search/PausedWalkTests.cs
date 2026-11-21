@@ -4,7 +4,7 @@ using Moltaro.Lattice.Access;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Search;
 
 // A walk of a range is a step at a time and holds nothing of the database between two steps: no node, no
-// address and no slot of the protection (docs/design/ordered-index.md, "How a range will be walked"). The
+// address and no slot of the protection (docs/design/ordered-index.md, "How a range is walked"). The
 // walk is of the range of Number from 100 to 200 through ByNumber of Counted (IndexSchema), over rows that
 // keep their key, among them a run of 60 rows of one key, longer than a leaf, and rows that move.
 // - A walk paused after its first row, its enumerator kept, holds back nothing that writes retire: while
@@ -26,7 +26,7 @@ public sealed class PausedWalkTests
 
     private const int Run = 60;
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_paused_between_two_steps_holds_back_nothing_that_writes_retire_and_resumes_with_every_row_that_kept_its_key()
     {
         await using var database = await OpenWithRowsAsync();
@@ -61,7 +61,7 @@ public sealed class PausedWalkTests
         ExpectKept(found, reverse: false);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_resumed_after_the_tree_grew_by_levels_between_two_of_its_steps_returns_every_row_that_kept_its_key()
     {
         await using var database = await OpenWithRowsAsync();
@@ -88,7 +88,7 @@ public sealed class PausedWalkTests
         ExpectKept(found, reverse: false);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_abandoned_between_two_steps_after_more_than_one_row_is_held_by_nothing_of_the_database()
     {
         await using var database = await OpenWithRowsAsync();
@@ -105,7 +105,7 @@ public sealed class PausedWalkTests
         GC.KeepAlive(database);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_in_reverse_held_inside_its_steps_while_rows_move_returns_every_row_that_kept_its_key_none_twice()
     {
         await using var database = await OpenWithRowsAsync();

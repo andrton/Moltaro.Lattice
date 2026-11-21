@@ -10,6 +10,10 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 //   search that would exceed the limit fails with LatticeException, ReadLimitExceeded and Limit
 //   ReadMemory. What the lazy Find returned before stays valid, and every further step fails with the
 //   same error, so it never ends as if it were complete.
+// - An answer of one entity whose step saw the end is not counted against ReadMemoryLimit, as a read by
+//   key is not; from the first step that returns an entity without seeing the end, everything the answer
+//   holds counts, the first entity included. Under a limit smaller than one entity, a search that finds
+//   exactly one succeeds, and one that finds two fails with the error of the limit.
 // - ReadTimeLimit counts the time of the steps inside the engine, not the time between two of them.
 // - A cancellation is reported before a limit: a search under a limit it would exceed, given a token
 //   that is cancelled, ends in OperationCanceledException.
@@ -24,7 +28,7 @@ public sealed class SearchReadLimitsTests
 {
     private const long Limit = 64 * 1024;
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Walk_that_would_remember_more_than_the_memory_limit_fails_with_ReadMemory_and_every_further_step_fails_alike()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: Limit);
@@ -63,7 +67,7 @@ public sealed class SearchReadLimitsTests
         ExpectReadMemory(async);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task FindAsync_counts_its_result_against_the_memory_limit_and_the_lazy_Find_counts_no_entity_it_returned()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: Limit);
@@ -80,6 +84,32 @@ public sealed class SearchReadLimitsTests
         Assert.Equal(2_000, byA.Find(IndexKey.Equal<int?>(1)).Count());
         ExpectReadMemory(await Record.ExceptionAsync(async () => await byA.FindAsync(IndexKey.Equal<int?>(1), new LatticeFindOptions())));
         ExpectReadMemory(await Record.ExceptionAsync(async () => await byA.FindAsync(IndexKey.All.Range(IndexBound.Inclusive(0), null), new LatticeFindOptions())));
+    }
+
+    [Fact]
+    public async Task Answer_of_one_entity_is_not_counted_against_the_memory_limit_and_an_answer_of_two_is()
+    {
+        // A limit smaller than one entity.
+        await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: 16);
+        var rows = database.Set<Row>();
+
+        await rows.InsertAsync(WalkRows.Of(1, a: 1, c: 1));
+        await rows.InsertAsync(WalkRows.Of(2, a: 2, c: 2));
+        await rows.InsertAsync(WalkRows.Of(3, a: 2, c: 3));
+
+        var byA = rows.Index("ByA");
+        var byABC = rows.Index("ByABC");
+
+        // One entity: by its full key, by a leading part, by a range, in both forms.
+        Assert.Equal(1L, Assert.Single(byA.Find(IndexKey.Equal<int?>(1))).Id);
+        Assert.Equal(1L, Assert.Single((await byA.FindAsync(IndexKey.Equal<int?>(1), new LatticeFindOptions())).Items).Id);
+        Assert.Equal(1L, Assert.Single((await byABC.FindAsync(IndexKey.Equal<int?>(1), new LatticeFindOptions { Reverse = true })).Items).Id);
+        Assert.Equal(1L, Assert.Single((await byA.FindAsync(IndexKey.All.Range(IndexBound.Inclusive(0), IndexBound.Exclusive(2)), new LatticeFindOptions())).Items).Id);
+
+        // Two entities.
+        ExpectReadMemory(Record.Exception(() => byA.Find(IndexKey.Equal<int?>(2)).ToList()));
+        ExpectReadMemory(await Record.ExceptionAsync(async () => await byA.FindAsync(IndexKey.Equal<int?>(2), new LatticeFindOptions())));
+        ExpectReadMemory(await Record.ExceptionAsync(async () => await byABC.FindAsync(IndexKey.All.Range(IndexBound.Inclusive(2), null), new LatticeFindOptions { Reverse = true })));
     }
 
     [Fact(Skip = SkipReason.BeforeSprint15)]
@@ -102,7 +132,7 @@ public sealed class SearchReadLimitsTests
         Assert.IsAssignableFrom<OperationCanceledException>(cancelled);
     }
 
-    [Fact(Skip = SkipReason.BeforeSprint15)]
+    [Fact]
     public async Task Caller_that_is_slow_between_two_steps_of_a_walk_does_not_use_up_the_time_limit()
     {
         await using var database = await WalkSchema.OpenAsync("Utf8", readTimeLimit: ReadTimes.Limit);
