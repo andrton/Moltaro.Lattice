@@ -123,8 +123,6 @@ internal sealed class WriteExecutor
     // nothing of the write behind.
     public bool TryPrepare(PendingWrite write, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
-        refusal = null;
-
         var table = write.Table;
         var exists = table.TryFind(write.Key, out var handle);
 
@@ -147,6 +145,7 @@ internal sealed class WriteExecutor
         if (write.Kind == WriteKindEnum.Delete && !exists)
         {
             prepared = write.PrepareNothingToDelete();
+            refusal = null;
 
             return true;
         }
