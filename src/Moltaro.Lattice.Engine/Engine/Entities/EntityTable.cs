@@ -747,6 +747,13 @@ internal sealed class EntityTable
                 // built the entity.
                 if (keepsFirst)
                 {
+                    // What the search remembers counts from the moment it remembers it, the key it keeps of its
+                    // first entity included.
+                    if (search.Limits.LimitsMemory)
+                    {
+                        search.CheckMemory(FirstKey.Bytes, cancellationToken, entityName, indexName);
+                    }
+
                     next = (next.From, next.EndsAt, new FirstKey(firstHash, firstWords.First, firstWords.Second));
 
                     return true;
@@ -777,15 +784,15 @@ internal sealed class EntityTable
     }
 
     // Outside the protection, at the second step of a search that kept the key of its first entity: makes the
-    // set of the keys the walk returns, counted against the memory limit as any room a walk makes, and begins
-    // it with that key.
+    // set of the keys the walk returns, counted against the memory limit as any room a walk makes, with the key
+    // kept beside it, which is live until the set holds it, and begins the set with that key.
     private void BeginSet(ref IndexSearch search, FirstKey first, CancellationToken cancellationToken, string entityName, string indexName)
     {
         var made = new WalkProgress(Keys);
 
         if (search.Limits.LimitsMemory)
         {
-            search.CheckMemory(made.BytesWithRoomFor(0, 0), cancellationToken, entityName, indexName);
+            search.CheckMemory(made.BytesWithRoomFor(0, 0) + FirstKey.Bytes, cancellationToken, entityName, indexName);
         }
 
         made.MakeRoom(0, 0);

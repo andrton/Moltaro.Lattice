@@ -534,9 +534,12 @@ protection.
    Guid key makes it one step later: its first step keeps only the primary key of the entity
    it returns (`FirstKey`), taken from the root it copied in that step, and the next step
    makes the set and begins it with that key, so a search that takes the first of many
-   entities and stops allocates no set and reads that entity once. A String key would have
-   to be copied out of the root inside the protection, so such a search makes the set at its
-   first step.
+   entities and stops allocates no set and reads that entity once. The kept key counts
+   against `ReadMemoryLimit` from the step that keeps it, as everything a search remembers
+   does. Three searches make the set at their first step instead: a search by a String key,
+   whose text would have to be copied out of the root inside the protection; `FindAsync`,
+   which counts its first entity as it adds it, with what the walk remembers; and a search by
+   a range, which keeps the detached entry of its entity in the `WalkProgress` anyway.
 6. **The early end.** With the entity it returns, a step sees the end of the search when it
    can: the entry after it on the side of travel is not of the search, or the fence on that
    side lies beyond the end, or there is none. The search then keeps the sequence of that

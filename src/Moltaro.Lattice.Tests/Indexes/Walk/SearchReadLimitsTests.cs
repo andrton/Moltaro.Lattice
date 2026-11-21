@@ -17,6 +17,9 @@ namespace Moltaro.Lattice.Tests.Indexes.Walk;
 //   one succeeds, and one that finds two fails with the error of the limit. And by the smallest limit under
 //   which FindAsync returns one entity, for a value of that entity one byte longer: it does not move for
 //   the one match of a key, and moves by that byte for the second of two matches after an Offset of 1.
+//   What a lazy search remembers counts from the moment it is remembered, the key of the first entity it
+//   returns without seeing the end included: under a limit smaller than that key, a lazy search that takes
+//   the first of many fails at its first step, and one that finds exactly one entity succeeds.
 // - ReadTimeLimit counts the time of the steps inside the engine, not the time between two of them.
 // - A cancellation is reported before a limit: a search under a limit it would exceed, given a token
 //   that is cancelled, ends in OperationCanceledException.
@@ -134,6 +137,34 @@ public sealed class SearchReadLimitsTests
         Assert.True(
             longer - at == offset,
             $"With an Offset of {offset}, one byte more of the entity returned moves the smallest limit from {at} to {longer} bytes; it moves by {offset}.");
+    }
+
+    [Fact]
+    public async Task Lazy_search_that_takes_the_first_of_many_counts_the_key_it_remembers_and_one_that_finds_one_entity_does_not()
+    {
+        // A limit smaller than the key a search remembers of one entity.
+        await using var database = await WalkSchema.OpenAsync("Utf8", readMemoryLimit: 16);
+        var rows = database.Set<Row>();
+
+        for (var id = 1L; id <= 3; id++)
+        {
+            await rows.InsertAsync(WalkRows.Of(id, a: 1, c: id));
+        }
+
+        await rows.InsertAsync(WalkRows.Of(4, a: 2, c: 4));
+
+        var byA = rows.Index("ByA");
+
+        using (var many = byA.Find(IndexKey.Equal<int?>(1)).GetEnumerator())
+        {
+            ExpectReadMemory(Record.Exception(() => many.MoveNext()));
+        }
+
+        using var one = byA.Find(IndexKey.Equal<int?>(2)).GetEnumerator();
+
+        Assert.True(one.MoveNext());
+        Assert.Equal(4L, one.Current.Id);
+        Assert.False(one.MoveNext());
     }
 
     [Fact]
