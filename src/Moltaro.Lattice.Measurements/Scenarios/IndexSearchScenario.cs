@@ -27,10 +27,12 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // - a range of 100: FindAsync of the range of the keys of 100 searched items in a row, from places drawn
 //   with the same seed, forwards and in reverse, alone and beside the writer of the case, whose items
 //   lie between the searched ones; every search checks that it found the 100 searched items;
-// - the same range forwards, on one thread, alone, under a ReadMemoryLimit that admits it, beside the line
-//   without a limit: what counting costs, since a search under a memory limit counts what it holds and
-//   measures each entity it adds by a walk of the descriptors of its root (RootReader.EntityBytes), over a
-//   second database of the same items, loaded with the limit;
+// - the same range forwards, on one thread, alone, without a limit and under a ReadMemoryLimit that admits
+//   it: what counting costs, since a search under a memory limit counts what it holds and measures each
+//   entity it adds by a walk of the descriptors of its root (RootReader.EntityBytes). The two lines of this
+//   pair run over two databases loaded the same way for them, one after the other, of the same items and
+//   untouched by any writer, one without a limit and one with it, not over the database of the case, which
+//   the writers of its exact lines have changed;
 // - a page of 100 of the whole index, FindAsync with Offset 10,000 and Limit 100, beside the first page,
 //   Offset 0; every search checks that it found 100 items;
 // - the descents of a range of 100, reported from the leaves of the tree that each of the ranges of the
@@ -109,10 +111,12 @@ internal static class IndexSearchScenario
             lines.AddRange(Int64Series(items, "Int64, distinct keys", distinct, places, firstOnly: false, writer));
             lines.Add("");
 
+            using var unlimited = IndexedItems.Load(1, distinctItems);
             using var limited = IndexedItems.Load(1, distinctItems, readMemoryLimit: RangeMemoryLimit);
 
-            lines.Add($"Int64, distinct keys, under a ReadMemoryLimit of {ReadSeries.Number(RangeMemoryLimit)} bytes: {limited.Loaded}");
-            lines.AddRange(WalkSeries(items, limited, distinct, Places(Count - RangeSize + 1, KeySeed, ReadSeries.Reads), writer));
+            lines.Add($"Int64, distinct keys, for the pair of what counting costs, without a limit: {unlimited.Loaded}");
+            lines.Add($"Int64, distinct keys, for the pair of what counting costs, under a ReadMemoryLimit of {ReadSeries.Number(RangeMemoryLimit)} bytes: {limited.Loaded}");
+            lines.AddRange(WalkSeries(items, unlimited, limited, distinct, Places(Count - RangeSize + 1, KeySeed, ReadSeries.Reads), writer));
         }
 
         var shared = Enumerable.Range(0, Count).Select(place => (long)(place % SharedKeys)).ToArray();
@@ -277,11 +281,12 @@ internal static class IndexSearchScenario
 
     // The series of the walk over the items of the distinct case (see the class): a range of 100 forwards
     // and in reverse, alone and beside the writer, on each count of readers, and forwards on one thread
-    // alone over the same items under a memory limit as well; the first page and the deep page alone, on
+    // alone over the pair of databases of what counting costs; the first page and the deep page alone, on
     // each count of readers; and the descents of a range.
-    private static IEnumerable<string> WalkSeries(IndexedItems items, IndexedItems limited, long[] keys, int[] rangePlaces, Func<int> writer)
+    private static IEnumerable<string> WalkSeries(IndexedItems items, IndexedItems unlimited, IndexedItems limited, long[] keys, int[] rangePlaces, Func<int> writer)
     {
         var byClass = items.ByClass.Index(IndexedItems.KeyIndex(1));
+        var unlimitedByClass = unlimited.ByClass.Index(IndexedItems.KeyIndex(1));
         var limitedByClass = limited.ByClass.Index(IndexedItems.KeyIndex(1));
         var range = $"Int64, distinct keys, a range of {RangeSize}";
 
@@ -295,7 +300,8 @@ internal static class IndexSearchScenario
 
                 if (!reverse && readers == 1)
                 {
-                    yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone, under the ReadMemoryLimit: {Series(readers, start => new RangeSearch(limitedByClass, keys, rangePlaces, start, reverse), writer: null)}";
+                    yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone, the pair without a limit: {Series(readers, start => new RangeSearch(unlimitedByClass, keys, rangePlaces, start, reverse), writer: null)}";
+                    yield return $"{range}, {direction}, through the class, {Threads(readers)}, alone, the pair under the ReadMemoryLimit: {Series(readers, start => new RangeSearch(limitedByClass, keys, rangePlaces, start, reverse), writer: null)}";
                 }
 
                 yield return $"{range}, {direction}, through the class, {Threads(readers)}, beside a writer that changes the key: {Series(readers, start => new RangeSearch(byClass, keys, rangePlaces, start, reverse), writer)}";
