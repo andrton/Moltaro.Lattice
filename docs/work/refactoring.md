@@ -70,8 +70,8 @@ Gone through by the planner and the coordinator on 18 November 2026.
      tops up.
   4. **S15, part 1,** with E6, G4, F5 and the read limits of F10. Done on 21 November 2026,
      with three starts of the machine; F13 and F14 were found there.
-  4a. **S15, part 2,** the binding rules; then the architect's review after S15, part 1
-     and part 2, and **S15R** with the rest of N3 and F13.
+  4a. **S15, part 2,** the binding rules, with the architect's review after S15, part 1
+     started before it and one more after it; then **S15R** with the rest of N3 and F13.
   5. **S16,** with F6 and G2.
   6. **S17,** with F3, and G6 unless its study keeps the pool.
   7. **S23,** with F8.

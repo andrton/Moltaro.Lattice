@@ -49,6 +49,9 @@ KISS is the base rule for design, code, tests and documentation.
   "just in case".
 - When something is awkward to use, fix its cause. Do not wrap it: no adapter or facade
   class around a core type to work around what the core lacks.
+- Duplication that is seen and known to recur is removed when it is seen: the shared
+  place is made then, not when a third copy appears. That is not a speculative
+  abstraction; it removes what already exists.
 
 Simple is not the goal by itself. Do not make something simpler by dropping a guarantee,
 blurring a boundary or pushing the difficulty onto the caller. The target is the simplest
@@ -144,6 +147,9 @@ row left to right: an earlier quality is not traded for a later one.
 - **Correctness is first everywhere.** For a database it means: nothing lost, nothing
   applied twice, nothing stale returned as current.
 - **Memory is a quality of its own**, next to speed. Compact storage is why the project exists.
+- **Reads win over writes.** Where a design trades the cost of a read against the cost of
+  a write, the read wins while writes meet their targets, and the cost to a write is
+  reported with its figure.
 - **A performance claim needs a measurement.** "Faster" or "fewer allocations" is accepted
   with a number from a benchmark or an allocation test, not by argument. Without one, the
   simpler code stays.
@@ -209,7 +215,9 @@ Naming:
 - Private fields are `_camelCase`.
 - Name things for what they do for the user, not for the framework mechanism inside.
 - Words: a stored object is an *entity*; a replica is a *child*; the per-type access
-  object is a *set*.
+  object is a *set*. Any number of threads may write, and writes are prepared and
+  published one at a time: the thread that does it is *the publishing thread*, and
+  Lattice is never said to have a single writer.
 
 Shape of the public API:
 
@@ -335,8 +343,11 @@ dotnet run --project Moltaro.Lattice.Samples
   taken and what was left out.
 - Review the whole affected flow before finishing: contract, engine, tests, samples,
   `README.md`, `docs`.
-- Keep plans, progress and findings in the conversation. Do not create report, audit or
-  plan files unless the user asks for that document.
+- Keep the working notes of a task — its plan, its progress, what it finds on the way —
+  in the conversation. Do not create report, audit or plan files unless the user asks for
+  that document. What an epic decides, measures or learns is not a working note: it goes
+  into the documents of the epic, as the
+  [development process](docs/work/process.md#new-sessions-at-a-sprint-boundary) says.
 - Never revert the user's changes or unrelated work.
 - Do not commit or push unless asked. Stage only the files of the task. No secrets,
   tokens, machine paths, build output or run output in Git.
