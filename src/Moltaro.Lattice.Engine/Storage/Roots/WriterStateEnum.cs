@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Storage.Values;
+namespace Moltaro.Lattice.Storage.Roots;
 
 // Where a RootWriter stands in its life (brief of S05, "The life of a writer"). Only an open writer
 // takes values; the three ends differ in what Abandon does after them.
