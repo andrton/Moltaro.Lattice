@@ -185,16 +185,7 @@ internal sealed class SetOperations
             return;
         }
 
-        try
-        {
-            search.Limits.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
-        }
-        catch (LatticeException)
-        {
-            progress.Clear();
-
-            throw;
-        }
+        search.CheckMemory(progress.Bytes + progress.Held, Table.EntityType.Name, index?.Definition.Name);
     }
 
     public ValueTask<LatticeWriteResult> WriteAsync(WriteKindEnum kind, EntityKey key, object?[]? values, LatticeRevision? expectedRevision, LatticeSession? session, CancellationToken cancellationToken) =>

@@ -609,17 +609,22 @@ internal sealed class EntityTable
                             continue;
                         }
 
+                        // An entity of the answer FindAsync holds counts against the memory limit when it is
+                        // added, before it is copied; the round looked at the token when it entered.
+                        if (progress is not null && search.HoldsAnswer && search.Limits.LimitsMemory)
+                        {
+                            var held = reader.BlockBytes;
+
+                            search.CheckMemory(progress.Bytes + progress.Held + held, entityName, indexName);
+                            progress.StageHeld(held);
+                        }
+
                         copy.Copy(reader);
                         sequence = Math.Max(at, stamp);
 
                         if (progress is not null)
                         {
                             progress.StageKey(hash, reader, bound);
-
-                            if (search.HoldsAnswer)
-                            {
-                                progress.StageHeld(reader.BlockBytes);
-                            }
 
                             if (!full)
                             {
@@ -667,16 +672,7 @@ internal sealed class EntityTable
                 {
                     if (search.Limits.LimitsMemory)
                     {
-                        try
-                        {
-                            search.Limits.CheckMemory(made.BytesWithRoomFor(keyBound, entryLength), entityName, indexName);
-                        }
-                        catch (LatticeException)
-                        {
-                            made.Clear();
-
-                            throw;
-                        }
+                        search.CheckMemory(made.BytesWithRoomFor(keyBound, entryLength), entityName, indexName);
                     }
 
                     made.MakeRoom(keyBound, entryLength);

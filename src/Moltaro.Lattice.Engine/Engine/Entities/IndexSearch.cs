@@ -89,6 +89,23 @@ internal struct IndexSearch
         }
     }
 
+    // Fails the step when the search would hold more bytes than the memory limit, and lets go of what it
+    // remembers: a search that failed returns nothing more (ReadLimits). Every place a search looks at the
+    // memory limit looks through here.
+    public void CheckMemory(long bytes, string entityName, string? indexName)
+    {
+        try
+        {
+            Limits.CheckMemory(bytes, entityName, indexName);
+        }
+        catch (LatticeException)
+        {
+            Progress?.Clear();
+
+            throw;
+        }
+    }
+
     // The entity the last step returned was built and is returned: what only a walk needs takes what that
     // step staged.
     public readonly void Commit() => Progress?.Commit();
