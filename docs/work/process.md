@@ -18,17 +18,17 @@ repeats after the fixes until it finds nothing that blocks; see [Review](#review
 
 ## Roles
 
-One agent holds one role in a sprint. The separation is the point: nobody checks their own work.
+The implementer produces; the reviewer and the breaker check, and neither has a part in
+producing. Nobody checks their own work.
 
 | Role | Does | Does not |
 | --- | --- | --- |
 | **Owner** (a person) | Approves the epic plan and every change of the contract; decides escalations; pushes and merges, or gives the coordinator a standing permission to | — |
 | **Planner** | Writes the epic document: goal, scope, requirements, the sprints, and the contract of every sprint, stage by stage | Implement |
 | **Coordinator** | Runs an approved epic sprint by sprint: assigns agents, runs the checks, reviews, decides disputes, keeps the epic document current; with the owner's standing permission, pushes and merges a closed sprint | Write production code or tests |
-| **Contract author** | Puts the contract of a sprint into code: the public types and members the brief names, with their documentation, refusing until they are implemented | Design the contract: a name or a signature the brief does not give goes back to the planner. Write the tests of that sprint or implement it |
-| **Test author** | Writes the tests of a sprint from its brief and contract, before the implementation | Implement that sprint |
-| **Implementer** | Makes the tests of the sprint pass | Change what the tests assert; change the contract |
+| **Implementer** | Puts the contract of the sprint into code exactly as the brief names it and writes its tests from the brief, in commits that come before any implementation; then makes those tests pass | Design the contract: a name or a signature the brief does not give goes back to the planner. Change what its tests assert once they are committed |
 | **Independent reviewer** | Reviews the result against the brief, with no part in producing it | Fix what it finds |
+| **Breaker** | Writes probe tests of its own against the guarantees the sprint states, with no part in producing it, and reports only what fails | Fix what it finds |
 
 ## The plan
 
@@ -79,28 +79,29 @@ stops and has the plan corrected before the next sprint.
 
 ## A sprint on the full track
 
-1. **Contract.** The contract author adds the public types of the sprint with their
+1. **Contract and tests.** The implementer adds the public types of the sprint with their
    documentation, exactly as the brief names them; what is not implemented throws
-   `NotSupportedException`. The build is green. One commit.
-2. **Tests.** The test author writes the tests against the contract and marks those that
-   cannot pass yet as skipped, with one shared reason. The sample of intended use is
-   written too. The build is green and nothing fails. One commit.
-3. **Implementation.** The implementer removes the skips and makes the tests pass. It may
-   add tests. It does not change the assertions of the tests it was given, and it does not
+   `NotSupportedException`. It writes the tests against that contract from the brief and
+   marks those that cannot pass yet as skipped, with one shared reason. The sample of
+   intended use is written too. The build is green and nothing fails. These commits come
+   before any implementation; the record of the sprint names the last of them.
+2. **Implementation.** The same agent removes the skips and makes the tests pass. It may
+   add tests. It does not change the assertions of the tests of step 1, and it does not
    change the contract. If either looks wrong, it stops and reports to the coordinator.
-4. **Verification.** The coordinator runs the checks itself: build, format, all tests, the
+3. **Verification.** The coordinator runs the checks itself: build, format, all tests, the
    samples. An agent's report that the checks passed is not a check.
-5. **Review.** The coordinator reviews, and an independent reviewer reviews.
-6. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
+4. **Review.** The coordinator reviews, and an independent reviewer reviews; on a sprint
+   that changes behavior the breaker works beside it.
+5. **Fixes.** The implementer fixes every P1, P2 and P3 finding. The next review covers
    only what changed and what was still open. Review and fixes repeat until an
    independent review ends with no P1, P2 or P3 finding that is still open.
-7. **Documents.** The coordinator compares `README.md`, the
+6. **Documents.** The coordinator compares `README.md`, the
    [architecture](../design/architecture.md) and the documents they point to with what
    the sprint delivered: what exists and what is planned, names, limits, described
    behavior. What no longer holds is corrected and committed with the sprint. A
    disagreement between the code and an accepted decision is not corrected in the text;
    it goes to the owner.
-8. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
+7. **Close.** With no P1, P2 or P3 open and the documents current, the coordinator marks
    the sprint done in the epic document. A finding is no longer open when an independent
    review found its fix sufficient, or when the owner accepted it or moved it to a named
    sprint, as [Review](#review) describes. The next sprint starts, with another implementer.
@@ -116,11 +117,11 @@ no sprint is open, or one that cannot wait for the open sprint.
 
 **A sentence of documentation needs no step of its own.** When a decision that is already
 made changes a sentence of public documentation or a comment and nothing else of the
-contract — no name, no signature, no behavior that was not decided — the agent whose
-commit carries the change it describes writes the sentence in that commit: the test author
-with the tests, the implementer with the code. The brief or the register gives the
-wording, and the reviews check it. A change of a name, a signature or a member remains
-the contract author's step.
+contract — no name, no signature, no behavior that was not decided — the implementer
+writes the sentence in the commit that carries the change it describes, with the tests or
+with the code. The brief or the register gives the wording, and the reviews check it. A
+change of a name, a signature or a member remains a change of the contract, made in step 1
+as the brief names it.
 
 **A decision is written in one place.** A decision of the owner, or an answer of the
 planner, is written out once: in the decision record or the list of decisions that owns
@@ -143,32 +144,42 @@ that names a sprint as its limit is read when that sprint is prepared: the sprin
 not start before the entry is answered or moved to a later one. A question that does
 block is not entered there: the coordinator stops and asks.
 
-A test that turns out to be wrong is changed by the test author, or by the coordinator,
-with the reason in the commit message. Never by the implementer on its own.
+A test of step 1 that turns out to be wrong is changed only on the coordinator's decision,
+with the reason in the commit message, and the reviewer is told which. Never by the
+implementer on its own.
 
 **Edits that state nothing new.** A sprint can force edits on what already exists: a
 member that was renamed is used under its new name, a descriptor is written in a new
-form, a helper names another class. Such an edit is made by whoever makes the commit that
-would otherwise break the build or a test — the contract author, the test author or the
-implementer — in that same commit, in tests and samples as well, so that the build stays
-green after every step. When the commit of the contract removes a member in favour of
-another, the new one works at once for what already exists, so that the tests that read
-it still pass; this is the one case in which a member of a contract commit does more
-than refuse. Such an edit never changes what a test asserts. The brief names each such
-edit, and the reviewers check that nothing else was changed under this rule.
+form, a helper names another class. Such an edit is made by the implementer in the
+commit that would otherwise break the build or a test, in tests and samples as well, so
+that the build stays green after every step. When the commit of the contract removes a
+member in favour of another, the new one works at once for what already exists, so that
+the tests that read it still pass; this is the one case in which a member of a contract
+commit does more than refuse. Such an edit never changes what a test asserts. The brief
+names each such edit, and the reviewers check that nothing else was changed under this
+rule.
 
 ## Review
 
-**What the independent reviewer gets:** the sprint brief, the contract, `AGENTS.md` and the
-diff. Not the implementer's explanation and not the coordinator's opinion: a reviewer that
-is handed a conclusion confirms it.
+**What the independent reviewer gets:** the sprint brief, the contract, `AGENTS.md`, the
+diff, and which commits are those of step 1. Not the implementer's explanation and not
+the coordinator's opinion: a reviewer that is handed a conclusion confirms it.
 
-On a sprint that changes concurrency, storage, the lifetime of memory, replication or
-durability, a second agent works beside the reviewer as a breaker: it writes probe tests
-against the guarantees the sprint states and reports only what fails.
+On every sprint of the full track that changes behavior, a second agent works beside the
+reviewer as a breaker: it writes probe tests against the guarantees the sprint states and
+reports only what fails. On a sprint that changes concurrency, storage, the lifetime of
+memory, replication or durability the brief names its targets, in order. On any other it
+takes the Acceptance of the brief as its list, within a bound the coordinator sets. A
+refactoring sprint, which changes no behavior, and the light track have no breaker.
 
 **What is checked:**
 
+- **The tests against the Acceptance, sentence by sentence.** For every sentence of the
+  Acceptance the reviewer names the test that holds it, or reports that none does. It
+  does this from the brief and the tests of step 1, before it reads the implementation.
+- **That no assertion moved after step 1.** The reviewer compares the tests as they stood
+  at the end of step 1 with the tests at the head. An assertion changed, removed or
+  loosened after step 1 without the coordinator's recorded decision is a P2.
 - The behavior against the brief and the decision records it names.
 - The architectural principles and the quality priorities of the zone, from `AGENTS.md`.
 - That every behavior the brief states has a test, and that no test was weakened.
@@ -208,11 +219,11 @@ goes wrong because of it: a concrete failure or a concrete cost. Then its severi
 A finding that names no rule and no failure is P4. A reviewer does not widen the scope:
 "while you are here" is not a finding.
 
-"Does not change the contract", said of the implementer and of the test author, means
-its names, signatures and behavior; a decided sentence of documentation is theirs to
-write, as "A sentence of documentation needs no step of its own" says. "Every behavior
-the brief states has a test" is ranked by what follows: a behavior the Acceptance
-states and no test holds is P2; one the brief states elsewhere is P4.
+"Does not change the contract", said of the implementer, means its names, signatures and
+behavior; a decided sentence of documentation is the implementer's to write, as "A
+sentence of documentation needs no step of its own" says. "Every behavior the brief
+states has a test" is ranked by what follows: a behavior the Acceptance states and no
+test holds is P2; one the brief states elsewhere is P4.
 
 A changed copy of the code that the tests do not notice is a finding of its own only when
 the code is wrong, or when the change breaks a behavior that the Acceptance of the brief
