@@ -6627,6 +6627,54 @@ run of `index-search` about 64 seconds, `write-callers` 50, `read-by-key-threads
 of the walk are estimated at about a minute and a half for a run. A series is added during
 the start only for a reason the planner agrees to.
 
+**What the first start showed, 21 November 2026** (the rented ARM64 machine, six series,
+about two hours). The exact search lost to this sprint, three rounds agreeing against the
+gauge: head against 5cc64c8 0.88 for an Int64 key found once through the class, 0.92 by
+name, 0.87 and 0.92 for texts of 8 and 100 bytes, and 0.52 for the first item of 6,250
+equal keys, whose bytes went from 416 to 840; S14R was clean there. 256 entries a round
+stays (series 2). Writes and reads by key lose nothing to this sprint, nor does a type
+without indexes (F7, series 3). The upkeep of one index stands at 1.20 to 1.26 times the
+bare tree taken in the same rounds (series 4), the forwarded write loses nothing to F12
+(series 5), and F9 is not explained by how a step is called (series 6). One fall belongs
+to S14R: inserts and deletes of write-callers at 0.92 to 0.96 against 22b8ee1, the head no
+better; its cause is located on a branch of its own, and its fix is merged to `main`
+before this sprint.
+
+The costs of the walk, reported with no target: a range of 100 about 9,800 a second on one
+thread alone and 0.89 forwards, 0.84 in reverse beside a writer, which is everything a
+writer costs a reader, the tries among it; a page of 100 at Offset 10,000 about 26 times
+the first page, the price of remembering the identities passed over that Q07.3.5 requires;
+counting under a memory limit not visible for an entity of 112 stored bytes; a range of
+100 makes 3.22 descents at a fence, so a harvest of a page at a time is not worth a
+design.
+
+The fixes of the fall of the exact search, taken by the planner after a table of the parts
+of its path: group 1, the frame of the step (A1 the step with nothing to walk as a method
+of its own, A2 one walk and one scratch); group 2, the calls (A3 the place given as out
+values, A5 whether the key is full asked once, A4 an inline test whether any limit is
+set); group 3, A7 Seek keeps the fence of its side; and (B), a lazy search by a full key
+that takes the first of many keeps only that entity's primary key until its second step,
+counted against `ReadMemoryLimit` as anything it remembers. A2's lean second path and A6
+wait for the figures of the second start. A group is kept only if its figure shows outside
+the gauge; A3, A5 and A7 are plainer and stay in any case.
+
+**The plan of the second start of S15, part 1** (the coordinator, for the planner to read
+before it). One start of the rented machine, after a review round of the fixes and the
+breaker's probes on them have closed with no P1 to P3, on the head that passed them. The
+owner is asked only to start and to stop the machine. Every series rotates its builds in
+rounds with a second build of the last as the gauge; at most 8 readers are judged, and a
+fall is called only on three rounds agreeing against the gauge.
+
+| # | Series | Expected length | Decides |
+| --- | --- | --- | --- |
+| 1 | `index-search` over 5cc64c8, 5abb6c0 (the head of the first start), the head after group 1 (a6bbd62), after group 2 (18151c8), the head with group 3 and (B), and a second build of the head as the gauge. The line of 16 keys, the first item, is an Int64 key, which (B) covers; a String primary key takes the earlier path and is not measured here | about 30 minutes, six builds, three rounds | whether the exact search still loses to the sprint, and which group carries what: a group of the frame and A4 are kept only if their step shows outside the gauge |
+| 2 | `write-callers` over 22b8ee1, 5cc64c8, `main` with the fix of S14R, and a second build of it as the gauge; its insert-and-delete lines decide | about 15 minutes, four builds, four rounds | that the fix of S14R gives back what S14R cost inserts and deletes |
+
+The series run in the order 1, 2. Eight builds take about ten minutes. The whole start is
+about fifty-five minutes. The lengths come from the first start: a run of `index-search`
+about 63 seconds for 5cc64c8 and 98 for the head, of `write-callers` about 50. A series is
+added during the start only for a reason the planner agrees to.
+
 **The study of S15, part 1, 20 November 2026: the walk.** Read at `main` 22b8ee1, nothing
 measured; a figure is quoted from the measured results or estimated by reading. Systems
 read, the licence checked first:
