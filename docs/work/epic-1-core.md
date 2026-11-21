@@ -67,8 +67,9 @@ values and copy what is set into them. Sets by class and by name, for
 entity types of scalar and Enum fields, under every key type, both text comparisons, UTF-8
 and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Search through a declared secondary index
-by its full key, by class and by name, on a master and on a child; a search by the
-leading fields, with a range, in reverse or in pages is S15. Positions and sessions; a write through a
+by its full key, by its leading fields and with a range, in either direction and in pages
+with Offset and Limit, within the read limits, by class and by name, on a master and on a
+child (S15, part 1). Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
 **How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
@@ -141,15 +142,15 @@ that publishes its root, the upkeep of every index of a type in one place
 has the key. A text key of 64 bytes or less is copied into the entry whatever the storage
 mode of its field, a longer one references the text entry of its root, and a field that
 is part of an index stores a value longer than 64 bytes as a text entry. A child builds
-its indexes while it loads and keeps them while it follows. An entity deleted and created
-again during a search may be returned twice until S15.
+its indexes while it loads and keeps them while it follows. A search remembers the
+entities it returned or passed over, so an entity is returned at most once, also across a
+delete and a re-creation and when its key moves ahead of the walk.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Search through a declared index by its leading fields, with a range, in reverse or with Offset or Limit | `set.Index(name).Find` / `FindAsync` | `IndexTests` | S15 |
 | Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
@@ -194,8 +195,8 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R12 | Memory is bounded and its exhaustion is explicit: reservations before commit, refusal instead of unbounded waiting, a child pauses application and keeps its reads; an entity has no cap of its own (decision O19) | [Q14](../decisions/write-admission.md) | Must | Absent | S09, S23–S24, S33–S34 |
 | R13 | Index structures of the engine's own — a hash table for the primary index (S08), an ordered structure for secondary indexes chosen in S14 after its study (the selection of the Arc collections is superseded, 18 November 2026) — rebuilt locally on every node | [Index structures](../decisions/index-structures.md), [Q19](../decisions/index-lifecycle.md) | Must | Absent | S06–S08, S14–S15 |
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
-| R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Contract; `IndexTests` skipped | S14–S15 |
-| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | On the engine an enumeration goes on while entities change, with the budget of the options; index traversal follows | S06–S08, S14–S15 |
+| R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Done: the full key in S14, leading fields, ranges, both directions, Offset, Limit and the read limits in S15, part 1; the binding rules wait for S15, part 2 | S14–S15 |
+| R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | Done: an enumeration and a traversal of an index go on while entities change, with the budget of the options (S15, part 1) | S06–S08, S14–S15 |
 | R17 | Unique indexes on one field or several, validated against the final state on the master; keys with a null are exempt; swaps and delete-and-reclaim inside a batch | [Q07.4](../decisions/unique-indexes.md) | Must | Contract; `UniqueIndexTests` skipped | S16, S17 |
 | R18 | Complete writes: Insert, Replace, Upsert, Delete; expected revisions; immutable keys; a complete write is never turned into a diff; inputs stay stable until completion | [Q13](../decisions/mutation-commands.md) | Must | Works | S06–S08 |
 | R19 | Explicit partial updates: scalar assignments, replacement of a whole collection field and the accepted List, Map and Set element commands, in order, atomic for one entity | [Q13](../decisions/mutation-commands.md) | Must | Absent | S20 |
