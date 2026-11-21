@@ -204,14 +204,14 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, before a write or a received change is refused for memory: every index
     // of the database gives back what its pool holds above the need of the changes prepared and not
-    // published (Indexes.OrderedTree.GiveBackReserve).
+    // published (Indexes.SecondaryIndex.GiveBackReserve).
     public void GiveBackReserves()
     {
         foreach (var table in _tables.InSchemaOrder)
         {
             foreach (var index in table.Indexes)
             {
-                index.Tree.GiveBackReserve();
+                index.GiveBackReserve();
             }
         }
     }
@@ -226,7 +226,7 @@ internal sealed class ChangePublisher
         {
             if (ChangeAt(change, index, replaced) != IndexChangeEnum.None)
             {
-                indexes[index].Tree.TopUp();
+                indexes[index].TopUp();
             }
         }
     }
