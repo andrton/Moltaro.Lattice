@@ -24,13 +24,9 @@ internal static class RootStorage
     {
         ArgumentNullException.ThrowIfNull(layout);
 
-        var payload = layout.RootPayload(arena, root);
-
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, layout.RootPayload(arena, root)))
         {
-            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
-
-            FreeValue(arena, ValueBlocks.Read(payload[offset..]));
+            FreeValue(arena, descriptor);
         }
 
         arena.Free(root);
@@ -62,13 +58,8 @@ internal static class RootStorage
     {
         ArgumentNullException.ThrowIfNull(layout);
 
-        var payload = layout.RootPayload(arena, root);
-
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, layout.RootPayload(arena, root)))
         {
-            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
-            var descriptor = ValueBlocks.Read(payload[offset..]);
-
             if (descriptor.Kind == DescriptorKindEnum.Text)
             {
                 arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
@@ -100,11 +91,8 @@ internal static class RootStorage
         var payload = layout.RootPayload(arena, root);
         var textBytes = 0L;
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            var offset = layout.DescriptorOffset + index * ValueBlocks.DescriptorSize - BlockHeader.Size;
-            var descriptor = ValueBlocks.Read(payload[offset..]);
-
             if (descriptor.Kind == DescriptorKindEnum.Text)
             {
                 textBytes += ValueBlocks.SlotBytesOf((int)descriptor.Length);

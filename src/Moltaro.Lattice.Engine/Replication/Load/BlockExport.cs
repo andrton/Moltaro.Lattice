@@ -39,10 +39,8 @@ internal static class BlockExport
         var payload = layout.RootPayload(arena, root);
         var length = (long)sizeof(uint) + payload.Length;
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            var descriptor = ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
-
             if (ValueBlocks.LiesOutOfLine(descriptor))
             {
                 length += (long)descriptor.Length;
@@ -67,23 +65,22 @@ internal static class BlockExport
 
         payload.CopyTo(copy);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        var copied = new RootDescriptors(layout, copy);
+
+        while (copied.MoveNext())
         {
-            var place = copy[(layout.DescriptorField(index).Offset - BlockHeader.Size)..];
-            var descriptor = ValueBlocks.Read(place);
+            var descriptor = copied.Current;
 
             if (ValueBlocks.LiesOutOfLine(descriptor))
             {
-                ValueBlocks.Write(place, descriptor with { Location = 0 });
+                ValueBlocks.Write(copied.Place, descriptor with { Location = 0 });
             }
         }
 
         output.Advance(payload.Length);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            var descriptor = ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]);
-
             if (!ValueBlocks.LiesOutOfLine(descriptor))
             {
                 continue;

@@ -444,11 +444,11 @@ internal ref struct RootWriter
         Image[BlockHeader.Size.._rootBytes].CopyTo(_arena.Payload(root));
 
         // The value blocks and the directories were allocated before their parent existed.
-        for (var index = 0; index < _layout.DescriptorCount; index++)
-        {
-            var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
+        var descriptors = new RootDescriptors(_layout, Image[BlockHeader.Size..]);
 
-            ValueBlocks.Adopt(_arena, ValueBlocks.Read(Image[offset..]), root, offset);
+        while (descriptors.MoveNext())
+        {
+            ValueBlocks.Adopt(_arena, descriptors.Current, root, descriptors.Offset);
         }
 
         End(WriterStateEnum.Completed);
@@ -681,11 +681,9 @@ internal ref struct RootWriter
             return;
         }
 
-        for (var index = 0; index < _layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(_layout, Image[BlockHeader.Size..]))
         {
-            var offset = _layout.DescriptorOffset + index * ValueBlocks.DescriptorSize;
-
-            RootStorage.FreeValue(_arena, ValueBlocks.Read(Image[offset..]));
+            RootStorage.FreeValue(_arena, descriptor);
         }
 
         SlotBytes = 0;

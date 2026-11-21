@@ -473,9 +473,9 @@ internal sealed class WriteExecutor
         var payload = layout.RootPayload(_arena, root);
         var size = (long)Arena.BlockSizeFor(payload.Length);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        foreach (var descriptor in new RootDescriptors(layout, payload))
         {
-            size += ValueBlocks.SlotBytes(ValueBlocks.Read(payload[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+            size += ValueBlocks.SlotBytes(descriptor);
         }
 
         return size;

@@ -103,17 +103,11 @@ internal sealed class BlockImport
         {
             // The values out of line follow one another in the order of their descriptors.
             var before = 0L;
+            var others = new RootDescriptors(layout, _payload);
 
-            for (var index = 0; index < layout.DescriptorCount; index++)
+            while (others.MoveNext() && others.Offset != stored.Offset)
             {
-                ref readonly var other = ref layout.DescriptorField(index);
-
-                if (other.Offset == stored.Offset)
-                {
-                    break;
-                }
-
-                var value = ValueBlocks.Read(_payload.AsSpan(other.Offset - BlockHeader.Size));
+                var value = others.Current;
 
                 if (ValueBlocks.LiesOutOfLine(value))
                 {
@@ -174,11 +168,15 @@ internal sealed class BlockImport
 
             _payload.AsSpan(0, root.PayloadLength).CopyTo(target);
 
-            for (; index < layout.DescriptorCount; index++)
+            var descriptors = new RootDescriptors(layout, target);
+
+            while (descriptors.MoveNext())
             {
-                var offset = layout.DescriptorField(index).Offset;
-                var place = target.Slice(offset - BlockHeader.Size, ValueBlocks.DescriptorSize);
-                var received = ValueBlocks.Read(place);
+                // The descriptors before it are placed, and an abandon frees what they hold.
+                index = descriptors.Index;
+
+                var place = descriptors.Place;
+                var received = descriptors.Current;
 
                 if (!ValueBlocks.LiesOutOfLine(received))
                 {
@@ -211,7 +209,7 @@ internal sealed class BlockImport
                         return default;
                     }
 
-                    ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, offset);
+                    ValueBlocks.Adopt(_arena, ValueBlocks.Read(place), block, descriptors.Offset);
                 }
 
                 values = values.Slice(length);
@@ -253,11 +251,12 @@ internal sealed class BlockImport
 
         var inline = 0L;
         var outOfLine = 0L;
+        var received = new RootDescriptors(layout, payload);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        while (received.MoveNext())
         {
-            ref readonly var field = ref layout.DescriptorField(index);
-            var descriptor = ValueBlocks.Read(payload[(field.Offset - BlockHeader.Size)..]);
+            ref readonly var field = ref received.Field;
+            var descriptor = received.Current;
             var isNull = field.IsNullable && (payload[field.NullBit / 8] & (1 << (field.NullBit % 8))) != 0;
 
             if (isNull)
@@ -303,11 +302,12 @@ internal sealed class BlockImport
         // A received location is compared without adding the length to it, which could wrap around the
         // range of the number and pass a value that lies anywhere.
         var end = (ulong)(BlockHeader.Size + payloadLength);
+        var placed = new RootDescriptors(layout, payload);
 
-        for (var index = 0; index < layout.DescriptorCount; index++)
+        while (placed.MoveNext())
         {
-            ref readonly var field = ref layout.DescriptorField(index);
-            var descriptor = ValueBlocks.Read(payload[(field.Offset - BlockHeader.Size)..]);
+            ref readonly var field = ref placed.Field;
+            var descriptor = placed.Current;
 
             if (descriptor.Kind == DescriptorKindEnum.Inline && (descriptor.Location > end || descriptor.Length > end - descriptor.Location))
             {
@@ -339,11 +339,11 @@ internal sealed class BlockImport
     // name no block of this arena.
     private void Abandon(ArenaAddress block, RootLayout layout, int before)
     {
-        var target = _arena.Payload(block);
+        var descriptors = new RootDescriptors(layout, _arena.Payload(block));
 
-        for (var index = 0; index < before; index++)
+        while (descriptors.MoveNext() && descriptors.Index < before)
         {
-            RootStorage.FreeValue(_arena, ValueBlocks.Read(target[(layout.DescriptorField(index).Offset - BlockHeader.Size)..]));
+            RootStorage.FreeValue(_arena, descriptors.Current);
         }
 
         _arena.Free(block);
