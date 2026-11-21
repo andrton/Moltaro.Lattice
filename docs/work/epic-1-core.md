@@ -1268,6 +1268,7 @@ Why this order:
 | S14R | Refactoring after S14: structure only | Full | Done, in two parts, on 21 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
+| S15R | Refactoring after S15 | Full | In progress ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Not started |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
@@ -7370,6 +7371,15 @@ touches anyway.
 - **Out of scope.** Swaps inside a batch (S17). Activation of a new unique index over
   existing data (S38).
 
+**Added by the planner on 21 November 2026, from the architect's review after S15, part 2.**
+Two things the sprint carries beside its own work. The start of the machine has a line of
+`index-search` with a text key, for J1 of `refactoring.md`, beside the line of
+`write-callers` for H1. And the author of the tests makes one helper at the root of
+`Moltaro.Lattice.Tests/Indexes` for "this call is refused as an argument", used by
+`BindingSearch.ExpectRefusedAsync` and `IndexPartTypeTests.ExpectRefused`, that holds the
+exception to be an `ArgumentException` itself and not a type derived from it: every such
+refusal is one today.
+
 #### S17 · Atomic write batch
 
 **Carried from the architect's review after S15, part 1 (21 November 2026), for the study
@@ -7542,6 +7552,10 @@ child stores received bytes through its own allocation.
   8, 9 and 1,000 entries.
 - **Out of scope.** Element commands (S20). Shrinking after removals (S23).
 
+**Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
+given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
+a box that the keys of an index use, and its `Bind`; it does not write a second holder.
+
 #### S20 · Partial updates
 
 **Carried from the study of S11:** how a partial update travels to a child is decided in
@@ -7585,6 +7599,10 @@ during catch-up is recorded and must be resolved by a delete before R.
   complete replacement.
 - **Out of scope.** Arithmetic commands, change tracking, edits inside an element, key
   rename: all excluded by decision.
+
+**Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
+given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
+a box that the keys of an index use, and its `Bind`; it does not write a second holder.
 
 #### S21 · Protected views by name
 

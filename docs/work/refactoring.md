@@ -73,9 +73,11 @@ Gone through by the planner and the coordinator on 18 November 2026.
   4a. **S15, part 2,** the binding rules, with the architect's review after S15, part 1
      started before it and one more after it; then **S15R** with the rest of N3 and F13.
      **S15R,** set by the planner on 21 November 2026 after the architect's review after
-     S15, part 1: H1; H4; H3; the candidates 1 to 4 of F13; H2; the comments (H5, the rest
-     of N3). It starts after part 2 is merged and after the architect's review after part 2
-     is gone through, whose taken entries join it. No start of the machine of its own.
+     S15, part 1, with what the architect's review after part 2 added on the same day: H1;
+     H4; H3; the candidates 1 to 4 of F13; H2; J1; J2; the comments (H5, the rest of N3, the
+     comments that say "the one writer", and J3). It starts after part 2 is merged and after
+     the architect's review after part 2 is gone through, whose taken entries join it. No
+     start of the machine of its own.
   5. **S16,** with F6 and G2.
   6. **S17,** with F3, and G6 unless its study keeps the pool.
   7. **S23,** with F8.
@@ -286,6 +288,39 @@ hints checked against the root; the order of upkeep in `ChangePublisher.Publish`
 `IndexLayout.WriteEntry` copying fixed parts as they lie in the root; `SetOperations.Next`
 written twice, because merging them needs an interface that is no boundary; `TryCopy`
 beside `TryCopyFound`, on which the figure of the read by key depends.
+
+## Architect's review after S15, part 2, 21 November 2026
+
+Read at `main` 074f783. The sprint landed where it belongs: binding is one type of the
+core, `IndexValue`; `IndexCriteria` shrank; `SearchKey.WriteFixed` needed no change; no
+folder and no dependency moved, and nothing needs a new type. Gone through by the planner
+and the coordinator on the same day. Found sound and left: `IndexValue` as one type with
+`Pairs`, `TryConvert`, `TryConvertInteger` and the type of a null in its padding; the
+split of `IndexCriteria.Prepare`; `KeyArgument` beside `IndexValue.Of`, since merging them
+would cost a read by key a call; the two oracles of the tests of `ValueBinding`, which
+repeat about 25 lines and get a shared place if a third is written. Not examined:
+`docs/design` and the README beyond names, the samples, the child's side, and the places
+of H1, H3 and F13.
+
+| # | Place | What is wrong | The simpler form | What must be shown unchanged | Status |
+| --- | --- | --- | --- | --- | --- |
+| J1 | `src/Moltaro.Lattice/Access/Values/IndexValue.cs` (`Of`, `OfOther`) | Reference types and value types go through one interleaved path, and a null is made in four places: the branch of a string, the test of a null reference, `Is` and `OfOther`. A string is taken ahead of `OfObject`, which takes it as well | One branch for every reference type, the first in `Of`: a null reference becomes the null of its kind, of String for a string, without a type for an object, of a type no field has otherwise, and any other reference goes to `OfObject`. After it only value types remain, the chain of `Is` and `OfOther`, so a null is made in three places, one for each kind of .NET null | Making a key boxes and allocates nothing, in a build the JIT does not optimize as well (`SearchAllocationTests`, `ConvertedValueAllocationTests`, `KeySizeTests`); the tests of `Indexes/ValueBinding`; the JIT listing of `IndexKey.Equal<string>`, `Equal<long>`, `Equal<object>` and `IndexBound.Inclusive<string>` with their callers, in which the string form shows no added call; a line of `index-search` with a text key in the start of S16 | taken (S15R), a commit of its own after H2. If the listing shows an added call for a string that making the String value in the branch does not remove, only the comment is changed, in the commit of comments |
+| J2 | `IndexValue.BindOther`, `src/Moltaro.Lattice/Access/Values/FieldValues.cs` (`Normalize`) | The refusal of a value that cannot be used for a field is written character for character in two files, the head of `IndexValue` promises that they agree, and no test holds either text | One member of `FieldValues` that makes that `ArgumentException` from the field, the value and the name of the parameter, called by both. The messages of a null, of an enum value and of text that is not well-formed have other endings and stay | Both messages byte for byte, and `ParamName`: a test that pins them is committed first | taken (S15R), two commits after J1: the test, then the member |
+| J3 | Comments: the head of `IndexValue`, 33 lines, whose fourth paragraph repeats the remarks of `IndexKey`; `FieldValues.cs`, which cites the planner and a question; `Engine/Indexes/PrimaryIndex.cs`, which cites a review round, a sprint and a dated decision | The convention for comments of `AGENTS.md` | The head of `IndexValue` keeps what the type is for, that nothing is boxed, and the bits; of `Bind` it says in two or three lines that it applies the remarks of `IndexKey` and Q07.3.6 of `docs/decisions/queries.md`, and adds what they do not say: a converted value is written into the bits, and the check of an enum value uses the words of a write. The other two state their rule in their own words | Nothing measured; comments only | taken (S15R), in the commit of comments. Comments of the same kind in files S15R does not touch stay with C1 |
+
+Left as they are, from the review of S15, part 2 and from this one:
+
+- `IndexValue.TryConvert` is right only for a pair `Pairs` allows. It is private, its one
+  caller is three lines above it and its comment says so; making it stand alone would
+  repeat `Pairs`.
+- `TextPolicyTests` repeats the equality that `TextKeySearchTests` owns. Removing it
+  removes assertions, and its head already names the owner.
+- `IndexBound.Inclusive<string>(null!)` is refused in the words of a bound without a
+  value, which is not its cause. A message is behavior; it is changed when someone meets
+  it, in a sprint of the plan.
+- `BindingSearch.ExpectRefusedAsync` accepts any exception derived from
+  `ArgumentException`. Tightening it changes an assertion, so it is not refactoring; it
+  is a note for the test author of S16 in the document of Epic 1.
 
 ## Architect's review after S15, part 1, 21 November 2026
 

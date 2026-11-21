@@ -98,6 +98,16 @@ in the meantime.
 | **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
 | **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
 
+### Q55. Should a value written by name be bound as a part of a search key is?
+
+| | |
+| --- | --- |
+| **Found** | 21 November 2026, the architect's review after Epic 1, sprint S15, part 2 |
+| **Question** | A search binds a value by the allowlist of Q07.3.6: an integer of another width, any integer for a Decimal, an integer a Float32 or a Float64 holds exactly, a Float32 for a Float64 and a Float64 that converts back to itself. A value written by name is accepted only in the type of the field, or as an integer of another width that fits. So `record["Price"] = 5` is refused for a Decimal field, where `IndexKey.Equal(5)` finds the entity. Is the difference meant? |
+| **Answer** | Open, for the owner. The planner's recommendation: one rule, the allowlist, for a value given by itself in a write as well, since every pair of it keeps the number and a class property takes most of them from the compiler already; the elements of a collection stay as declared. It is a change of the public contract, so it is his, and it would be a small task of a sprint that already touches writes by name |
+| **What the code does** | The narrower rule, as the remarks of `LatticeRecord` state it (`FieldValues.Normalize`) |
+| **Where the rule lives** | The remarks of the indexer of `LatticeRecord`; `docs/decisions/queries.md`, Q07.3.6, for a search |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
