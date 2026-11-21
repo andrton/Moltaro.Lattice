@@ -1,6 +1,6 @@
 namespace Moltaro.Lattice.Storage.Roots;
 
-// Where a RootWriter stands in its life (brief of S05, "The life of a writer"). Only an open writer
+// Where a RootWriter stands in its life, which the head of RootWriter describes. Only an open writer
 // takes values; the three ends differ in what Abandon does after them.
 internal enum WriterStateEnum : byte
 {
