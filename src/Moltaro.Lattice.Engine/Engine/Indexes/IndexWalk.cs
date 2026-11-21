@@ -50,10 +50,11 @@ internal ref struct IndexWalk
     private bool _done;
 
     // The walk of the bound key over the index, in reverse when asked: after the identity given, for a key
-    // that gives every part of the index and no range, default at the start; after the entry given, in
+    // that gives every part of the index and no range, which its search says it is (IsFullKey), default at
+    // the start; after the entry given, in
     // detached form, for any other key, empty at the start. The scratch is where the walk writes its search
     // keys: one of SearchKey.ScratchBytes for a full key, which takes one search key, two for any other.
-    public IndexWalk(SecondaryIndex index, in IndexKey bound, bool reverse, RootHandle from, ReadOnlySpan<byte> after, Span<byte> scratch)
+    public IndexWalk(SecondaryIndex index, in IndexKey bound, bool full, bool reverse, RootHandle from, ReadOnlySpan<byte> after, Span<byte> scratch)
     {
         var layout = index.Layout;
         var first = scratch[..SearchKey.ScratchBytes];
@@ -65,7 +66,7 @@ internal ref struct IndexWalk
         _started = false;
         _done = false;
 
-        if (IsFullKey(layout, bound))
+        if (full)
         {
             // A run of one key: one search key, at the identity of the step and at the edge beyond the run.
             var key = new SearchKey(layout, bound, reverse && from == default ? SearchKey.AfterEvery : from, first);

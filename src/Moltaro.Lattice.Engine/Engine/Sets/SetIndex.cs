@@ -92,7 +92,7 @@ internal sealed class SetIndex<TCopy, TEntity> : ILatticeIndex<TEntity>
     // moves to it. With a Limit reached, one look more says whether a match follows.
     private LatticeFindResult<TEntity> FindAll(in IndexKey bound, LatticeFindOptions options, CancellationToken cancellationToken)
     {
-        var search = new IndexSearch(_operations.Options, options.Reverse, options.Offset);
+        var search = new IndexSearch(_operations.Options, _index is not null && IndexWalk.IsFullKey(_index.Layout, bound), options.Reverse, options.Offset);
         var items = new List<TEntity>();
         var last = 0UL;
         var hasMore = false;

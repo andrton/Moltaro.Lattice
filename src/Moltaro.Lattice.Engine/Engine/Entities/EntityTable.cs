@@ -545,7 +545,7 @@ internal sealed class EntityTable
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var full = IndexWalk.IsFullKey(index.Layout, key);
+        var full = search.FullKey;
         Span<byte> scratch = stackalloc byte[full ? SearchKey.ScratchBytes : 2 * SearchKey.ScratchBytes];
         var entityName = EntityType.Name;
         var indexName = index.Definition.Name;
@@ -566,7 +566,7 @@ internal sealed class EntityTable
                 // The keys of the walk are written on the stack outside the protection, once for the round.
                 var after = !full && search.Progress is { } walked ? walked.Last : default;
 
-                var walk = new IndexWalk(index, key, search.Reverse, search.From, after, scratch);
+                var walk = new IndexWalk(index, key, full, search.Reverse, search.From, after, scratch);
                 var protection = EnterProtection(ref search, cancellationToken);
 
                 try

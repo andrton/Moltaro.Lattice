@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the entry it stands after, and the bytes of its answer. So a search that finds one entity or none and
 // passes over no match holds the read limits and one reference more than a search did before the walk,
 // and nothing else: 56 bytes, the identity and the end, 8 bytes each, the read limits, 24, the reference,
-// 8, and the Offset, the direction and whether it holds its answer, 6, padded to 8.
+// 8, and the Offset, the direction, whether it holds its answer and whether its key is full, 7, padded to 8.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
@@ -31,21 +31,29 @@ internal struct IndexSearch
     // moves where it lies.
     public ReadLimits Limits;
 
-    // The search of a lazy Find: forward, skipping nothing, and holding nothing of its answer.
-    public IndexSearch(LatticeDatabaseOptions options)
+    // The search of a lazy Find, by a full key or not: forward, skipping nothing, and holding nothing of its
+    // answer.
+    public IndexSearch(LatticeDatabaseOptions options, bool fullKey)
     {
         Limits = new ReadLimits(options);
+        FullKey = fullKey;
     }
 
-    // The search of FindAsync, in the direction given, which skips the matches of its Offset and holds its
-    // answer until it returns.
-    public IndexSearch(LatticeDatabaseOptions options, bool reverse, int offset)
+    // The search of FindAsync, by a full key or not, in the direction given, which skips the matches of its
+    // Offset and holds its answer until it returns.
+    public IndexSearch(LatticeDatabaseOptions options, bool fullKey, bool reverse, int offset)
     {
         Limits = new ReadLimits(options);
+        FullKey = fullKey;
         Reverse = reverse;
         Offset = offset;
         HoldsAnswer = true;
     }
+
+    // Whether the key gives every part of the index and no range, a run of one key
+    // (Indexes.IndexWalk.IsFullKey), decided once for the search: such a search stands at an identity in the
+    // run (From), any other after the entry of the entity it returned last (WalkProgress.Last).
+    public bool FullKey { get; }
 
     // For a search by a full key: in the index order, the identity the next step starts at, after the last
     // entity returned; in its reverse, the identity the next step stays before, that of the last entity

@@ -37,7 +37,7 @@ public sealed class SearchObjectAllocationTests
     //   returned, 8 bytes; the sequence of an end a step saw, a 64-bit number with 0 for none, 8; the read
     //   limits, 24 (Entities.ReadLimits: the options, the ticks spent and the limit that failed, a nullable
     //   enum of 8); the one reference to what only a walk needs, 8 (Entities.WalkProgress); and the Offset,
-    //   the direction and whether it holds its answer, 6, padded to 8;
+    //   the direction, whether it holds its answer and whether its key is full, 7, padded to 8;
     // - the state of the search, 4 bytes, and 4 of padding to a multiple of 8.
     private const long ClassSearch = 360;
 
