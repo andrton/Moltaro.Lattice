@@ -28,15 +28,12 @@ internal static class NodeStorage
         }
 
         var reading = new IndexNode(layout, arena.Payload(node));
-        Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
         for (var place = 0; place < reading.Count; place++)
         {
-            var count = layout.SharedTexts(reading.EntryAt(place), texts);
-
-            for (var text = 0; text < count; text++)
+            foreach (var descriptor in layout.SharedKeysOf(reading.EntryAt(place)))
             {
-                arena.Texts.AddReference(ValueBlocks.AddressOf(texts[text]));
+                arena.Texts.AddReference(ValueBlocks.AddressOf(descriptor));
             }
         }
     }
@@ -51,15 +48,19 @@ internal static class NodeStorage
         if (layout.HasText)
         {
             var reading = new IndexNode(layout, arena.Payload(node));
-            Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
+            // The shared keys come one at a time from SharedKeys, a ref struct, here as in TakeReferences,
+            // Free and OrderedTree.PublishTexts, and not into a span from stackalloc: a stackalloc beside a
+            // loop compiles the method without tiering, at once and with no profile, and keeps it from being
+            // inlined into its callers. That made this walk a call of its own with a call for each entry,
+            // measured as about 54 calls more on each insert and each delete of the users of the reference
+            // fixture, whose three indexes have String parts (JIT listings and block counts of the write
+            // path).
             for (var place = 0; place < reading.Count; place++)
             {
-                var count = layout.SharedTexts(reading.EntryAt(place), texts);
-
-                for (var text = 0; text < count; text++)
+                foreach (var descriptor in layout.SharedKeysOf(reading.EntryAt(place)))
                 {
-                    textBytes += ValueBlocks.SlotBytesOf((int)texts[text].Length);
+                    textBytes += ValueBlocks.SlotBytesOf((int)descriptor.Length);
                 }
             }
         }
@@ -76,15 +77,12 @@ internal static class NodeStorage
         if (layout.HasText)
         {
             var reading = new IndexNode(layout, arena.Payload(node));
-            Span<ValueDescriptor> texts = stackalloc ValueDescriptor[layout.TextParts];
 
             for (var place = 0; place < reading.Count; place++)
             {
-                var count = layout.SharedTexts(reading.EntryAt(place), texts);
-
-                for (var text = 0; text < count; text++)
+                foreach (var descriptor in layout.SharedKeysOf(reading.EntryAt(place)))
                 {
-                    arena.Texts.Release(ValueBlocks.AddressOf(texts[text]));
+                    arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
                 }
             }
         }

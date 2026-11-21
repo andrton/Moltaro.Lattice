@@ -321,13 +321,16 @@ internal sealed class IndexLayout
         return true;
     }
 
-    // The descriptors of the text entries the String parts of an entry reference, its shared keys, into
-    // the span, which has a place for each String part, and how many there are, as a root names them: for
-    // the count of a node, which holds one reference for each shared key among its entries or separators
-    // from the moment it is written until it is freed (Text.TextTable; ordered-index.md, "Text
-    // references"), for the text entries an insert publishes before the node that holds its entry, and for
-    // the bytes of their slots, which a retired node counts toward the next look of the drain, as a retired
-    // root counts the text entries it names (Values.ValueBlocks.SlotBytesOf).
+    // The descriptors of the text entries the String parts of an entry reference, its shared keys, one at a
+    // time and as a root names them (SharedKeys): for the count of a node, which holds one reference for
+    // each shared key among its entries or separators from the moment it is written until it is freed
+    // (Text.TextTable; ordered-index.md, "Text references"), for the text entries an insert publishes
+    // before the node that holds its entry, and for the bytes of their slots, which a retired node counts
+    // toward the next look of the drain, as a retired root counts the text entries it names
+    // (Values.ValueBlocks.SlotBytesOf).
+    public SharedKeys SharedKeysOf(ReadOnlySpan<byte> entry) => new(this, entry);
+
+    // The same descriptors into the span, which has a place for each String part, and how many there are.
     public int SharedTexts(ReadOnlySpan<byte> entry, Span<ValueDescriptor> texts)
     {
         if (!HasText)
@@ -378,8 +381,8 @@ internal sealed class IndexLayout
     }
 
     // The descriptor of the text entry a shared String part references: the kind Text, its length and
-    // its address, as a root names it.
-    private static ValueDescriptor SharedDescriptorOf(ReadOnlySpan<byte> part) => new()
+    // its address, as a root names it. For the layout and for SharedKeys.
+    internal static ValueDescriptor SharedDescriptorOf(ReadOnlySpan<byte> part) => new()
     {
         Kind = DescriptorKindEnum.Text,
         Length = MemoryMarshal.Read<uint>(part[1..]),
