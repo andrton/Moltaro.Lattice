@@ -35,7 +35,8 @@ assertion of `MalformedTransactionTests`.
 - `Entities/PublicationPointEnum`: `AfterNewEntries`, `AfterFirstChange`, `BeforePosition`,
   `AfterPosition`.
 - `Indexes/NodePool`: `static long Bound(int height, int inserts, int removes)`,
-  `static long PlacesBound(int height, int inserts, int removes)`.
+  `static long PlacesBound(int height, int inserts, int removes)`. Built in part 1, with counts of
+  `long`, since the ledger charges every change since its base.
 
 ## Internal types and members of step 2
 
@@ -60,7 +61,10 @@ Point 1, L1 with G6 and F3:
   `AfterPublication()`, and the two bounds; the ledger (budget charged since the base, nodes taken);
   the reserved nodes linked through their own payload, so no managed collection (F3).
   `OrderedTree.TryReserve(int, int)` and `Release(int, int)` keep their signatures and call the pool,
-  since the tests of the tree address them.
+  since the tests of the tree address them. As built, every member of the pool but the static ones
+  also takes the height of the tree and the room of its root; `Take(out Span<byte> payload)` gives the
+  payload it read the link from, and `TakeInsert`, `TakeRemove` count what a publication takes;
+  `AfterPublication(int retired, ...)` the nodes it retired; `Need` and `Growth` moved from the tree.
 
 Point 2:
 - `EntityTable.TakeEntry(ref RootEntry, ReadEpochs, PositionClock, CancellationToken, out ...)`: the
@@ -236,10 +240,62 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    back, so after a refused batch the prepared bytes are at most what they were. `UncountableNeedTests`
    computes its boundary from `Need`; with the linear bound its assertions hold, for memory rather than
    for the count, and whether its boundary is recomputed from `NodePool.Bound` is the coordinator's.
+   *Decided by the planner:* the reserve keeps its definition, the ledger governs only the writes that
+   wait, and a withdrawal gives back the reserve as well, as `ordered-index.md` says; point 5 reads
+   "gives back what it took, and the reserve as `ordered-index.md` says". `UncountableNeedTests` keeps its
+   boundary from `Need`. Part 1 found two tests of step 1 that assume the reserve kept (below).
 10. **The bound of the places.** The study's sketch, q(h + 1) + p, cannot hold: an insert that splits
     retires one node for every level it copies. `LinearBoundTests` holds p(2h + 3) + q(h + 2 + log2 p)
     on today's tree (an insert retires no more than it takes; a remove its path and a neighbour, at a
-    height p inserts raise by at most 1 + log2 p); proposed for `NodePool.PlacesBound`.
+    height p inserts raise by at most 1 + log2 p); proposed for `NodePool.PlacesBound`. *Decided by the
+    planner:* `NodePool.PlacesBound` is p(2h + 3) + q(h + 2 + log2 p). The study's sketch q(h + 1) + p
+    was found not to hold, for the reason above: p does not bound the places of p inserts.
+
+## Part 1 (A)
+
+Two commits: `65af9ce`, L1 with G6 and F3 and the reservation of point 5, which leaves a child reserving
+each change as it prepares it; `55c67b9`, a child's transaction prepared whole and then reserved and
+checked on the state it leaves.
+
+What it does beyond the names above:
+
+- The pool holds the lesser of two bounds of what the changes waiting can take: their need at the tree
+  as it is, and what the ledger leaves of the linear bound of the changes charged since its base. Each
+  is enough by itself. So one insert reserves what it did (2h + 1 against 2h + 3), while one remove at a
+  height of 2 or more reserves 2 nodes in place of h + 1, and a change of key at a height of 4 or more
+  less than its need. That shows only while a pool is below its standing reserve: before the first
+  preparation that touches the index, and in the last try before a refusal for memory.
+- A reservation that is not made gives back its nodes and puts the ledger back as it was. One whose nodes
+  do not fit beside the slots in use under the memory limit is refused before it takes a node, so that
+  it obtains no segment for nodes it would give back: `UncountableNeedTests`, whose reservation the
+  linear bound now counts, is refused so, with its assertions as they were.
+- The path of the writer grows only once the pool has its nodes; an exception there withdraws the
+  reservation, and the reserve goes back with it, as for any withdrawal.
+- `ChangePublisher.TryReserve` keeps the path of one change of a type without an index; for an indexed
+  type it decides, checks and reserves over the span. A child prepares the effects of a transaction
+  unreserved and reserves them together (`ReceivedChanges.TryReserve`).
+
+Tests that now pass: `LinearBoundTests.Bounds_of_the_pool_are_the_linear_bounds_at_every_height_and_count`,
+`ChildBatchTests.Child_stops_at_a_transaction_two_effects_of_which_claim_one_value_with_nothing_of_it_applied`,
+and the new `ChildBatchTests.Child_applies_a_transaction_that_exchanges_unique_values_on_the_state_it_leaves`,
+an exchange forged by the relay, which no order of single writes can apply.
+
+Premises of step 1 found wrong, left as they are for the reviewer:
+
+- `LinearBoundTests.Reservation_withdrawn_gives_back_exactly_what_it_took_and_keeps_the_standing_reserve`
+  holds the reserve after a withdrawal. By `ordered-index.md` it goes back: with nothing else waiting the
+  pool keeps nothing, so the prepared bytes go from 8,192 (the reserve of the index of 500 entries,
+  8 nodes) to 0, and the live and retired bytes stay as they were.
+- `RefusedBatchTests.Batch_withdrawn_before_its_dispatch_gives_back_exactly_what_it_took` (part 2) holds
+  the arena as it was while an insert waits beside the batch; after the withdrawal the pool of `ByLogin`
+  keeps the lesser bound of that insert, not the reserve, so the prepared bytes fall by the difference.
+- `LinearBoundTests.Reservation_made_or_refused_takes_no_managed_room_for_its_nodes` takes 318,560
+  managed bytes for a reservation of 1,500 inserts, made: 216,024 are the 4,500 places of the retired
+  list (`Queue<RetiredItem>`, 48 bytes an item), which the brief keeps in managed memory (F3 asks it of
+  a refused reservation only), and the rest the bookkeeping of the second segment the arena obtains
+  (`ArenaSegment`). The case refused in two segments is not reached either: by the linear bound the
+  reservation is 4,500 nodes, 4,608,000 bytes, which two segments hold; its comment counts the need, some fifty
+  thousand nodes.
 
 ## The parts
 
