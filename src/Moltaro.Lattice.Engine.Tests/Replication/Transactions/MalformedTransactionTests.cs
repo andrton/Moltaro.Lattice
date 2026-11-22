@@ -26,7 +26,9 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 // every other frame; the master then writes once more, so that a frame follows the damaged one. Two
 // rows merge the first two transactions into one; one damages the last frame of a transaction of
 // several. The child holds what it loaded and nothing else: no root entry of a refused effect is left
-// either. A key of an integer type outside its type is stated on a schema of such a key.
+// either. A key of an integer type outside its type is stated on a schema of such a key. Each test states,
+// through what the relay passed on (FrameRelay.ToChild), that the forged frame reached the child while it
+// was connected: the child ended its connection for that frame, not for a connection that ended before it.
 public sealed class MalformedTransactionTests
 {
     private const string DeleteOfAnUnknownType = "an unknown type id in a Delete";
@@ -73,6 +75,7 @@ public sealed class MalformedTransactionTests
         var entityType = records.EntityType;
         await records.InsertAsync(MarkedRoot.RecordOf(entityType, "code"));
         WireFrame? held = null;
+        WireFrame? forged = null;
         var transactions = 0;
         var lastFrameDamaged = false;
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
@@ -93,7 +96,8 @@ public sealed class MalformedTransactionTests
                         return [];
 
                     case 2:
-                        return [Merged(held!, frame, damageTheSecond: damage == ValidThenInvalid)];
+                        forged = Merged(held!, frame, damageTheSecond: damage == ValidThenInvalid);
+                        return [forged];
                 }
             }
 
@@ -106,10 +110,17 @@ public sealed class MalformedTransactionTests
                 }
 
                 lastFrameDamaged = true;
-                return [frame.WithPayload([.. frame.Payload, 0])];
+                forged = frame.WithPayload([.. frame.Payload, 0]);
+                return [forged];
             }
 
-            return transactions == 1 ? [Damaged(frame, damage)] : [frame];
+            if (transactions != 1)
+            {
+                return [frame];
+            }
+
+            forged = Damaged(frame, damage);
+            return [forged];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
         var readiness = child.Position;
@@ -145,6 +156,8 @@ public sealed class MalformedTransactionTests
         await records.InsertAsync(MarkedRoot.RecordOf(entityType, "after"));
         await relay.ChildEndedAsync();
 
+        Assert.Contains(relay.ToChild, frame => ReferenceEquals(frame, forged));
+
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(readiness, child.Position);
 
@@ -167,6 +180,7 @@ public sealed class MalformedTransactionTests
         var records = master.Set("UInt8");
         await records.InsertAsync(KeySchema.RecordOf(records, (byte)7, "seven"));
         var transactions = 0;
+        WireFrame? forged = null;
         await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
         {
             if (frame.Kind != FrameKindEnum.Transaction || ++transactions > 1)
@@ -183,7 +197,8 @@ public sealed class MalformedTransactionTests
             Assert.Equal(7L, BinaryPrimitives.ReadInt64LittleEndian(effects.AsSpan(keyAt)));
             BinaryPrimitives.WriteInt64LittleEndian(effects.AsSpan(keyAt), 300);
 
-            return [frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), effects))];
+            forged = frame.WithPayload(TransactionPayload.Make(TransactionPayload.SequenceOf(frame), effects));
+            return [forged];
         });
         await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
         var readiness = child.Position;
@@ -191,6 +206,8 @@ public sealed class MalformedTransactionTests
         await records.DeleteAsync((byte)7);
         await records.InsertAsync(KeySchema.RecordOf(records, (byte)8, "eight"));
         await relay.ChildEndedAsync();
+
+        Assert.Contains(relay.ToChild, frame => ReferenceEquals(frame, forged));
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal(readiness, child.Position);
