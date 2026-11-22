@@ -197,9 +197,10 @@ Publication is one at a time under the lock of the writes and excludes no read. 
 explicit WriteBatch is published so that no operation observes it half published: a read
 by key reads one entity, the position of the batch is published after the last of its
 roots, and an operation that reads several entities in one step validates against the
-publication of batches. The mechanism is stated by the sprint that builds the batch
-(S17); a child never exposes a prefix of a batch nor advances its applied position past
-a part of one.
+publication of batches: every entity of the batch is stored with the stamp of the batch
+before its position is published, and a read does not take a stamp above the position
+([write path](write-path.md#how-a-publication-is-made)). A child never exposes a prefix of a
+batch nor advances its applied position past a part of one.
 All read, index, scan and compaction entry points participate. Publication
 only installs reserved values/nodes/descriptors and advances the applied position;
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
@@ -331,7 +332,9 @@ proven source; the study of S09, part 2 names the sources). A call takes the loc
 and prepares its write in place: it looks the key up, checks its conditions against the
 published state, encodes its values into prepared blocks and reserves everything its
 publication needs. No other write runs meanwhile, so nothing has to be reserved against
-another writer. A WriteBatch is prepared the same way, all of its entities in one hold.
+another writer. A WriteBatch is prepared the same way, all of its entities in one hold,
+member by member in their order, and its changes are reserved and checked together on the
+state they leave.
 
 The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
@@ -341,7 +344,8 @@ a larger write alone, never waiting to fill — and whoever completes the persis
 publishes its group in order and hands over the next. A write to an entity that has an
 earlier write not yet completed — prepared and unpublished, or itself waiting — waits
 behind the latest such write, first in first out, and holds nothing while it waits; so
-does a batch one of whose entities has one. It is prepared when that write completes in
+does a batch one of whose entities has one, and a single write whose latest such write is
+a batch waits for that batch. It is prepared when that write completes in
 any way, published, refused or cancelled, and is checked against the state published
 then. In MemoryOnly this happens only while a write refused for memory is being
 resolved. A write whose token is cancelled before its dispatch is never dispatched.
@@ -359,7 +363,10 @@ The host process need not exit.
 
 Each logical root change receives the operation position as its new revision component.
 The opaque revision binds history, type/key and that position; a revision from another
-identity cannot match accidentally. For a caller it stays opaque: two revisions of one
+identity cannot match accidentally. The entities of one WriteBatch share its position, so
+the revision of each also holds the number of its member, from 1 in the order of the
+members for a batch of two or more, and 0 for a single write and for a batch of one, which
+travels to a child with the root. For a caller it stays opaque: two revisions of one
 entity can be compared for equality and nothing else — no order, no conversion to a
 position, no meaning across entities. Recreated roots receive a new position. Confirmed
 collection/absence no-ops retain root revisions but receive a durable result and stream

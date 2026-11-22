@@ -20,9 +20,9 @@ the whole database from its master over TCP while the master keeps writing, buil
 own indexes, then follows its changes, and forwards its own writes to the master. A
 unique index gives a value to one entity only, whichever node submits the write. A
 schema can already declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Write
-batches and PostgreSQL persistence are not implemented yet, and the contract may still
-change.
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. A write
+batch is executed on a master; a batch through a child and PostgreSQL persistence are not
+implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -210,10 +210,11 @@ which any field is missing is not compared, so any number of entities may have n
 Values are compared as the index orders them: a text by the comparison of its field. Of
 writes of one value made at the same time, through the master or through a child, at most
 one succeeds; a write of a value that another write still in progress takes or gives up
-waits for it. A batch that exchanges two values waits for the execution of a batch.
+waits for it. A batch is checked on the state it leaves, so it may exchange two values, or
+delete an entity and give its value to another.
 
-**Writing several entities together.** *The contract below is in place; executing a batch
-is not implemented yet, and `CommitAsync` throws `NotSupportedException`.* One write is
+**Writing several entities together.** *Executed on a master; a batch committed through a
+child is not implemented yet, and its `CommitAsync` throws `NotSupportedException`.* One write is
 atomic for one entity. Writes that have to succeed or fail together are submitted as one
 write batch, which may address different entity types:
 
@@ -401,7 +402,7 @@ path, from simple to complex.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: executing a
-write batch, Durable persistence, a child that connects again after it lost its master,
+write batch through a child, Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and
 a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry

@@ -95,14 +95,58 @@ always ends. When persistence takes no time this happens only when the writes he
 while a write refused for lack of memory is settled are prepared together at its end:
 otherwise a write is published before the next one is prepared.
 
+The two waits are one wait for another write (`PendingWriteStateEnum.WaitingForWrite`): the
+waiting write holds nothing, stays first among the later writes of its entity, and when the
+write it waits for ends in any way it is started again from the beginning, so it waits again
+behind whatever then shares an entity with it, and is checked against what is published
+then. No two writes wait for each other: a wait for an entity goes to a write admitted
+earlier, and a wait for a value to a prepared write, which waits for nothing but its
+persistence step.
+
+## A write batch
+
+A batch is one write with several changes: one admission, one preparation, one place in a
+group, one position. A group never splits it, and it is never refused for its size: like
+any write, only a batch that does not fit into the memory beside the stored data is refused,
+as a whole, before anything is written.
+
+- **Members are encoded when they are added.** The batch of the contract asks the engine
+  to encode each entity to its root when the application adds it, on the thread of the
+  caller and outside every lock, in the form a child uses to forward a write. Later edits of
+  the object are not part of the batch; the cost is a managed copy of every root until the
+  commit.
+- **Prepared as a forwarded write is.** Member by member, in their order, the key is looked
+  up, the condition checked, and the root placed from the bytes of the member, as a master
+  places the root a child forwarded. Then all the changes reserve together, each index once
+  for their sum, and the unique indexes are checked on the state the batch leaves: two
+  members may exchange values, and a delete frees a value another member takes. Of two
+  members that claim one value, the later fails, in the first violated index by
+  declaration. A failing member refuses the whole batch and reports its place.
+- **Waits as one write.** The entities of a batch are one set. A batch waits for the latest
+  earlier write, not completed, that shares an entity with it, and a single write whose
+  latest earlier write of its entity is a batch waits for that batch; two single writes
+  keep their chain. Batches of the same entities in opposite orders never wait for each
+  other in a cycle.
+- **Asked through its claims.** A batch that is prepared and not published answers a later
+  write that asks who claims or who frees a value through its claims sorted by the order of
+  each unique index, by a binary search, not by a scan of its members
+  (`Engine/Entities/UniqueClaims.cs`). The claims are sorted on the first question.
+- **Published whole.** Its changes are published at one sequence as one publication (below),
+  and its transaction carries one effect for each change, with the number of its member.
+- **Revisions of their own.** The members share the position of the batch; the number of a
+  member is part of its revision, from 1 in their order for a batch of two or more, 0 for a
+  single write and for a batch of one, whose revision is then that of a single write
+  ([milestone contract](milestone-1-engine-contract.md#write-coordinator-and-revision-semantics)).
+
 ## How a publication is made
 
 A publication installs what the preparation made, and nothing else: it obtains no
 memory, grows no index, adds no root entry and runs no code of the application, because
 the preparation took and reserved everything it uses. One part makes it, on a master for
 a write and on a child for what it receives from its master
-(`Engine/Entities/ChangePublisher.cs`). A master publishes the one change of a write; a
-child publishes every change of a transaction at once, or one root of its load. A
+(`Engine/Entities/ChangePublisher.cs`). A master publishes the one change of a single write
+or the changes of the members of a batch; a child publishes every change of a transaction
+at once, or one root of its load. A
 publication at the sequence s has three steps:
 
 1. **The stores before the position.** First the new entries of the secondary indexes of
@@ -140,8 +184,8 @@ and it sees every entity of a publication in its new state or none:
 - A read that misses a deleted key does so after step 3, at s or later.
 
 A read waits only when it meets an entity of the publication, for as long as the
-publication takes in memory, which for the transaction of a child grows with its effects
-(exception X6). A delete of a key that is absent changes no entity and publishes only its
+publication takes in memory, which for a batch and for the transaction of a child grows with
+its changes (exception X6). A delete of a key that is absent changes no entity and publishes only its
 position. Once step 1 has begun nothing can fail but a defect, or the fault point a test of
 the engine arms between steps 1 and 2; either faults the database, and a read that backs off
 then gives up with `Unavailable` instead of waiting for a position that will never come.
@@ -154,7 +198,8 @@ then gives up with `Unavailable` instead of waiting for a position that will nev
   its place when that wait ends. Calls that race on different threads have no order
   between them.
 - **A write is whole.** Readers see the state before a write or after it, never a
-  mixture.
+  mixture. So do they a batch, on the master and on a child: all of it or none, and no
+  answer carries its position before all of it is visible.
 - **Cancellation is honest.** Before a write is handed to the persistence step, cancelling
   it withdraws it: it did not run and left nothing behind. After that, the call returns
   what really happened.

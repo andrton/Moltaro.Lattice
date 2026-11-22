@@ -461,11 +461,10 @@ and not published, divided by *I*. By the formula, 600 inserts waiting on an ind
 Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
 13 MiB; their linear bound is 600 · 9 = 5,400 nodes, about 5.3 MiB, and the pool holds
 the lesser. No mode built today lets more than one write wait: the persistence step of
-MemoryOnly completes in the hold that prepares the write, write batches are not built,
-and a child prepares one root of its load, or one transaction of its stream, at a time.
-A transaction of many changes reserves for all of them at once, each index once for
-their inserts and removes together, and a write batch, prepared whole before its
-publication, will reserve the same way.
+MemoryOnly completes in the hold that prepares the write, and a child prepares one root of
+its load, or one transaction of its stream, at a time. A transaction of many changes
+reserves for all of them at once, each index once for their inserts and removes together,
+and so does a write batch, prepared whole before its publication.
 
 ### The retired node
 

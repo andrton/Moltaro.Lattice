@@ -330,6 +330,70 @@ barrier sentences, and `312506c`, its tests on a child.
 - **One publisher.** A child applies its transactions through the publisher of the instance
   (`DatabaseParts.Publisher`), which holds the switch of the tests for a master and a child alike.
 
+## Part 2, B2: the commit of a batch, points 3 and 4
+
+Seven commits after `ee4ddd2`: `d6cf900` the row "the wire format 4" of `RefusedPeerTests` (the
+planner's answer (a)); `81b3229` the child stores the member and checks nothing (answer (b)); `cc1faaa`
+the encoding at `Add` (point 8); `ea67085` the commit of a batch on a master; `fb343eb` one way to wait
+for another write; `4e1d896` the sorted claims of a prepared batch; `8927259` the calls of a single write,
+after the JIT listings.
+
+What it does beyond the names above, or otherwise:
+
+- **The boundary (point 8).** The core's `WriteBatch` takes one argument from the engine,
+  `Access/Batches/IWriteBatchExecutor`, which `EngineDatabase` implements: `EncodeRoot(entityType,
+  values)` and `ExecuteAsync(operations, session, token)`. A member is encoded at its `Add` to its root in
+  the load format after its envelope (`Entities.RootValues.Export`), an array of its exact length up to a
+  piece of a transfer (64 KiB) and the pieces of a `TransferBuffer` above, so that a root of any size is
+  held and none lies in the large object heap. `WriteBatchOperation` holds the kind, the entity type, the
+  key, the expected revision and the root. The parameter `copyBinary` of the core went with the copy it
+  made. The commit lets go of the operations, so a batch kept after it holds no root. The cost: a managed
+  copy of every root from its `Add` to its commit.
+- **The numbers of the members.** `Writes/BatchMember.NumberOf`: from 1 in the order of the members for
+  a batch of two or more, 0 for a single write and for a batch of one, whose revision is then that of a
+  single write (the planner, 22 November 2026; the rule of the read side that needed it was dropped
+  afterwards, and the numbering is kept). `PlaceOf` gives the place a refusal reports. Held by
+  `Engine/Batches/Revisions/MemberRevisionTests`, which also holds, for answer (b), that a child reports
+  for each member the revision its master reports after the transaction and after a load.
+- **One write.** `WriteCoordinator.SubmitBatchAsync(BatchMember[] members, session, token)`: the keys
+  in the form of their entity type (`Sets.KeyArgument`, by `EngineDatabase`), one `PendingWrite` with
+  `Members` and `Keys` (`Entities.PublicationKeys`), set by `BeginBatch` apart from `Begin`. A repeated
+  identity is `ArgumentException` at the call, which the core never submits; an entity type not stored is
+  `NotSupportedException` in the task, and so is a batch on a child until part 3.
+- **The preparation.** `WriteExecutor.TryPrepareBatch`: member by member, the lookup and the condition
+  (`CheckCondition`, shared with a single write and inlined), a new root entry for an insert, the root
+  placed by the path of a forwarded write (`Place`, which `PlaceForwarded` became), then one
+  `ChangePublisher.TryReserve` over the span. A failed condition carries the place of its member; a
+  refusal for memory names no member; `TakenValue.Change` is given to the coordinator as the place of the
+  member. `PreparedWrite.BatchChanges` and `SetBatch` hold the changes in an array of the record, and
+  `Changes` spans it.
+- **One way to wait (point 4).** `PendingWrite.SharesEntityWith` replaces `IsOfSameEntity`,
+  `FindLastSharing` replaces `FindLastOfEntity`; two single writes keep the chain, and every other pair
+  waits through the list of the writes that wait for another write (`WaitingForWrite`, `Holder`). The wait
+  came with the commit of a batch, since a batch is not correct without it; `fb343eb` gives it its name and
+  one description, with no change of behavior.
+- **Unique values (point 3).** The searches for a claimant and for a write that frees a value run over
+  the changes of every prepared write; a prepared batch answers through `Entities.UniqueClaims`, the
+  places of its claims sorted by the order of each unique index and its root entries sorted, made on the
+  first question (`PreparedWrite.ClaimsOf`), so a batch nobody asks about sorts nothing. Changed from the
+  study: `Claims(change)` and `Frees(owner, index)` answer yes or no, since the batch itself is the holder.
+- **The transaction.** `TransactionEncoder.Write(tail, sequence, changes, arena)` writes one effect for
+  each change, a single write's as well; the forms of one write and one delete went.
+- **Sizes.** `PreparedChange` 96 bytes; the record of a write grows by 32 bytes, `PendingWrite` from 344
+  to 360 and `PreparedWrite` from 136 to 152, for a write that waits only (a write published in the hold of
+  its call reuses its record).
+- **The listings** (Release driver over the public API, tiered PGO off, against `ee4ddd2`). A single write
+  makes no added call on its path: `Prepare` 5, `FormGroup` 12, `MarkCompleted` 7,
+  `WriteExecutor.TryPrepare` 37, `TryPrepareInsert` 21, `TryPrepareDelete` 14, `TryPrepareReplace` 21, as
+  before. The calls `Admit` (25 to 27), `Start` (13 to 17) and `TryPrepareTwice` (22 to 24) add lie in the
+  branches of a batch or of a write that waits for a batch; `PublishOne` (7 to 8) calls the transaction
+  encoder in place of `Deliver`, only while a child is registered. `ChangePublisher`, `EntityTable.Step`
+  (67 calls, 5,017 bytes), `TakeEntry` (3, 237), `TryRead` (16, 1,344) and `TrySearch` are unchanged.
+
+Found against step 1, reported and not changed: `RefusedBatchTests.Batch_withdrawn_before_its_dispatch_gives_back_exactly_what_it_took`
+inserts accounts 2 to 200, among them 10, which the held write inserts; by point 4 the batch waits for that
+write and prepares nothing, so its first assertion fails. It stays skipped. Proposed: members from 11.
+
 ## The parts
 
 Too large for one review. Proposed:
