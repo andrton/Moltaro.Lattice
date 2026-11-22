@@ -300,6 +300,36 @@ batch.
   reservation is 4,500 nodes, 4,608,000 bytes, which two segments hold; its comment counts the need, some fifty
   thousand nodes.
 
+## Part 2, B1: point 2
+
+Part 2 is split by the coordinator into B1, point 2 proven on a child, and B2, the commit of a batch on a
+master with points 3 and 4 and the revision of a member; both are reviewed on one branch and merged
+together after the one start of the machine. B1 is `c3dfeed`, point 2 with TEXT B, TEXT 3 and the
+barrier sentences, and `312506c`, its tests on a child.
+
+- **The listing condition, as the planner read it.** A step that never waits makes the same calls and
+  the same loads of shared memory as before; at the take it adds one store (`waited = false`, in the
+  take), two argument setups (the token and `waited`) and one test of the byte `waited`, and it loses one
+  store (the stamp, no longer kept, since the position of the answer is the position the take read).
+  Step: 67 calls before and after, 4,889 against 5,018 bytes, frame 968 against 984. A read by key adds
+  no load: the take loads the stamp, the position, the state, the root and the stamp, five loads as
+  before, in another order (TakeEntry 130 against 235 bytes, TryRead 1,329 against 1,344, frame 136
+  against 168). Should the start of the machine show a fall in a read, the first variant tried is
+  `waited` returned by the take instead of written through a reference.
+- **Found against the brief.** The brief has a search pass over the entry of an insert whose root is not
+  installed yet. A step that passes such an entry can then meet a later member after the position is
+  published, take it without waiting, and return it while the insert it passed is visible at the same
+  position: a part. `MergedTransactionPrefixTests` found it in Release ("search: [1] at 1"). The root
+  entry of such an insert holds the mark, as `RootTable.Add` leaves it, until its publication stores
+  it, so the step waits for it as for any member, and walks again; no entry of a secondary index names a
+  root entry that is not installed outside a publication.
+- **Where the step walks again from.** From where it began, not from where its round began: a round of
+  the step may have stood at an entry after passing a member in its state before. `WalkProgress` keeps
+  the place a round stands at in the room of the staged entry, apart from the entry the walk stands after,
+  so that the step can drop it (`DropStand`).
+- **One publisher.** A child applies its transactions through the publisher of the instance
+  (`DatabaseParts.Publisher`), which holds the switch of the tests for a master and a child alike.
+
 ## The parts
 
 Too large for one review. Proposed:
