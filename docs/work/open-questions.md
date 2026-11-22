@@ -138,6 +138,16 @@ in the meantime.
 | **What the code does** | As the brief of S17 says |
 | **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
 
+### Q59. Reading several entities linked by references as one consistent set
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the owner, in the planner's session |
+| **Question** | A read is coherent for one entity, and several reads are not a snapshot (principle 3). An application that reads a set of entities linked by references, not owned values, can therefore combine states of different positions, and with ranges it also meets phantoms. The case is rare. How does an application read such a set while nothing writes to it? |
+| **Answer** | Decided by the owner, 22 November 2026: the engine does not grow a snapshot of several reads or a transaction of an application; that would cost reads or memory in its core. The application solves the case itself, and the database gives it a synchronization object for it: advisory locks, as in PostgreSQL, exclusive and shared, arbitrated by the master and asked for from any node (the sprint after S34 in the document of Epic 1). Two ways exist without it: what must be read as a whole is one entity with owned values; or a root entity whose revision every writer of the set changes in the same write batch, which a reader reads before and after the set and reads again when it changed (possible from S17 on, the read stays local) |
+| **What the code does** | Nothing for it; each read is coherent by itself |
+| **Where the rule lives** | `AGENTS.md`, principle 3; `docs/decisions/document-model.md`, where it defers locks held by an application beyond v1 and says an advisory lock alone does not freeze a graph, which the decision record of the new sprint amends |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

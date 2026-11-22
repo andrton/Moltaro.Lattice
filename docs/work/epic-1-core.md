@@ -1082,7 +1082,7 @@ S01 ground
                                                  └─ S29 storage failures ── S30 saved base
                                                      └─ S31 journal limits ── S32 recovery
                                                          └─ S33 bounded delivery
-                                                             └─ S34 reconnect ── S35 cluster
+                                                             └─ S34 reconnect ── S34A advisory locks ── S35 cluster
                                                                  └─ S36 restore ── S37 ── S38
                                                                      └─ S39 ── S40 ── S41 ── S42
 ```
@@ -1296,6 +1296,7 @@ Why this order:
 | S32 | Recovery under failure | Full | Not started |
 | S33 | Bounded delivery and slow children | Full | Not started |
 | S34 | Reconnect, reload and a restarted master | Full | Not started |
+| S34A | Advisory locks | Full | Not started |
 | S35 | Cluster verification | Full | Not started |
 | S36 | Restore and a new history | Full | Not started |
 | S37 | Schema migration on the master | Full | Not started |
@@ -8648,9 +8649,52 @@ bytes, decided here together with the case of bytes that wait. Until then `OpenT
 says that a part is a frame of at most 64 KiB and its header and has to arrive whole
 within the timeout.
 
+#### S34A · Advisory locks
+
+**Added by the planner on 22 November 2026, on the owner's decision of that day (Q59 of
+`open-questions.md`).** It stands after S34 because what a lock means when a connection
+is lost is decided by S33 and S34: a master does not notice a child lost without a reset
+before S33, and a child does not notice a vanished master before S34.
+
+**Track:** full · **Needs:** S34 · **Owners:** E03, E08
+
+- **Goal.** An application can take a named lock, exclusive or shared, from any node, to
+  arrange its own work; the database arbitrates it and protects nothing with it.
+- **Contract.** Absent. The sprint starts with a decision record, which the owner
+  approves and which amends the sentences of `docs/decisions/document-model.md` that
+  defer locks held by an application beyond v1; then the contract, a sample and tests,
+  then the engine.
+- **To read.** Q59; `docs/decisions/document-model.md` (application-held locks, and why
+  an advisory lock alone does not freeze a graph); the study of 22 November 2026, kept
+  with the notes of the planner, which read PostgreSQL advisory locks, `sp_getapplock`
+  of SQL Server, the locks of etcd and ZooKeeper with leases and fencing, and the
+  forwarding of a write in this engine.
+- **Acceptance.** Written with the decision record and approved by the owner before the
+  sprint starts.
+- **For the decision record, the planner's recommendations, none decided:** a lock is
+  held by a handle and ends with it, with the connection of its child, or with the
+  master; nothing is persisted; after a reconnection it is lost, and the holder learns it
+  through a token; a grant carries the position of the master and a child waits for that
+  position before the call returns, as a forwarded write does, so a shared holder never
+  reads a state older than the last exclusive holder's writes; purely advisory, no write
+  is checked against a lock; no reentrancy and no upgrade; a wait is bounded by an option
+  with a default and by the token, with no detector of deadlocks between locks; waiters
+  in the order they came, so a waiting exclusive holds back new shared grants; no limit
+  on the number of locks or of waiters. Left to the record: the type of the key, and
+  whether a wait that ran out is a result or an error.
+- **Known in advance.** The lock table lives on the master beside the write coordinator;
+  neither the read path nor the write path of entities is touched. Three kinds of frame
+  and a new wire format; lock requests need their own sequence of ids, since the ids of
+  forwarded writes are consecutive; the receiver of a master must not wait for a grant.
+  A reader on a child that takes a lock for each read of a set makes a round trip to the
+  master and fails while the master cannot be reached; the record of the sprint reports
+  that cost beside the same read done with a root revision.
+- **Out of scope.** A snapshot of several reads, a transaction of an application, a lock
+  that the engine enforces on entities.
+
 #### S35 · Cluster verification
 
-**Track:** full, verification · **Needs:** S34 · **Decisions:** P3 · **Closes:** Q08.1.3, Q13, R30
+**Track:** full, verification · **Needs:** S34, S34A · **Decisions:** P3 · **Closes:** Q08.1.3, Q13, R30
 
 - **Goal.** The guarantees hold between real processes, with real connection faults, in
   the deployment profile.
