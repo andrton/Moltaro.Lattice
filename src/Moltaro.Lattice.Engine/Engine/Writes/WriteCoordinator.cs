@@ -1948,7 +1948,7 @@ internal sealed class WriteCoordinator
             return write;
         }
 
-        // Takes the write out, which the queue holds; linear in the queue (see FindLastOfEntity).
+        // Takes the write out, which the queue holds; linear in the queue (see FindLastSharing).
         public void Remove(PendingWrite write)
         {
             PendingWrite? before = null;

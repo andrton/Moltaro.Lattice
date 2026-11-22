@@ -10,10 +10,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // EncodedSize is the bytes of the slots the write prepared in the arena: the root and every block of its
 // values, as the root writer counted them when it allocated them (Storage.Roots.RootWriter.SlotBytes),
-// or, for a root a child forwarded, as the import counted them when it placed it
-// (Replication.Load.BlockImport.Place), but for a forwarded replace written again with the stored
-// spelling of its key, which the root writer counts (WriteExecutor.PlaceForwarded); so the same write
-// counts the same whoever sent it. It is a long, and so is every sum of it, because no rule bounds the
+// or, for a root a child forwarded and for the root of a member of a write batch, as the import counted
+// them when it placed it (Replication.Load.BlockImport.Place), but for a replace of either written again
+// with the stored spelling of its key, which the root writer counts (WriteExecutor.Place); so the same write
+// counts the same whoever sent it, and a batch counts the sum of its members. It is a long, and so is every sum of it, because no rule bounds the
 // size of an entity. A write that waits and is not prepared yet holds nothing in the engine and has no
 // PreparedWrite.
 //

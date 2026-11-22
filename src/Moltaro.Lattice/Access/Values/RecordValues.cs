@@ -112,7 +112,8 @@ internal static class RecordValues
 
     // The fields of an entity type or of an owned type, the owner. A field without a value is
     // refused only by a write, which names the entity type it writes. A Binary value of one of these
-    // fields is copied when copyBinary is true (Submit).
+    // fields is copied when copyBinary is true, as for the fields of an owned value (CopyOwned), and taken
+    // as the record holds it for the fields of an entity (Submit).
     private static void CopyFields(ReadOnlySpan<LatticeField> fields, object?[] values, object?[] into, string? entityType, string owner, bool copyBinary)
     {
         foreach (var field in fields)
