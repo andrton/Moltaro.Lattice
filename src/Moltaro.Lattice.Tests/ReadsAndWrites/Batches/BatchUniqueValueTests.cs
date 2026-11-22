@@ -6,9 +6,11 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // A write batch is checked against the unique indexes on the state it leaves (decision on unique indexes,
 // "A conflict inside an explicit WriteBatch"; the remarks of ILatticeWriteBatch, "Executing"): entities may
 // exchange or rotate their values, and a delete frees a value another member of the same batch takes.
+// The unique values are judged only when every member passes its own condition on the state before the
+// batch; otherwise the first member that fails one is named, with its own error (Q58 of the open questions).
 // When the final state would give a value two owners the whole batch is refused with
-// UniqueConstraintViolation, the index named and the failing member numbered (Q58 of the open questions):
-// the member with the lowest number among those that fail; of two members that claim one value, the later;
+// UniqueConstraintViolation, the index named and the failing member numbered:
+// the member with the lowest number among those that violate; of two members that claim one value, the later;
 // against a published owner no member frees, the member that claims; and for one member that violates
 // several indexes, the index declared first in its entity type. A key with a null in any part is no value. Nothing of a refused batch is written.
 // Schemas of UniqueSchemas: Accounts (ByLogin; ByTenantAndEmail), Profiles (ByNick declared before
@@ -206,6 +208,53 @@ public sealed class BatchUniqueValueTests
 
         Assert.Equal(0, refused.OperationIndex);
         Assert.Single(profiles.Enumerate());
+    }
+
+    // The earlier member violates ByLogin, and the later one replaces an entity that does not exist: the
+    // later member is the failing one, with its own error, since the unique values are judged only when
+    // every member passes its own condition.
+    [Fact]
+    public async Task Later_member_that_fails_its_condition_is_named_before_an_earlier_one_that_violates_an_index()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "taken-login", "other-nick"));
+        batch.Replace(Profile(profiles, 404, "free-login", "free-nick"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => batch.CommitAsync());
+
+        Assert.Equal(1, refused.OperationIndex);
+        Assert.Single(profiles.Enumerate());
+    }
+
+    // The earlier member takes the value of a published owner, and the later one deletes that owner under a
+    // revision that no longer matches: the delete fails its own condition, so it frees nothing and is the
+    // failing member.
+    [Fact]
+    public async Task Delete_of_the_owner_under_a_stale_revision_is_named_before_the_member_that_takes_its_value()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "ada", "ada-nick"));
+        Assert.True(profiles.TryGet(1L, out _, out var staleRevision));
+
+        // Someone else changes the owner after it was read, and keeps its login.
+        await profiles.ReplaceAsync(Profile(profiles, 1, "ada", "lovelace"));
+        var before = database.Position;
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "ada", "other-nick"));
+        batch.Delete("Profile", 1L, staleRevision);
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.RevisionConflict, () => batch.CommitAsync());
+
+        Assert.Equal(1, refused.OperationIndex);
+        Assert.Equal(before, database.Position);
+        Assert.Equal("lovelace", profiles.Get(1L)!["Nick"]);
+        Assert.Null(profiles.Get(2L));
     }
 
     // Two members whose keys of ByABC are equal but for a null in the part given hold no value, so the batch

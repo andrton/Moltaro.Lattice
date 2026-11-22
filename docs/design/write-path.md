@@ -119,9 +119,11 @@ as a whole, before anything is written.
   up, the condition checked, and the root placed from the bytes of the member, as a master
   places the root a child forwarded. Then all the changes reserve together, each index once
   for their sum, and the unique indexes are checked on the state the batch leaves: two
-  members may exchange values, and a delete frees a value another member takes. Of two
-  members that claim one value, the later fails, in the first violated index by
-  declaration. A failing member refuses the whole batch and reports its place.
+  members may exchange values, and a delete frees a value another member takes. The first
+  member that fails a condition of its own is reported, and the unique values are judged
+  only when none does: then the lowest-numbered member that violates one is reported, so of
+  two members that claim one value the later, in the first violated index by declaration. A
+  failing member refuses the whole batch and reports its place.
 - **Waits as one write.** The entities of a batch are one set. A batch waits for the latest
   earlier write, not completed, that shares an entity with it, and a single write whose
   latest earlier write of its entity is a batch waits for that batch; two single writes
