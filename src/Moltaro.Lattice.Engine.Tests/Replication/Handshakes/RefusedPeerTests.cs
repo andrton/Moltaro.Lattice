@@ -11,8 +11,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Handshakes;
 // blocks of 15 November 2026, "Identity", "Byte order" and "The version of the case table", and of
 // 17 November, point 1): a peer whose Hello names another database, another history, another schema
 // fingerprint, another wire format, the wire format 3 of a node before the reply of a forwarded write named
-// the index of a refusal for a unique index, the wire format 4 of a node before a child forwarded a write
-// batch (brief of Epic 1, sprint S17, point 7), another layout format, among them the layout version 1 of the form
+// the index of a refusal for a unique index, the wire format 4 of a node before the member of a batch,
+// another layout format, among them the layout version 1 of the form
 // of a root before an indexed value longer than 64 bytes was stored as a text entry, the byte order of
 // a big-endian machine (bit 16 of the layout format, as the implementer of S10 encodes it) or another
 // version of the case table, or the role of a master, is refused with the matching reason — Database, History, Schema,
@@ -32,7 +32,7 @@ public sealed class RefusedPeerTests
         new("another schema", "Schema"),
         new("another wire format", "Format"),
         new("the wire format 3", "Format"),
-        new("the wire format 4", "Format") { Skip = SkipReason.WriteBatch },
+        new("the wire format 4", "Format"),
         new("another layout format", "Format"),
         new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),
@@ -76,7 +76,7 @@ public sealed class RefusedPeerTests
             // would have violated.
             "the wire format 3" => child with { WireFormat = 3 },
 
-            // The format before a child forwarded a write batch as one request.
+            // The format before the member of a batch.
             "the wire format 4" => child with { WireFormat = 4 },
             "another layout format" => child with { LayoutFormat = child.LayoutFormat + 1 },
 
