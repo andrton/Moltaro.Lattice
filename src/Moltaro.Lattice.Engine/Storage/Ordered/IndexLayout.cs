@@ -155,7 +155,7 @@ internal sealed class IndexLayout
             var isText = stored.Type == StoredTypeEnum.String;
             var nullBit = part.CanBeNull ? nullable++ : EntryPart.NoNullBit;
 
-            parts[place] = new EntryPart(part.Field, stored.Type, isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null);
+            parts[place] = new EntryPart(part.Field, stored.Type, isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null, stored);
 
             if (isText)
             {
@@ -399,8 +399,9 @@ internal sealed class IndexLayout
     {
         foreach (ref readonly var part in Parts)
         {
-            var leftNull = left.IsNull(part.Field);
-            var rightNull = right.IsNull(part.Field);
+            ref readonly var stored = ref part.Stored;
+            var leftNull = left.IsNull(stored);
+            var rightNull = right.IsNull(stored);
 
             if (leftNull || rightNull)
             {
@@ -411,12 +412,12 @@ internal sealed class IndexLayout
             }
             else if (part.IsText)
             {
-                if (!SameText(left, right, part.Field))
+                if (!SameText(left, right, stored))
                 {
                     return false;
                 }
             }
-            else if (!left.StoredBytes(part.Field).SequenceEqual(right.StoredBytes(part.Field)))
+            else if (!left.StoredBytes(stored).SequenceEqual(right.StoredBytes(stored)))
             {
                 return false;
             }
@@ -488,10 +489,10 @@ internal sealed class IndexLayout
 
     // Whether the String field, not null in either root, gives the same String part in an entry of each
     // (WriteText): the same copy, or the same reference to a text entry.
-    private static bool SameText(in RootReader left, in RootReader right, LatticeField field)
+    private static bool SameText(in RootReader left, in RootReader right, in StoredField stored)
     {
-        var leftText = ValueBlocks.Read(left.StoredBytes(field));
-        var rightText = ValueBlocks.Read(right.StoredBytes(field));
+        var leftText = ValueBlocks.Read(left.StoredBytes(stored));
+        var rightText = ValueBlocks.Read(right.StoredBytes(stored));
 
         if (leftText.Length != rightText.Length)
         {

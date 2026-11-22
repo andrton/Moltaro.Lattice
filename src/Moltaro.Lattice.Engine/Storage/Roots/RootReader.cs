@@ -111,6 +111,10 @@ internal readonly ref struct RootReader
     // Whether the value of the field is null.
     public bool IsNull(LatticeField field) => HoldsNull(_layout.StoredFieldOf(field));
 
+    // Whether the value of a field is null, for a caller that holds where the layout of this reader stores
+    // it (Ordered.EntryPart.Stored), resolved once with the layout of an index.
+    public bool IsNull(in StoredField stored) => HoldsNull(stored);
+
     // The value of a Boolean field.
     public bool GetBoolean(LatticeField field) => StoredScalars.ReadBoolean(Value(field, StoredTypeEnum.Boolean, nameof(GetBoolean)));
 
@@ -193,6 +197,10 @@ internal readonly ref struct RootReader
     // (Ordered.IndexLayout, Engine.Indexes.SecondaryIndex). InvalidOperationException for a field whose
     // value is null.
     public ReadOnlySpan<byte> StoredBytes(LatticeField field) => NotNull(_layout.StoredFieldOf(field));
+
+    // The same bytes for a caller that holds where the layout of this reader stores the field, as IsNull
+    // takes it.
+    public ReadOnlySpan<byte> StoredBytes(in StoredField stored) => NotNull(stored);
 
     // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of
     // its own, names: inline in the root block, in a block of its own, or in the block of its text entry.
