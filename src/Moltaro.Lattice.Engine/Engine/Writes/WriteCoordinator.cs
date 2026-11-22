@@ -47,7 +47,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // out, in the chain of that entity (PendingWrite.EarlierOfEntity, LaterOfEntity), and holds nothing; so
 // it is prepared only once every earlier write of its entity has completed, and its condition is checked
 // against the state they left. Those writes are found in the list of the writes admitted that waited
-// (FindLastOfEntity, and "The refusal" below); when that list is empty, as in MemoryOnly except while
+// (FindLastSharing, and "The refusal" below); when that list is empty, as in MemoryOnly except while
 // the writes a resolution deferred are started, nothing is looked at and no key is hashed for it. The
 // wait ends: the write it waits behind completes — published when its persistence step completes (the
 // persistence step has no timeout yet), refused, cancelled, failed, or ended by a fault — and every way
@@ -160,6 +160,22 @@ namespace Moltaro.Lattice.Engine.Writes;
 // MemoryOnly an ordinary write looks at none; each search is linear in them (FindClaimant,
 // FindWriteThatFrees), as the search of the chain of an entity is. A write that does not fit the memory
 // and would take a value held may end refused for memory, since its root is encoded before the check.
+//
+// A write batch (docs/decisions/document-model.md, "Atomic WriteBatch within one database"). A batch is one
+// write: one record, one admission, one preparation, one place in a group, one position, several changes
+// (SubmitBatchAsync). Its members are prepared in their order by the path of a forwarded write, each root
+// placed from the bytes the batch of the core encoded when the member was added, and reserved and checked
+// together on the state they leave (WriteExecutor.TryPrepareBatch); a failing member refuses the whole
+// batch with its place, and a batch the arena cannot hold is resolved and refused as a whole, as any write.
+// A group never splits it. The entities of a batch are one set (Entities.PublicationKeys). A batch waits for
+// the latest earlier write that has not completed and shares an entity with it, whatever that write is, and
+// a single write whose latest earlier write of its entity is a batch waits for that batch, as a write waits
+// for the holder of a value: in the list of the writes that wait for a value, started again from the
+// beginning once that one write ends (MarkCompleted), so that it is admitted again behind whatever then
+// shares an entity with it. Two single writes keep the chain of their entity. Every such wait goes to an
+// earlier admission, so none is part of a cycle. A value of a unique index a batch sets or frees is decided
+// as for a single write, over the changes of all its members, and a prepared batch answers the question of
+// a later write, who claims and who frees a value, through its changes.
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of
@@ -354,10 +370,54 @@ internal sealed class WriteCoordinator
         // On a master the position of a session is published already, unless a caller made it up.
         if (!waited.IsCompletedSuccessfully)
         {
-            return AdmitAfterAsync(waited, table, kind, key, values, expectedRevision, session, cancellationToken);
+            return AdmitAfterAsync(waited, table, kind, key, values, members: null, keys: null, expectedRevision, session, cancellationToken);
         }
 
-        return Admit(table, kind, key, values, forwarded: null, expectedRevision, session, cancellationToken);
+        return Admit(table, kind, key, values, members: null, keys: null, forwarded: null, expectedRevision, session, cancellationToken);
+    }
+
+    // Submits a write batch and returns its task, with its position and whether a member changed the
+    // database: its members, in their order (BatchMember), are executed as one write, at one position, or
+    // none of them (see the class, "A write batch"). The refusals of SubmitAsync, in the task: for the batch
+    // as a whole, WriteRejected with Limit Memory for a batch the memory budget cannot hold; for a member,
+    // its refusal with the place of the member in LatticeException.OperationIndex. ArgumentException at the
+    // call when two members are of one entity, which the batch of the core never submits.
+    public ValueTask<LatticeWriteResult> SubmitBatchAsync(BatchMember[] members, LatticeSession? session, CancellationToken cancellationToken)
+    {
+        var keys = new PublicationKeys(members.Length);
+
+        foreach (ref readonly var member in members.AsSpan())
+        {
+            if (!keys.TryAdd(member.Table, member.Key))
+            {
+                throw new ArgumentException($"The batch has two members for {member.Table.EntityType.Name} '{member.Key}'.", nameof(members));
+            }
+        }
+
+        foreach (ref readonly var member in members.AsSpan())
+        {
+            if (member.Table.Layout is null)
+            {
+                return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException(member.Table.Refusal));
+            }
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return ValueTask.FromCanceled<LatticeWriteResult>(cancellationToken);
+        }
+
+        if (!TryEnter(session, cancellationToken, out var waited, out var refusal))
+        {
+            return ValueTask.FromException<LatticeWriteResult>(refusal);
+        }
+
+        if (!waited.IsCompletedSuccessfully)
+        {
+            return AdmitAfterAsync(waited, table: null!, kind: default, key: default, values: null, members, keys, expectedRevision: null, session, cancellationToken);
+        }
+
+        return Admit(table: null!, kind: default, key: default, values: null, members, keys, forwarded: null, expectedRevision: null, session, cancellationToken);
     }
 
     // Submits a write a child forwarded, of an entity type the engine stores, which brings its root and
@@ -380,7 +440,7 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(table, kind, key, values: null, members: null, keys: null, forwarded, expectedRevision, session, CancellationToken.None);
     }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
@@ -533,6 +593,8 @@ internal sealed class WriteCoordinator
         WriteKindEnum kind,
         EntityKey key,
         object?[]? values,
+        BatchMember[]? members,
+        PublicationKeys? keys,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
         CancellationToken cancellationToken)
@@ -548,7 +610,7 @@ internal sealed class WriteCoordinator
             throw;
         }
 
-        return await Admit(table, kind, key, values, forwarded: null, expectedRevision, session, cancellationToken).ConfigureAwait(false);
+        return await Admit(table, kind, key, values, members, keys, forwarded: null, expectedRevision, session, cancellationToken).ConfigureAwait(false);
     }
 
     // The same for a forwarded write: a wait that fails is its refusal, recorded before it leaves the
@@ -574,7 +636,7 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(table, kind, key, values: null, members: null, keys: null, forwarded, expectedRevision, session, CancellationToken.None);
     }
 
     // The call of a write inside the barrier of the close (see the class): one hold of the lock that
@@ -585,6 +647,8 @@ internal sealed class WriteCoordinator
         WriteKindEnum kind,
         in EntityKey key,
         object?[]? values,
+        BatchMember[]? members,
+        PublicationKeys? keys,
         ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
@@ -608,7 +672,7 @@ internal sealed class WriteCoordinator
             {
                 write = _spare ?? new PendingWrite(this);
                 _spare = null;
-                write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
+                write.Begin(table, kind, key, values, members, keys, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
                 _queued++;
                 hold.Own = write;
                 Start(write, ref hold);
@@ -748,8 +812,18 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        if (FindLastOfEntity(write) is { } last)
+        if (FindLastSharing(write) is { } last)
         {
+            // Two single writes of one entity keep its chain. A write batch, or a single write whose
+            // latest earlier write of its entity is a batch, waits for that one write and is started again
+            // from the beginning once it ends (see the class, "A write batch").
+            if (write.Members is not null || last.Members is not null)
+            {
+                WaitForValue(write, last);
+
+                return;
+            }
+
             // The latest earlier write of the entity has no write behind it: one admitted after it would
             // be the latest.
             last.LaterOfEntity = write;
@@ -770,9 +844,10 @@ internal sealed class WriteCoordinator
         Prepare(write, ref hold);
     }
 
-    // Under the lock: the latest write of the entity of the write that was admitted before it, has not
-    // completed and waited: prepared and unpublished, in a chain, deferred, or in a resolution; null
-    // when there is none. The write waits behind it. Every such write is in the list of the writes
+    // Under the lock: the latest write that shares an entity with the write (PendingWrite.SharesEntityWith),
+    // was admitted before it, has not completed and waited: prepared and unpublished, in a chain, deferred,
+    // waiting for another write, or in a resolution; null when there is none. The write waits for it, so
+    // every such wait goes to an earlier admission. Every such write is in the list of the writes
     // admitted that waited (see the class, "The refusal"), and a write of the call that holds the lock
     // is the only one not in it yet, so the list is searched, from the newest write admitted before this
     // one back. Nothing is looked at, and no key is hashed, when the list is empty, as in MemoryOnly
@@ -781,11 +856,11 @@ internal sealed class WriteCoordinator
     // step, an admission took 0.6 to 0.8 ms. It never runs while the persistence step completes at once;
     // whether a durable persistence step that is busy needs a structure that finds them faster is open
     // until that step is built.
-    private PendingWrite? FindLastOfEntity(PendingWrite write)
+    private PendingWrite? FindLastSharing(PendingWrite write)
     {
         for (var waiter = write.IsWaiter ? write.Older : _newestWaiter; waiter is not null; waiter = waiter.Older)
         {
-            if (waiter.IsOfSameEntity(write))
+            if (waiter.SharesEntityWith(write))
             {
                 return waiter;
             }
@@ -891,6 +966,11 @@ internal sealed class WriteCoordinator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private PreparationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
     {
+        if (write.Members is not null)
+        {
+            return TryPrepareBatch(write, ref hold, out prepared, out refusal);
+        }
+
         var reservation = _executor.TryPrepare(write, out prepared, out refusal, out var taken);
 
         if (reservation == ReservationEnum.RefusedForMemory)
@@ -915,67 +995,108 @@ internal sealed class WriteCoordinator
         return PreparationEnum.Prepared;
     }
 
-    // Under the lock, after a preparation that found a value of a unique index held by a published root of
-    // another entity (ReservationEnum.KeyTaken, with what it found): when that entity has a prepared write
-    // that gives the value up, a delete or a key move, the write waits for it; otherwise, also when that
-    // write keeps the value, the write is refused (Violation).
+    // Under the lock: one try of the preparation of a write batch (WriteExecutor.TryPrepareBatch), with the
+    // outcomes of TryPrepare for the batch as a whole: a value of a unique index is decided as for a single
+    // write, over the changes of all its members (see the class, "A value of a unique index").
+    private PreparationEnum TryPrepareBatch(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
+    {
+        var reservation = _executor.TryPrepareBatch(write, out prepared, out refusal, out var taken);
+
+        if (reservation == ReservationEnum.RefusedForMemory)
+        {
+            return PreparationEnum.RefusedForMemory;
+        }
+
+        if (reservation == ReservationEnum.KeyTaken)
+        {
+            DecideTakenValue(write, taken, ref hold);
+
+            return PreparationEnum.DecidedByValue;
+        }
+
+        if (HoldsPreparedMemory() && WaitsForClaim(write, prepared!))
+        {
+            prepared = null;
+
+            return PreparationEnum.DecidedByValue;
+        }
+
+        return PreparationEnum.Prepared;
+    }
+
+    // Under the lock, after a preparation that found a value of a unique index taken on the state it leaves
+    // (ReservationEnum.KeyTaken, with what it found): when a published root of another entity holds it and
+    // that entity has a prepared write that gives the value up, a delete or a key move, the write waits for
+    // it; otherwise, also when that write keeps the value, or when two members of a batch claim it, the
+    // write is refused (Violation).
     private void DecideTakenValue(PendingWrite write, in TakenValue taken, ref Hold hold)
     {
-        if (HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
+        if (taken.Owner != default && HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
         {
             WaitForValue(write, holder);
 
             return;
         }
 
-        DecideFailure(write, Violation(write, taken.Index), ref hold);
+        DecideFailure(write, Violation(write, taken), ref hold);
     }
 
-    // Under the lock, for a write just prepared and reserved, of an entity type with a unique index, while
-    // writes hold prepared memory: when a prepared and unpublished write of another entity claims a value
-    // the write sets or moves, which the published state does not show, the write gives back what it
-    // prepared and waits for that write, true; false when none does. A delete sets no value.
+    // Under the lock, for a write just prepared and reserved, while writes hold prepared memory: when a
+    // prepared and unpublished write of another entity claims a value a change of the write sets or moves,
+    // which the published state does not show, the write gives back what it prepared and waits for that
+    // write, true; false when none does. A delete sets no value. A single write comes here only for an
+    // entity type with a unique index (TryPrepare).
     private bool WaitsForClaim(PendingWrite write, PreparedWrite prepared)
     {
-        if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Delete || FindClaimant(prepared.Change) is not { } holder)
+        foreach (ref readonly var change in prepared.Changes)
         {
-            return false;
+            if (change.Kind != ChangeKindEnum.Delete && change.Table.HasUniqueIndex && FindClaimant(change) is { } holder)
+            {
+                _changes.Release(prepared.Changes);
+                prepared.Withdraw();
+                WaitForValue(write, holder);
+
+                return true;
+            }
         }
 
-        _changes.Release(prepared.Changes);
-        prepared.Withdraw();
-        WaitForValue(write, holder);
-
-        return true;
+        return false;
     }
 
     // Under the lock, while writes hold prepared memory: the prepared and unpublished write of another
-    // entity whose change claims a value of a unique index the change given sets or moves, which the
+    // entity with a change that claims a value of a unique index the change given sets or moves, which the
     // published state does not show (Entities.ChangePublisher.ClaimsSameKey); null when there is none.
     private PendingWrite? FindClaimant(in PreparedChange change)
     {
         foreach (var held in PreparedNow)
         {
-            if (held.ChangesEntity && _changes.ClaimsSameKey(change, held.Change))
+            foreach (ref readonly var other in held.Changes)
             {
-                return held.Write;
+                if (_changes.ClaimsSameKey(change, other))
+                {
+                    return held.Write;
+                }
             }
         }
 
         return null;
     }
 
-    // Under the lock, while writes hold prepared memory: the prepared and unpublished write of the entity of
-    // the root entry given, whose published root holds a value of the unique index at the place given, when
-    // that write gives the value up (Entities.ChangePublisher.Frees); null when it has none or keeps the
-    // value. Only one write of an entity is prepared at a time, so its write is found by its root entry.
+    // Under the lock, while writes hold prepared memory: the prepared and unpublished write with a change of
+    // the entity of the root entry given, whose published root holds a value of the unique index at the
+    // place given, when that change gives the value up (Entities.ChangePublisher.Frees); null when there is
+    // none or it keeps the value. Only one write of an entity is prepared at a time, so its write is found by
+    // its root entry.
     private PendingWrite? FindWriteThatFrees(int index, RootHandle owner)
     {
         foreach (var held in PreparedNow)
         {
-            if (held.ChangesEntity && held.Change.Handle == owner && _changes.Frees(held.Change, index))
+            foreach (ref readonly var other in held.Changes)
             {
-                return held.Write;
+                if (other.Handle == owner && _changes.Frees(other, index))
+                {
+                    return held.Write;
+                }
             }
         }
 
@@ -1022,16 +1143,21 @@ internal sealed class WriteCoordinator
 
     // The refusal of a write that would give a value of a unique index a second owner, made in this one
     // place: UniqueConstraintViolation with the name of the index at the place given (decision on unique
-    // indexes). The write changed nothing.
-    private static LatticeException Violation(PendingWrite write, int index)
+    // indexes); for a write batch, of the entity type of its failing member, whose place is
+    // LatticeException.OperationIndex (WriteExecutor.TryPrepareBatch). The write changed nothing.
+    private static LatticeException Violation(PendingWrite write, in TakenValue taken)
     {
-        var name = write.Table.Indexes[index].Definition.Name;
+        var (table, key, operation) = write.Members is { } members
+            ? (members[taken.Change].Table, members[taken.Change].Key, (int?)taken.Change)
+            : (write.Table, write.Key, null);
+        var name = table.Indexes[taken.Index].Definition.Name;
 
         return new LatticeException(
             LatticeErrorEnum.UniqueConstraintViolation,
-            $"{write.Table.EntityType.Name} '{write.Key}' would take a value of the unique index {name} that another entity holds; nothing was written.")
+            $"{table.EntityType.Name} '{key}' would take a value of the unique index {name} that another entity holds; nothing was written.")
         {
             IndexName = name,
+            OperationIndex = operation,
         };
     }
 

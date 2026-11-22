@@ -203,7 +203,7 @@ internal readonly struct PrimaryKeys
     // Whether two keys of the entity type are one key, as the schema compares keys: an integer and a
     // Guid by their value, a String by the comparison its field declares (Comparison.ValueComparer),
     // so that two spellings of a key compared without case are one entity for the order of the writes
-    // (Writes.PendingWrite.IsOfSameEntity).
+    // (Writes.PendingWrite.SharesEntityWith).
     public bool KeysEqual(in EntityKey left, in EntityKey right) => KeyKind switch
     {
         KeyKindEnum.Integer => left.Integer == right.Integer,
@@ -257,7 +257,7 @@ internal readonly struct PrimaryKeys
     // which keys of a structure share systematically, such as (shard << 32) | id or (i << 32) | i, all of
     // hash 0. Under the seed 0 a key enters the finalizer unchanged. Keys that are one key (KeysEqual) have
     // one hash, so the coordinator of the writes compares the entities of two writes by it before it compares
-    // their keys (Writes.PendingWrite.IsOfSameEntity).
+    // their keys (Writes.PendingWrite.SharesEntityWith).
     public uint HashOf(in EntityKey key)
     {
         if (KeyKind == KeyKindEnum.Text)

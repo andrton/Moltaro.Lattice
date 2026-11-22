@@ -10,18 +10,19 @@ namespace Moltaro.Lattice.Access.Batches;
 // writes (IWriteBatchExecutor), so that later edits of the caller's object are not part of the
 // batch. The encoding is the caller's work, on its thread, outside every lock of the database.
 //
-// The execution of a batch is not built yet: its commit is refused.
+// The commit hands the operations to the database (IWriteBatchExecutor.ExecuteAsync) and lets go of them,
+// so that a batch kept after its commit keeps no root alive.
 internal sealed class WriteBatch : ILatticeWriteBatch
 {
     private readonly LatticeSchema _schema;
 
     private readonly IWriteBatchExecutor _executor;
-    private readonly List<WriteBatchOperation> _operations = [];
+    private List<WriteBatchOperation> _operations = [];
 
     // The entities the batch already addresses, told apart as the schema compares their keys
     // (WriteBatchEntity). A key is normalized to the key type of its entity type before it is
     // added, so an integer key is one entity in whatever width it was given.
-    private readonly HashSet<WriteBatchEntity> _identities = [];
+    private HashSet<WriteBatchEntity> _identities = [];
     private bool _submitted;
 
     public WriteBatch(LatticeSchema schema, IWriteBatchExecutor executor)
@@ -30,7 +31,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         _executor = executor;
     }
 
-    public int Count => _operations.Count;
+    public int Count { get; private set; }
 
     public void Insert<TEntity>(TEntity entity)
         where TEntity : class =>
@@ -73,12 +74,12 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         Delete(Resolve(entityName), key, expectedRevision);
 
     public ValueTask<LatticeWriteResult> CommitAsync(CancellationToken cancellationToken = default) =>
-        Commit();
+        Commit(null, cancellationToken);
 
     public ValueTask<LatticeWriteResult> CommitAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        return Commit();
+        return Commit(session, cancellationToken);
     }
 
     private void Save<TEntity>(WriteKindEnum kind, TEntity entity, LatticeRevision? expectedRevision)
@@ -128,6 +129,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
 
         _identities.Add(entity);
         _operations.Add(new WriteBatchOperation(kind, entityType, key, expectedRevision, root));
+        Count++;
     }
 
     private LatticeEntityType Resolve(string entityName)
@@ -139,7 +141,9 @@ internal sealed class WriteBatch : ILatticeWriteBatch
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
-    private ValueTask<LatticeWriteResult> Commit()
+    // What the caller can know from its own arguments is thrown here; what the database decides comes
+    // through the task.
+    private ValueTask<LatticeWriteResult> Commit(LatticeSession? session, CancellationToken cancellationToken)
     {
         ThrowIfSubmitted();
         if (_operations.Count == 0)
@@ -148,7 +152,13 @@ internal sealed class WriteBatch : ILatticeWriteBatch
         }
 
         _submitted = true;
-        throw new NotSupportedException("Executing a write batch is not implemented yet.");
+
+        var operations = _operations;
+
+        _operations = [];
+        _identities = [];
+
+        return _executor.ExecuteAsync(operations, session, cancellationToken);
     }
 
     private void ThrowIfSubmitted()

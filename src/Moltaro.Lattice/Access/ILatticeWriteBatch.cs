@@ -248,7 +248,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
-    /// <exception cref="NotSupportedException">Executing a batch is not implemented yet.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
+    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// The error of the operation that made the master refuse the batch:
     /// <see cref="LatticeErrorEnum.DuplicateKey"/>, <see cref="LatticeErrorEnum.NotFound"/>,
@@ -272,7 +275,10 @@ public interface ILatticeWriteBatch
     /// <exception cref="InvalidOperationException">
     /// The batch is empty or has already been submitted.
     /// </exception>
-    /// <exception cref="NotSupportedException">Executing a batch is not implemented yet.</exception>
+    /// <exception cref="NotSupportedException">
+    /// The batch was created on a child, or an operation is of an entity type whose writes are refused
+    /// until a feature of its schema is implemented: neither is implemented yet.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// As for <see cref="CommitAsync(CancellationToken)"/>, and
     /// <see cref="LatticeErrorEnum.HistoryMismatch"/> when the session belongs to another

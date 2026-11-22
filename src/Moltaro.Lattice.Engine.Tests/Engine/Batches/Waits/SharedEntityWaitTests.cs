@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Waits;
 // UniqueSchema; every wait is bounded.
 public sealed class SharedEntityWaitTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Single_write_batch_and_single_write_of_one_entity_are_published_in_the_order_of_their_calls()
     {
         var storage = new HeldPersistence(holding: false);
@@ -63,7 +63,7 @@ public sealed class SharedEntityWaitTests
         }
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_entities_that_have_earlier_writes_not_completed_is_published_after_all_of_them()
     {
         var storage = new HeldPersistence(holding: false);
@@ -103,7 +103,7 @@ public sealed class SharedEntityWaitTests
         }
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_cancelled_while_it_waits_ends_cancelled_and_nothing_of_it_is_written()
     {
         var storage = new HeldPersistence(holding: false);
@@ -144,7 +144,7 @@ public sealed class SharedEntityWaitTests
         }
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Fault_ends_every_batch_that_waits_with_Unavailable_and_nothing_of_it_is_written()
     {
         var storage = new HeldPersistence(holding: false);
@@ -191,7 +191,7 @@ public sealed class SharedEntityWaitTests
     // While the first write is held, a batch of 40 members and 40 single writes of other entities are prepared
     // and queued; once it is released, the commit stage forms groups of at most 32 writes, and the batch is one
     // of them.
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_more_members_than_a_group_holds_is_one_write_of_one_group()
     {
         const int Members = 40;

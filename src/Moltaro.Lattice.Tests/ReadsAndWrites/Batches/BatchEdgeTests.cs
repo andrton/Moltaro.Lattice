@@ -20,7 +20,7 @@ public sealed class BatchEdgeTests
 
     private static string[] Kinds => ["insert", "replace", "upsert", "delete"];
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_one_member_takes_one_position_and_gives_a_revision_as_a_single_write_does()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -57,7 +57,7 @@ public sealed class BatchEdgeTests
         Assert.Equal(1, batch.Count);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_more_writes_than_a_group_holds_is_executed_at_one_position()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -78,7 +78,7 @@ public sealed class BatchEdgeTests
         Assert.Equal(["user 7"], users.Index("ByEmail").Find(IndexKey.Equal("user7@example.org")).Select(user => user.Name));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_more_bytes_than_a_group_holds_is_executed_at_one_position()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -104,7 +104,7 @@ public sealed class BatchEdgeTests
         Assert.All(Enumerable.Range(0, 4), index => Assert.Equal(3 * Mebibyte, ((byte[])settings.Get($"large {index}")!["Payload"]!).Length));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_of_ten_thousand_small_entities_with_indexes_is_executed_as_one_under_the_default_options()
     {
         const int Count = 10_000;

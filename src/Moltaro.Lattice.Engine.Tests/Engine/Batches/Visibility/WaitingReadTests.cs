@@ -22,7 +22,7 @@ public sealed class WaitingReadTests
 {
     public static IEnumerable<TheoryDataRow<string>> Nodes => [new("master"), new("child")];
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Nodes))]
     public async Task Read_that_meets_a_member_while_the_publication_is_held_waits_and_then_returns_the_state_after_the_batch(string node)
     {
@@ -49,7 +49,7 @@ public sealed class WaitingReadTests
         await commit.WaitAsync(Bound);
     }
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Nodes))]
     public async Task Read_that_waits_for_a_publication_that_fails_ends_with_Unavailable(string node)
     {
@@ -76,7 +76,7 @@ public sealed class WaitingReadTests
         }
     }
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Nodes))]
     public async Task Asynchronous_read_that_waits_for_the_position_of_a_batch_ends_with_its_token(string node)
     {

@@ -165,7 +165,7 @@ public sealed class UniqueIndexTests
         Assert.Equal(3, accounts.Enumerate().Count());
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_is_checked_against_the_state_it_leaves()
     {
         await using var database = await TestData.OpenMasterAsync(schema: Schema);
@@ -197,7 +197,7 @@ public sealed class UniqueIndexTests
         Assert.Equal("grace", accounts.Get(3)!.Login);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_that_would_break_a_unique_index_is_refused_as_a_whole()
     {
         await using var database = await TestData.OpenMasterAsync(schema: Schema);

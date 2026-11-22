@@ -15,7 +15,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // ByLogin) and Slots (ByABC, three parts that can each be null).
 public sealed class BatchUniqueValueTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Two_entities_exchange_their_values_of_two_unique_indexes_in_one_batch()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -34,7 +34,7 @@ public sealed class BatchUniqueValueTests
         Assert.Equal([1L], IdsOf(accounts.Index("ByTenantAndEmail").Find(IndexKey.Equal("acme", "grace@example.org"))));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Three_entities_rotate_their_values_in_one_batch()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -57,7 +57,7 @@ public sealed class BatchUniqueValueTests
 
     // The value is freed by a delete of its owner whichever comes first in the batch, the delete or the
     // member that takes the value.
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Delete_frees_the_value_another_member_of_the_batch_takes(bool deleteFirst)
@@ -85,7 +85,7 @@ public sealed class BatchUniqueValueTests
         Assert.Equal([2L], IdsOf(accounts.Index("ByLogin").Find(IndexKey.Equal("ada"))));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Two_members_that_claim_one_value_refuse_the_batch_with_the_later_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -110,7 +110,7 @@ public sealed class BatchUniqueValueTests
         Assert.Empty(accounts.Index("ByLogin").Find(IndexKey.Equal("twin")));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Members_that_claim_one_value_of_two_indexes_are_refused_for_the_index_declared_first()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -127,7 +127,7 @@ public sealed class BatchUniqueValueTests
         Assert.Empty(profiles.Enumerate());
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Member_that_claims_the_value_of_a_published_owner_no_member_frees_is_the_failing_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Accounts);
@@ -151,7 +151,7 @@ public sealed class BatchUniqueValueTests
 
     // The earlier member violates ByLogin and the later one ByNick, each against a published owner: ByNick is
     // declared first, so the later member is the failing one.
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Of_violations_in_two_indexes_the_batch_names_the_index_declared_first()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -171,7 +171,7 @@ public sealed class BatchUniqueValueTests
 
     // Two members whose keys of ByABC are equal but for a null in the part given hold no value, so the batch
     // goes through; with no null part the same pair is refused.
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     [InlineData(2)]

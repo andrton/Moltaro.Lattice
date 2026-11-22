@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // checked against: the child applies the batch whole, and loads a member as its master holds it.
 public sealed class BatchRevisionTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Entities_of_one_batch_share_its_position_and_their_revisions_do_not_satisfy_a_condition_on_each_other()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -49,7 +49,7 @@ public sealed class BatchRevisionTests
         Assert.True(users.Get(2L)!.Enabled);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Revision_of_a_member_on_a_child_is_its_revision_on_the_master_whether_the_child_followed_or_loaded_it()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);

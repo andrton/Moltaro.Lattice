@@ -20,7 +20,10 @@ namespace Moltaro.Lattice.Engine.Writes;
 // of its entity (Entities.PreparedChange), written into the record by the preparation (WriteChange), the
 // write's once what its publication uses is reserved (Set), and not changed until the write has its outcome.
 // A delete of a key that is absent
-// changes no entity: it has no change and publishes only its position. Until the write is published or
+// changes no entity: it has no change and publishes only its position. A write batch has the changes of its
+// members instead, in their order, each with the number of its member, those that change nothing left out,
+// in an array of the record, which the preparation writes in place (BatchChanges, SetBatch); its encoded
+// size is the sum of theirs. Until the write is published or
 // withdrawn its change holds what it took and reserved (Entities.ChangePublisher.Release gives it back). The
 // record of a write owns it and gives it to each write it holds (PendingWrite.Record), so that it is made
 // once for the record.
@@ -28,6 +31,12 @@ internal sealed class PreparedWrite
 {
     // The change of the write, valid while ChangesEntity is true.
     private PreparedChange _change;
+
+    // The changes of a write batch and how many of them hold a change (see the class); null for a single
+    // write.
+    private PreparedChange[]? _batch;
+
+    private int _batchCount;
 
     public PreparedWrite(PendingWrite write)
     {
@@ -42,13 +51,17 @@ internal sealed class PreparedWrite
     // Whether the write changes an entity: false for a delete of a key that is absent.
     public bool ChangesEntity { get; private set; }
 
-    // The change the write makes to its entity, when it changes one.
+    // The change the write makes to its entity, when it changes one; only for a single write.
     public ref readonly PreparedChange Change => ref _change;
 
-    // What the publication of the write installs, as the publisher takes it: its one change, or none. A
-    // span over the field of this record, so that it is passed without a copy and without an allocation;
-    // its length is the flag, without a branch, so that the accessor is inlined where it is read.
-    public ReadOnlySpan<PreparedChange> Changes => MemoryMarshal.CreateReadOnlySpan(ref _change, ChangesEntity ? 1 : 0);
+    // Whether the record holds the changes of a write batch (BatchChanges).
+    public bool IsBatch => _batch is not null;
+
+    // What the publication of the write installs, as the publisher takes it: its one change, or none, a span
+    // over the field of this record, so that it is passed without a copy and without an allocation, its
+    // length the flag; or the changes of a batch.
+    public ReadOnlySpan<PreparedChange> Changes =>
+        _batch is null ? MemoryMarshal.CreateReadOnlySpan(ref _change, ChangesEntity ? 1 : 0) : new ReadOnlySpan<PreparedChange>(_batch, 0, _batchCount);
 
     // For a write being prepared: writes its change into the record where it lies, so that the reservation
     // of what its publication uses reads it there and records its decision for each index in it
@@ -73,6 +86,32 @@ internal sealed class PreparedWrite
         return ref _change;
     }
 
+    // For a write batch being prepared: room for the changes of its members, which its preparation writes
+    // in place, as WriteChange writes the change of a single write, and reserves from there; made once for
+    // the batch, and written again by each try of its preparation.
+    public Span<PreparedChange> BatchChanges(int members)
+    {
+        Debug.Assert(!ChangesEntity, "The record of a write batch is written while it holds changes.");
+
+        if (_batch is null || _batch.Length < members)
+        {
+            _batch = new PreparedChange[members];
+        }
+
+        return _batch;
+    }
+
+    // What the preparation of a write batch made: the changes it wrote at the start of BatchChanges and
+    // reserved, as many as given, with the bytes it encoded.
+    public PreparedWrite SetBatch(int count, long encodedSize)
+    {
+        _batchCount = count;
+        ChangesEntity = count > 0;
+        EncodedSize = encodedSize;
+
+        return this;
+    }
+
     // What the preparation of a write that changes an entity made: the change it wrote (WriteChange) and
     // reserved, with the bytes it encoded.
     public PreparedWrite Set(long encodedSize)
@@ -86,7 +125,11 @@ internal sealed class PreparedWrite
     // For a write whose change was given back before it was queued (Entities.ChangePublisher.Release),
     // because it waits for the write that holds a value of a unique index: the record holds no change any
     // more, and the next preparation of the same write writes one again (WriteChange).
-    public void Withdraw() => ChangesEntity = false;
+    public void Withdraw()
+    {
+        ChangesEntity = false;
+        _batchCount = 0;
+    }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left
     // as it is: nothing reads it while ChangesEntity is false. It references no earlier write: the record
@@ -107,5 +150,7 @@ internal sealed class PreparedWrite
         ChangesEntity = false;
         _change.Table = null!;
         _change.Key = default;
+        _batch = null;
+        _batchCount = 0;
     }
 }

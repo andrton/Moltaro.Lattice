@@ -8,7 +8,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // the whole batch and carries its number (the remarks of ILatticeWriteBatch, "Executing").
 public sealed class BatchCommitFailureTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_submitted_a_second_time_is_refused_at_the_call()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -31,7 +31,7 @@ public sealed class BatchCommitFailureTests
         Assert.Throws<InvalidOperationException>(() => { _ = batch.CommitAsync(new LatticeSession()); });
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Refusal_of_a_member_comes_through_the_task()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -47,7 +47,7 @@ public sealed class BatchCommitFailureTests
         Assert.Equal(0, refused.OperationIndex);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Close_of_the_database_comes_through_the_task()
     {
         var database = await TestData.OpenMasterAsync();
@@ -60,7 +60,7 @@ public sealed class BatchCommitFailureTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => commit.AsTask());
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Token_cancelled_before_the_batch_is_executed_comes_through_the_task_and_nothing_is_written()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -77,7 +77,7 @@ public sealed class BatchCommitFailureTests
         Assert.Equal(before, database.Position);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Session_of_another_history_comes_through_the_task_and_nothing_is_written()
     {
         await using var other = await TestData.OpenMasterAsync();
@@ -95,7 +95,7 @@ public sealed class BatchCommitFailureTests
         Assert.Null(database.Set<User>().Get(1L));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Replace_of_an_absent_entity_refuses_the_whole_batch_with_its_number()
     {
         await using var database = await TestData.OpenMasterAsync();

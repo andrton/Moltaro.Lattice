@@ -43,7 +43,7 @@ public sealed class WholeOrNoneTests
         }
         select new TheoryDataRow<string, string>(node, point);
 
-    [Theory(Skip = SkipReason.WriteBatch)]
+    [Theory]
     [MemberData(nameof(Cases))]
     public async Task Reader_during_the_publication_of_a_batch_sees_all_of_it_or_none_and_no_position_before_it_is_visible(string node, string point)
     {

@@ -298,8 +298,8 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
-    // The batch of the core, whose members this database encodes as they are added (EncodeRoot); its commit
-    // is NotSupportedException, since the commit of a batch is not built yet.
+    // The batch of the core, whose members this database encodes as they are added (EncodeRoot) and executes
+    // when it is committed (ExecuteAsync).
     public ILatticeWriteBatch CreateWriteBatch()
     {
         ThrowIfNotReady();
@@ -314,6 +314,37 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
         var table = Part(_parts).Operations[entityType].Table;
 
         return table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
+    }
+
+    // The commit of a write batch of the core: on a master its members go to the write coordinator as one
+    // write (Writes.WriteCoordinator.SubmitBatchAsync), each key in the form of its entity type
+    // (Sets.KeyArgument); a batch through a child is not built yet. The close, and every refusal, come
+    // through the task.
+    ValueTask<LatticeWriteResult> IWriteBatchExecutor.ExecuteAsync(IReadOnlyList<WriteBatchOperation> operations, LatticeSession? session, CancellationToken cancellationToken)
+    {
+        var parts = _parts;
+
+        if (parts is null)
+        {
+            return ValueTask.FromException<LatticeWriteResult>(new ObjectDisposedException(GetType().FullName));
+        }
+
+        if (parts.Forwarder is not null)
+        {
+            return ValueTask.FromException<LatticeWriteResult>(new NotSupportedException("Executing a write batch through a child is not implemented yet."));
+        }
+
+        var members = new BatchMember[operations.Count];
+
+        for (var place = 0; place < members.Length; place++)
+        {
+            var operation = operations[place];
+            var table = parts.Operations[operation.EntityType].Table;
+
+            members[place] = new BatchMember(operation.Kind, table, KeyArgument.Of(table, operation.Key), operation.ExpectedRevision, operation.Root);
+        }
+
+        return parts.Coordinator.SubmitBatchAsync(members, session, cancellationToken);
     }
 
     // Lets no operation start any more, ends the waits for a position, lets every write admitted before it

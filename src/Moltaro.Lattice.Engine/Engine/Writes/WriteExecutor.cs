@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Comparison;
@@ -79,12 +80,14 @@ namespace Moltaro.Lattice.Engine.Writes;
 // for. With no child and no capture nothing is encoded.
 //
 // Every write that passes its condition and its preparation and is committed is published at a position of
-// its own, also a delete of an absent key, which changes no entity. A revision is the history and the root
-// entry's LastMutationSequence: every position changes at most one entity, so the revision of one entity
-// never satisfies a condition on another, and a recreated entity has a new one. LatticeRevision is two opaque
-// 64-bit values, so this composition is internal and can change; how a revision binds its entity when several
-// entities change at one position belongs to the stage with the batch (docs/design/
-// milestone-1-engine-contract.md, "Write coordinator and revision semantics").
+// its own, also a delete of an absent key, which changes no entity, and a write batch, whose members share
+// its position. A revision is the history, the root entry's LastMutationSequence and the number of the member
+// of the batch that made it (Entities.EntityTable.RevisionOf; BatchMember.NumberOf): 0 for a single write and
+// for a batch of one member, and for each member of a larger batch its place from 1. A position changes one
+// entity, or the members of one batch, each with its own number, so the revision of one entity never
+// satisfies a condition on another, and a recreated entity has a new one. LatticeRevision is two opaque
+// 64-bit values, so this composition is internal and can change (docs/design/milestone-1-engine-contract.md,
+// "Write coordinator and revision semantics").
 internal sealed class WriteExecutor
 {
     private readonly Arena _arena;
@@ -136,21 +139,7 @@ internal sealed class WriteExecutor
         var table = write.Table;
         var exists = table.TryFind(write.Key, out var handle, out var replaced);
 
-        if (write.ExpectedRevision is { } expected)
-        {
-            if (!exists || RevisionOf(handle) != expected)
-            {
-                throw new LatticeException(LatticeErrorEnum.RevisionConflict, $"{table.EntityType.Name} '{write.Key}' has another revision or no longer exists.");
-            }
-        }
-        else if (write.Kind == WriteKindEnum.Insert && exists)
-        {
-            throw new LatticeException(LatticeErrorEnum.DuplicateKey, $"{table.EntityType.Name} '{write.Key}' already exists.");
-        }
-        else if (write.Kind == WriteKindEnum.Replace && !exists)
-        {
-            throw new LatticeException(LatticeErrorEnum.NotFound, $"{table.EntityType.Name} '{write.Key}' does not exist.");
-        }
+        CheckCondition(table, write.Kind, write.Key, write.ExpectedRevision, exists, handle, operation: null);
 
         if (write.Kind == WriteKindEnum.Delete && !exists)
         {
@@ -169,6 +158,104 @@ internal sealed class WriteExecutor
         return exists
             ? TryPrepareReplace(write, handle, replaced, out prepared, out refusal, out taken)
             : TryPrepareInsert(write, out prepared, out refusal, out taken);
+    }
+
+    // Prepares a write batch (WriteCoordinator.SubmitBatchAsync) as a single write is prepared, member by
+    // member in their order, each by the path of a forwarded write: its lookup and its condition, a new root
+    // entry for an insert, and its root placed from the bytes it brings (Place); a delete of an absent key
+    // changes nothing and has no change. Then what the publication of all the changes uses is reserved
+    // together, and a value of a unique index is found on the state they leave (Entities.ChangePublisher
+    // .TryReserve). The outcomes are those of TryPrepare, for the batch as a whole: Reserved; RefusedForMemory,
+    // with a refusal of the batch, which names no member, when the arena cannot hold a root or the nodes of
+    // an index; KeyTaken with what the reservation found, the failing change given as the place of its
+    // member among the members. A
+    // failed condition is the refusal of TryPrepare with the place of its member among the members
+    // (LatticeException.OperationIndex). Whatever ends it other than Reserved, every member has given back
+    // what it took, its root and its root entry, so nothing of the batch is left.
+    public ReservationEnum TryPrepareBatch(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
+    {
+        var members = write.Members!;
+        var record = write.Record;
+        var changes = record.BatchChanges(members.Length);
+        var count = 0;
+        var size = 0L;
+
+        prepared = null;
+        refusal = null;
+        taken = default;
+
+        try
+        {
+            for (var place = 0; place < members.Length; place++)
+            {
+                ref readonly var member = ref members[place];
+                var table = member.Table;
+                var exists = table.TryFind(member.Key, out var handle, out var replaced);
+
+                CheckCondition(table, member.Kind, member.Key, member.ExpectedRevision, exists, handle, place);
+
+                if (member.Kind == WriteKindEnum.Delete && !exists)
+                {
+                    continue;
+                }
+
+                var kind = member.Kind == WriteKindEnum.Delete ? ChangeKindEnum.Delete : exists ? ChangeKindEnum.Replace : ChangeKindEnum.Insert;
+
+                if (kind == ChangeKindEnum.Insert)
+                {
+                    handle = _roots.Add((uint)table.EntityType.Id);
+                    replaced = default;
+                }
+
+                // Written before its root is placed, so that what the change took is given back from here on.
+                ref var change = ref changes[count++];
+
+                change = new PreparedChange(kind, table, member.Key, handle, default, replaced)
+                {
+                    Member = BatchMember.NumberOf(place, members.Length),
+                };
+
+                if (kind == ChangeKindEnum.Delete)
+                {
+                    continue;
+                }
+
+                change.Root = Place(table, handle, member.Root, replaces: kind == ChangeKindEnum.Replace, out var rootSize, out _);
+
+                if (change.Root.IsNull)
+                {
+                    refusal = BatchRefusalForMemory();
+
+                    return ReservationEnum.RefusedForMemory;
+                }
+
+                size += rootSize;
+            }
+
+            var reservation = _changes.TryReserve(changes[..count], checksUnique: true, out taken);
+
+            if (reservation == ReservationEnum.Reserved)
+            {
+                prepared = record.SetBatch(count, size);
+            }
+            else if (reservation == ReservationEnum.RefusedForMemory)
+            {
+                refusal = BatchRefusalForMemory();
+            }
+            else
+            {
+                taken = taken with { Change = BatchMember.PlaceOf(changes[taken.Change].Member) };
+            }
+
+            return reservation;
+        }
+        finally
+        {
+            if (prepared is null)
+            {
+                GiveBack(changes[..count]);
+            }
+        }
     }
 
     // Publishes the writes of the group in its order, the first at the sequence given and each next at
@@ -220,6 +307,65 @@ internal sealed class WriteExecutor
         _timesToLetThrough = timesToLetThrough;
     }
 
+    // The condition of a write, or of the member of a batch at the place given, against what its lookup
+    // found (see the class): an expected revision, then that an insert finds no entity and a replace finds
+    // one. Inlined into each preparation, so that a single write makes the calls it made before batches.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CheckCondition(EntityTable table, WriteKindEnum kind, in EntityKey key, LatticeRevision? expectedRevision, bool exists, RootHandle handle, int? operation)
+    {
+        if (expectedRevision is { } expected)
+        {
+            if (!exists || RevisionOf(handle) != expected)
+            {
+                throw new LatticeException(LatticeErrorEnum.RevisionConflict, $"{table.EntityType.Name} '{key}' has another revision or no longer exists.")
+                {
+                    OperationIndex = operation,
+                };
+            }
+        }
+        else if (kind == WriteKindEnum.Insert && exists)
+        {
+            throw new LatticeException(LatticeErrorEnum.DuplicateKey, $"{table.EntityType.Name} '{key}' already exists.")
+            {
+                OperationIndex = operation,
+            };
+        }
+        else if (kind == WriteKindEnum.Replace && !exists)
+        {
+            throw new LatticeException(LatticeErrorEnum.NotFound, $"{table.EntityType.Name} '{key}' does not exist.")
+            {
+                OperationIndex = operation,
+            };
+        }
+    }
+
+    // The refusal of a write batch that the arena cannot hold: of the batch as a whole, so it names no member.
+    private static LatticeException BatchRefusalForMemory() =>
+        new(LatticeErrorEnum.WriteRejected, "The memory budget of the database cannot hold the write batch; nothing of it was written.")
+        {
+            Limit = LatticeLimitEnum.Memory,
+        };
+
+    // Gives back what the changes of a batch took before their reservation, in the reverse of their order:
+    // the root an insert or a replace placed, and the root entry of an insert, to which no index maps a key.
+    private void GiveBack(ReadOnlySpan<PreparedChange> changes)
+    {
+        for (var index = changes.Length - 1; index >= 0; index--)
+        {
+            ref readonly var change = ref changes[index];
+
+            if (!change.Root.IsNull)
+            {
+                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+            }
+
+            if (change.Kind == ChangeKindEnum.Insert)
+            {
+                _roots.Release(change.Handle);
+            }
+        }
+    }
+
     private LatticeRevision RevisionOf(RootHandle handle)
     {
         ref var entry = ref _roots.Entry(handle);
@@ -262,7 +408,7 @@ internal sealed class WriteExecutor
 
         if (write.Forwarded is { } forwarded)
         {
-            root = PlaceForwarded(table, handle, forwarded, replaces: true, out size, out refusal);
+            root = Place(table, handle, forwarded.Root, replaces: true, out size, out refusal);
         }
         else
         {
@@ -326,7 +472,7 @@ internal sealed class WriteExecutor
             long size;
 
             root = write.Forwarded is { } forwarded
-                ? PlaceForwarded(table, handle, forwarded, replaces: false, out size, out refusal)
+                ? Place(table, handle, forwarded.Root, replaces: false, out size, out refusal)
                 : Encode(table, handle, write.Values!, out size, out refusal);
 
             if (root.IsNull)
@@ -405,8 +551,8 @@ internal sealed class WriteExecutor
         }
     }
 
-    // Places the root a child forwarded for the lifetime the handle names (see the class), in prepared
-    // blocks, with the bytes of the slots it takes as the import counts them: the root block, every block
+    // Places the root a child forwarded, or a member of a write batch brings, for the lifetime the handle
+    // names (see the class), in prepared blocks, with the bytes of the slots it takes as the import counts them: the root block, every block
     // of its values out of line and every entry of the text table it adds, as Encode counts them for the
     // same write of values. For a replace, a key of another spelling than the stored one is written again
     // with the stored spelling (Respell), and the size is then what Encode counts for that root, not what
@@ -414,11 +560,11 @@ internal sealed class WriteExecutor
     // reaches zero (Storage.Text.TextTable.Release), and Encode adds that entry again and counts it. The
     // null address, with the refusal, when the arena has no room for the entity; then nothing of it is
     // left allocated.
-    private ArenaAddress PlaceForwarded(EntityTable table, RootHandle handle, ForwardedOrigin forwarded, bool replaces, out long size, out LatticeException? refusal)
+    private ArenaAddress Place(EntityTable table, RootHandle handle, in ReadOnlySequence<byte> bytes, bool replaces, out long size, out LatticeException? refusal)
     {
         var layout = table.Layout!;
         var import = _import ??= new BlockImport(_arena);
-        var reader = new SequenceReader<byte>(forwarded.Root);
+        var reader = new SequenceReader<byte>(bytes);
         var received = import.Check(ref reader, layout);
 
         refusal = null;
@@ -530,19 +676,13 @@ internal sealed class WriteExecutor
     // the class).
     private void Deliver(PreparedWrite prepared, ulong sequence)
     {
-        var write = prepared.Write;
-
         if (!prepared.ChangesEntity)
         {
             TransactionEncoder.Unchanged(_delivery, sequence);
         }
-        else if (prepared.Change.Kind == ChangeKindEnum.Delete)
-        {
-            TransactionEncoder.Delete(_delivery, sequence, write.Table, write.Key);
-        }
         else
         {
-            TransactionEncoder.Write(_delivery, sequence, write.Table, _arena, prepared.Change.Root);
+            TransactionEncoder.Write(_delivery, sequence, prepared.Changes, _arena);
         }
     }
 

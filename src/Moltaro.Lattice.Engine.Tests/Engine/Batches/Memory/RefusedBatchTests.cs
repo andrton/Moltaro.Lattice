@@ -26,7 +26,7 @@ public sealed class RefusedBatchTests
 
     private static readonly ArenaOptions TwoSegments = new() { MemoryLimit = 2L * new ArenaOptions().SegmentSize };
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_the_arena_cannot_hold_leaves_the_entities_the_indexes_the_root_entries_and_the_position_as_they_were()
     {
         await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Arena = FourSegments });
@@ -112,7 +112,7 @@ public sealed class RefusedBatchTests
 
     // The batch replaces the entity the held write inserts, so it waits for it; once that write is published,
     // the batch does not fit beside it.
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_that_waited_behind_a_write_of_its_entity_and_does_not_fit_after_it_changes_nothing()
     {
         var storage = new HeldPersistence(holding: false);
@@ -158,7 +158,7 @@ public sealed class RefusedBatchTests
     // A replace of 3 MiB is held in the persistence step, so that the arena holds both states of the entity
     // for a time; the batch does not fit beside them, is refused twice and waits in its resolution, where its
     // token is cancelled.
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_cancelled_at_the_wait_of_the_resolution_of_its_refusal_ends_cancelled_and_changes_nothing()
     {
         var storage = new HeldPersistence(holding: false);

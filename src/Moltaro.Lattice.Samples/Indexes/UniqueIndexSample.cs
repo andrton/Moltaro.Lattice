@@ -5,9 +5,6 @@ namespace Moltaro.Lattice.Samples.Indexes;
 
 // A unique index lets a value belong to one entity only. The schema declares it with
 // "Unique": true; the master keeps the rule for every write, whichever node submits it.
-//
-// This shows the intended use. Executing a write batch is not implemented yet: the swap at
-// the end throws NotSupportedException, which Program.cs reports.
 internal static class UniqueIndexSample
 {
     private const string SchemaJson = """

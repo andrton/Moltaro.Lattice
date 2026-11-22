@@ -50,11 +50,17 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         _completion.RunContinuationsAsynchronously = true;
     }
 
+    // The entity of a single write; null and default for a write batch, whose entities are its members.
     public EntityTable Table { get; private set; } = null!;
 
     public WriteKindEnum Kind { get; private set; }
 
     public EntityKey Key { get; private set; }
+
+    // The members of a write batch, in their order, and their entities as one set; null for a single write.
+    public BatchMember[]? Members { get; private set; }
+
+    public PublicationKeys? Keys { get; private set; }
 
     // The values of a complete entity for an insert, a replace and an upsert; null for a delete, and for
     // a write a child forwarded, which brings its root instead (Forwarded).
@@ -136,6 +142,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         WriteKindEnum kind,
         in EntityKey key,
         object?[]? values,
+        BatchMember[]? members,
+        PublicationKeys? keys,
         ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
@@ -146,6 +154,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Kind = kind;
         Key = key;
         Values = values;
+        Members = members;
+        Keys = keys;
         Forwarded = forwarded;
         ExpectedRevision = expectedRevision;
         Session = session;
@@ -165,11 +175,24 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         return _hash;
     }
 
-    // Whether the other write is of the same entity: of the same entity type and with a key that the
-    // schema compares equal to this one, so that two spellings of a String key compared without case
-    // are one entity (Entities.PrimaryKeys.KeysEqual).
-    public bool IsOfSameEntity(PendingWrite other) =>
-        ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.Keys.KeysEqual(Key, other.Key);
+    // Whether the other write changes an entity this one changes: for two single writes, whether they are
+    // of the same entity, of the same entity type and with a key that the schema compares equal, so that
+    // two spellings of a String key compared without case are one entity (Entities.PrimaryKeys.KeysEqual);
+    // for a write batch, by the set of its entities (Entities.PublicationKeys).
+    public bool SharesEntityWith(PendingWrite other)
+    {
+        if (Keys is { } keys)
+        {
+            return other.Keys is { } theirs ? keys.Overlaps(theirs) : keys.Contains(other.Table, other.Key);
+        }
+
+        if (other.Keys is { } otherKeys)
+        {
+            return otherKeys.Contains(Table, Key);
+        }
+
+        return ReferenceEquals(Table, other.Table) && HashOf() == other.HashOf() && Table.Keys.KeysEqual(Key, other.Key);
+    }
 
     // The record of the prepared state of the write, made once for the record and set by each preparation
     // (WriteExecutor): the change of a write is written into it where it lies (PreparedWrite.WriteChange).
@@ -200,6 +223,8 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Key = default;
         Token = default;
         Values = null;
+        Members = null;
+        Keys = null;
         Forwarded = null;
         Session = null;
         ExpectedRevision = null;

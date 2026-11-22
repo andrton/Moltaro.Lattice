@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // states the outcome, as InterleavedWritesTests does.
 public sealed class CaptureDuringABatchTests
 {
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Child_that_loads_while_a_batch_is_published_is_Ready_with_all_of_the_batch()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
