@@ -113,17 +113,25 @@ as a whole, before anything is written.
 - **Members are encoded when they are added.** The batch of the contract asks the engine
   to encode each entity to its root when the application adds it, on the thread of the
   caller and outside every lock, in the form a child uses to forward a write. Later edits of
-  the object are not part of the batch; the cost is a managed copy of every root until the
-  commit.
+  the object are not part of the batch; the cost is a managed copy of every root from its
+  Add to the outcome of the batch, when the record of the batch lets go of its members,
+  whoever still holds the task of the commit.
 - **Prepared as a forwarded write is.** Member by member, in their order, the key is looked
   up, the condition checked, and the root placed from the bytes of the member, as a master
   places the root a child forwarded. Then all the changes reserve together, each index once
   for their sum, and the unique indexes are checked on the state the batch leaves: two
-  members may exchange values, and a delete frees a value another member takes. The first
-  member that fails a condition of its own is reported, and the unique values are judged
-  only when none does: then the lowest-numbered member that violates one is reported, so of
-  two members that claim one value the later, in the first violated index by declaration. A
-  failing member refuses the whole batch and reports its place.
+  members may exchange values, and a delete frees a value another member takes. Which member
+  fails is judged in two phases
+  ([Q58](../work/open-questions.md#q58-which-member-of-a-batch-is-the-failing-one-when-two-of-them-claim-one-unique-value)).
+  First each member against the state before the batch, in their order: the first member
+  that fails a condition of its own, a revision or a key that must be absent or present, is
+  reported. Only when every member passes are the unique values judged, on the state the
+  batch leaves, which does not exist before: of the members that violate one, the
+  lowest-numbered is reported. So of two members that claim one value the later is
+  reported, since the earlier alone would be accepted; against a published owner that no
+  member frees, the member that claims its value; and of the indexes one member violates,
+  the one declared first in its entity type. A failing member refuses the whole batch and
+  reports its place.
 - **Waits as one write.** The entities of a batch are one set. A batch waits for the latest
   earlier write, not completed, that shares an entity with it, and a single write whose
   latest earlier write of its entity is a batch waits for that batch; two single writes

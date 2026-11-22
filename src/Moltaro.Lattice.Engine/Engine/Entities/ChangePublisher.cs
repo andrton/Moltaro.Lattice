@@ -222,8 +222,10 @@ internal sealed class ChangePublisher
     // change that conflicts in several indexes the index declared first in its entity type, so that what is
     // reported depends neither on the order of the entity types nor on the order in which the check meets
     // the conflicts. Every unique index is checked whether or not a conflict was found before it, so a check
-    // that finds none does no more than one that stops at the first; each index looks only at the changes
-    // before the earliest conflict found so far. Neither value is in
+    // that finds none does no more than one that stops at the first. What the earliest conflict found so far
+    // cuts, for every change at or after it, is the lookup of the published owner of its value and the
+    // comparison with the value next to it in the order of the index; every value the changes set is still
+    // gathered and sorted. Neither value is in
     // the published tree yet, so the prepared and unpublished changes of other publications are not the
     // publisher's to know: that one of them claims or frees a value is the caller's to find
     // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, takes a path of its own:

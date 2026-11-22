@@ -19,8 +19,11 @@ Three commits, the tests before any implementation:
   `Replication/{Forwarding,Handshakes,Transactions}` of `Moltaro.Lattice.Engine.Tests`. It is the
   last commit of step 1 with code; this document follows it.
 
-A test that needs the commit of a batch is skipped with `SkipReason.WriteBatch`; one that needs
-only a mechanism of the engine with `SkipReason.WriteBatchMechanisms`. Active now and passing: the
+At the end of step 1 a test that needed the commit of a batch was skipped with one shared reason,
+and one that needed only a mechanism of the engine with another. Both are gone: the second with the
+commit of a batch on a master (`ea67085`), and the first became `SkipReason.BatchThroughAChild`
+(`73596ac`), which skips only a batch committed through a child. Active and passing at the end of
+step 1: the
 linear bounds against today's tree, the two traces' load test, a child that refuses a value of a
 published owner no effect frees, a transaction of 200 effects that names its first key at its end,
 every pair of kinds of a repeated identity, an empty commit refused at the call, and the new
@@ -349,10 +352,12 @@ What it does beyond the names above, or otherwise:
   up to one piece more than its length: a root of 65,598 bytes takes two pieces, 131,072 bytes, about twice
   its length, one of 200,062 bytes four, and one of 3,145,790 bytes 49, 2 % more (the reviewer's probe).
   Trimming the last piece needs a segment of its own beside `TransferPiece`; it is not built, as the copy is
-  managed memory held only until the commit. `WriteBatchOperation` holds the kind, the entity type, the
-  key, the expected revision and the root. The parameter `copyBinary` of the core went with the copy it
-  made. The commit lets go of the operations, so a batch kept after it holds no root. The cost: a managed
-  copy of every root from its `Add` to its commit.
+  managed memory held only until the outcome of the batch. `WriteBatchOperation` holds the kind, the
+  entity type, the key, the expected revision and the root. The parameter `copyBinary` of the core went
+  with the copy it made. The commit lets go of the operations, so a batch kept after it holds no root,
+  and the record of the batch in the engine lets go of its members at its outcome
+  (`PendingWrite.LetGoOfInputs`), so a task of the commit kept after it holds none either. The cost: a
+  managed copy of every root from its `Add` to the outcome of its batch.
 - **The numbers of the members.** `Writes/BatchMember.NumberOf`: from 1 in the order of the members for
   a batch of two or more, 0 for a single write and for a batch of one, whose revision is then that of a
   single write (the planner, 22 November 2026; the rule of the read side that needed it was dropped

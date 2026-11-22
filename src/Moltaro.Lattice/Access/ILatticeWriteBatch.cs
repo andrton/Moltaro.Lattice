@@ -23,7 +23,10 @@ namespace Moltaro.Lattice.Access;
 /// <b>Building.</b> Adding an operation to a batch of an open database contacts nothing. The
 /// entity or record is copied when it is added, so later edits of the object are not part of
 /// the batch. Once the database is closed, every operation added is refused with
-/// <see cref="ObjectDisposedException"/>, whatever its kind. A batch
+/// <see cref="ObjectDisposedException"/>, whatever its kind; a mistake of the caller's own is
+/// reported first, as on an open database: a second operation for one entity with
+/// <see cref="ArgumentException"/>, an operation added to a batch already submitted with
+/// <see cref="InvalidOperationException"/>. A batch
 /// takes one operation per entity. Two operations address the same entity when they name the
 /// same entity type and their primary keys are equal as the schema compares them: an integer
 /// key by its value whatever the width it was given in, a String key under the comparison
