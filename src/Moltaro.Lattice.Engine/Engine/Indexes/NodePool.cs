@@ -75,15 +75,11 @@ internal sealed class NodePool
     {
         var ledger = _ledger;
 
-        if (_inserts == 0 && _removes == 0)
-        {
-            Rebase(height);
-        }
-
         _inserts += inserts;
         _removes += removes;
         _ledger.ChargedInserts += inserts;
         _ledger.ChargedRemoves += removes;
+        MoveBase(height);
 
         var (nodes, places) = Targets(height, room);
         var taken = 0;
@@ -263,23 +259,29 @@ internal sealed class NodePool
     // The standing reserve at the tree as it is now: the need of one change of key, an insert and a remove.
     private long StandingReserve(int height, int room) => Need(height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
-    // What the pool holds at least for the changes waiting, nodes and places: the lesser of their need at the
-    // tree and what the ledger leaves (see the class). The base moves to the tree as it is first when that
-    // leaves less.
-    private (long Nodes, long Places) Targets(int height, int room)
+    // The base of the ledger moves to the tree as it is, with the changes waiting charged and nothing taken or
+    // used, when nothing waits and when the linear bounds of the changes waiting, counted from the tree as it
+    // is, are no more than what the ledger leaves (see the class). With nothing waiting it always moves, so a
+    // reservation made when nothing waits charges its changes to a base at the tree as it is.
+    private void MoveBase(int height)
     {
-        if (Bound(height, _inserts, _removes) <= _ledger.NodesLeft && PlacesBound(height, _inserts, _removes) <= _ledger.PlacesLeft)
+        var nothingWaits = _inserts == 0 && _removes == 0;
+        var leavesLess = Bound(height, _inserts, _removes) <= _ledger.NodesLeft && PlacesBound(height, _inserts, _removes) <= _ledger.PlacesLeft;
+
+        if (nothingWaits || leavesLess)
         {
             _ledger = new Ledger { BaseHeight = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
         }
+    }
 
+    // What the pool holds at least for the changes waiting, nodes and places: the lesser of their need at the
+    // tree and what the ledger leaves (see the class).
+    private (long Nodes, long Places) Targets(int height, int room)
+    {
         var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
 
         return (Math.Min(need, _ledger.NodesLeft), Math.Min(need, _ledger.PlacesLeft));
     }
-
-    // The ledger begins at the tree as it is, with nothing charged, taken or used.
-    private void Rebase(int height) => _ledger = new Ledger { BaseHeight = height };
 
     // Gives back what a reservation that is not made took: its nodes to the arena, in the reverse of their
     // order, its changes out of the counts, and the ledger as it was before.
@@ -300,10 +302,7 @@ internal sealed class NodePool
     // to the retired list. With nothing waiting the base moves to the tree as it is.
     private void Trim(int height, int room, bool keepsReserve)
     {
-        if (_inserts == 0 && _removes == 0)
-        {
-            Rebase(height);
-        }
+        MoveBase(height);
 
         var (nodes, places) = Targets(height, room);
         var kept = keepsReserve ? Math.Max(nodes, StandingReserve(height, room)) : nodes;
@@ -370,9 +369,7 @@ internal sealed class NodePool
     [Conditional("DEBUG")]
     private void AssertReserved(int height, int room)
     {
-        var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
-        var nodes = Math.Min(need, _ledger.NodesLeft);
-        var places = Math.Min(need, _ledger.PlacesLeft);
+        var (nodes, places) = Targets(height, room);
         var most = Math.Max(nodes, StandingReserve(height, room));
 
         Debug.Assert(_ledger.NodesLeft >= 0 && _ledger.PlacesLeft >= 0, $"The publications of the index {_layout.Index.Name} took {_ledger.Taken} nodes and used {_ledger.Used} places since the base, beyond the linear bounds of what was charged.");
