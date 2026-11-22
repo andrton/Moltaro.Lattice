@@ -312,6 +312,19 @@ is built from the values of the write, since a write forwarded by a child brings
 root. The writes prepared and not published, which the tree does not show, are the write
 coordinator's to know ([the write path](write-path.md#two-writes-to-one-entity)).
 
+The changes of one publication, as a transaction a child receives, are checked together,
+on the state they all leave (`ChangePublisher.TryReserve`), after every one of them is
+decided. The entity types are taken in the order of their first change and the unique
+indexes of each in the order of their declaration. In an index, every value a change sets
+is looked up as above, and an owner that a change of the same publication frees, by a
+delete or by a move of its own key, is no conflict; then the values the changes set are
+sorted by the order of the index, of equal values the earlier change first, so that two
+changes that claim one value lie side by side and the later one conflicts. The conflict
+found is that of the first index that has one, and in it the change that comes first. So
+one publication may exchange the values of two entities, or free a value and give it to
+another entity, which no order of single writes could apply one at a time. One change
+makes one descent for each index in which it sets a value, as before.
+
 ### The reservation
 
 Nothing grows inside a publication. In the hold that prepares a write, each index it
@@ -656,9 +669,11 @@ reflect different positions of its master, so two of them may hold one value for
 and the tree, ordered by key and identity, holds both. At the position it becomes ready
 at, before it is ready, it walks each unique index once in order, each entry compared with
 the last one before it that has no null part; a value held twice is a protocol failure, and
-the open fails. From then on a change it receives is checked as a write on the master is,
-and one that would give a value a second owner stops the child as a protocol failure does,
-before anything of it is published; nothing is repaired.
+the open fails. From then on a transaction it receives is checked on the state it leaves,
+as the changes of one publication are (above): its effects may exchange values, or take
+a value another of them frees, and one that would give a value a second owner stops the
+child as a protocol failure does, before anything of the transaction is published;
+nothing is repaired.
 
 ## What the structure does not do
 

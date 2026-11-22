@@ -40,15 +40,16 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // ObjectDisposedException.
 //
 // How. Under the lock of the writes, as a write on a master is: each change is checked and prepared
-// first — the root placed in prepared blocks for the lifetime it goes to, with the room its publication
-// needs reserved (Entities.ChangePublisher.TryReserve), the nodes of the secondary indexes it changes, in
-// the primary index for an insert and in the retired list for a replace or a delete; the publisher keeps
-// the secondary indexes, which a child builds while it loads and keeps while it follows, as a master does
-// — and nothing is published until every change of the transaction is prepared
-// (Publish); a change that is not valid, or that the arena refuses, abandons every change prepared since
-// (Abandon), so a transaction is applied whole or not at all. Then everything prepared is published at
-// once by the publisher of the write path (Entities.ChangePublisher), with the sequence of the master as
-// its stamp, so the revision of every entity on the child is its revision on the master. The key of a root
+// first — the root placed in prepared blocks for the lifetime it goes to —, then what the publication of
+// all of them needs is reserved together (Entities.ChangePublisher.TryReserve): the nodes of the secondary
+// indexes they change, each index once, room in the primary index for each insert and a place in the
+// retired list for each replace or delete; the publisher keeps the secondary indexes, which a child builds
+// while it loads and keeps while it follows, as a master does. Nothing is published until every change of
+// the transaction is prepared and reserved (Publish); a change that is not valid, a reservation that is
+// refused, and an arena that refuses a root give back every change prepared since (GiveBack), so a
+// transaction is applied whole or not at all. Then everything prepared is published at once by the
+// publisher of the write path (Entities.ChangePublisher), with the sequence of the master as its stamp, so
+// the revision of every entity on the child is its revision on the master. The key of a root
 // is read from the checked bytes before anything is taken for it (Replication.Load.BlockImport), so a
 // skipped state takes nothing of the arena, the root table, the index or the retired list; for a String
 // key its text is decoded into a string first, the one allocation a skipped state makes beside a growth of
@@ -71,11 +72,12 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // published positions (docs/decisions/replication-and-hosting.md), so two of them may hold one value of a
 // unique index for a while, and the tree, ordered by key and identity, holds both. At the position the
 // child becomes ready at, before it is ready, each unique index is walked once, and a value held twice is a
-// protocol failure that fails the open (ValidateUniqueIndexes). From then on a change received is checked as
-// a write on a master is (Entities.ChangePublisher.TryReserve); one that would give a value a second owner
-// gives back what the transaction prepared and stops the child as a protocol failure does, before anything
-// of it is published, and nothing is repaired: the master cannot have sent it, so the stream contradicts
-// what the child holds.
+// protocol failure that fails the open (ValidateUniqueIndexes). From then on a transaction received is checked
+// on the state it leaves, as the master checks the changes of one write (Entities.ChangePublisher.TryReserve):
+// its changes may exchange values or take one another of them frees, and one that would give a value a
+// second owner gives back what the transaction prepared and stops the child as a protocol failure does,
+// before anything of it is published, and nothing is repaired: the master cannot have sent it, so the stream
+// contradicts what the child holds.
 //
 // Memory. A root or a transaction the arena refuses follows the rule of a write refused for memory: what
 // is retired is freed and it is tried once more, each try and each drain in a hold of the lock of its own
@@ -84,9 +86,10 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // child that is not Ready and the close takes it only after the barrier, and later only a drain or a count
 // of the counters can. A try that prepares everything tops the standing reserves of the indexes up before
 // it publishes, and the last try before a refusal is made after every index gave back what it holds above
-// the need, with no top-up, so that the reserves are never the reason of a refusal (Indexes.OrderedTree,
-// "The standing reserve"); what an index took for a change that is not published goes back to the arena
-// with its withdrawal, not into its reserve (Abandon). For a root of the load the second try is the last: before the child is Ready
+// the bound of the changes waiting, with no top-up, so that the reserves are never the reason of a refusal
+// (docs/design/ordered-index.md, "The standing reserve"); a reservation that is refused takes nothing, and
+// what the transaction prepared is given back (GiveBack). For a root of the load the second try is the
+// last: before the child is Ready
 // no read can hold retired memory, so there is nothing else to wait for, and a root refused again cannot
 // be held: the open of the child ends with Unavailable and the reason. A transaction refused again waits
 // for the reads that hold retired memory, what they held is freed, and it is tried a last time; refused
@@ -118,7 +121,8 @@ internal sealed class ReceivedChanges
     // Faults the instance, after the lock, when a publication failed between its stores.
     private readonly Action _fault;
 
-    // The changes prepared and not published yet, in the order they were received.
+    // The changes prepared and not published yet, in the order they were received: not reserved while the
+    // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
     private readonly List<PreparedChange> _prepared = [];
 
     // The keys of the states the rule skipped since the last Publish: a skipped state names its key as
@@ -334,7 +338,7 @@ internal sealed class ReceivedChanges
     {
         lock (_writes)
         {
-            if (!TryPrepareWrite(table, lastMutation, ref rest))
+            if (!TryPrepareWrite(table, lastMutation, ref rest) || !TryReserve())
             {
                 return false;
             }
@@ -371,8 +375,13 @@ internal sealed class ReceivedChanges
             }
             catch
             {
-                Abandon();
+                GiveBack();
                 throw;
+            }
+
+            if (!TryReserve())
+            {
+                return false;
             }
 
             if (topsUp)
@@ -423,11 +432,10 @@ internal sealed class ReceivedChanges
 
     // Under the lock of the writes: checks the root of the entity type of the table that the rest of the
     // input holds, from its layout version on, whose last mutation is given, and prepares its state by
-    // the rule (see the class). True when it is prepared or skipped; false when the arena refused it,
-    // with every change prepared since the last Publish abandoned. ValidationFailed for a root that is not
-    // valid, for a key an earlier effect of the same transaction names, prepared or skipped, and, once the
-    // child checks its unique indexes, for a root that would give a value of one of them a second owner;
-    // every change prepared since the last Publish is abandoned then as well.
+    // the rule (see the class), without reserving anything for it yet. True when it is prepared or skipped;
+    // false when the arena refused its root, with every change prepared since the last Publish given back.
+    // ValidationFailed for a root that is not valid and for a key an earlier effect of the same transaction
+    // names, prepared or skipped; every change prepared since the last Publish is given back then as well.
     private bool TryPrepareWrite(EntityTable table, ulong lastMutation, ref SequenceReader<byte> rest)
     {
         var layout = table.Layout!;
@@ -442,7 +450,7 @@ internal sealed class ReceivedChanges
         }
         catch
         {
-            Abandon();
+            GiveBack();
             throw;
         }
 
@@ -458,61 +466,49 @@ internal sealed class ReceivedChanges
         // A new lifetime for a key the child does not hold; the lifetime of the entity for one it holds.
         var inserts = !held;
 
-        if (inserts)
+        try
         {
-            try
+            if (inserts)
             {
                 handle = _roots.Add((uint)table.EntityType.Id);
             }
-            catch
-            {
-                Abandon();
-                throw;
-            }
+        }
+        catch
+        {
+            GiveBack();
+            throw;
         }
 
-        var root = default(ArenaAddress);
-        PreparedChange change;
-        ReservationEnum reservation;
-        TakenValue taken;
+        ArenaAddress root;
 
         try
         {
             root = _import.Place(received, handle, out _);
-
-            if (root.IsNull)
-            {
-                GiveBack(table, inserts, handle, root);
-
-                return false;
-            }
-
-            change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced);
-            reservation = _publisher.TryReserve(MemoryMarshal.CreateSpan(ref change, 1), _checksUnique, out taken);
         }
         catch
         {
-            GiveBack(table, inserts, handle, root);
+            ReleaseHandle(inserts, handle);
+            GiveBack();
             throw;
         }
 
-        if (reservation != ReservationEnum.Reserved)
+        if (root.IsNull)
         {
-            GiveBack(table, inserts, handle, root);
+            ReleaseHandle(inserts, handle);
+            GiveBack();
 
-            return reservation == ReservationEnum.KeyTaken ? throw Taken(table, key, taken.Index) : false;
+            return false;
         }
 
-        _prepared.Add(change);
+        _prepared.Add(new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced));
 
         return true;
     }
 
     // Under the lock of the writes: prepares the delete of the key at the sequence by the rule (see the
     // class); nothing when the child does not hold the key, or holds a state not earlier than the delete.
-    // False when the arena cannot hold the nodes its indexes need, with every change prepared since the
-    // last Publish abandoned. ValidationFailed for a key an earlier effect of the same transaction names,
-    // prepared or skipped, with every change prepared since the last Publish abandoned.
+    // ValidationFailed for a key an earlier effect of the same transaction names, prepared or skipped, with
+    // every change prepared since the last Publish given back.
     private bool TryPrepareDelete(EntityTable table, in EntityKey key, ulong sequence)
     {
         try
@@ -521,7 +517,7 @@ internal sealed class ReceivedChanges
         }
         catch
         {
-            Abandon();
+            GiveBack();
             throw;
         }
 
@@ -532,30 +528,49 @@ internal sealed class ReceivedChanges
             return true;
         }
 
-        var change = new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced);
-        bool reserved;
+        _prepared.Add(new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced));
+
+        return true;
+    }
+
+    // Under the lock of the writes, once every change of a transaction or the root of the load is prepared:
+    // reserves what their publication needs, together, and checks their values of the unique indexes on the
+    // state they leave once the child does (see the class, "Unique indexes"). False when the arena cannot hold
+    // the nodes, with every change given back; ValidationFailed for a value a change would give a second
+    // owner, with every change given back as well.
+    private bool TryReserve()
+    {
+        var changes = CollectionsMarshal.AsSpan(_prepared);
+        ReservationEnum reservation;
+        TakenValue taken;
 
         try
         {
-            // A delete sets no value, so it is never refused for one.
-            reserved = _publisher.TryReserve(MemoryMarshal.CreateSpan(ref change, 1), _checksUnique, out _) == ReservationEnum.Reserved;
+            reservation = _publisher.TryReserve(changes, _checksUnique, out taken);
         }
         catch
         {
-            Abandon();
+            GiveBack();
             throw;
         }
 
-        if (!reserved)
+        if (reservation == ReservationEnum.Reserved)
         {
-            Abandon();
+            return true;
+        }
+
+        if (reservation == ReservationEnum.RefusedForMemory)
+        {
+            GiveBack();
 
             return false;
         }
 
-        _prepared.Add(change);
+        var failing = changes[taken.Change];
 
-        return true;
+        GiveBack();
+
+        throw Taken(failing.Table, failing.Key, taken.Index);
     }
 
     // Under the lock of the writes: publishes every change prepared, in the three steps of a publication,
@@ -584,11 +599,23 @@ internal sealed class ReceivedChanges
         _retired.AfterWrite();
     }
 
-    // Under the lock of the writes: gives back everything the changes prepared since the last Publish
-    // took, in the reverse of their order: no read has reached any of it.
-    private void Abandon()
+    // Under the lock of the writes: gives back what the changes prepared since the last Publish took, none of
+    // which is reserved, in the reverse of their order: the new root of an insert or a replace and the root
+    // entry of an insert, which no index maps, so that no read has reached any of it.
+    private void GiveBack()
     {
-        _publisher.Release(CollectionsMarshal.AsSpan(_prepared));
+        for (var index = _prepared.Count - 1; index >= 0; index--)
+        {
+            var change = _prepared[index];
+
+            if (!change.Root.IsNull)
+            {
+                RootStorage.Free(_arena, change.Table.Layout!, change.Root);
+            }
+
+            ReleaseHandle(change.Kind == ChangeKindEnum.Insert, change.Handle);
+        }
+
         _skipped.Clear();
         _prepared.Clear();
     }
@@ -636,20 +663,12 @@ internal sealed class ReceivedChanges
     private static LatticeException NamedTwice(EntityTable table, in EntityKey key) =>
         new(LatticeErrorEnum.ValidationFailed, $"A transaction received from the master changes the key '{key}' of {table.EntityType.Name} twice.");
 
-    // A write that was not prepared gives back what it took, its root when it was placed and the entry of
-    // an insert, which no index maps; then every change prepared before it is abandoned.
-    private void GiveBack(EntityTable table, bool inserted, RootHandle handle, ArenaAddress root)
+    // Gives back the root entry of an insert that was not prepared, which no index maps.
+    private void ReleaseHandle(bool inserted, RootHandle handle)
     {
-        if (!root.IsNull)
-        {
-            RootStorage.Free(_arena, table.Layout!, root);
-        }
-
         if (inserted)
         {
             _roots.Release(handle);
         }
-
-        Abandon();
     }
 }

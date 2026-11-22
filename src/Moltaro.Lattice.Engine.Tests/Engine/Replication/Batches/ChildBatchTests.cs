@@ -17,13 +17,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 //   on the child the revision it has on the master;
 // - while its application is held before the position (HeldPublication), the child has acknowledged no
 //   sequence of the batch, and once it goes on it acknowledges the position of the batch;
-// - an exchange of unique values, which the master checks on the state the batch leaves, is applied; a
-//   transaction that would give a value of a unique index a second owner on the state it leaves — two effects
-//   that claim one value, or an effect that claims the value of an owner no effect frees — stops the child
-//   as a protocol failure does, with nothing of it applied: it ends its connection and serves its reads at
-//   the position it had, Ready.
-// The last two are forged by a relay (FrameRelay) from transactions of the master, as a master writes the
-// members of a batch: one transaction at the sequence of the first, whose Writes carry that sequence.
+// - an exchange of unique values, which the master checks on the state the batch leaves, is applied, and so
+//   is a transaction that exchanges them, which the child checks on the state it leaves; a transaction that
+//   would give a value of a unique index a second owner on the state it leaves — two effects that claim one
+//   value, or an effect that claims the value of an owner no effect frees — stops the child as a protocol
+//   failure does, with nothing of it applied: it ends its connection and serves its reads at the position it
+//   had, Ready.
+// The transactions of the last three are forged by a relay (FrameRelay) from transactions of the master, as
+// a master writes the members of a batch: one transaction at the sequence of the first, whose Writes carry
+// that sequence.
 public sealed class ChildBatchTests
 {
     [Fact(Skip = SkipReason.WriteBatch)]
@@ -121,7 +123,7 @@ public sealed class ChildBatchTests
 
     // The master inserts 7 with a login, deletes it and inserts 8 with the same login; the relay passes the two
     // inserts as one transaction and drops the delete: two effects claim one value.
-    [Fact(Skip = SkipReason.WriteBatchMechanisms)]
+    [Fact]
     public async Task Child_stops_at_a_transaction_two_effects_of_which_claim_one_value_with_nothing_of_it_applied()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
@@ -139,6 +141,39 @@ public sealed class ChildBatchTests
             await relay.ChildEndedAsync();
 
             ExpectNothingApplied(child, readiness, [7, 8]);
+        }
+    }
+
+    // The master parks the login of 1, gives it to 2 and gives the login of 2 to 1; the relay passes the last
+    // two as one transaction and drops the first: the transaction exchanges the logins of 1 and 2, which no
+    // order of its effects could apply one at a time.
+    [Fact]
+    public async Task Child_applies_a_transaction_that_exchanges_unique_values_on_the_state_it_leaves()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await InsertBeforeAsync(master.Set<Item>());
+        var (relay, readiness, child) = await ForgedAsync(master, kept: [1, 2]);
+
+        await using (relay)
+        await using (child)
+        {
+            var items = master.Set<Item>();
+
+            await items.ReplaceAsync(new Item { Id = 1, Tag = "old", Group = 1, Login = "parked" });
+            await items.ReplaceAsync(new Item { Id = 2, Tag = "old", Group = 1, Login = "login 1" });
+            await items.ReplaceAsync(new Item { Id = 1, Tag = "old", Group = 1, Login = "login 2" });
+
+            var exchanged = PositionSequence.Of(readiness) + 1;
+
+            await Eventually.HoldsAsync(() => PositionSequence.Of(child.Position) == exchanged, "The child did not apply the transaction that exchanges the logins.");
+
+            var onChild = child.Set<Item>();
+
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+            Assert.Equal("login 2", onChild.Get(1L)!.Login);
+            Assert.Equal("login 1", onChild.Get(2L)!.Login);
+            Assert.Equal([2L], onChild.Index("ByLogin").Find(IndexKey.Equal("login 1")).Select(item => item.Id));
+            Assert.Equal([1L], onChild.Index("ByLogin").Find(IndexKey.Equal("login 2")).Select(item => item.Id));
         }
     }
 
