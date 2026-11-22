@@ -86,7 +86,7 @@ public sealed class LatticeIndex
     /// </para>
     /// <para>
     /// The master decides, for every write, also one submitted through a child, which does not
-    /// reserve a value itself. Of writes of one value made at the same time exactly one
+    /// reserve a value itself. Of writes of one value made at the same time at most one
     /// succeeds. A write of a value that another write, not completed yet, takes or gives up
     /// waits for that write to complete, and is then decided again.
     /// </para>

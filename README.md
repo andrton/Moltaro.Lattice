@@ -208,7 +208,7 @@ The master then refuses a write that would give a value a second owner, with
 `UniqueConstraintViolation` and the name of the index, and nothing is written. A value in
 which any field is missing is not compared, so any number of entities may have no email.
 Values are compared as the index orders them: a text by the comparison of its field. Of
-writes of one value made at the same time, through the master or through a child, exactly
+writes of one value made at the same time, through the master or through a child, at most
 one succeeds; a write of a value that another write still in progress takes or gives up
 waits for it. A batch that exchanges two values waits for the execution of a batch.
 

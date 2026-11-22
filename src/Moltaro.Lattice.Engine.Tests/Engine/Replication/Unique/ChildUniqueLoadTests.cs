@@ -15,8 +15,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Unique;
 // - The capture copies the first slots before a link held between the master and the child lets the
 //   rest through, and the last slots after it (HeldLink): the master moves the login of entity 1 away
 //   and gives it to entity 48 meanwhile, so the copy of entity 1 holds the login and so does the copy of
-//   entity 48, and the transactions after the capture start move entity 1 away. The child becomes Ready,
-//   each entity with its own login, and a search finds one owner.
+//   entity 48, and the transactions after the capture start move entity 1 away. The report of the
+//   catch-up states that premise: it applied the replace of entity 1, whose copy was older, and skipped
+//   the replace of entity 48, whose copy held it already (EngineDatabase.CatchUp). The child becomes
+//   Ready, each entity with its own login, and a search finds one owner.
 // - A relay (FrameRelay) writes the login of entity 1 into the root of entity 2 in the Blocks frame that
 //   carries it, so that the master's database reaches the child with one login held twice: the open fails
 //   with Unavailable, and the child returns every piece of native memory it obtained.
@@ -53,6 +55,9 @@ public sealed class ChildUniqueLoadTests
         await child.WaitForPositionAsync(master.Position, Bound);
 
         var copies = child.Set<UniqueSchema.Account>();
+        var catchUp = child.CatchUp!.Value;
+
+        Assert.Equal((Applied: 1L, Skipped: 1L), (catchUp.Applied, catchUp.Skipped));
 
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
         Assert.Equal("moved", copies.Get(1L)!.Login);

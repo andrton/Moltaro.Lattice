@@ -1,14 +1,12 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// What the engine cannot store until a later sprint, and what it does with such an entity type
-// (brief of Epic 1, sprint S06, "What the engine does where the block above does not say"). From S07
-// it stores every key type of the catalog, a String compared with either comparison, an Enum field
-// and both encodings (brief of S07), Dictionary storage from S13, unique indexes from S16, and it still
-// refuses, as S06 says, the field types of S03 until S18 and S19. Every write of such an entity type, an insert, a replace, an
-// upsert and a delete, with or without a revision, is refused with NotSupportedException at the
-// write, after the checks of its arguments and the validation of the entity, in the order of Q25. A
-// read of it by key finds nothing and an enumeration of it is empty. Binding a class to it and
-// selecting one of its indexes work.
+// What the engine cannot store yet, and what it does with such an entity type. It stores every key type
+// of the catalog, a String compared with either comparison, an Enum field, both encodings, Dictionary
+// storage and unique indexes; it refuses an entity type with an owned value, a List, a Map, a Set or a
+// reference. Every write of such an entity type, an insert, a replace, an upsert and a delete, with or
+// without a revision, is refused with NotSupportedException at the write, after the checks of its
+// arguments and the validation of the entity, in the order of Q25. A read of it by key finds nothing
+// and an enumeration of it is empty. Binding a class to it and selecting one of its indexes work.
 //
 // Each case is one entity type, Item, in a schema of its own: the key Id, an Int64, the String field
 // Text with the index ByText, and the field Value. Where the case is not Value, Value is an Int32.

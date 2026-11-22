@@ -81,8 +81,8 @@ one takes its turn and is checked against the state that is published then. So a
 write never overtakes an earlier one, whatever became of it.
 
 When persistence takes no time this happens only while a write refused for lack of memory is
-being settled: otherwise a write is published in the same hold of
-the lock that prepared it.
+being settled, and when the writes it held back are prepared together at its end: otherwise
+a write is published in the same hold of the lock that prepared it.
 
 A unique index is the same question across entities. A write whose value a published
 entity holds is refused at once, unless that entity has a write prepared and not published
@@ -91,8 +91,9 @@ entity, prepared and not published, takes, an insert or a key move, cannot be ch
 either. In both cases the write waits for that one write, holding nothing, and when it
 completes in any way the waiting write is checked again from the start against what is
 published then. The write it waits for waits only for its persistence step, so the wait
-always ends. When persistence takes no time a write is published before the next one is
-prepared, and none of this happens.
+always ends. When persistence takes no time this happens only when the writes held back
+while a write refused for lack of memory is settled are prepared together at its end:
+otherwise a write is published before the next one is prepared.
 
 ## How a publication is made
 

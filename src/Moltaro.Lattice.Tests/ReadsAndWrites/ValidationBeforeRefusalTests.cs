@@ -3,8 +3,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // A write first checks what needs no engine: its arguments, and the entity against the schema
 // at every depth. Only a write that passes is refused as not implemented. That holds for every
 // entity type whose writes cannot be made yet: those with owned values, collections or
-// references. Whether an integer is a value its enum type declares is part of that validation
-// from Epic 1, sprint S07.
+// references. Whether an integer is a value its enum type declares is part of that validation.
 public sealed class ValidationBeforeRefusalTests
 {
     [Fact]

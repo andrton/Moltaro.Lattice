@@ -8,9 +8,6 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // skipped: remove their Skip when batches execute, and they have to pass.
 public sealed class WriteBatchTests
 {
-    // The one reason of every test that commits a write batch, here and in the tests of unique indexes.
-    internal const string ExecutionNotImplemented = "Executing a write batch is not implemented yet.";
-
     [Fact]
     public async Task Executing_a_batch_is_not_implemented_yet()
     {
@@ -110,7 +107,7 @@ public sealed class WriteBatchTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () => await batch.CommitAsync(new LatticeSession()));
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_writes_entities_of_several_types_at_one_position()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -136,7 +133,7 @@ public sealed class WriteBatchTests
         Assert.NotEqual(result.Position, next.Position);
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_with_a_failed_operation_changes_nothing()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -158,7 +155,7 @@ public sealed class WriteBatchTests
         Assert.Equal(before, database.Position);
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_checks_expected_revisions_when_it_is_executed()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -193,7 +190,7 @@ public sealed class WriteBatchTests
         Assert.Null(users.Get(2));
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Deleting_an_absent_key_in_a_batch_is_not_a_failure()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -216,7 +213,7 @@ public sealed class WriteBatchTests
         Assert.Equal(written.Position, unchanged.Position);
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_saves_the_entity_as_it_was_when_added()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -230,7 +227,7 @@ public sealed class WriteBatchTests
         Assert.Equal("Ada", database.Set<User>().Get(1)!.Name);
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_is_submitted_once()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -244,7 +241,7 @@ public sealed class WriteBatchTests
         Assert.Null(database.Set<User>().Get(2));
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_takes_records_and_names_like_classes()
     {
         await using var database = await TestData.OpenMasterAsync();
@@ -267,7 +264,7 @@ public sealed class WriteBatchTests
         Assert.NotNull(database.Set<User>().Get(1));
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_through_a_child_is_on_that_child_when_it_completes()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
@@ -285,7 +282,7 @@ public sealed class WriteBatchTests
         Assert.Equal(result.Position, child.Position);
     }
 
-    [Fact(Skip = ExecutionNotImplemented)]
+    [Fact(Skip = SkipReason.WriteBatch)]
     public async Task Batch_follows_a_session_and_moves_it_forward()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
