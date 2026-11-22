@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // levels the k − 1 inserts before it can add; each remove counts H + 1 at the height after every insert.
 // The inserts add a first level once they have used the room of the root, the inserts it takes before it
 // can split, and a further level after every L more, L the separators an inner node holds before it is
-// full. The tests hold the closed form, OrderedTree.Need, against this sum, and take the figures of the
+// full. The tests hold the closed form, NodePool.Need, against this sum, and take the figures of the
 // reservation from it, so that a figure does not come from the member it checks.
 internal static class ReservationNeed
 {

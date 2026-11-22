@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
 // A need the pool of an index cannot count is a reservation that cannot be made (docs/design/ordered-index.md,
 // "The reservation"): the pool counts its nodes as an Int32, and the need of the writes that wait grows with
-// the square of the inserts among them (OrderedTree.Need), so enough inserts need more nodes than it counts.
+// the square of the inserts among them (NodePool.Need), so enough inserts need more nodes than it counts.
 // A reservation for them is refused as one the arena cannot hold, and takes nothing: the arena's counters,
 // the prepared nodes of the pool among them, are as before, and no write is left waiting on the tree. The
 // count is the boundary, taken from the need of an empty tree, whose height and room are none: the largest
@@ -30,8 +30,8 @@ public sealed class UncountableNeedTests
         var least = index.Layout.LeastSeparators;
         var counted = LargestCountedInserts(least);
 
-        Assert.True(OrderedTree.Need(height: 0, room: 0, least, counted, removes: 0) <= int.MaxValue, $"The need of {counted} inserts passes what the pool counts.");
-        Assert.True(OrderedTree.Need(height: 0, room: 0, least, counted + 1, removes: 0) > int.MaxValue, $"The need of {counted + 1} inserts is one the pool counts.");
+        Assert.True(NodePool.Need(height: 0, room: 0, least, counted, removes: 0) <= int.MaxValue, $"The need of {counted} inserts passes what the pool counts.");
+        Assert.True(NodePool.Need(height: 0, room: 0, least, counted + 1, removes: 0) > int.MaxValue, $"The need of {counted + 1} inserts is one the pool counts.");
 
         var before = item.Arena.Counters;
 
@@ -61,7 +61,7 @@ public sealed class UncountableNeedTests
         {
             var middle = fits + ((passes - fits) / 2);
 
-            if (OrderedTree.Need(height: 0, room: 0, least, middle, removes: 0) <= int.MaxValue)
+            if (NodePool.Need(height: 0, room: 0, least, middle, removes: 0) <= int.MaxValue)
             {
                 fits = middle;
             }

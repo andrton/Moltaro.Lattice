@@ -83,13 +83,6 @@ internal sealed class PreparedWrite
         return this;
     }
 
-    // Right after a preparation whose reservation found a value of a unique index taken
-    // (Entities.ReservationEnum.KeyTaken), and only then: the index and the published root that holds the
-    // value, as the reservation recorded them in the change it read from this record, which is not the
-    // write's. The next preparation of the write writes the change again (WriteChange), and only a
-    // reservation that ends KeyTaken writes them.
-    public (int Index, RootHandle Owner) Taken => (_change.TakenIndex, _change.TakenBy);
-
     // For a write whose change was given back before it was queued (Entities.ChangePublisher.Release),
     // because it waits for the write that holds a value of a unique index: the record holds no change any
     // more, and the next preparation of the same write writes one again (WriteChange).

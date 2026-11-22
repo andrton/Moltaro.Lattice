@@ -891,7 +891,7 @@ internal sealed class WriteCoordinator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private PreparationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
     {
-        var reservation = _executor.TryPrepare(write, out prepared, out refusal);
+        var reservation = _executor.TryPrepare(write, out prepared, out refusal, out var taken);
 
         if (reservation == ReservationEnum.RefusedForMemory)
         {
@@ -900,7 +900,7 @@ internal sealed class WriteCoordinator
 
         if (reservation == ReservationEnum.KeyTaken)
         {
-            DecideTakenValue(write, ref hold);
+            DecideTakenValue(write, taken, ref hold);
 
             return PreparationEnum.DecidedByValue;
         }
@@ -916,13 +916,11 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock, after a preparation that found a value of a unique index held by a published root of
-    // another entity (ReservationEnum.KeyTaken; PreparedWrite.Taken): when that entity has a prepared write
+    // another entity (ReservationEnum.KeyTaken, with what it found): when that entity has a prepared write
     // that gives the value up, a delete or a key move, the write waits for it; otherwise, also when that
     // write keeps the value, the write is refused (Violation).
-    private void DecideTakenValue(PendingWrite write, ref Hold hold)
+    private void DecideTakenValue(PendingWrite write, in TakenValue taken, ref Hold hold)
     {
-        var taken = write.Record.Taken;
-
         if (HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
         {
             WaitForValue(write, holder);
@@ -958,7 +956,7 @@ internal sealed class WriteCoordinator
     {
         foreach (var held in PreparedNow)
         {
-            if (held.ChangesEntity && _changes.ClaimsSameKey(change, held.Change, out _))
+            if (held.ChangesEntity && _changes.ClaimsSameKey(change, held.Change))
             {
                 return held.Write;
             }

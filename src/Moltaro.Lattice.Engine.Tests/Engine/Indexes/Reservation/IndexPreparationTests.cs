@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // blocks of the arena; a prepared, unpublished write holds them while the persistence step is busy, and no
 // reader can reach them; a write withdrawn before its publication gives them back. While writes wait, the
 // pool of an index holds at most the larger of their need, the nodes their publications can take from the
-// tree as it is (ReservationNeed, whose closed form is OrderedTree.Need), and the standing reserve, the need
+// tree as it is (ReservationNeed, whose closed form is NodePool.Need), and the standing reserve, the need
 // of one change of key; with nothing waiting it holds at most the reserve (IndexReserve). Here 10 entities
 // lie in one leaf, whose room is the 40 separators of 16-byte entries an inner node holds before it is full
 // less those 10.

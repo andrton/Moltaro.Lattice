@@ -474,6 +474,7 @@ internal sealed class ReceivedChanges
         var root = default(ArenaAddress);
         PreparedChange change;
         ReservationEnum reservation;
+        TakenValue taken;
 
         try
         {
@@ -487,7 +488,7 @@ internal sealed class ReceivedChanges
             }
 
             change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced);
-            reservation = _publisher.TryReserve(ref change, _checksUnique);
+            reservation = _publisher.TryReserve(MemoryMarshal.CreateSpan(ref change, 1), _checksUnique, out taken);
         }
         catch
         {
@@ -499,7 +500,7 @@ internal sealed class ReceivedChanges
         {
             GiveBack(table, inserts, handle, root);
 
-            return reservation == ReservationEnum.KeyTaken ? throw Taken(table, key, change.TakenIndex) : false;
+            return reservation == ReservationEnum.KeyTaken ? throw Taken(table, key, taken.Index) : false;
         }
 
         _prepared.Add(change);
@@ -537,7 +538,7 @@ internal sealed class ReceivedChanges
         try
         {
             // A delete sets no value, so it is never refused for one.
-            reserved = _publisher.TryReserve(ref change, _checksUnique) == ReservationEnum.Reserved;
+            reserved = _publisher.TryReserve(MemoryMarshal.CreateSpan(ref change, 1), _checksUnique, out _) == ReservationEnum.Reserved;
         }
         catch
         {

@@ -320,8 +320,8 @@ counted in its prepared bytes and in the budget, and as many places in the retir
 A write withdrawn before its publication gives them back; a prepared, unpublished write
 holds them while the persistence step is busy, and no reader can reach them. A reservation
 the arena cannot hold takes nothing and is refused as a write the memory budget cannot
-hold is: before its commit. So is a reservation whose need the pool cannot count, more
-nodes than an Int32 holds.
+hold is: before its commit. So is a reservation whose bound the pool cannot count, more
+nodes or places than an Int32 holds.
 
 The writes prepared and not published share one pool for each index. While *p* inserts,
 rewrites among them, and *q* removes wait, the pool holds their *need*, the most nodes
@@ -336,7 +336,7 @@ its widest form an inner node holds before it is full, at least four, *G*(*k*) i
 *k* ≤ *r* and 1 + ⌊(*k* − 1 − *r*) / *I*⌋ above it. The sum has a closed form, so that the
 need costs the same for any number of writes waiting: with *m* = max(0, *p* − 1 − *r*),
 *a* = ⌊*m* / *I*⌋ and *b* = *m* mod *I*, *S* = *m* + *I* · *a*(*a* − 1) / 2 + *a* · *b*
-(`OrderedTree.Need`, which a test of the engine holds against the sum). Why it is
+(`NodePool.Need`, which a test of the engine holds against the sum). Why it is
 enough:
 
 - An insert at height *H* splits at most every level and adds a root: at most two nodes on
@@ -358,8 +358,49 @@ enough:
   need and leaves the need of the rest no larger than what is left: a split makes a root
   of one separator, which counts its growth from there, and a remove that lets a fuller
   child take the place of the root lowers the tree by a level. A withdrawal only lowers
-  the need. A Debug build asserts after every preparation, publication and withdrawal
-  that the pool and the places hold at least the need of the writes still waiting.
+  the need.
+
+The need grows with the square of the inserts waiting, since each insert is counted at
+the height the inserts before it can reach. A second bound is linear: from a tree of
+height *h*, *p* inserts and *q* removes, published in any order, take at most
+
+> *Bound* = *p* · (2*h* + 3) + 2*q*
+
+nodes and retire at most
+
+> *PlacesBound* = *p* · (2*h* + 3) + *q* · (*h* + 2 + ⌊log2 *p*⌋)
+
+(`NodePool.Bound`, `NodePool.PlacesBound`; a randomized test of the engine holds both
+against what publications take and retire, for random, ascending and merging keys,
+through splits of the root, growth of the height and removes that merge). An insert that
+splits *s* levels takes 2*s* + 1 nodes; at most *h* of its splits are at levels the tree
+had, and the splits of all the inserts at the levels above those are fewer than the
+inserts. A remove takes at most two nodes, a merged leaf and the copy of its parent,
+since every other node of its path changes only one child address, in place. An insert
+retires no more nodes than it takes; a remove at most the nodes of its path and the
+neighbour of a merge, at a height the inserts raise by at most 1 + ⌊log2 *p*⌋ levels.
+
+That bound holds for a sequence of publications from the tree as it was when the sequence
+began, not again at the tree after each of them, so the pool keeps a ledger
+(`Indexes.NodePool`): the height of the tree at its base, the inserts and removes
+reserved since then and not withdrawn, and the nodes taken and the places used since
+then. The base is the tree as it is whenever nothing waits, and it moves to the tree as it
+is when the bound of the changes waiting, counted from there, is no more than what the
+ledger leaves. The pool holds the lesser of the need at the tree as it is and what the
+ledger leaves of the bound, nodes and places alike: each is enough by itself, a
+publication lowers what the ledger leaves by exactly what it takes, and it leaves the need
+of the rest no larger than what is left. For one insert the need is the lesser, 2*h* + 1
+against 2*h* + 3; for one remove at a height of 2 or more the bound is, 2 nodes against
+*h* + 1. A Debug build asserts after every preparation, publication and withdrawal that
+the pool and the places hold at least the lesser bound of the writes still waiting, and
+that the ledger never takes more than it was charged.
+
+The reserved nodes are linked through their own payload, each holding the address of the
+next in its first bytes, so the pool takes no managed room for them: a reservation the
+arena refuses leaves nothing behind. A reservation whose nodes do not fit beside the slots
+in use under the memory limit is refused before it takes any, so that it obtains no
+segment for nodes it would give back. The places in the retired list are managed room,
+reserved once the nodes are had.
 
 **The standing reserve.** Once a preparation has touched an index, its pool keeps the need
 of one change of key, an insert and a remove, at the tree as it is: *Need* with *p* = *q* =
@@ -368,8 +409,8 @@ the pool, about one for an insert or a remove and two for a change of key, and t
 preparation that touches the index tops up what it took, instead of every write taking its
 whole need from the arena and giving the rest back after its publication. The reserve is
 taken by the first preparation that touches the index, not at the open. While writes wait,
-the pool holds at most the larger of their need and the reserve; with nothing waiting, at
-most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
+the pool holds at most the larger of their bound, the lesser above, and the reserve; with
+nothing waiting, at most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
 counted in the prepared bytes, which are therefore above zero once a write of an indexed
 type has returned, and against the memory limit, like any other bytes. The places in the
 retired list follow the need alone: places held for no write would keep the retired list
@@ -379,19 +420,19 @@ The reserve is never the reason of a refusal: a write is refused for memory only
 does not fit beside the stored data, never for memory other writes hold for a time
 ([write admission](../decisions/write-admission.md)).
 
-- A preparation takes the need of its write first, and once every index of the write has
-  its need, tops each pool up to its reserve as far as the arena gives; a top-up that
+- A preparation takes the lesser bound of its write first, and once every index of the
+  write has it, tops each pool up to its reserve as far as the arena gives; a top-up that
   cannot be had is not a failure.
-- A publication gives back what is above the larger of the need of the writes still
-  waiting and the reserve. A withdrawal gives back what is above the need, the reserve
-  with it: what a write took and did not publish goes back to the arena, never into a
-  reserve.
+- A publication gives back what is above the larger of the lesser bound of the writes
+  still waiting and the reserve. A withdrawal gives back what is above that bound, the
+  reserve with it: what a write took and did not publish goes back to the arena, never
+  into a reserve.
 - Before a write is refused for memory — in its resolution alone, after what is retired
   was freed; on a child before it stops following, or before a root of its load ends the
-  open — every index of the database gives back what its pool holds above the need of the
-  writes still prepared, and the write is tried once more, taking its own need and no
-  top-up. It is refused only when that try fails, and then leaves every pool at the need
-  of the writes still prepared, which for a write resolved alone is nothing.
+  open — every index of the database gives back what its pool holds above the lesser
+  bound of the writes still prepared, and the write is tried once more, taking its own
+  and no top-up. It is refused only when that try fails, and then leaves every pool at the
+  lesser bound of the writes still prepared, which for a write resolved alone is nothing.
 
 So a database with many indexes and a small memory limit opens, and writes to it whatever
 fits by itself.
@@ -404,11 +445,13 @@ What it costs when many changes wait: the *k*-th insert is counted at the height
 inserts before it can reach, so the need grows with the square of the inserts prepared
 and not published, divided by *I*. By the formula, 600 inserts waiting on an index of one
 Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
-13 MiB. No mode built today lets more than one change wait: the persistence step of
+13 MiB; their linear bound is 600 · 9 = 5,400 nodes, about 5.3 MiB, and the pool holds
+the lesser. No mode built today lets more than one write wait: the persistence step of
 MemoryOnly completes in the hold that prepares the write, write batches are not built,
-and a child prepares one root of its load, or one transaction of its stream, at a time. A
-write batch, or a transaction of many changes, prepared whole before its publication,
-will reserve by the same need.
+and a child prepares one root of its load, or one transaction of its stream, at a time.
+A transaction of many changes reserves for all of them at once, each index once for
+their inserts and removes together, and a write batch, prepared whole before its
+publication, will reserve the same way.
 
 ### The retired node
 

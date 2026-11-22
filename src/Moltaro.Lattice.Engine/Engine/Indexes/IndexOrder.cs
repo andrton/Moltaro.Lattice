@@ -74,12 +74,18 @@ internal sealed class IndexOrder
         return order != 0 ? order : probe.From.Packed.CompareTo(IdentityOf(entry));
     }
 
-    // Whether the two roots contribute entries of equal keys by the order, read from their stored fields
-    // as the entries would hold them: a copy of a text or the text entry its root references is the text
-    // the root stores, and a fixed part its stored bytes. For the writer, which tells a key that moves from
-    // one equal by the order in other bytes (SecondaryIndex.ChangeOf); under the lock of the writes.
-    // Allocates nothing.
-    public bool SameKey(in RootReader left, in RootReader right)
+    // Whether the two roots contribute entries of equal keys by the order (CompareKeys). For the writer,
+    // which tells a key that moves from one equal by the order in other bytes (SecondaryIndex.ChangeOf);
+    // under the lock of the writes. Inlined, so that a decision makes the one call it made before.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool SameKey(in RootReader left, in RootReader right) => CompareKeys(left, right) == 0;
+
+    // The order of the keys the two roots contribute to entries, read from their stored fields as the
+    // entries would hold them: a copy of a text or the text entry its root references is the text the root
+    // stores, and a fixed part its stored bytes; below zero when the first comes first. For the writer,
+    // which also sorts the values the changes of one publication set in a unique index
+    // (Entities.ChangePublisher); under the lock of the writes. Allocates nothing.
+    public int CompareKeys(in RootReader left, in RootReader right)
     {
         foreach (ref readonly var part in _layout.Parts)
         {
@@ -102,11 +108,11 @@ internal sealed class IndexOrder
 
             if (order != 0)
             {
-                return false;
+                return order;
             }
         }
 
-        return true;
+        return 0;
     }
 
     // For a search inside the protection of reads: whether the root, the current state of the entity an

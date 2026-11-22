@@ -158,7 +158,7 @@ public sealed class LinearBoundTests
         }
     }
 
-    [Fact(Skip = SkipReason.WriteBatchMechanisms)]
+    [Fact]
     public void Bounds_of_the_pool_are_the_linear_bounds_at_every_height_and_count()
     {
         var differ = new List<string>();

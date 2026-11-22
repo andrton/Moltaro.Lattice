@@ -69,14 +69,6 @@ internal struct PreparedChange
     // again whole, a move or a rewrite with it. 0 for an insert and a delete.
     public ulong IndexRewrites;
 
-    // After a reservation that ended KeyTaken, and only then: the place of the unique index, among the
-    // indexes of the entity type, in which the change would give a value a second owner, the first such
-    // index in the order of their declaration, and the root entry of the published root that holds the
-    // value (ChangePublisher.TryReserve). No other step writes them, and none reads them otherwise.
-    public int TakenIndex;
-
-    public RootHandle TakenBy;
-
     public PreparedChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ArenaAddress replaced)
     {
         Kind = kind;
