@@ -7394,6 +7394,139 @@ snapshot, copied roots may reflect different published positions
 one value for a while during the load and the catch-up, and a check at each step would
 refuse a valid load.
 
+**The brief, as passed by the planner on 22 November 2026 after the study.** The study read
+PostgreSQL (`nbtinsert.c`), SQLite (`insert.c`), Tarantool memtx and Apache Derby
+(`BTreeController`) at the commits its report names; nothing is adapted, so nothing is
+added to the third-party notices. The names below are the study's proposal; the
+implementer may choose better ones and commits the internal contract with its first step
+of implementation, for the planner to read.
+
+*What is built.*
+
+1. **Three outcomes of a reservation.** `ChangePublisher.TryReserve` returns
+   `ReservationEnum { Reserved, RefusedForMemory, KeyTaken }`. On `KeyTaken` nothing is
+   reserved, and the change records which index and which published root holds the key;
+   they are read only after that outcome. There is no second out parameter. Whether a
+   taken key is a refusal or a wait is decided by `WriteCoordinator`, in one method that
+   every preparation passes through, because only it knows the prepared, unpublished
+   writes: `Entities` does not come to depend on `Writes`.
+2. **Checks before reservations, in the same hold.** For a type with a unique index and a
+   change that is not a delete: the mask of every index is decided and recorded first, so
+   `ChangeOf` runs once; then every unique index whose key the change sets or moves is
+   checked; only then are nodes reserved. A refused key therefore touches no pool: it
+   costs its encoded root and the free of it. A type without a unique index, and a
+   delete, pay nothing for the check; if `index-writes` or the listing of `TryReserve`
+   shows that such a type pays for the split of the loop, the implementer reports the
+   figure and the planner decides.
+3. **What a check reads.** A key with a null in any part is not checked. Otherwise one
+   descent of the published tree: the entry of the new root with the lowest identity,
+   sought at or after, compared by the order of the tree, which is the comparison of
+   every part; where the place found is the end of a leaf, one more seek at the fence, as
+   a walk does. The implementer first establishes by reading `OrderedTree` whether a
+   separator can be the copy of a removed entry, and says so in the comment of that
+   seek. A replace that keeps its key has the mask None or Rewrite and is not checked. No
+   key is built from the values of the write: a forwarded write has none.
+4. **Refuse or wait.** A key held by a published root whose own prepared write keeps it
+   is refused at once: `UniqueConstraintViolation` with the name of the index, made in
+   one place; of two violated indexes the first in the order of declaration is named. A
+   key claimed by a prepared, unpublished insert or key move of another entity, or held
+   by a published root whose prepared delete or key move frees it, makes the write wait
+   for that one holder: it gives back its root, its handle and what it reserved, stays
+   the head of the chain of its own entity, and stands on a list of its own
+   (`WaitingForValue`), not on the links of a chain. `MarkCompleted` stays the one place
+   where the end of a write starts what waited for it: the waiters of the completed
+   write become ready in their order and are prepared again from the start, so the check
+   runs again from scratch, whatever the holder ended as. A withdrawn waiter leaves the
+   list and ends as cancelled; a fault makes every waiter ready and they end
+   `Unavailable`. The prepared writes are scanned only while prepared memory is held, so
+   in MemoryOnly an ordinary write does not scan. The wait is taken only under the lock
+   of the writes, holds nothing, has the token of the write, and ends when the holder's
+   persistence step ends; a holder never waits for its waiter.
+5. **A write that does not fit and violates** may end as a refusal for memory, since its
+   root is encoded before the check.
+6. **The child.** During the load and the catch-up nothing is checked; the tree is
+   ordered by key and identity and may hold a key twice. At the position the child
+   becomes ready at, before it is ready, each unique index is walked once in order under
+   the lock, each entry compared with the one before, keys with a null skipped; a
+   duplicate is a protocol failure and the open fails `Unavailable`. From then on a
+   received change is checked as on the master, and a taken key gives back what was
+   prepared and stops the child as on a protocol failure, before anything is published;
+   nothing is repaired.
+7. **The wire.** The reply to a forwarded write that is refused for a unique index
+   carries the Id of the index; the child resolves it against its schema and reports the
+   name. `Protocol.WireFormat` becomes 4.
+8. **The first structural commit**, before any of this and with no change of behavior:
+   F6 and G2 of `refactoring.md`.
+
+*Not built here.* The stable rejected outcome of a repeated token (the decision, "a
+confirmed violation is a stable rejected operation outcome") belongs to the sprint of
+retries. The validation of the final state of a batch, with swaps, is S17: a child of
+S17 needs that form too, since a check of each effect would refuse a valid swap.
+
+*Conditions.* The size of the record of a write and the pinned bytes of a write of a
+type without a unique index do not grow, or the growth is stated with its figure before
+the review. A reader finds at most one root for a full non-null key of a unique index at
+every moment, under concurrent writes included.
+
+*Tests, committed before the implementation; beside `UniqueIndexTests`, whose assertions
+do not change.* Public ones in `Moltaro.Lattice.Tests/Indexes/Unique`, mechanisms in
+`Moltaro.Lattice.Engine.Tests` beside the tests of the coordinator and of the child.
+
+- Many concurrent writers of one value: exactly one succeeds, every other is refused
+  with the name of the index, and afterwards a search finds one root. The same with
+  inserts, with replaces that move a key onto it, and mixed.
+- A null in every position of a composite unique key, the first, a middle, the last and
+  all of them: exempt, several roots hold it, and a search for it finds them all.
+- Equality is the comparison of every part: text under each case policy, NaN and the two
+  zeros of a floating-point part, an Enum part by its number, an empty text as a value.
+- The owner at a boundary of the tree: an index large enough to have several leaves,
+  with the key sought as the last entry of a leaf, as the first of the next, and equal
+  to a separator; and after the owner was removed and the tree not yet merged.
+- A replace that keeps its key, one that keeps it while other fields change, and one
+  that moves it and back.
+- A refused write changes nothing: the entity, the indexes, the position, and, in the
+  engine's tests, the prepared bytes and the counts of every pool, equal before and
+  after; the same figures for an accepted insert that is then deleted, for comparison.
+- Two indexes violated at once: the first declared is named.
+- The wait, with the persistence step held as the tests of the chain of one entity hold
+  it: behind a prepared insert that is then published (refused), withdrawn (the waiter
+  takes the value) and cancelled in the forming of a group; behind a prepared delete and
+  a prepared key move that free the value (the waiter takes it); a published owner whose
+  prepared write keeps the key (refused at once, no wait); several waiters of one holder
+  released in their order, of which exactly one takes a freed value; a waiter cancelled
+  while it waits; a waiter that is also the head of a chain of its own entity, whose
+  later writes keep their order; a waiter released while a refusal for memory is being
+  resolved; a fault while writes wait (all end `Unavailable`, none is left waiting).
+- A write through a child is refused by the master with the name of the index, for a
+  record and for a class.
+- A child: a load in which two roots held one value at different positions of the
+  capture, and not at the position it becomes ready at, succeeds; a load with a real
+  duplicate at that position fails the open; a received change that would violate, after
+  it is ready, stops the child with nothing applied and nothing repaired.
+- A peer of wire format 3 is refused at the handshake, as the tests of the format hold
+  for every change of it.
+
+*The breaker's targets, in order.* (1) One value, many writers, with withdrawals,
+cancellations and a held persistence step: never two owners, never none when one writer
+was left to succeed, and no waiter left waiting when every holder has ended. (2) The
+list of waiters against the chains of entities and against the resolution of a refusal
+for memory: order kept, nothing prepared twice, nothing lost. (3) A fault and a close
+while writes wait. (4) The owner search at the boundaries of leaves while other writes
+split and merge them, and readers searching the same key. (5) The null exemption and
+the equality of parts at their edges. (6) The child: the capture that is not one
+position, and a violation after it is ready.
+
+*Measured, in the one start of the machine, beside what "Measured" above and the note of
+21 November name.* The withdrawal that "Measured" expected of a refused key does not
+happen, since a refusal reserves nothing; in its place: (1) an insert refused for a
+taken value beside an accepted insert and a `DuplicateKey` refusal; (2) the same index
+unique and not unique, for an insert and for a replace that moves the key: the price of
+the descent; (3) the replace that keeps every key on a type with unique indexes, equal
+to the line without them; (4) the load of a child with the fixture, with and without the
+walk; (5) the listing of `TryReserve` for a type without an index, with no added call.
+The wait behind a claim is a withdrawal after a reservation and stays rare by its cause,
+a held persistence step; the durable step measures it.
+
 #### S17 · Atomic write batch
 
 **Carried from the architect's review after S15, part 1 (21 November 2026), for the study

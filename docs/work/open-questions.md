@@ -108,6 +108,16 @@ in the meantime.
 | **What the code does** | The narrower rule, as the remarks of `LatticeRecord` state it (`FieldValues.Normalize`) |
 | **Where the rule lives** | The remarks of the indexer of `LatticeRecord`; `docs/decisions/queries.md`, Q07.3.6, for a search |
 
+### Q56. Where the decision on unique indexes and the engine no longer say the same
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the study of Epic 1, sprint S16 |
+| **Question** | Two sentences of `docs/decisions/unique-indexes.md`. (1) Step 4 says "Remove old keys before installing final entries". Since S14 the engine installs the new entries before the root is stored and removes the old ones after the position; a reader sees no duplicate, because an entry is checked against its root, but inside the publication of a batch a unique tree may hold two entries of one key for a moment. (2) The record names `OrderedMultiMap` of a package; the engine has its own `OrderedTree`. Is the guarantee "readers cannot observe an intermediate duplicate" what the record means to keep, with the order of the two steps free? |
+| **Answer** | Open, for the owner. The planner's reading: yes, the guarantee is the reader's, and the engine keeps it; the two sentences are text of the time before the engine had its own tree. S16 publishes one change at a time and is not touched; the study of S17 takes this up for a batch |
+| **What the code does** | New entries before the store of the root, old ones after the position (`ChangePublisher`), since S14 |
+| **Where the rule lives** | `docs/decisions/unique-indexes.md`, "Master validation and publication"; `docs/design/write-path.md` |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
