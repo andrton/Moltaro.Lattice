@@ -85,7 +85,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
 // dispatch, the call of IPersistence.CommitAsync for its group, the token of a write is honored at every
-// wait — chained, deferred, waiting for a value of a unique index, prepared and in the queue, waiting in a
+// wait — chained, deferred, waiting for another write, prepared and in the queue, waiting in a
 // resolution for the writes admitted before it, for the writes in flight or for the reads that hold
 // retired memory — and when its
 // preparation ends, also a preparation the arena refused. The cancellation of a write that waits in a
@@ -153,12 +153,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // keeps it, or that has none, refuses the write with UniqueConstraintViolation and the name of the index,
 // of two indexes the one declared first (Violation). A value claimed by a prepared write of another
 // entity, an insert or a key move, or held by a published root whose prepared delete or key move frees it,
-// makes the write wait for that one write (PendingWriteStateEnum.WaitingForValue): it gives back its root,
-// its handle and what it reserved, stays the head of the chain of its entity, and is prepared again from
-// the start once that write completes, whatever it completes as (MarkCompleted), so its check runs again
-// on what that write left. The prepared writes are looked at only while prepared memory is held, so in
-// MemoryOnly an ordinary write looks at none; each search is linear in them (FindClaimant,
-// FindWriteThatFrees), as the search of the chain of an entity is. A write that does not fit the memory
+// makes the write wait for that one write, by the one wait for another write (below): it gives back its
+// root, its handle and what it reserved first, and is started again from the beginning once that write
+// completes, whatever it completes as, so its check runs again on what that write left. The prepared
+// writes are looked at only while prepared memory is held, so in MemoryOnly an ordinary write looks at
+// none; each search is linear in them (FindClaimant, FindWriteThatFrees), as the search of the chain of an
+// entity is. A write that does not fit the memory
 // and would take a value held may end refused for memory, since its root is encoded before the check.
 //
 // A write batch (docs/decisions/document-model.md, "Atomic WriteBatch within one database"). A batch is one
@@ -169,22 +169,29 @@ namespace Moltaro.Lattice.Engine.Writes;
 // batch with its place, and a batch the arena cannot hold is resolved and refused as a whole, as any write.
 // A group never splits it. The entities of a batch are one set (Entities.PublicationKeys). A batch waits for
 // the latest earlier write that has not completed and shares an entity with it, whatever that write is, and
-// a single write whose latest earlier write of its entity is a batch waits for that batch, as a write waits
-// for the holder of a value: in the list of the writes that wait for a value, started again from the
-// beginning once that one write ends (MarkCompleted), so that it is admitted again behind whatever then
-// shares an entity with it. Two single writes keep the chain of their entity. Every such wait goes to an
-// earlier admission, so none is part of a cycle. A value of a unique index a batch sets or frees is decided
-// as for a single write, over the changes of all its members, and a prepared batch answers the question of
-// a later write, who claims and who frees a value, through its changes.
+// a single write whose latest earlier write of its entity is a batch waits for that batch, by the one wait
+// for another write (below); two single writes keep the chain of their entity. A value of a unique index a
+// batch sets or frees is decided as for a single write, over the changes of all its members, and a
+// prepared batch answers the question of a later write, who claims and who frees a value, through its
+// changes.
+//
+// One way to wait for another write (PendingWriteStateEnum.WaitingForWrite, PendingWrite.Holder). A write
+// that waits for the latest earlier write it shares an entity with, as a batch does, or for the one write
+// that holds a value of a unique index it wants, holds nothing, stands in the list of the writes that wait
+// for another write, first in first out, and stays the head of the chain of its entity. When that write
+// ends, whatever it ends as, its end makes the write ready (MarkCompleted, ReleaseWaitersOf), and the write
+// is started again from the beginning (Start), so that it waits again behind whatever then shares an entity
+// with it, and its preparation and its checks run again on what that write left. No two writes wait for
+// each other: a wait for an entity goes to an earlier admission, and a wait for a value to a prepared write,
+// which waits for nothing but its persistence step.
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of
 // the writes is that of a lock: it ends when the holder releases it, after work in memory alone. The
 // waits in a chain, in the deferred list, in the queue of the prepared writes and in steps 1 and 2 of a
 // resolution have no timeout and have the token; each ends when the writes it waits for end, as above.
-// The wait for the write that holds a value of a unique index has no timeout and has the token; it ends
-// when that one write completes, which is prepared and waits for nothing but its persistence step, never
-// for a write that waits for it, so no two writes wait for each other; a fault ends it (exception X6).
+// The wait for another write has no timeout and has the token; it ends when that one write completes,
+// which waits for nothing that waits for it, as above; a fault ends it (exception X6).
 // The wait for the reads that hold retired memory has no timeout and has the token; a read leaves within
 // one step (exception X6).
 //
@@ -222,7 +229,7 @@ namespace Moltaro.Lattice.Engine.Writes;
 // for a position end (EngineDatabase.Fault). The writes of the group published before the failure get
 // their results; the write whose publication failed and the writes of the group after it get
 // IndeterminateOutcome, the first with the failure as its InnerException, and when the persistence step
-// itself failed the whole group does; every other write admitted, one that waits for a value among them,
+// itself failed the whole group does; every other write admitted, one that waits for another write among them,
 // gets Unavailable once it has released what it held. Every later write is Unavailable, and a close
 // works.
 internal sealed class WriteCoordinator
@@ -273,9 +280,8 @@ internal sealed class WriteCoordinator
     // The writes deferred while a refused write is resolved, in the order they were deferred.
     private WriteQueue _deferred;
 
-    // The writes that wait for the write that holds a value of a unique index, in the order they began to
-    // wait (WaitForValue).
-    private WriteQueue _waitingForValue;
+    // The writes that wait for another write, in the order they began to wait (WaitForWrite).
+    private WriteQueue _waitingForWrite;
 
     // The write being resolved after the arena refused it twice, from step 2 of its resolution to its
     // end; null otherwise (see the class).
@@ -477,9 +483,9 @@ internal sealed class WriteCoordinator
                     DecideFailure(write, cancelled, ref hold);
                     break;
 
-                case PendingWriteStateEnum.WaitingForValue:
-                    _waitingForValue.Remove(write);
-                    write.ValueHolder = null;
+                case PendingWriteStateEnum.WaitingForWrite:
+                    _waitingForWrite.Remove(write);
+                    write.Holder = null;
                     DecideFailure(write, cancelled, ref hold);
                     break;
 
@@ -815,11 +821,11 @@ internal sealed class WriteCoordinator
         if (FindLastSharing(write) is { } last)
         {
             // Two single writes of one entity keep its chain. A write batch, or a single write whose
-            // latest earlier write of its entity is a batch, waits for that one write and is started again
-            // from the beginning once it ends (see the class, "A write batch").
+            // latest earlier write of its entity is a batch, waits for that one write (see the class, "One
+            // way to wait for another write").
             if (write.Members is not null || last.Members is not null)
             {
-                WaitForValue(write, last);
+                WaitForWrite(write, last);
 
                 return;
             }
@@ -870,8 +876,8 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: prepares the write, which has no earlier write of its entity that has not
-    // completed, and puts it into the queue of the prepared writes; or ends it, makes it wait for a value of
-    // a unique index, or begins its resolution (see the class, "The refusal").
+    // completed, and puts it into the queue of the prepared writes; or ends it, makes it wait for the write
+    // that holds a value of a unique index, or begins its resolution (see the class, "The refusal").
     private void Prepare(PendingWrite write, ref Hold hold)
     {
         PreparationEnum preparation;
@@ -1033,7 +1039,7 @@ internal sealed class WriteCoordinator
     {
         if (taken.Owner != default && HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
         {
-            WaitForValue(write, holder);
+            WaitForWrite(write, holder);
 
             return;
         }
@@ -1054,7 +1060,7 @@ internal sealed class WriteCoordinator
             {
                 _changes.Release(prepared.Changes);
                 prepared.Withdraw();
-                WaitForValue(write, holder);
+                WaitForWrite(write, holder);
 
                 return true;
             }
@@ -1107,36 +1113,36 @@ internal sealed class WriteCoordinator
     // walk (PreparedWrites).
     private PreparedWrites PreparedNow => new(_prepared.First, _groupPending ? _group.Writes : []);
 
-    // Under the lock: the write waits, holding nothing, for the one prepared and unpublished write that holds
-    // the value it wants, in the list of the writes that wait for a value; it stays the head of the chain of
-    // its entity, and starts again when that write completes (MarkCompleted). The wait ends: the holder waits
-    // only for its persistence step, never for a write that waits for it (see the class, "The waits").
-    private void WaitForValue(PendingWrite write, PendingWrite holder)
+    // Under the lock: the write waits, holding nothing, for the one other write given, in the list of the
+    // writes that wait for another write; it stays the head of the chain of its entity, and starts again from
+    // the beginning when that write completes (MarkCompleted). The wait ends (see the class, "One way to wait
+    // for another write").
+    private void WaitForWrite(PendingWrite write, PendingWrite holder)
     {
-        write.ValueHolder = holder;
-        write.State = PendingWriteStateEnum.WaitingForValue;
-        _waitingForValue.Append(write);
+        write.Holder = holder;
+        write.State = PendingWriteStateEnum.WaitingForWrite;
+        _waitingForWrite.Append(write);
     }
 
-    // Under the lock, at the end of a write: the writes that wait for a value it held become ready, in the
-    // order they began to wait, and are prepared again from the start in this hold (StartReadyAndCommit), so
-    // that each check runs again on what the write left. Linear in the writes that wait for a value.
+    // Under the lock, at the end of a write: the writes that wait for it become ready, in the order they began
+    // to wait, and are started again from the beginning in this hold (StartReadyAndCommit), so that each
+    // check runs again on what the write left. Linear in the writes that wait for another write.
     private void ReleaseWaitersOf(PendingWrite holder, ref Hold hold)
     {
-        var waiting = _waitingForValue;
+        var waiting = _waitingForWrite;
 
-        _waitingForValue = default;
+        _waitingForWrite = default;
 
         while (waiting.TakeFirst() is { } waiter)
         {
-            if (ReferenceEquals(waiter.ValueHolder, holder))
+            if (ReferenceEquals(waiter.Holder, holder))
             {
-                waiter.ValueHolder = null;
+                waiter.Holder = null;
                 hold.AddReady(waiter);
             }
             else
             {
-                _waitingForValue.Append(waiter);
+                _waitingForWrite.Append(waiter);
             }
         }
     }
@@ -1639,13 +1645,13 @@ internal sealed class WriteCoordinator
             waiter = newer;
         }
 
-        // The deferred writes, the writes that wait for a value and the writes of every chain start, and end
-        // with Unavailable (Start).
+        // The deferred writes, the writes that wait for another write and the writes of every chain start, and
+        // end with Unavailable (Start).
         ReleaseDeferred(ref hold);
 
-        while (_waitingForValue.TakeFirst() is { } waiter)
+        while (_waitingForWrite.TakeFirst() is { } waiter)
         {
-            waiter.ValueHolder = null;
+            waiter.Holder = null;
             hold.AddReady(waiter);
         }
     }
@@ -1677,9 +1683,9 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: the write has ended, with the outcome decided, and what waited for it starts: the
-    // writes that wait for a value it held, and the next write of its chain. Every end of a write passes
-    // here, so a completed write never has a write waiting for it; AdvanceChain does nothing for a write
-    // with nothing behind it, and only a test of the empty list is made when no write waits for a value.
+    // writes that wait for it, and the next write of its chain. Every end of a write passes here, so a
+    // completed write never has a write waiting for it; AdvanceChain does nothing for a write with nothing
+    // behind it, and only a test of the empty list is made when no write waits for another write.
     private void MarkCompleted(PendingWrite write, ref Hold hold)
     {
         write.State = PendingWriteStateEnum.Completed;
@@ -1701,7 +1707,7 @@ internal sealed class WriteCoordinator
             hold.AddEnded(write);
         }
 
-        if (!_waitingForValue.IsEmpty)
+        if (!_waitingForWrite.IsEmpty)
         {
             ReleaseWaitersOf(write, ref hold);
         }
@@ -1820,8 +1826,8 @@ internal sealed class WriteCoordinator
         public bool Faulted;
 
         // The writes to start in this hold, first in first out. A ready write keeps the state it waited
-        // in, Chained without the write before it, Deferred outside the deferred list or WaitingForValue
-        // outside the list of the writes that wait for a value, which only Start may see; so
+        // in, Chained without the write before it, Deferred outside the deferred list or WaitingForWrite
+        // outside the list of the writes that wait for another write, which only Start may see; so
         // StartReadyAndCommit starts every ready write before the hold ends, and Withdraw, which takes the
         // lock, never finds one.
         private WriteQueue _ready;
@@ -1888,7 +1894,7 @@ internal sealed class WriteCoordinator
     }
 
     // A queue of writes, first in first out, linked through PendingWrite.Next: the queue of the prepared
-    // writes, the deferred list, the writes that wait for a value, and the writes a hold has to start
+    // writes, the deferred list, the writes that wait for another write, and the writes a hold has to start
     // (Hold). A write is in one of them at
     // most. A value in a field of its owner, changed in place, under the lock of the writes. The list of
     // the writes that waited, whose writes leave it from any place, and the writes a hold ended, which

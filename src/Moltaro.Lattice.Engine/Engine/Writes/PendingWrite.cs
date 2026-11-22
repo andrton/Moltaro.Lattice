@@ -102,13 +102,13 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
     public bool IsWaiter { get; set; }
 
     // The next write of the list it is in: the queue of the prepared writes, the deferred list, the list of
-    // the writes that wait for a value, or the writes a hold of the lock has to start
+    // the writes that wait for another write, or the writes a hold of the lock has to start
     // (WriteCoordinator.StartReadyAndCommit).
     public PendingWrite? Next { get; set; }
 
-    // While it waits for a value of a unique index (PendingWriteStateEnum.WaitingForValue): the one
-    // prepared and unpublished write it waits for; null otherwise.
-    public PendingWrite? ValueHolder { get; set; }
+    // While it waits for another write (PendingWriteStateEnum.WaitingForWrite): the one write it waits
+    // for, which shares an entity with it or holds a value of a unique index it wants; null otherwise.
+    public PendingWrite? Holder { get; set; }
 
     // The next write whose outcome a hold of the lock decided and gives after it.
     public PendingWrite? NextEnded { get; set; }
