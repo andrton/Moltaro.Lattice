@@ -7857,8 +7857,8 @@ contract with its first step of implementation, for the planner to read.
    write's question, who claims and who frees a value, through its sorted claims, not by
    a scan of its changes. A batch that meets the claim or the release of another
    unpublished write gives everything back, waits for that one holder and is prepared
-   again whole. Of two members that claim one value the later is the failing member, in
-   the first violated index by declaration (Q58).
+   again whole. The failing member is the lowest-numbered member that fails, and for a
+   member that violates several indexes the index declared first is named (Q58).
 4. **One way to wait for another write.** The wait for a holder of S16 becomes the wait
    for a write: a batch waits for the latest earlier write not completed that shares an
    entity with it, and is started again from the beginning when that write ends; a single

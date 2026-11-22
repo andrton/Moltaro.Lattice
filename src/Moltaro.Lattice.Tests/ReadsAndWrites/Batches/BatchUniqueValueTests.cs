@@ -169,6 +169,45 @@ public sealed class BatchUniqueValueTests
         Assert.Single(profiles.Enumerate());
     }
 
+    // The later member violates both indexes against a published owner, and the earlier none: of the indexes
+    // of the one failing member, ByNick, declared first, is named.
+    [Fact]
+    public async Task Member_that_violates_two_indexes_is_refused_for_the_index_declared_first()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(Profile(profiles, 2, "free-login", "free-nick"));
+        batch.Insert(Profile(profiles, 3, "taken-login", "TAKEN-NICK"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.UniqueConstraintViolation, () => batch.CommitAsync());
+
+        Assert.Equal(1, refused.OperationIndex);
+        Assert.Equal("ByNick", refused.IndexName);
+        Assert.Single(profiles.Enumerate());
+    }
+
+    // The earlier member replaces an entity that does not exist, and the later one violates ByLogin: the
+    // earlier member is the failing one, with its own error.
+    [Fact]
+    public async Task Earlier_member_that_fails_its_condition_is_named_before_a_later_one_that_violates_an_index()
+    {
+        await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
+        var profiles = database.Set("Profile");
+        await profiles.InsertAsync(Profile(profiles, 1, "taken-login", "taken-nick"));
+
+        var batch = database.CreateWriteBatch();
+        batch.Replace(Profile(profiles, 404, "free-login", "free-nick"));
+        batch.Insert(Profile(profiles, 2, "taken-login", "other-nick"));
+
+        var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.NotFound, () => batch.CommitAsync());
+
+        Assert.Equal(0, refused.OperationIndex);
+        Assert.Single(profiles.Enumerate());
+    }
+
     // Two members whose keys of ByABC are equal but for a null in the part given hold no value, so the batch
     // goes through; with no null part the same pair is refused.
     [Theory]

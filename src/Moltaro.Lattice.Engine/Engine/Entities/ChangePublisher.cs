@@ -214,13 +214,16 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, for changes decided (Decide): whether a value of a unique index, a key
     // with no null part, would have two owners on the state the changes leave, and which (decision on unique
-    // indexes, "A conflict inside an explicit WriteBatch"). The entity types are taken in the order of their
-    // first change, and the unique indexes of each in the order of their declaration; the first index with a
-    // conflict is the one found. In it a change that sets or moves a value conflicts with the published root
-    // of another entity that holds it, unless a change frees that value, by a delete or a move of its own key;
-    // and of two changes that set one value, the later conflicts, since the earlier alone would have been
-    // accepted. Of several conflicts in the index, the change that comes first among the changes is found, so
-    // that the change reported does not depend on the order in which the check meets them. Neither value is in
+    // indexes, "A conflict inside an explicit WriteBatch"; Q58 of docs/work/open-questions.md). In an index a
+    // change that sets or moves a value conflicts with the published root of another entity that holds it,
+    // unless a change frees that value, by a delete or a move of its own key; and of two changes that set one
+    // value, the later conflicts, since the earlier alone would have been accepted. Of all the conflicts, in
+    // whatever entity types and indexes, the change that comes first among the changes is found, and for a
+    // change that conflicts in several indexes the index declared first in its entity type, so that what is
+    // reported depends neither on the order of the entity types nor on the order in which the check meets
+    // the conflicts. Every unique index is checked whether or not a conflict was found before it, so a check
+    // that finds none does no more than one that stops at the first; each index looks only at the changes
+    // before the earliest conflict found so far. Neither value is in
     // the published tree yet, so the prepared and unpublished changes of other publications are not the
     // publisher's to know: that one of them claims or frees a value is the caller's to find
     // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, takes a path of its own:
@@ -253,6 +256,8 @@ internal sealed class ChangePublisher
             return false;
         }
 
+        var found = new TakenValue(int.MaxValue, 0, default);
+
         foreach (var table in TablesOf(changes))
         {
             if (!table.HasUniqueIndex)
@@ -262,22 +267,24 @@ internal sealed class ChangePublisher
 
             for (var index = 0; index < table.Indexes.Length; index++)
             {
-                if (table.Indexes[index].IsUnique && FindTaken(changes, table, index, out taken))
+                if (table.Indexes[index].IsUnique)
                 {
-                    return true;
+                    FindTaken(changes, table, index, ref found);
                 }
             }
         }
 
-        taken = default;
+        taken = found;
 
-        return false;
+        return found.Change != int.MaxValue;
     }
 
     // The check of one unique index of the entity type of the table over the changes (FindTaken): the values
     // the changes set, each against its published owner and the handles of the owners the changes free, then
-    // against each other, sorted by the order of the index, equal values next to each other.
-    private bool FindTaken(Span<PreparedChange> changes, EntityTable table, int index, out TakenValue taken)
+    // against each other, sorted by the order of the index, equal values next to each other. A conflict of a
+    // change before the one found replaces it; one of the same change does not, so that of the indexes of one
+    // change the one declared first stays.
+    private void FindTaken(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
     {
         var unique = table.Indexes[index];
         var layout = table.Layout!;
@@ -308,7 +315,7 @@ internal sealed class ChangePublisher
 
         var freed = _freed.AsSpan(0, frees);
         var claimed = _claims.AsSpan(0, claims);
-        var failing = int.MaxValue;
+        var failing = found.Change;
         var holder = default(RootHandle);
 
         freed.Sort();
@@ -333,9 +340,10 @@ internal sealed class ChangePublisher
             }
         }
 
-        taken = new TakenValue(failing, index, holder);
-
-        return failing != int.MaxValue;
+        if (failing < found.Change)
+        {
+            found = new TakenValue(failing, index, holder);
+        }
     }
 
     // The entity types of the changes, each once, in the order of its first change, in the scratch of the

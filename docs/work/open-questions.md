@@ -134,7 +134,7 @@ in the meantime.
 | --- | --- |
 | **Found** | 22 November 2026, the study of Epic 1, sprint S17 |
 | **Question** | `UniqueIndexTests` assert the number of the failing member against a published owner. For two members of one batch that claim the same value no test and no document names it |
-| **Answer** | Taken by the planner, 22 November 2026, for the owner to read at the close of the sprint: the later member, in the first violated index by declaration, since the earlier member alone would have been accepted; against a published owner that no member frees, the member that claims |
+| **Answer** | Taken by the planner, 22 and 23 November 2026, for the owner to read at the close of the sprint: a batch reports the member with the lowest number among those that fail. For unique values that means: of two members that claim one value the later, since the earlier alone would be accepted; against a published owner that no member frees, the member that claims; of violations by several members, in whatever entity types and indexes, the earliest member; and for one member that violates several indexes, the index declared first in its entity type |
 | **What the code does** | As the brief of S17 says |
 | **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
 
