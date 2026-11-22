@@ -57,7 +57,7 @@ public sealed class RefusedBatchTests
         Assert.True((await accounts.InsertAsync(UniqueSchema.Of(2, "after", data: Mebibyte))).Changed);
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact]
     public async Task Batch_withdrawn_before_its_dispatch_gives_back_exactly_what_it_took()
     {
         var storage = new HeldPersistence(holding: false);
@@ -77,7 +77,7 @@ public sealed class RefusedBatchTests
             using var cancellation = new CancellationTokenSource();
             var batch = database.CreateWriteBatch();
 
-            for (var id = 2L; id <= 200; id++)
+            for (var id = 11L; id <= 200; id++)
             {
                 batch.Insert(UniqueSchema.Of(id, $"new {id}"));
             }
