@@ -345,7 +345,11 @@ What it does beyond the names above, or otherwise:
   values)` and `ExecuteAsync(operations, session, token)`. A member is encoded at its `Add` to its root in
   the load format after its envelope (`Entities.RootValues.Export`), an array of its exact length up to a
   piece of a transfer (64 KiB) and the pieces of a `TransferBuffer` above, so that a root of any size is
-  held and none lies in the large object heap. `WriteBatchOperation` holds the kind, the entity type, the
+  held and none lies in the large object heap. The last piece is used in part, so a root above 64 KiB takes
+  up to one piece more than its length: a root of 65,598 bytes takes two pieces, 131,072 bytes, about twice
+  its length, one of 200,062 bytes four, and one of 3,145,790 bytes 49, 2 % more (the reviewer's probe).
+  Trimming the last piece needs a segment of its own beside `TransferPiece`; it is not built, as the copy is
+  managed memory held only until the commit. `WriteBatchOperation` holds the kind, the entity type, the
   key, the expected revision and the root. The parameter `copyBinary` of the core went with the copy it
   made. The commit lets go of the operations, so a batch kept after it holds no root. The cost: a managed
   copy of every root from its `Add` to its commit.

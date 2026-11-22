@@ -103,7 +103,9 @@ internal static class RootValues
     // for a member of a write batch, which keeps it from its Add to its commit, when the write path places
     // it as it places a forwarded root (Writes.WriteExecutor). A root that fits one piece of a transfer is
     // one array of its exact length; a larger one is held in pieces (Replication.Load.TransferBuffer), so
-    // that a root of any size is held and nothing of it lies in the large object heap. The root writer
+    // that a root of any size is held and nothing of it lies in the large object heap. The last piece is
+    // used in part: a root just above one piece takes two, up to twice its length, and a root of 3 MiB
+    // takes 2 % more than its length. The root writer
     // refuses what it refuses for a write of values, and keeps nothing then.
     public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values)
     {
