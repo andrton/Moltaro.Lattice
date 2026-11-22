@@ -992,7 +992,7 @@ internal sealed class WriteCoordinator
 
         if (reservation == ReservationEnum.KeyTaken)
         {
-            DecideTakenValue(write, taken, ref hold);
+            DecideTakenValue(write, taken, operation: null, ref hold);
 
             return PreparationEnum.DecidedByValue;
         }
@@ -1012,7 +1012,7 @@ internal sealed class WriteCoordinator
     // write, over the changes of all its members (see the class, "A value of a unique index").
     private PreparationEnum TryPrepareBatch(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
     {
-        var reservation = _executor.TryPrepareBatch(write, out prepared, out refusal, out var taken);
+        var reservation = _executor.TryPrepareBatch(write, out prepared, out refusal, out var taken, out var failing);
 
         if (reservation == ReservationEnum.RefusedForMemory)
         {
@@ -1021,7 +1021,7 @@ internal sealed class WriteCoordinator
 
         if (reservation == ReservationEnum.KeyTaken)
         {
-            DecideTakenValue(write, taken, ref hold);
+            DecideTakenValue(write, taken, failing, ref hold);
 
             return PreparationEnum.DecidedByValue;
         }
@@ -1040,8 +1040,9 @@ internal sealed class WriteCoordinator
     // (ReservationEnum.KeyTaken, with what it found): when a published root of another entity holds it and
     // that entity has a prepared write that gives the value up, a delete or a key move, the write waits for
     // it; otherwise, also when that write keeps the value, or when two members of a batch claim it, the
-    // write is refused (Violation).
-    private void DecideTakenValue(PendingWrite write, in TakenValue taken, ref Hold hold)
+    // write is refused (Violation). The operation is the place of the failing member of a batch, null for a
+    // single write.
+    private void DecideTakenValue(PendingWrite write, in TakenValue taken, int? operation, ref Hold hold)
     {
         if (taken.Owner != default && HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
         {
@@ -1050,7 +1051,7 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        DecideFailure(write, Violation(write, taken), ref hold);
+        DecideFailure(write, Violation(write, taken.Index, operation), ref hold);
     }
 
     // Under the lock, for a write just prepared and reserved, while writes hold prepared memory: when a
@@ -1152,14 +1153,12 @@ internal sealed class WriteCoordinator
 
     // The refusal of a write that would give a value of a unique index a second owner, made in this one
     // place: UniqueConstraintViolation with the name of the index at the place given (decision on unique
-    // indexes); for a write batch, of the entity type of its failing member, whose place is
+    // indexes); for a write batch, of the entity type of its failing member, whose place, the operation, is
     // LatticeException.OperationIndex (WriteExecutor.TryPrepareBatch). The write changed nothing.
-    private static LatticeException Violation(PendingWrite write, in TakenValue taken)
+    private static LatticeException Violation(PendingWrite write, int index, int? operation)
     {
-        var (table, key, operation) = write.Members is { } members
-            ? (members[taken.Change].Table, members[taken.Change].Key, (int?)taken.Change)
-            : (write.Table, write.Key, null);
-        var name = table.Indexes[taken.Index].Definition.Name;
+        var (table, key) = operation is { } place ? (write.Members![place].Table, write.Members[place].Key) : (write.Table, write.Key);
+        var name = table.Indexes[index].Definition.Name;
 
         return new LatticeException(
             LatticeErrorEnum.UniqueConstraintViolation,

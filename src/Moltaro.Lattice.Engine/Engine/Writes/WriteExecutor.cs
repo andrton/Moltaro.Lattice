@@ -167,12 +167,12 @@ internal sealed class WriteExecutor
     // together, and a value of a unique index is found on the state they leave (Entities.ChangePublisher
     // .TryReserve). The outcomes are those of TryPrepare, for the batch as a whole: Reserved; RefusedForMemory,
     // with a refusal of the batch, which names no member, when the arena cannot hold a root or the nodes of
-    // an index; KeyTaken with what the reservation found, the failing change given as the place of its
-    // member among the members. A
+    // an index; KeyTaken with what the reservation found, and in failing the place of the member of the
+    // failing change among the members. A
     // failed condition is the refusal of TryPrepare with the place of its member among the members
     // (LatticeException.OperationIndex). Whatever ends it other than Reserved, every member has given back
     // what it took, its root and its root entry, so nothing of the batch is left.
-    public ReservationEnum TryPrepareBatch(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken)
+    public ReservationEnum TryPrepareBatch(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal, out TakenValue taken, out int failing)
     {
         var members = write.Members!;
         var record = write.Record;
@@ -183,6 +183,7 @@ internal sealed class WriteExecutor
         prepared = null;
         refusal = null;
         taken = default;
+        failing = 0;
 
         try
         {
@@ -244,7 +245,7 @@ internal sealed class WriteExecutor
             }
             else
             {
-                taken = taken with { Change = BatchMember.PlaceOf(changes[taken.Change].Member) };
+                failing = BatchMember.PlaceOf(changes[taken.Change].Member);
             }
 
             return reservation;
