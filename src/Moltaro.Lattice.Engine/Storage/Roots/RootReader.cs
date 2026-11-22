@@ -172,6 +172,11 @@ internal readonly ref struct RootReader
     public StoredTextReader ReadText(LatticeField field) =>
         new(ArenaOfValues(), Descriptor(field, StoredTypeEnum.String, nameof(ReadText)), _payload, _layout.StringEncoding);
 
+    // The same reader for a caller that holds where the layout of this reader stores a String field, as
+    // IsNull takes it.
+    public StoredTextReader ReadText(in StoredField stored) =>
+        new(ArenaOfValues(), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
+
     // The value of a Binary field, as a new array that belongs to the caller. An empty value is the
     // empty array, which every caller shares and none can change.
     public byte[] GetBinary(LatticeField field)
@@ -194,12 +199,8 @@ internal readonly ref struct RootReader
     // The bytes the fixed part stores for a field that is not null, as they lie: the value of a
     // fixed-width field as Values.StoredScalars wrote it, or the descriptor of a String or Binary value.
     // What an entry of an index copies of its root, and what the order of an index compares a key with
-    // (Ordered.IndexLayout, Engine.Indexes.SecondaryIndex). InvalidOperationException for a field whose
-    // value is null.
-    public ReadOnlySpan<byte> StoredBytes(LatticeField field) => NotNull(_layout.StoredFieldOf(field));
-
-    // The same bytes for a caller that holds where the layout of this reader stores the field, as IsNull
-    // takes it.
+    // (Ordered.IndexLayout, Engine.Indexes.SecondaryIndex), for a caller that holds where the layout of this
+    // reader stores the field, as IsNull takes it. InvalidOperationException for a field whose value is null.
     public ReadOnlySpan<byte> StoredBytes(in StoredField stored) => NotNull(stored);
 
     // The bytes of a value of this root that does not lie in chunks, which the descriptor given, one of

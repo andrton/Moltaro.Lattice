@@ -83,8 +83,8 @@ internal sealed class IndexOrder
     {
         foreach (ref readonly var part in _layout.Parts)
         {
-            var leftNull = left.IsNull(part.Field);
-            var rightNull = right.IsNull(part.Field);
+            var leftNull = left.IsNull(part.Stored);
+            var rightNull = right.IsNull(part.Stored);
             int order;
 
             if (leftNull || rightNull)
@@ -93,11 +93,11 @@ internal sealed class IndexOrder
             }
             else if (part.IsText)
             {
-                order = ValueComparer.CompareText(left.ReadText(part.Field), right.ReadText(part.Field), part.Comparison!);
+                order = ValueComparer.CompareText(left.ReadText(part.Stored), right.ReadText(part.Stored), part.Comparison!);
             }
             else
             {
-                order = ValueComparer.CompareStored(part.Type, left.StoredBytes(part.Field), right.StoredBytes(part.Field));
+                order = ValueComparer.CompareStored(part.Type, left.StoredBytes(part.Stored), right.StoredBytes(part.Stored));
             }
 
             if (order != 0)
@@ -120,7 +120,7 @@ internal sealed class IndexOrder
         for (var place = 0; place < parts.Length; place++)
         {
             ref readonly var part = ref parts[place];
-            var rootNull = root.IsNull(part.Field);
+            var rootNull = root.IsNull(part.Stored);
             var keyNull = key.IsNull(place);
             int order;
 
@@ -134,7 +134,7 @@ internal sealed class IndexOrder
             }
             else
             {
-                order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Field), key.FixedAt(part));
+                order = ValueComparer.CompareStored(part.Type, root.StoredBytes(part.Stored), key.FixedAt(part));
             }
 
             if (order != 0)
@@ -177,14 +177,14 @@ internal sealed class IndexOrder
     // CompareText orders a part of an entry: the text the root stores is the text its entry holds.
     private static int CompareRootText(in EntryPart part, in RootReader root, scoped in SearchKey key, int place)
     {
-        var descriptor = ValueBlocks.Read(root.StoredBytes(part.Field));
+        var descriptor = ValueBlocks.Read(root.StoredBytes(part.Stored));
 
         if (key.TryTextBytes(place, out var given) && !ValueBlocks.LiesInChunks(descriptor))
         {
             return ValueComparer.CompareUtf8Ordinal(root.ValueBytes(descriptor), given);
         }
 
-        return ValueComparer.CompareText(root.ReadText(part.Field), key.TextAt(place), part.Comparison!);
+        return ValueComparer.CompareText(root.ReadText(part.Stored), key.TextAt(place), part.Comparison!);
     }
 
     // Whether a String part is compared as bytes: Ordinal in a UTF-8 database (Comparison.ValueComparer).
