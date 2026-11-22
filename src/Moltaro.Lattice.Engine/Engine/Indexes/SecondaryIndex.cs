@@ -210,7 +210,7 @@ internal sealed class SecondaryIndex
     public void TopUp() => Tree.TopUp();
 
     // For the writer, before a write is refused for memory: gives back what the pool of the tree holds
-    // above the need of the writes prepared and not published (OrderedTree.GiveBackReserve).
+    // above the lesser bound of the writes prepared and not published (OrderedTree.GiveBackReserve).
     public void GiveBackReserve() => Tree.GiveBackReserve();
 
     // For the writer, in the publication of the write, before the stores of its root: adds the entry the

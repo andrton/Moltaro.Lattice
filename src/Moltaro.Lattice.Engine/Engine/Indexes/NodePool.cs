@@ -18,7 +18,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 //   since then, kept by a ledger, because that bound is amortised over a sequence of publications and
 //   cannot be computed again at the tree after each of them.
 // The base is the tree as it was when nothing waited, and it moves to the tree as it is whenever nothing
-// waits or the linear bound of the changes waiting, from the tree as it is, is below what the ledger leaves.
+// waits or the linear bound of the changes waiting, from the tree as it is, is no more than what the ledger
+// leaves.
 // The same holds for the places, with PlacesBound in the place of Bound. Once a preparation has touched the
 // index it keeps the standing reserve as well, the need of one change of key, which a top-up refills and a
 // withdrawal or a refusal gives back. A Debug build asserts after every change that it holds the lesser

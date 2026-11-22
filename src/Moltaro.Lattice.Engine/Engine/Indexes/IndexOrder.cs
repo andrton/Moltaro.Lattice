@@ -76,7 +76,7 @@ internal sealed class IndexOrder
 
     // Whether the two roots contribute entries of equal keys by the order (CompareKeys). For the writer,
     // which tells a key that moves from one equal by the order in other bytes (SecondaryIndex.ChangeOf);
-    // under the lock of the writes. Inlined, so that a decision makes the one call it made before.
+    // under the lock of the writes. Inlined, so that a decision makes one call for the comparison, not two.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool SameKey(in RootReader left, in RootReader right) => CompareKeys(left, right) == 0;
 

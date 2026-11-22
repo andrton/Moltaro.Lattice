@@ -123,11 +123,11 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    before, otherwise a thread of the pool (EndResolution) — it waits for the reads then in progress
 //    that hold retired memory to leave the protection, frees what is retired, and tries once more, with
 //    no other write holding prepared memory: every index first gives back its standing reserve, and the
-//    write takes its own need and no top-up.
+//    write takes what its publication can take, the lesser bound of the reservation, and no top-up.
 // 4. If the arena has room it goes on as any write; if not, it is refused with WriteRejected and Limit
-//    Memory, has had no effect and never runs later, and every pool is left at the need of the writes
-//    prepared, none: what an index took for it went back to the arena with its withdrawal, not into its
-//    reserve. Either way the resolution ends, and the deferred writes start at once, in their order.
+//    Memory, has had no effect and never runs later, and every pool is left at the lesser bound of the
+//    writes prepared, none: what an index took for it went back to the arena with its withdrawal, not into
+//    its reserve. Either way the resolution ends, and the deferred writes start at once, in their order.
 // A write that is prepared otherwise tops the standing reserve of each index it changes up, once it has
 // all it needs, as far as the arena gives (Entities.ChangePublisher.TopUp); a top-up that cannot be had
 // is not a failure. So the reserves count against the memory limit and are never the reason of a refusal
@@ -1232,8 +1232,8 @@ internal sealed class WriteCoordinator
         try
         {
             // The standing reserves of the indexes are never the reason of a refusal: every index gives
-            // back what its pool holds above the need of the writes prepared, none now, and the write takes
-            // its own need with no top-up (see the class).
+            // back what its pool holds above the lesser bound of the writes prepared, none now, and the write
+            // takes its own with no top-up (see the class).
             _retired.Drain();
             _changes.GiveBackReserves();
 

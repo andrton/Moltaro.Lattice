@@ -216,8 +216,9 @@ internal sealed class ChangePublisher
     // that the change reported does not depend on the order in which the check meets them. Neither value is in
     // the published tree yet, so the prepared and unpublished changes of other publications are not the
     // publisher's to know: that one of them claims or frees a value is the caller's to find
-    // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, needs one descent for each
-    // index in which it sets a value, as before there were several.
+    // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, takes a path of its own:
+    // one descent for each index in which it sets a value and nothing else, since it frees no value it claims
+    // and cannot claim one twice, so that it needs no scratch and no sort.
     private bool FindTaken(Span<PreparedChange> changes, out TakenValue taken)
     {
         if (changes.Length == 1)
@@ -423,8 +424,8 @@ internal sealed class ChangePublisher
     private bool SetsValue(in PreparedChange change, int index) =>
         ChangeAt(change, index) is IndexChangeEnum.Insert or IndexChangeEnum.Move;
 
-    // Records with the change what it does to the index at the place given, once the index has reserved
-    // for it (PreparedChange.BitOf).
+    // Records with the change what it does to the index at the place given, as the change is decided and
+    // before any index reserves for it, so that the check and the reservation read it (PreparedChange.BitOf).
     private static void Record(ref PreparedChange change, int index, IndexChangeEnum decided)
     {
         var bit = PreparedChange.BitOf(index);
@@ -493,7 +494,7 @@ internal sealed class ChangePublisher
     }
 
     // Under the lock of the writes, before a write or a received change is refused for memory: every index
-    // of the database gives back what its pool holds above the need of the changes prepared and not
+    // of the database gives back what its pool holds above the lesser bound of the changes prepared and not
     // published (Indexes.SecondaryIndex.GiveBackReserve).
     public void GiveBackReserves()
     {
