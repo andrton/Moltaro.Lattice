@@ -260,7 +260,7 @@ internal sealed class NodePool
     private long StandingReserve(int height, int room) => Need(height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
     // The base of the ledger moves to the tree as it is, with the changes waiting charged and nothing taken or
-    // used, when nothing waits and when the linear bounds of the changes waiting, counted from the tree as it
+    // used, when nothing waits or when the linear bounds of the changes waiting, counted from the tree as it
     // is, are no more than what the ledger leaves (see the class). With nothing waiting it always moves, so a
     // reservation made when nothing waits charges its changes to a base at the tree as it is.
     private void MoveBase(int height)

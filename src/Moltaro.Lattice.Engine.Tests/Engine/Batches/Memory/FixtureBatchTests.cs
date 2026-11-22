@@ -7,8 +7,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 // The bound of the reservation of a batch does not refuse a batch that fits (docs/design/ordered-index.md,
 // "The reservation"): with the default options, a batch of 10,000 users of the reference fixture, with the
 // three text indexes of its scalar form, ByLogin, ByEmail and ByRegionAndLogin, and the same batch with the
-// Unique marks of that form, is executed as one write at one position. The users are the first 10,000 the fixture
-// generates (GeneratedRecords), whose schema the database is opened with.
+// Unique marks of that form, is executed as one write at one position. The users are the first 10,000 the
+// fixture generates (GeneratedRecords), whose schema the database is opened with.
 public sealed class FixtureBatchTests
 {
     private const int Users = 10_000;

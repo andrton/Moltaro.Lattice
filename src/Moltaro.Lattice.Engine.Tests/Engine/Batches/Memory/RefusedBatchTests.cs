@@ -12,9 +12,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 // byte of it. Every pool of an index gives back what the batch took from the arena when the batch is
 // withdrawn, and the standing reserve with it, keeping the lesser bound of the writes still prepared
 // (IndexReserve); before a refusal every index gives back what its pool holds above that bound, so that the
-// reserves are never the reason of a refusal, and the prepared bytes are then at most what they were. The same holds for a batch that waited behind a write of
-// one of its entities and does not fit once that write is published, and for a batch whose token is
-// cancelled at the wait of the resolution of its refusal, where the limit is looked at last.
+// reserves are never the reason of a refusal, and the prepared bytes are then at most what they were. The
+// same holds for a batch that waited behind a write of one of its entities and does not fit once that write
+// is published, and for a batch whose token is cancelled at the wait of the resolution of its refusal, where
+// the limit is looked at last.
 // UniqueSchema, whose Account holds a Data of the size each test gives, on an arena of four segments of
 // 4 MiB, or two, given through the inputs of a test (exception X3); every wait is bounded.
 public sealed class RefusedBatchTests
