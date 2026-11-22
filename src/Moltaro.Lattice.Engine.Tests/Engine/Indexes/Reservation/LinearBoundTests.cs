@@ -23,8 +23,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 //
 // nodes: an insert retires no more nodes than it takes, each a node it copied, and a remove retires at most
 // the nodes on its path and the neighbour of a merge, at a height that p inserts raise by at most
-// 1 + log2 p levels above h. These bounds are this test's own; NodePool.Bound and NodePool.PlacesBound are
-// held against them and against what publications take.
+// 1 + log2 p levels above h. These bounds are the tests' own, the first in ReservationNeed.NodesBound, which
+// other tests take their figures from, the second here; NodePool.Bound and NodePool.PlacesBound are held
+// against them and against what publications take.
 //
 // What a publication takes and retires is read from the arena, not from the pool: each node it takes is a
 // prepared block made live, which stays live or is retired by a later publication, and nothing is drained
@@ -139,7 +140,7 @@ public sealed class LinearBoundTests
             var taken = ((liveGrowth + (retiredNodes * nodeLive)) / nodeLive);
 
             Assert.True((liveGrowth + (retiredNodes * nodeLive)) % nodeLive == 0, $"{liveGrowth} live bytes and {retiredNodes} retired nodes are not whole nodes.");
-            Assert.True(taken <= NodesBound(height, inserted, removed), $"{pattern}, seed {seed}: {inserted} inserts and {removed} removes from height {height} took {taken} nodes, above {NodesBound(height, inserted, removed)}.");
+            Assert.True(taken <= ReservationNeed.NodesBound(height, inserted, removed), $"{pattern}, seed {seed}: {inserted} inserts and {removed} removes from height {height} took {taken} nodes, above {ReservationNeed.NodesBound(height, inserted, removed)}.");
             Assert.True(retiredNodes <= PlacesBound(height, inserted, removed), $"{pattern}, seed {seed}: {inserted} inserts and {removed} removes from height {height} retired {retiredNodes} nodes, above {PlacesBound(height, inserted, removed)}.");
         }
 
@@ -170,9 +171,9 @@ public sealed class LinearBoundTests
             {
                 foreach (var removes in new[] { 0, 1, 3, 1_000, 10_000 })
                 {
-                    if (NodePool.Bound(height, inserts, removes) != NodesBound(height, inserts, removes))
+                    if (NodePool.Bound(height, inserts, removes) != ReservationNeed.NodesBound(height, inserts, removes))
                     {
-                        differ.Add($"height {height}, {inserts} inserts, {removes} removes: {NodePool.Bound(height, inserts, removes)} nodes against {NodesBound(height, inserts, removes)}");
+                        differ.Add($"height {height}, {inserts} inserts, {removes} removes: {NodePool.Bound(height, inserts, removes)} nodes against {ReservationNeed.NodesBound(height, inserts, removes)}");
                     }
 
                     if (NodePool.PlacesBound(height, inserts, removes) < PlacesBound(height, inserts, removes))
@@ -212,7 +213,7 @@ public sealed class LinearBoundTests
             var before = item.Arena.Counters;
             var least = index.Layout.LeastSeparators;
             var room = Math.Max(0, least - index.Tree.Nodes()[0].Items.Count);
-            var reserve = NodePool.Need(index.Tree.Height, room, least, inserts: 1, removes: 1) * index.Layout.NodeBytes;
+            var reserve = ReservationNeed.OfOneChangeOfKey(index.Tree.Height, room, least) * index.Layout.NodeBytes;
 
             Assert.Equal(reserve, before.PreparedBytes);
 
@@ -256,7 +257,7 @@ public sealed class LinearBoundTests
 
             Assert.True(made, "A reservation of 1,500 inserts was refused in an arena that holds it.");
             Assert.True(allocated <= Small, $"A reservation of 1,500 inserts that was made allocated {allocated} managed bytes.");
-            Assert.Equal(NodePool.Bound(0, 1_500, 0) * index.Layout.NodeBytes, arena.Counters.PreparedBytes);
+            Assert.Equal(ReservationNeed.NodesBound(0, 1_500, 0) * index.Layout.NodeBytes, arena.Counters.PreparedBytes);
         }
 
         using (var item = new RootArena(IndexSchema.Utf8, "Counted", 2L * RootArena.SegmentSize))
@@ -278,10 +279,7 @@ public sealed class LinearBoundTests
         }
     }
 
-    // See the class.
-    private static long NodesBound(int height, int inserts, int removes) =>
-        (inserts * ((2L * height) + 3)) + (2L * removes);
-
+    // See the class; the bound of the nodes is ReservationNeed.NodesBound.
     private static long PlacesBound(int height, int inserts, int removes) =>
         (inserts * ((2L * height) + 3)) + (removes * (height + 2L + BitOperations.Log2((uint)Math.Max(inserts, 1))));
 }

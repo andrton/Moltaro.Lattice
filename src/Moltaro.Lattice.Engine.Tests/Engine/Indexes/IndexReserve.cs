@@ -1,4 +1,3 @@
-using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
@@ -12,8 +11,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // (IndexContents): its height, and the room of its root, the inserts the root takes before it can split —
 // none for an empty tree, otherwise the separators an inner node holds before it is full less the items of
 // the root, at least none. While writes wait, a pool keeps the lesser bound of what they can take, the
-// lesser of their need at the tree and their linear bound (NodePool.Need, NodePool.Bound), and gives back
-// what is above it when another write is withdrawn.
+// lesser of their need at the tree and their linear bound (ReservationNeed.Of, ReservationNeed.NodesBound),
+// and gives back what is above it when another write is withdrawn.
 internal static class IndexReserve
 {
     // The bytes of the reserves of the indexes of the entity type.
@@ -50,9 +49,9 @@ internal static class IndexReserve
         {
             var layout = IndexLayout.Compile(index, roots);
             var tree = IndexContents.Of(database, entityType, index.Name);
-            var need = NodePool.Need(tree.Height, RoomOf(tree, layout.LeastSeparators), layout.LeastSeparators, inserts, removes);
+            var need = ReservationNeed.Of(tree.Height, RoomOf(tree, layout.LeastSeparators), layout.LeastSeparators, inserts, removes);
 
-            bytes += Math.Min(need, NodePool.Bound(tree.Height, inserts, removes)) * layout.NodeBytes;
+            bytes += Math.Min(need, ReservationNeed.NodesBound(tree.Height, inserts, removes)) * layout.NodeBytes;
         }
 
         return bytes;

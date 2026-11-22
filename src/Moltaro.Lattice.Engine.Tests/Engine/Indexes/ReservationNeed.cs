@@ -26,6 +26,12 @@ internal static class ReservationNeed
     // The standing reserve of an index at a tree: the need of one change of key, an insert and a remove.
     public static long OfOneChangeOfKey(int height, int room, int leastSeparators) => Of(height, room, leastSeparators, inserts: 1, removes: 1);
 
+    // The linear bound of the nodes the inserts and removes given take from a tree of the height given, published
+    // in any order: p (2 h + 3) + 2 q, which LinearBoundTests holds against what publications take and says why
+    // it holds.
+    public static long NodesBound(int height, int inserts, int removes) =>
+        (inserts * ((2L * height) + 3)) + (2L * removes);
+
     // The levels the inserts given can add to the tree.
     private static long Growth(int inserts, int room, int leastSeparators) =>
         inserts <= room ? 0 : 1 + ((inserts - 1 - room) / leastSeparators);
