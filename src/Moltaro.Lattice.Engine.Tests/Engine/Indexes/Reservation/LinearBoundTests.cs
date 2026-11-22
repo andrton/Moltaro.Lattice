@@ -38,7 +38,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 //
 // A reservation withdrawn with nothing else waiting gives back what it took and the standing reserve with it,
 // and a reservation, made or refused, takes no managed room for its nodes, which are linked through their
-// own payload.
+// own payload: what a made one takes beside them is the room of the path of the writer and, the first time,
+// that of the places of the retired list and of the segments of the arena, which the case warms up.
 public sealed class LinearBoundTests
 {
     // The pattern of the keys and of the removes, the seed, the entries of the tree built first, the inserts
@@ -224,31 +225,56 @@ public sealed class LinearBoundTests
         }
     }
 
-    // A reservation of some fifty thousand nodes, made in an arena that holds them and refused in one of two
-    // segments, allocates no managed memory in proportion to its nodes: at most what the path of the writer
-    // takes, a few small arrays.
-    [Fact(Skip = SkipReason.WriteBatchMechanisms)]
+    // Made: the first reservation of 1,500 inserts of a fresh index, its linear bound of 4,500 nodes, in an
+    // arena whose reserve keeps the two segments a withdrawn reservation of the same size obtained, beside a
+    // retired list that had the room of its places then, allocates at most what the path of the writer takes,
+    // a few small arrays, and holds exactly its nodes. Refused: a reservation of 10,000 inserts, 30,000 nodes,
+    // in an arena of two segments of 4 MiB is refused before it takes anything, so it allocates nothing and
+    // obtains no segment.
+    [Fact]
     public void Reservation_made_or_refused_takes_no_managed_room_for_its_nodes()
     {
-        const int Inserts = 1_500;
         const long Small = 4 * 1024;
 
-        foreach (var memoryLimit in new[] { RootArena.DefaultMemoryLimit, 2L * RootArena.SegmentSize })
+        Assert.True(IndexSchema.Utf8.TryGetEntityType("Counted", out var entityType));
+        Assert.True(entityType.TryGetIndex("ByNumber", out var definition));
+
+        var layout = RootLayout.Compile(entityType, IndexSchema.Utf8);
+
+        using (var arena = new Arena(new ArenaOptions { MemoryLimit = RootArena.DefaultMemoryLimit, ReservedSegments = 2 }))
         {
-            using var item = new RootArena(IndexSchema.Utf8, "Counted", memoryLimit);
-            var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
-            Assert.True(item.EntityType.TryGetIndex("ByNumber", out var definition));
-            var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
+            var retired = new RetiredMemory(new ReadEpochs(new object()), arena, new RootTable());
+            var warm = SecondaryIndex.Open(definition, layout, arena, retired);
+
+            Assert.True(warm.Tree.TryReserve(inserts: 1_500, removes: 0));
+            warm.Tree.Release(inserts: 1_500, removes: 0);
+
+            var index = SecondaryIndex.Open(definition, layout, arena, retired);
             var before = GC.GetAllocatedBytesForCurrentThread();
-            var made = index.Tree.TryReserve(inserts: Inserts, removes: 0);
+            var made = index.Tree.TryReserve(inserts: 1_500, removes: 0);
             var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
-            Assert.True(allocated <= Small, $"A reservation of {Inserts} inserts that was {(made ? "made" : "refused")} allocated {allocated} managed bytes.");
+            Assert.True(made, "A reservation of 1,500 inserts was refused in an arena that holds it.");
+            Assert.True(allocated <= Small, $"A reservation of 1,500 inserts that was made allocated {allocated} managed bytes.");
+            Assert.Equal(NodePool.Bound(0, 1_500, 0) * index.Layout.NodeBytes, arena.Counters.PreparedBytes);
+        }
 
-            if (made)
-            {
-                index.Tree.Release(inserts: Inserts, removes: 0);
-            }
+        using (var item = new RootArena(IndexSchema.Utf8, "Counted", 2L * RootArena.SegmentSize))
+        {
+            var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
+            var index = SecondaryIndex.Open(definition, item.Layout, item.Arena, retired);
+
+            Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));
+            index.Tree.Release(inserts: 1, removes: 0);
+
+            var counters = item.Arena.Counters;
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var made = index.Tree.TryReserve(inserts: 10_000, removes: 0);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.False(made, "A reservation of 10,000 inserts was made in an arena of two segments.");
+            Assert.Equal(0, allocated);
+            Assert.Equal(counters, item.Arena.Counters);
         }
     }
 
