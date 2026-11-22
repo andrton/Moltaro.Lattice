@@ -138,6 +138,33 @@ as a whole, before anything is written.
   single write and for a batch of one, whose revision is then that of a single write
   ([milestone contract](milestone-1-engine-contract.md#write-coordinator-and-revision-semantics)).
 
+**Why a write that starts again never chains behind the wrong write, and why the waits end.**
+The argument rests on two facts of the coordinator (`Engine/Writes/WriteCoordinator.cs`). Every
+write admitted and not completed whose call has left the lock is in one list, in the order of
+admission; the one write not in it yet is the write of the call that holds the lock, which is
+admitted, started and added in that one hold. And a write that starts, at its admission or
+again after the write it waited for has ended, looks for the latest write of that list that
+shares an entity with it and was admitted before it, searching back from its own place
+(`FindLastSharing`).
+
+- *It never chains behind a write that already has a later one.* Chains link single writes of
+  one entity only. Say a single write W starts and finds the single write L, and L already has a
+  write X behind it in its chain. X is a single write of the same entity, admitted after L. If X
+  was admitted before W, X lies between L and W in the list, so the search back from W meets X
+  before L and does not find L. If X was admitted after W, then W was in the list when X started,
+  later than L and of the same entity, so X found W, not L, and chained behind W or waited for
+  it. Either way L has nothing behind it when W finds it, so W takes the place right behind L,
+  and the writes that were chained behind W, while it waited, stay behind it.
+- *No two writes wait for each other.* A write waits in a chain, or for the write it shares an
+  entity with, only for a write admitted before it, since the search goes back from its own
+  place. It waits for a value only for a write that is prepared, and a prepared write waits for
+  nothing but its persistence step. The writes being resolved after a refusal for memory wait for
+  writes admitted before them or for prepared writes, and the writes they defer wait for them,
+  which were admitted earlier. So every wait goes to an earlier admission or to a write that waits
+  for nothing, and a cycle would need a wait to a later admission that is itself waiting: there is
+  none. Every wait ends when the write it waits for ends, and that one ends because the writes it
+  waits for are earlier still, down to a write that waits for its persistence step alone.
+
 ## How a publication is made
 
 A publication installs what the preparation made, and nothing else: it obtains no

@@ -834,6 +834,7 @@ internal sealed class WriteCoordinator
             // Two single writes of one entity keep its chain. A write batch, or a single write whose
             // latest earlier write of its entity is a batch, waits for that one write (see the class, "One
             // way to wait for another write").
+            // Why the write found has nothing behind it, and no cycle forms: docs/design/write-path.md.
             if (write.Members is not null || last.Members is not null)
             {
                 WaitForWrite(write, last);
