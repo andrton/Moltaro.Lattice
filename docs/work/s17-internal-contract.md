@@ -186,8 +186,8 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    entry cannot serve. Proposed: the number of the member in its batch, 0 for a single write, kept in
    the four reserved bytes of `RootEntry` beside `State` and loaded with it as one 8-byte word inside
    the window of the stamp (no added load), folded into the high word of the revision; it travels in
-   the root envelope of a load and of a Write effect (wire format 5), and a child checks it as it checks
-   the last mutation. A single write keeps the revision it has. The alternative, an unseeded hash of type
+   the root envelope of a load and of a Write effect (wire format 5); a child stores the member it
+   receives and checks nothing about it (the planner, 22 November 2026). A single write keeps the revision it has. The alternative, an unseeded hash of type
    and key, adds a hash to every read and lets a caller make two members collide. The envelope grows by
    four bytes, which moves offsets in test helpers (`MarkedRoot`, `TransactionPayload`): edits that state
    nothing new, in the commit of point 3. Held by `BatchRevisionTests`.
