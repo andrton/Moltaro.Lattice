@@ -2,12 +2,12 @@ using Moltaro.Lattice.Engine.Tests.Fixture;
 using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
-namespace Moltaro.Lattice.Engine.Tests.Engine.Batches;
+namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 
-// The bound of the reservation of a batch does not refuse a batch that fits (the brief of Epic 1, sprint S17,
-// point 5): with the default options, a batch of 10,000 users of the reference fixture, with the three text
-// indexes of its scalar form, ByLogin, ByEmail and ByRegionAndLogin, and the same batch with the Unique marks
-// of that form, is executed as one write at one position. The users are the first 10,000 the fixture
+// The bound of the reservation of a batch does not refuse a batch that fits (docs/design/ordered-index.md,
+// "The reservation"): with the default options, a batch of 10,000 users of the reference fixture, with the
+// three text indexes of its scalar form, ByLogin, ByEmail and ByRegionAndLogin, and the same batch with the
+// Unique marks of that form, is executed as one write at one position. The users are the first 10,000 the fixture
 // generates (GeneratedRecords), whose schema the database is opened with.
 public sealed class FixtureBatchTests
 {
