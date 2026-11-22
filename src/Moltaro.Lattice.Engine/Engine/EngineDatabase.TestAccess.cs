@@ -286,6 +286,19 @@ internal sealed partial class EngineDatabase
         Part(_parts).Coordinator.ArmFault(point, timesToLetThrough);
     }
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next publication that passes
+    // the place given runs the action, once, on the publishing thread and inside the lock of the writes, on
+    // a master for a write or a batch and on a child for a transaction it applies, so that a test reads
+    // while a publication stands between two of its steps. A test waits inside the action, with a bounded
+    // wait; an exception the action throws fails the publication there, as a fault point does, and the
+    // instance faults. The holding of a publication is not built yet: NotSupportedException.
+    public void ArmPublicationSwitch(PublicationPointEnum point, Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        throw new NotSupportedException($"Holding a publication at {point} is not implemented yet.");
+    }
+
     // For the tests of the engine (exception X3, docs/work/exceptions.md): the internal switch that holds
     // back a child's replication, so that a test can state what a child does while it has not applied what it
     // received. A Ready child holds back the application of every transaction it receives until the
