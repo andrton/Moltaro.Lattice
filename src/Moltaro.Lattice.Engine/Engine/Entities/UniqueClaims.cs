@@ -13,8 +13,10 @@ namespace Moltaro.Lattice.Engine.Entities;
 // applied to their new roots; and the root entries of the changes that replace or delete a stored entity,
 // sorted, each with its place. Made by the publisher on the first question (ChangePublisher.ClaimsOf),
 // under the lock of the writes, from the changes of the batch, which do not change until the batch is
-// published or given back; its record lets go of it then (Writes.PreparedWrite). Only the holder of the
-// lock of the writes uses it.
+// published or given back. Its record (Writes.PreparedWrite) lets go of it when the changes are given back
+// and the batch waits to be prepared again, when it is prepared again, and when the record serves the next
+// write; once the batch is published nothing asks it any more, and it goes with the record of the batch. Only
+// the holder of the lock of the writes uses it.
 internal sealed class UniqueClaims
 {
     private readonly ChangePublisher _publisher;

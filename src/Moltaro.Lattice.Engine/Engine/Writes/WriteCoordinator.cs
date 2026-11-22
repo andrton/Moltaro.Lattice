@@ -201,7 +201,12 @@ namespace Moltaro.Lattice.Engine.Writes;
 // returns its result as a value. A write that waits keeps a record of its own, allocated then, with the
 // value source of its task, and the collector takes it once its task completed; a token that can be
 // cancelled adds its registration. A persistence step that does not complete at once adds the task of its
-// completion.
+// completion. A write batch adds, for its call, the array of its members (BatchMember[]) and the set of its
+// entities (Entities.PublicationKeys), outside the lock; for its preparation, once for the batch and used
+// again by each try, the array of its changes (PreparedWrite.BatchChanges); and, only when a later write
+// asks it while it is prepared, its sorted claims (Entities.UniqueClaims). Its record lets go of the changes
+// and the claims when it serves the next write (PendingWrite.ResetAfterItsCall), and so does the
+// collector with the record of a batch that waited.
 //
 // Children. A master publishes every write while children are connected or loading; no write is refused
 // or delayed because of a child. The capture of a child is registered in a hold of the lock of the
