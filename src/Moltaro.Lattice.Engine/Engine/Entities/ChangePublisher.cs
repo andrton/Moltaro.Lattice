@@ -126,7 +126,7 @@ internal sealed class ChangePublisher
 
         taken = default;
 
-        var tables = changes.Length == 1 ? new ReadOnlySpan<EntityTable>(in changes[0].Table) : TablesOf(changes);
+        var tables = TablesOf(changes);
         var reservedTables = 0;
         var reservedIndexes = 0;
         var reservedEntities = 0;
@@ -334,6 +334,11 @@ internal sealed class ChangePublisher
     // publisher; one change gives its own without a scan.
     private ReadOnlySpan<EntityTable> TablesOf(ReadOnlySpan<PreparedChange> changes)
     {
+        if (changes.Length == 1)
+        {
+            return new ReadOnlySpan<EntityTable>(in changes[0].Table);
+        }
+
         var count = 0;
 
         foreach (ref readonly var change in changes)
@@ -470,9 +475,9 @@ internal sealed class ChangePublisher
 
     // Under the lock of the writes, once every change of a write or of a transaction is prepared and has
     // what its publication uses (TryReserve): tops the standing reserve of each index the changes change up,
-    // as far as the arena gives; nothing fails. After the needs of all of them, so that a top-up never
-    // takes what a change needs. Inlined into the preparation of a write, as TryReserve is, so that a write
-    // of an entity type without an index makes no call for it (JIT listing at full optimization).
+    // once, as far as the arena gives; nothing fails. After the reservations of all of them, so that a top-up
+    // never takes what a change needs. Inlined into the preparation of a write, as TryReserve is, so that a
+    // write of an entity type without an index makes no call for it (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void TopUp(ReadOnlySpan<PreparedChange> changes)
     {
@@ -480,7 +485,9 @@ internal sealed class ChangePublisher
         {
             if (change.IndexChanges != 0)
             {
-                TopUpIndexes(change);
+                TopUpIndexes(changes);
+
+                return;
             }
         }
     }
@@ -499,16 +506,21 @@ internal sealed class ChangePublisher
         }
     }
 
-    // The top-up of the indexes the change changes (TopUp).
-    private void TopUpIndexes(in PreparedChange change)
+    // The top-up of each index the changes change, once for all of them (TopUp).
+    private void TopUpIndexes(ReadOnlySpan<PreparedChange> changes)
     {
-        var indexes = change.Table.Indexes;
-
-        for (var index = 0; index < indexes.Length; index++)
+        foreach (var table in TablesOf(changes))
         {
-            if (ChangeAt(change, index) != IndexChangeEnum.None)
+            var indexes = table.Indexes;
+
+            for (var index = 0; index < indexes.Length; index++)
             {
-                indexes[index].TopUp();
+                var (inserts, removes) = CountsOf(changes, table, index);
+
+                if ((inserts | removes) != 0)
+                {
+                    indexes[index].TopUp();
+                }
             }
         }
     }
@@ -534,7 +546,7 @@ internal sealed class ChangePublisher
     // in the primary index or the place in the retired list.
     public void Release(ReadOnlySpan<PreparedChange> changes)
     {
-        var tables = changes.Length == 1 ? new ReadOnlySpan<EntityTable>(in changes[0].Table) : TablesOf(changes);
+        var tables = TablesOf(changes);
 
         ReleaseIndexes(changes, tables, tables.Length, 0);
 
