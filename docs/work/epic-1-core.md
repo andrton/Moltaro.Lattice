@@ -1278,7 +1278,9 @@ Why this order:
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
 | S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S17 | Atomic write batch | Full | Not started |
+| S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
+| S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Not started |
+| S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
@@ -7894,6 +7896,58 @@ contract with its first step of implementation, for the planner to read.
    was; a peer of wire format 4 refused.
 
 ### Stage 5. The full type model and access
+
+**The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
+by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
+at the close of the last part): part 1 is point 1 of the brief with the reservation of
+point 5 and the check of a child's transaction on the state it leaves; part 2 is points 2
+to 4 with the revision of a member; part 3 is points 6 and 7. Each part is reviewed,
+broken and merged on its own; the Acceptance is not reworded, and part 1 closes no
+sentence of it whole. It was coordinated by the sixth coordinator of the epic.
+
+- The study read RocksDB, PostgreSQL, Garnet and Tarantool and adapted nothing. Step 1,
+  the tests of all three parts, ended at b9dce97, written by the implementer from the brief
+  and committed before any implementation.
+- Built: one span of changes decided first, a taken value found on the state the
+  publication leaves, each index reserving once for the summed counts; `NodePool`, a type
+  of its own whose reserved nodes are linked through their own payload, with a ledger that
+  keeps the lesser of the need and what the linear bound p(2h + 3) + 2q leaves; retired
+  places bounded by p(2h + 3) + q(h + 2 + log2 p), where the sketch of the study, q(h + 1)
+  + p, was found not to hold. `PreparedChange` is 96 bytes again. A child checks a
+  transaction on the state it leaves, so a valid exchange of unique values is applied.
+- A departure from "no change of behavior for a single write", found by the implementer
+  and judged safe by the reviewer: a remove now reserves 2 nodes where it reserved h + 1,
+  and a change of key at a height of 4 or more reserves the linear bound. It shows only
+  while a pool is below its standing reserve, at the boundary of memory, where a delete or
+  a key move that was refused may now be executed; it never runs short of a node.
+- The JIT listings, of a Release driver over the public API with `DOTNET_JitDisasm` and
+  tiered PGO off, on the workstation: `EntityTable.Step`, `TrySearch`, `TryFind` and the
+  publication of an insert and a delete are unchanged; `TryReserve` makes 6 calls where it
+  made 5, the call of `TryReserveWithIndexes` being no longer a jump, and a type without an
+  index makes the calls it made inside the preparation. `WriteCoordinator.TryPrepare` and
+  `TryPrepareTwice` grew because the JIT now inlines the cold decision on a taken value;
+  if a write line falls in the start of the machine, keeping it out of line is the first
+  candidate. The write figures are owed to the one start of S17, after part 2.
+- Three tests of step 1 had wrong premises against `ordered-index.md`, The reservation, by
+  which a withdrawal gives back the standing reserve as well, and one measured more than
+  the nodes of a reservation; they were changed on the coordinator's decision after review
+  round 1, each in a commit that gives the reason with the old and the new assertion
+  (d6cf4f2, cf01f8c, a1926bb). A test helper written in step 1, the relay, recorded a
+  frame only after passing it on, so a child that refused it first could hide it; it
+  records the frame first (805a12d), with no assertion changed.
+- Review: three rounds. Round 1 found 3 P2 (the premises), 3 P3 and 4 P4; round 2 found 1
+  P3 (expected figures taken from the members they check) and 2 P4; round 3 found 1 P4.
+  The hardest part to follow, by the reviewer: `NodePool.Targets`, which computed the
+  targets and moved the base of the ledger at once; the two are apart now.
+- The breaker: 43 probes, five full runs, nothing failed: the ledger never short of a node
+  through splits of the root and growth of the height, the pool back at its base after a
+  refusal and a withdrawal, a refusal for memory that leaves every counter as it was, a
+  child's exchange, rotation and freed value applied whole and a violation in the last of
+  300 effects with nothing applied. Not reached: a refusal while other writes wait, the
+  pool after a fault.
+- Every suite at the head: 3,128 tests, 2,938 passing, 190 skipped, Debug and Release.
+- The effort trial: the implementer ran at Opus 5.5 xhigh, a critical sprint; step 1 took
+  about 57 minutes, part 1 about 50, and the fixes of the three rounds about 37.
 
 #### S18 · Owned values, Lists and references
 
