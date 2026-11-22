@@ -7353,14 +7353,18 @@ touches anyway.
 - **Contract.** Exists.
 - **To read.** [Unique indexes](../decisions/unique-indexes.md); evidence:
   [unique-index extension](../../src/Prototypes/OperationRetry/README.md#unique-index-extension).
-- **Acceptance.** Every test of `UniqueIndexTests` passes with its assertions unchanged
-  and the sample runs to the end. In addition: of many concurrent writers of one value
+- **Acceptance.** Every test of `UniqueIndexTests` passes with its assertions unchanged,
+  except the two that commit a write batch (`Batch_is_checked_against_the_state_it_leaves`,
+  `Batch_that_would_break_a_unique_index_is_refused_as_a_whole`), which stay skipped with
+  the shared reason of the batch until S17; the sample runs up to its swap through a write
+  batch and reports where it stops. In addition: of many concurrent writers of one value
   exactly one succeeds; a key with any null component is exempt and is still found by
   search; equality follows the comparison of every component; a replace that keeps its
   own key does not conflict with itself; a refused write changes nothing and names the
   index; a write through a child is refused by the master. A child that would have to
-  apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes while it builds them, before it
-  is ready; a violation found there stops the load in the same way.
+  apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes once they are built, at the
+  position it becomes ready at and before it is ready; a violation found there stops the
+  load in the same way.
 - **Measured.** Reported: write time for the fixture's users with and without their
   unique index. The replace that keeps every indexed key, index-writes with 0, 1, 3 and 6
   indexes, measured again after the stored fields of an index are resolved once when its
@@ -7379,6 +7383,16 @@ Two things the sprint carries beside its own work. The start of the machine has 
 `BindingSearch.ExpectRefusedAsync` and `IndexPartTypeTests.ExpectRefused`, that holds the
 exception to be an `ArgumentException` itself and not a type derived from it: every such
 refusal is one today.
+
+**Changed by the owner on 22 November 2026, in the coordinator's session** ("да,
+подтверждаю": yes, I confirm), two sentences of the Acceptance above. The two tests of
+`UniqueIndexTests` that commit a write batch, and the swap of the sample, need the commit of
+a batch, which is S17's; the Acceptance of S17 names them. And a child checks its unique
+indexes at the position it becomes ready at, not while it builds them: the capture is not a
+snapshot, copied roots may reflect different published positions
+([replication and hosting](../decisions/replication-and-hosting.md)), so two roots may hold
+one value for a while during the load and the catch-up, and a check at each step would
+refuse a valid load.
 
 #### S17 · Atomic write batch
 
@@ -7406,7 +7420,9 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
   [arena protocol, write batch extension](../design/arena-protocol.md#bounded-writebatch-extension);
   evidence: [write batch and recovery](../design/prototype-evidence.md#bounded-writebatch-postgresql-and-application-recovery).
 - **Acceptance.** Every test of `WriteBatchTests` passes with its assertions unchanged
-  and the sample runs to the end. In addition: a reader running during publication sees
+  and the sample runs to the end. The two tests of `UniqueIndexTests` that commit a write
+  batch pass with their assertions unchanged, and the sample of unique indexes runs to the
+  end. In addition: a reader running during publication sees
   all of a batch or none of it, on the master and on a child, by key and by index. All
   identities of a batch are claimed together; two batches with overlapping entities do
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value
