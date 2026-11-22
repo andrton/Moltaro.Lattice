@@ -8,8 +8,8 @@ namespace Moltaro.Lattice.TestSupport.Replication;
 // sufficient buffer space or a queue was full", which alone does not say what was short. The helpers that
 // open a listening master, a child or a relay rethrow such a failure with the error of the socket and the
 // state of the system in its message (Describe, Diagnostics.SystemState) and the original as its inner
-// exception, so that the output kept of a failed run explains it. For diagnosis only: nothing is retried, and the code
-// of the failure stays what the engine reported.
+// exception, so that the output kept of a failed run explains it. For diagnosis only: nothing is
+// retried, and the code of the failure stays what the engine reported.
 internal static class ListenFailure
 {
     // Awaits the open of a master that listens, or of a child that connects to its master. An open that
