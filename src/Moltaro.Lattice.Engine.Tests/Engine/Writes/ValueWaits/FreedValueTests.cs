@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Access;
+using static Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits.HeldMaster;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
@@ -158,7 +159,4 @@ public sealed class FreedValueTests
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
-
-    private static Task<EngineDatabase> OpenAsync(HeldPersistence storage) =>
-        EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage });
 }

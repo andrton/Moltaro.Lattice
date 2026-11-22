@@ -25,7 +25,7 @@ public sealed class OwnerAtLeafBoundaryOfTextTests
             await accounts.InsertAsync(UniqueSchema.Of(id, LoginOf(id)));
         }
 
-        var (leaves, separators) = TreeOf(database);
+        var (leaves, separators, _) = IndexTree<string>.Of(database, "Account", "ByLogin");
 
         Assert.True(leaves.Count >= 3 && separators.Count >= 2, $"The premise: a tree of several leaves; it has {leaves.Count}.");
 
@@ -48,7 +48,7 @@ public sealed class OwnerAtLeafBoundaryOfTextTests
         Assert.Contains(freed, separators);
         await accounts.DeleteAsync(IdOf(freed));
         database.DrainRetired();
-        Assert.Contains(freed, TreeOf(database).Separators);
+        Assert.Contains(freed, IndexTree<string>.Of(database, "Account", "ByLogin").Separators);
 
         await accounts.InsertAsync(UniqueSchema.Of(next, freed));
         await ExpectTakenAsync(accounts, next + 1, freed);
@@ -73,18 +73,5 @@ public sealed class OwnerAtLeafBoundaryOfTextTests
         }
 
         Assert.Null(accounts.Get(id));
-    }
-
-    // The logins of each leaf of ByLogin in the order of the index, and the logins of the separators of every
-    // inner node.
-    private static (List<List<string>> Leaves, List<string> Separators) TreeOf(EngineDatabase database)
-    {
-        Assert.True(database.Schema.TryGetEntityType("Account", out var type));
-
-        var nodes = database.IndexNodes(type, "ByLogin");
-        var leaves = nodes.Where(node => node.Level == 0).Select(node => node.Items.Select(item => (string)item.Key[0]!).ToList()).ToList();
-        var separators = nodes.Where(node => node.Level > 0).SelectMany(node => node.Items.Select(item => (string)item.Key[0]!)).ToList();
-
-        return (leaves, separators);
     }
 }

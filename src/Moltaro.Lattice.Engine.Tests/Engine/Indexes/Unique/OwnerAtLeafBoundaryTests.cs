@@ -21,7 +21,7 @@ public sealed class OwnerAtLeafBoundaryTests
     {
         await using var database = await OpenAsync();
         var numbered = database.Set<UniqueSchema.Numbered>();
-        var tree = Tree.Of(database);
+        var tree = IndexTree<long>.Of(database, "Numbered", "ByNumber");
 
         Assert.True(tree.Height >= 3, $"The premise: a tree of three levels or more; it has {tree.Height}.");
 
@@ -39,8 +39,8 @@ public sealed class OwnerAtLeafBoundaryTests
         }
 
         // A refused write changes no node, so every boundary above was the boundary of the tree as it is.
-        Assert.Equal(tree.Leaves, Tree.Of(database).Leaves);
-        Assert.Equal(tree.Separators, Tree.Of(database).Separators);
+        Assert.Equal(tree.Leaves, IndexTree<long>.Of(database, "Numbered", "ByNumber").Leaves);
+        Assert.Equal(tree.Separators, IndexTree<long>.Of(database, "Numbered", "ByNumber").Separators);
 
         // A value between the last entry of a leaf and the first of the next is free.
         var between = tree.Leaves[0][^1] + 5;
@@ -55,7 +55,7 @@ public sealed class OwnerAtLeafBoundaryTests
     {
         await using var database = await OpenAsync();
         var numbered = database.Set<UniqueSchema.Numbered>();
-        var tree = Tree.Of(database);
+        var tree = IndexTree<long>.Of(database, "Numbered", "ByNumber");
         var separator = tree.Separators[0];
         var last = tree.Leaves[0][^1];
 
@@ -64,7 +64,7 @@ public sealed class OwnerAtLeafBoundaryTests
         await numbered.DeleteAsync(separator / 10);
         await numbered.DeleteAsync(last / 10);
 
-        var after = Tree.Of(database);
+        var after = IndexTree<long>.Of(database, "Numbered", "ByNumber");
 
         Assert.Contains(separator, after.Separators);
         Assert.Equal(tree.Leaves.Count, after.Leaves.Count);
@@ -107,21 +107,5 @@ public sealed class OwnerAtLeafBoundaryTests
         }
 
         Assert.Null(numbered.Get(id));
-    }
-
-    // The tree of ByNumber as the engine holds it: the numbers of each leaf in the order of the index, the
-    // numbers of the separators of every inner node, and its height.
-    private sealed record Tree(List<List<long>> Leaves, List<long> Separators, int Height)
-    {
-        public static Tree Of(EngineDatabase database)
-        {
-            Assert.True(database.Schema.TryGetEntityType("Numbered", out var type));
-
-            var nodes = database.IndexNodes(type, "ByNumber");
-            var leaves = nodes.Where(node => node.Level == 0).Select(node => node.Items.Select(item => (long)item.Key[0]!).ToList()).ToList();
-            var separators = nodes.Where(node => node.Level > 0).SelectMany(node => node.Items.Select(item => (long)item.Key[0]!)).ToList();
-
-            return new Tree(leaves, separators, nodes.Max(node => node.Level) + 1);
-        }
     }
 }

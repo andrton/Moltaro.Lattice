@@ -30,7 +30,7 @@ public sealed class ValidationAcrossLeavesTests
             await accounts.InsertAsync(UniqueSchema.Of(id, LoginOf(id)));
         }
 
-        var leaves = LeavesOf(master);
+        var leaves = IndexTree<string>.Of(master, "Account", "ByLogin").Leaves;
         var boundary = leaves.Count / 2;
         var last = leaves[boundary - 1][^1];
         var first = leaves[boundary][0];
@@ -39,7 +39,7 @@ public sealed class ValidationAcrossLeavesTests
 
         await using (var faithful = await ReplicationNodes.OpenChildAsync(master.ListenUri!))
         {
-            Assert.Equal(leaves, LeavesOf(faithful));
+            Assert.Equal(leaves, IndexTree<string>.Of(faithful, "Account", "ByLogin").Leaves);
         }
 
         var patched = 0;
@@ -67,12 +67,4 @@ public sealed class ValidationAcrossLeavesTests
 
     // The login of an account: of one length for every id, so that no login is a part of another.
     private static string LoginOf(long id) => $"u{id:D5}";
-
-    // The logins of each leaf of ByLogin in the order of the index.
-    private static List<List<string>> LeavesOf(EngineDatabase database)
-    {
-        Assert.True(database.Schema.TryGetEntityType("Account", out var type));
-
-        return [.. database.IndexNodes(type, "ByLogin").Where(node => node.Level == 0).Select(node => node.Items.Select(item => (string)item.Key[0]!).ToList())];
-    }
 }

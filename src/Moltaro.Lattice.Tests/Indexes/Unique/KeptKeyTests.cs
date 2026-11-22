@@ -13,9 +13,9 @@ public sealed class KeptKeyTests
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "ada", "Ada"));
-        await profiles.ReplaceAsync(Profile(profiles, 1, "ada", "Ada"));
-        await profiles.UpsertAsync(Profile(profiles, 1, "ada", "Ada"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
+        await profiles.UpsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
 
         Assert.Equal([1L], UniqueSchemas.IdsOf(profiles.Index("ByLogin").Find(IndexKey.Equal("ada"))));
         Assert.Equal([1L], UniqueSchemas.IdsOf(profiles.Index("ByNick").Find(IndexKey.Equal("ada"))));
@@ -27,15 +27,15 @@ public sealed class KeptKeyTests
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "ada", "Ada"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
 
         // Another note, and the nick in another case: the same key of ByNick in other bytes.
-        await profiles.ReplaceAsync(Profile(profiles, 1, "ada", "ADA", note: "countess"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "ada", "ADA", note: "countess"));
 
         Assert.Equal("countess", profiles.Get(1L)!["Note"]);
         Assert.Equal("ADA", profiles.Get(1L)!["Nick"]);
-        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(Profile(profiles, 2, "grace", "ada")));
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(Profile(profiles, 2, "ada", "grace")));
+        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "grace", "ada")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "ada", "grace")));
     }
 
     [Fact]
@@ -44,20 +44,17 @@ public sealed class KeptKeyTests
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "ada", "Ada"));
-        await profiles.ReplaceAsync(Profile(profiles, 1, "countess", "Ada"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "countess", "Ada"));
 
         // The login ada is free: another entity takes it and gives it up.
-        await profiles.InsertAsync(Profile(profiles, 2, "ada", "Grace"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "ada", "Grace"));
         await profiles.DeleteAsync(2L);
 
-        await profiles.ReplaceAsync(Profile(profiles, 1, "ada", "Ada"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
 
         Assert.Equal([1L], UniqueSchemas.IdsOf(profiles.Index("ByLogin").Find(IndexKey.Equal("ada"))));
         Assert.Empty(profiles.Index("ByLogin").Find(IndexKey.Equal("countess")));
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(Profile(profiles, 3, "ada", "Alan")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "ada", "Alan")));
     }
-
-    private static LatticeRecord Profile(ILatticeSet profiles, long id, string login, string nick, string? note = null) =>
-        UniqueSchemas.RecordOf(profiles, id, ("Login", login), ("Nick", nick), ("Note", note));
 }

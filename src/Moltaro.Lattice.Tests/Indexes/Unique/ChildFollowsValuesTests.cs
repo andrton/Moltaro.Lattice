@@ -60,15 +60,15 @@ public sealed class ChildFollowsValuesTests
         var profiles = master.Set("Profile");
         var copies = child.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "one", "Ada"));
-        await profiles.ReplaceAsync(Profile(profiles, 1, "one", "ADA"));
-        await profiles.ReplaceAsync(Profile(profiles, 1, "one", "Bob"));
-        await profiles.InsertAsync(Profile(profiles, 2, "two", "ada"));
-        await profiles.ReplaceAsync(Profile(profiles, 1, "two-later", "bOB"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "one", "Ada"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "one", "ADA"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "one", "Bob"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "two", "ada"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 1, "two-later", "bOB"));
         await profiles.DeleteAsync(2L);
-        await profiles.InsertAsync(Profile(profiles, 3, "two", "aDa"));
-        await profiles.ReplaceAsync(Profile(profiles, 3, "three", "aDa"));
-        await profiles.InsertAsync(Profile(profiles, 2, "two", "Cy"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "two", "aDa"));
+        await profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 3, "three", "aDa"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "two", "Cy"));
 
         await child.WaitForPositionAsync(master.Position, Bound);
 
@@ -86,7 +86,4 @@ public sealed class ChildFollowsValuesTests
         await child.WaitForPositionAsync(master.Position, Bound);
         Assert.Null(copies.Get(3L));
     }
-
-    private static LatticeRecord Profile(ILatticeSet set, long id, string login, string nick) =>
-        UniqueSchemas.RecordOf(set, id, ("Login", login), ("Nick", nick));
 }

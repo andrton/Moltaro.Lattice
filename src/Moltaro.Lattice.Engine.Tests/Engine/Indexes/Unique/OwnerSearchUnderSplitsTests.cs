@@ -30,7 +30,7 @@ public sealed class OwnerSearchUnderSplitsTests
             await numbered.InsertAsync(new UniqueSchema.Numbered { Id = id, Number = 10 * id });
         }
 
-        var before = LeavesOf(database);
+        var before = IndexTree<long>.Of(database, "Numbered", "ByNumber").Leaves;
         var held = new List<long>();
 
         for (var leaf = 0; leaf + 1 < before.Count; leaf++)
@@ -70,7 +70,7 @@ public sealed class OwnerSearchUnderSplitsTests
                     }
                 }
 
-                var split = LeavesOf(database).Count;
+                var split = IndexTree<long>.Of(database, "Numbered", "ByNumber").Leaves.Count;
 
                 Assert.True(split > before.Count, $"The premise: the inserts split leaves; the index has {split} leaves, as before.");
                 await ExpectEveryValueTakenAsync(numbered, held, refused);
@@ -88,7 +88,7 @@ public sealed class OwnerSearchUnderSplitsTests
                     Assert.True((await numbered.DeleteAsync(id)).Changed);
                 }
 
-                Assert.True(LeavesOf(database).Count < before.Count, "The premise: the deletes merged leaves.");
+                Assert.True(IndexTree<long>.Of(database, "Numbered", "ByNumber").Leaves.Count < before.Count, "The premise: the deletes merged leaves.");
                 await ExpectEveryValueTakenAsync(numbered, held, refused);
                 refused += held.Count;
 
@@ -118,13 +118,5 @@ public sealed class OwnerSearchUnderSplitsTests
         }
 
         Assert.Equal(10, numbered.Get(1L)!.Number);
-    }
-
-    // The numbers of each leaf of ByNumber in the order of the index.
-    private static List<List<long>> LeavesOf(EngineDatabase database)
-    {
-        Assert.True(database.Schema.TryGetEntityType("Numbered", out var type));
-
-        return [.. database.IndexNodes(type, "ByNumber").Where(node => node.Level == 0).Select(node => node.Items.Select(item => (long)item.Key[0]!).ToList())];
     }
 }

@@ -1,5 +1,4 @@
 using Moltaro.Lattice.Access;
-using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Unique;
 
@@ -23,14 +22,12 @@ internal static class ValueAtTheEndOfALeaf
             await set.InsertAsync(Of(set, id, 10 * id));
         }
 
-        Assert.True(database.Schema.TryGetEntityType(entityType, out var type));
-
-        var value = LeavesOf(database, type)[1][0];
+        var value = IndexTree<long>.Of(database, entityType, "ByNumber").Leaves[1][0];
 
         await set.DeleteAsync(value / 10);
         await set.ReplaceAsync(Of(set, 1, value));
 
-        var after = LeavesOf(database, type);
+        var after = IndexTree<long>.Of(database, entityType, "ByNumber").Leaves;
 
         Assert.Contains(after, leaf => leaf[^1] == value);
         Assert.DoesNotContain(after, leaf => leaf[0] == value);
@@ -40,8 +37,4 @@ internal static class ValueAtTheEndOfALeaf
 
     // A record of the entity type of the set with its Id and Number.
     public static LatticeRecord Of(ILatticeSet set, long id, long number) => new(set.EntityType) { ["Id"] = id, ["Number"] = number };
-
-    // The values of Number in each leaf of ByNumber, in the order of a walk.
-    private static List<List<long>> LeavesOf(EngineDatabase database, LatticeEntityType type) =>
-        [.. database.IndexNodes(type, "ByNumber").Where(node => node.Level == 0).Select(node => node.Items.Select(item => (long)item.Key[0]!).ToList())];
 }

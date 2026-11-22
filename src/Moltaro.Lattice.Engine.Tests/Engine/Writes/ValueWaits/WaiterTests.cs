@@ -2,6 +2,7 @@ using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Tests.Engine.MemoryBudget;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.TestSupport.Positions;
+using static Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits.HeldMaster;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
@@ -21,8 +22,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
 // UniqueSchema; every wait is bounded.
 public sealed class WaiterTests
 {
-    private const int Mebibyte = 1024 * 1024;
-
     [Fact]
     public async Task Waiter_cancelled_while_it_waits_ends_cancelled_at_once_and_leaves_nothing()
     {
@@ -216,7 +215,4 @@ public sealed class WaiterTests
             await database.CloseAsync().AsTask().WaitAsync(Bound);
         }
     }
-
-    private static Task<EngineDatabase> OpenAsync(HeldPersistence storage) =>
-        EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = storage });
 }
