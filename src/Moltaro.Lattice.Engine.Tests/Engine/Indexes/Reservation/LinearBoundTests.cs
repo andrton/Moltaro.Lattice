@@ -9,9 +9,9 @@ using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
 // The reservation of an index for the changes prepared and not published, a write batch among them, is
-// bounded linearly in their inserts and removes (the brief of Epic 1, sprint S17, point 5; the study of the
-// sprint, its bound and the idea of its proof): from a tree of height h at a moment when nothing waited on
-// it, p inserts and q removes, published in any order, take at most
+// bounded linearly in their inserts and removes (docs/design/ordered-index.md, "The reservation"): from a
+// tree of height h at a moment when nothing waited on it, p inserts and q removes, published in any order,
+// take at most
 //
 //   p (2 h + 3) + 2 q
 //
@@ -36,9 +36,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // builds a tree of the size it gives, change by change, and from there publishes its changes one at a time,
 // checking both bounds after each.
 //
-// A reservation withdrawn gives back exactly what it took, the standing reserve kept (the brief of S17,
-// point 5), and a reservation, made or refused, takes no managed room for its nodes, which are linked
-// through their own payload (entry F3 of docs/work/refactoring.md).
+// A reservation withdrawn gives back exactly what it took, the standing reserve kept, and a reservation,
+// made or refused, takes no managed room for its nodes, which are linked through their own payload.
 public sealed class LinearBoundTests
 {
     // The pattern of the keys and of the removes, the seed, the entries of the tree built first, the inserts
