@@ -9,17 +9,21 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
 // Many writers of one value of a unique index at the same time, while the persistence step completes every
 // group on another thread, so that writes are prepared beside unpublished ones, wait for the holder of the
 // value and are withdrawn by their tokens while they wait (decision on unique indexes; exception X6):
-// - of the inserts and the replaces that move a key onto the value, of which at least one is never
-//   cancelled, exactly one succeeds: never two, and never none; every other is refused with the name of
-//   the index or ends cancelled;
+// - of the inserts and the replaces that move a key onto the value, of which two are never cancelled,
+//   exactly one succeeds: never two, and never none; every other is refused with the name of the index or
+//   ends cancelled;
 // - when the owner gives the value up meanwhile, at most one writer takes it, and the value has an owner
 //   exactly when one did;
 // - readers that search the value meanwhile never find two roots that hold it;
 // - every write ends, and the database is left with nothing admitted and a root entry for each entity;
 // - chains of writes of several entities that move their keys onto the value and back, some cancelled,
 //   keep the order of their calls, and at most one entity is left holding the value.
-// The persistence step of the test (YieldingPersistence) completes each group on a thread of the pool.
-// Account of UniqueSchema; the rounds are bounded, and every wait is bounded.
+// The persistence step of the test (YieldingPersistence) completes each group on a thread of the pool. While
+// the writers of a new value make their calls it holds the group of the first of them, and lets it go only
+// once every call has returned: so the writes that are never cancelled are by then admitted and waiting,
+// all but one for the holder of the value, which the round states as its premise, and the writes that are
+// cancelled are withdrawn while they wait. Account of UniqueSchema; the rounds are bounded, and every wait is
+// bounded.
 public sealed class BusyPersistenceWritersTests
 {
     private const int Writers = 12;
@@ -31,12 +35,12 @@ public sealed class BusyPersistenceWritersTests
     [Fact]
     public async Task Of_many_writers_of_one_value_withdrawn_at_random_exactly_one_succeeds_and_no_reader_finds_two_owners()
     {
-        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = new YieldingPersistence() });
+        var persistence = new YieldingPersistence();
+        var database = await EngineMaster.OpenAsync(UniqueSchema.Schema, new EngineTestInputs { Persistence = persistence });
         var accounts = database.Set<UniqueSchema.Account>();
         var random = new Random(16);
         var value = "";
         var twice = 0;
-        var mostAdmitted = 0;
 
         try
         {
@@ -46,16 +50,9 @@ public sealed class BusyPersistenceWritersTests
                 await accounts.InsertAsync(UniqueSchema.Of(id, $"own-{id}"));
             }
 
-            await ReadersAndWriter.RunAsync(Readers, reader => () =>
+            await ReadersAndWriter.RunAsync(Readers, _ => () =>
             {
                 var login = Volatile.Read(ref value);
-
-                // The first reader also counts the writes admitted at once: with groups of one write, more
-                // than one admitted means writes waited for the holder of the value.
-                if (reader == 0)
-                {
-                    mostAdmitted = Math.Max(mostAdmitted, database.Counters.QueuedWrites);
-                }
 
                 if (login.Length > 0 && accounts.Index("ByLogin").Find(IndexKey.Equal(login)).Take(2).Count() > 1)
                 {
@@ -66,13 +63,12 @@ public sealed class BusyPersistenceWritersTests
                 for (var round = 0; round < Rounds; round++)
                 {
                     Volatile.Write(ref value, $"taken-{round}");
-                    await RoundAsync(database, accounts, random, round);
+                    await RoundAsync(database, persistence, accounts, random, round);
                 }
             });
 
             Assert.Equal(0, Volatile.Read(ref twice));
             Assert.Equal(0, database.Counters.QueuedWrites);
-            Assert.True(mostAdmitted > 2, $"The premise: writes waited for the holder of the value; at most {mostAdmitted} were admitted at once.");
 
             database.DrainRetired();
             Assert.Equal(accounts.Enumerate().Count(), database.Counters.RootEntries);
@@ -185,12 +181,30 @@ public sealed class BusyPersistenceWritersTests
 
     // One round: the writers of a new value, some cancelled at random while they wait, exactly one succeeds;
     // then its owner gives it up while other writers want it, and at most one takes it.
-    private static async Task RoundAsync(EngineDatabase database, ILatticeSet<UniqueSchema.Account> accounts, Random random, int round)
+    private static async Task RoundAsync(EngineDatabase database, YieldingPersistence persistence, ILatticeSet<UniqueSchema.Account> accounts, Random random, int round)
     {
         var value = $"taken-{round}";
         var keeper = random.Next(Writers);
-        var writers = Enumerable.Range(0, Writers).Select(writer => WriterOf(accounts, value, 1000 + (100 * round), writer, cancels: writer != keeper && random.Next(3) == 0)).ToList();
-        var succeeded = (await WriteAllAsync(writers)).Where(write => write.Succeeded).Select(write => write.Id).ToList();
+        var writers = Enumerable.Range(0, Writers).Select(writer => WriterOf(accounts, value, 1000 + (100 * round), writer, cancels: !IsKept(writer, keeper) && random.Next(3) == 0)).ToList();
+        List<(long Id, bool Succeeded)> results;
+
+        // The group of the first writer is held until every writer has made its call (see the class).
+        persistence.Hold();
+
+        try
+        {
+            results = await WriteAllAsync(writers, writes =>
+            {
+                ExpectWaiting(database, [.. writes.Where((_, index) => !writers[index].Cancels)]);
+                persistence.Release();
+            });
+        }
+        finally
+        {
+            persistence.Release();
+        }
+
+        var succeeded = results.Where(write => write.Succeeded).Select(write => write.Id).ToList();
         var owner = Assert.Single(succeeded);
 
         Assert.Equal([owner], UniqueSchema.OwnersOf(accounts, value));
@@ -213,6 +227,24 @@ public sealed class BusyPersistenceWritersTests
         Assert.Equal(0, database.Counters.QueuedWrites);
     }
 
+    // Whether the writer is one of the two of a round that are never cancelled: the keeper given and the
+    // writer after it.
+    private static bool IsKept(int writer, int keeper) => writer == keeper || writer == (keeper + 1) % Writers;
+
+    // The premise of a round, once every writer has made its call while the persistence step holds the group
+    // of the first: no write that is never cancelled has completed, since none can be published and no owner
+    // of the new value is, so every one of them is admitted; at most one of them holds the value, and the
+    // others wait for it.
+    private static void ExpectWaiting(EngineDatabase database, List<Task<LatticeWriteResult>> kept)
+    {
+        Assert.True(kept.Count >= 2, $"The premise: two writers are never cancelled; {kept.Count} are.");
+        Assert.DoesNotContain(kept, write => write.IsCompleted);
+
+        var admitted = database.Counters.QueuedWrites;
+
+        Assert.True(admitted >= kept.Count, $"The premise: the {kept.Count} writes that are never cancelled are admitted at once; {admitted} writes are.");
+    }
+
     // The writer of the value: an insert of a new entity, from the first id given, for an even writer; a
     // replace of entity writer + 1 onto the value for an odd one.
     private static Writer WriterOf(ILatticeSet<UniqueSchema.Account> accounts, string value, long first, int writer, bool cancels)
@@ -229,11 +261,15 @@ public sealed class BusyPersistenceWritersTests
 
     // Runs every write on a thread of the pool at once, cancels the token of each write that cancels just
     // after it began, and returns each with the id of its entity and whether it succeeded; a write that did
-    // not succeed was refused with the name of the index or ended cancelled.
-    private static async Task<List<(long Id, bool Succeeded)>> WriteAllAsync(List<Writer> writers)
+    // not succeed was refused with the name of the index or ended cancelled. Once every call has returned it
+    // runs whenCalled, if given, with the task of each write, in the order of the writers.
+    private static async Task<List<(long Id, bool Succeeded)>> WriteAllAsync(List<Writer> writers, Action<Task<LatticeWriteResult>[]>? whenCalled = null)
     {
         using var start = new ManualResetEventSlim();
         var cancellations = writers.Select(_ => new CancellationTokenSource()).ToList();
+        var writes = new Task<LatticeWriteResult>[writers.Count];
+        var calling = writers.Count;
+        var called = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var results = new List<(long Id, bool Succeeded)>();
 
         try
@@ -243,6 +279,13 @@ public sealed class BusyPersistenceWritersTests
                 start.Wait(Bound);
 
                 var write = writer.Write(cancellations[index].Token);
+
+                writes[index] = write;
+
+                if (Interlocked.Decrement(ref calling) == 0)
+                {
+                    called.TrySetResult();
+                }
 
                 if (writer.Cancels)
                 {
@@ -254,6 +297,12 @@ public sealed class BusyPersistenceWritersTests
             })).ToList();
 
             start.Set();
+
+            if (whenCalled is not null)
+            {
+                await called.Task.WaitAsync(Bound);
+                whenCalled(writes);
+            }
 
             for (var index = 0; index < running.Count; index++)
             {
@@ -285,20 +334,64 @@ public sealed class BusyPersistenceWritersTests
     private sealed record Writer(long Id, Func<CancellationToken, Task<LatticeWriteResult>> Write, bool Cancels);
 
     // A persistence step that completes every group on a thread of the pool, after its call has returned, as
-    // a durable one does: the call only takes the group and assigns its positions as MemoryOnly does.
+    // a durable one does: the call only takes the group and assigns its positions as MemoryOnly does. While a
+    // test holds it, a group completes only once the test releases it, on a thread of the pool as well, never
+    // on the thread that releases it. _next is written only in the call, which the engine makes under the
+    // lock of the writes; the lock of this class guards the gate, which the test sets from its own thread.
     private sealed class YieldingPersistence : IPersistence
     {
+        private readonly Lock _lock = new();
+
         private ulong _next = 1;
+
+        // Completed when the test releases a hold; null while the persistence does not hold.
+        private TaskCompletionSource? _gate;
 
         public async ValueTask<CommitOutcome> CommitAsync(CommitGroup group, CancellationToken cancellationToken)
         {
             var outcome = new CommitOutcome(_next);
+            Task? gate;
 
             _next += (ulong)group.Writes.Count;
 
-            await Task.Yield();
+            lock (_lock)
+            {
+                gate = _gate?.Task;
+            }
+
+            if (gate is null)
+            {
+                await Task.Yield();
+            }
+            else
+            {
+                await gate.ConfigureAwait(false);
+            }
 
             return outcome;
+        }
+
+        // From now on every group waits until Release.
+        public void Hold()
+        {
+            lock (_lock)
+            {
+                _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+        }
+
+        // Lets every group held go on, and from now on no group waits; nothing when nothing is held.
+        public void Release()
+        {
+            TaskCompletionSource? gate;
+
+            lock (_lock)
+            {
+                gate = _gate;
+                _gate = null;
+            }
+
+            gate?.TrySetResult();
         }
     }
 }
