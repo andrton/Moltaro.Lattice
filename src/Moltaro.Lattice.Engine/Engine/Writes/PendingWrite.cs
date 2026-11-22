@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Entities;
@@ -15,10 +16,13 @@ namespace Moltaro.Lattice.Engine.Writes;
 // task was never given out, serves the next write (WriteCoordinator, "What a write allocates"):
 // ResetAfterItsCall clears what that write set, and Begin sets the inputs of the next. Every other
 // record is left to the collector once its write has its outcome, since its task, its registration or
-// another thread may still read it. It owns its PreparedWrite, which serves each write it holds in the
-// same way (Record; PreparedWrite.WriteChange and Set).
+// another thread may still read it; it lets go of the inputs of its write before it gives the outcome
+// (LetGoOfInputs), because the caller may keep its task long after. It owns its PreparedWrite, which
+// serves each write it holds in the same way (Record; PreparedWrite.WriteChange and Set).
 //
-// Who touches what. The inputs are set by Begin and not changed until the write has its outcome.
+// Who touches what. The inputs are set by Begin and not changed until the write has its outcome; then
+// the thread that gives the outcome lets go of them and of the prepared state, after the lock, when
+// nothing reads them any more (LetGoOfInputs).
 // Every other field is written and read under the lock of the writes, except Outcome and Failure,
 // which the thread that decides the outcome writes under the lock and reads after it, and the
 // completion, which is set once for each write, outside every lock; its continuations run on the
@@ -217,25 +221,43 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         return record;
     }
 
-    // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
-    // go of the inputs and of the change of its prepared state, which names the table and the key, so that
-    // the record keeps nothing of the caller alive, and clears its state, its prepared state, its outcome
-    // and the hash of its key; no list, chain, registration or task was ever given it, so its links are
-    // null and its value source was never read (WriteCoordinator, "What a write allocates").
-    public void ResetAfterItsCall()
+    // Once the write has its outcome decided: lets go of what the caller gave, its entity and its key, its
+    // values, its members and the set of their entities, and of its prepared state with the changes it
+    // names (PreparedWrite.LetGo), so that the record keeps nothing of the caller alive, whoever still
+    // holds it: the task of the call, the group that published the write, or the record kept for the next
+    // write. Nothing reads them after the outcome: the write is in no list or chain of the coordinator any
+    // more, the group that published it is not read again, and its end has started what waited for it
+    // (WriteCoordinator.MarkCompleted).
+    // What is read after it stays: the token, which the registration of a cancellation and a withdrawal
+    // may still read, the session and the origin of a forwarded write, which the outcome is given to, the
+    // registration and the outcome. Inlined, so that a write published in the hold of its call makes no
+    // call for it (ResetAfterItsCall): left out of line, it is a call of its own on every such write (JIT
+    // listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void LetGoOfInputs()
     {
         Table = null!;
         Key = default;
-        Token = default;
         Values = null;
         Members = null;
         Keys = null;
+        Prepared = null;
+        _record?.LetGo();
+    }
+
+    // Ends a write that was prepared and published in the hold of its call, for the next write: it lets
+    // go of its inputs (LetGoOfInputs), and clears the rest of what the write set, its token, its session,
+    // its origin, its state, its outcome and the hash of its key; no list, chain, registration or task was
+    // ever given it, so its links are null and its value source was never read (WriteCoordinator, "What a
+    // write allocates").
+    public void ResetAfterItsCall()
+    {
+        LetGoOfInputs();
+        Token = default;
         Forwarded = null;
         Session = null;
         ExpectedRevision = null;
         State = default;
-        Prepared = null;
-        _record?.LetGo();
         Failure = null;
         _hashed = false;
     }

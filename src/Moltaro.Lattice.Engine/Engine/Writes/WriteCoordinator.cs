@@ -199,14 +199,17 @@ namespace Moltaro.Lattice.Engine.Writes;
 // coordinator keeps for the next write (_spare), which only the holder of the lock takes and gives
 // back: no other thread and no registration ever saw it, so it serves again at once, and the call
 // returns its result as a value. A write that waits keeps a record of its own, allocated then, with the
-// value source of its task, and the collector takes it once its task completed; a token that can be
+// value source of its task, and the collector takes it once nothing holds its task; a token that can be
 // cancelled adds its registration. A persistence step that does not complete at once adds the task of its
-// completion. A write batch adds, for its call, the array of its members (BatchMember[]) and the set of its
-// entities (Entities.PublicationKeys), outside the lock; for its preparation, once for the batch and used
-// again by each try, the array of its changes (PreparedWrite.BatchChanges); and, only when a later write
-// asks it while it is prepared, its sorted claims (Entities.UniqueClaims). Its record lets go of the changes
-// and the claims when it serves the next write (PendingWrite.ResetAfterItsCall), and so does the
-// collector with the record of a batch that waited.
+// completion. A write batch adds, for its call, the array of its members (BatchMember[]), which holds the
+// roots encoded when they were added, and the set of its entities (Entities.PublicationKeys), outside the
+// lock; for its preparation, once for the batch and used again by each try, the array of its changes
+// (PreparedWrite.BatchChanges); and, only when a later write asks it while it is prepared, its sorted claims
+// (Entities.UniqueClaims). A record lets go of all of them, and of the values of a single write, at the
+// outcome of its write (PendingWrite.LetGoOfInputs): when it serves the next write (ResetAfterItsCall), when
+// a resolution on the thread of the call ends the write (Resolve), and before an outcome another thread
+// decided is given (GiveOutcome), since the caller may keep the task, whose source is the record, long
+// after. So the managed copy of a root lasts from its Add to the outcome of its batch.
 //
 // Children. A master publishes every write while children are connected or loading; no write is refused
 // or delayed because of a child. The capture of a child is registered in a hold of the lock of the
@@ -1362,6 +1365,14 @@ internal sealed class WriteCoordinator
             StartReadyAndCommit(ref hold);
         }
 
+        // The write of the call, ended in this hold, gives its outcome itself (Admit) and does not serve the
+        // next write, and when it was published its group keeps its record until the next group is formed:
+        // it lets go of its inputs here, as a write does whose outcome another thread gives (GiveOutcome).
+        if (hold.OwnEnded)
+        {
+            write.LetGoOfInputs();
+        }
+
         return hold;
     }
 
@@ -1768,10 +1779,13 @@ internal sealed class WriteCoordinator
     // which cannot fail for a session bound at admission (TryEnter), its call returns, and the write
     // leaves the barrier of the close last. A forwarded write has no call: its refusal is recorded as its
     // reply here, and its success was recorded by the hold that published it (see the class, "Forwarded
-    // writes").
+    // writes"). The record is the source of the task of the call, which the caller may keep after its
+    // outcome, so it lets go of the inputs of the write first, the roots of a batch among them (see the
+    // class, "What a write allocates").
     private void GiveOutcome(PendingWrite write)
     {
         write.Registration.Unregister();
+        write.LetGoOfInputs();
 
         if (write.Forwarded is { } forwarded)
         {

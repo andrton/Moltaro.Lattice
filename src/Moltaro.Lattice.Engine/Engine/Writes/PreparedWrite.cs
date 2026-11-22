@@ -162,10 +162,11 @@ internal sealed class PreparedWrite
         EncodedSize = 0;
     }
 
-    // After the outcome of its write, for a record kept for the next write: no change any more, and what
-    // the change references, its table and its key, let go of, so that the record keeps nothing of the
-    // caller alive. Its scalars stay as they were: nothing reads them while ChangesEntity is false, and
-    // the next preparation sets the record (Set, SetNoChange).
+    // After the outcome of its write (PendingWrite.LetGoOfInputs): no change any more, and what the changes
+    // reference, their tables, their keys and the claims of a batch, let go of, so that the record keeps
+    // nothing of the caller alive. Its scalars stay as they were: nothing reads them while ChangesEntity is
+    // false, and the next preparation of a record kept for the next write sets the record (Set,
+    // SetNoChange).
     public void LetGo()
     {
         ChangesEntity = false;
