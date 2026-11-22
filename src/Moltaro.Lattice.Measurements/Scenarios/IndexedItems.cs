@@ -10,8 +10,9 @@ namespace Moltaro.Lattice.Measurements.Scenarios;
 // differ in the indexes they declare alone:
 // - Id, the key, an Int64; Number, an Int64 in no index; Key1 to Key6, Int64; Title, a String of Plain
 //   storage compared Ordinal.
-// - A schema of k indexes declares ByKey1 to ByKeyk, one over each of the fields Key1 to Keyk; the
-//   titled schema declares the one index ByTitle over Title instead.
+// - A schema of k indexes declares ByKey1 to ByKeyk, one over each of the fields Key1 to Keyk, every one
+//   of them unique in the schema of k unique indexes; the titled schema declares the one index ByTitle
+//   over Title instead.
 // An item carries one key in all six fields Key1 to Key6, so that a type with k indexes holds that key
 // in each of its indexes, and a type with none holds the same fields.
 //
@@ -56,14 +57,15 @@ internal sealed class IndexedItems : IDisposable
     // The name of the index over the field Key1 to Key6.
     public static string KeyIndex(int field) => $"ByKey{field}";
 
-    // Opens a database of the schema of so many key indexes, or the titled one, under the memory limit of
-    // a read given or none, and inserts the items through the class, one after the other on this thread.
-    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false, long? readMemoryLimit = null)
+    // Opens a database of the schema of so many key indexes, unique when unique is true, or the titled one,
+    // under the memory limit of a read given or none, and inserts the items through the class, one after
+    // the other on this thread.
+    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false, long? readMemoryLimit = null, bool unique = false)
     {
         var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
-            Schema = SchemaOf(indexes, titled),
+            Schema = SchemaOf(indexes, titled, unique),
             ReadMemoryLimit = readMemoryLimit,
         });
 
@@ -79,14 +81,14 @@ internal sealed class IndexedItems : IDisposable
 
         inserting.Stop();
 
-        var declared = titled ? $"the index {TitleIndex}" : $"{indexes} {(indexes == 1 ? "index" : "indexes")}";
+        var declared = titled ? $"the index {TitleIndex}" : $"{indexes} {(unique ? "unique " : "")}{(indexes == 1 ? "index" : "indexes")}";
 
         return new IndexedItems(database, items.Count, inserting.Elapsed, $"Database: the engine, MemoryOnly, {declared}; {ReadSeries.Number(items.Count)} items inserted through the class in {ReadSeries.Seconds(inserting.Elapsed)} s");
     }
 
-    // The items 1 to count, the key of each its id.
-    public static IndexedItems Ascending(int indexes, int count) =>
-        Load(indexes, [.. Enumerable.Range(1, count).Select(id => Item.Keyed(id, id))]);
+    // The items 1 to count, the key of each its id, of k key indexes, unique when unique is true.
+    public static IndexedItems Ascending(int indexes, int count, bool unique = false) =>
+        Load(indexes, [.. Enumerable.Range(1, count).Select(id => Item.Keyed(id, id))], unique: unique);
 
     // A writer of the items of Ascending: caller c of n replaces the places c, c + n, c + 2n and so on,
     // and from c again after the last, one replace a call.
@@ -151,11 +153,12 @@ internal sealed class IndexedItems : IDisposable
         }
     }
 
-    private static LatticeSchema SchemaOf(int indexes, bool titled)
+    private static LatticeSchema SchemaOf(int indexes, bool titled, bool unique)
     {
+        var mark = unique ? """, "Unique": true""" : "";
         IEnumerable<string> declared = titled
             ? [$$"""{ "Id": 1, "Name": "{{TitleIndex}}", "Fields": [9] }"""]
-            : Enumerable.Range(1, indexes).Select(field => $$"""{ "Id": {{field}}, "Name": "{{KeyIndex(field)}}", "Fields": [{{field + 2}}] }""");
+            : Enumerable.Range(1, indexes).Select(field => $$"""{ "Id": {{field}}, "Name": "{{KeyIndex(field)}}", "Fields": [{{field + 2}}]{{mark}} }""");
 
         return LatticeSchema.Compile($$"""
             {

@@ -155,7 +155,7 @@ internal static class WriteCallersScenario
         };
     }
 
-    private static string CallersOf(int callers) => $"{callers} {(callers == 1 ? "caller" : "callers")}";
+    internal static string CallersOf(int callers) => $"{callers} {(callers == 1 ? "caller" : "callers")}";
 
     // One series: the callers given, writing users, and the readers given, reading the database given,
     // through a warm-up and a window; for following-children as well, whose children follow the writes.
