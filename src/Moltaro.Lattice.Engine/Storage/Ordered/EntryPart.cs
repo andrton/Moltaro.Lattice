@@ -19,7 +19,7 @@ namespace Moltaro.Lattice.Storage.Ordered;
 // Stored is the field, where the root layout places it and how it stores it, its offset, width and null
 // bit in a root (Values.StoredField), resolved once with the layout of the index, so that every reader of
 // a part of a root reads it with no lookup of its field (IndexLayout, Engine.Indexes.IndexOrder).
-internal readonly record struct EntryPart(StoredTypeEnum Type, int Width, int NullBit, int FixedOffset, TextComparison? Comparison, StoredField Stored)
+internal readonly record struct EntryPart(int Width, int NullBit, int FixedOffset, TextComparison? Comparison, StoredField Stored)
 {
     // The null bit of a part that is never null.
     public const int NoNullBit = -1;
@@ -27,6 +27,9 @@ internal readonly record struct EntryPart(StoredTypeEnum Type, int Width, int Nu
     // A field rather than a property, so that a reader of a part reads it where it lies in the array of
     // the parts, by reference, without a copy of its 24 bytes (Unsafe.SizeOf) for each part.
     public readonly StoredField Stored = Stored;
+
+    // How the root stores the value of the part: the type of its stored field.
+    public StoredTypeEnum Type => Stored.Type;
 
     // Whether the part is a String, whose width in an entry is that of its value.
     public bool IsText => Type == StoredTypeEnum.String;

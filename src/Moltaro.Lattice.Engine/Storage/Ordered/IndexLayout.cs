@@ -155,7 +155,7 @@ internal sealed class IndexLayout
             var isText = stored.Type == StoredTypeEnum.String;
             var nullBit = part.CanBeNull ? nullable++ : EntryPart.NoNullBit;
 
-            parts[place] = new EntryPart(stored.Type, isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null, stored);
+            parts[place] = new EntryPart(isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null, stored);
 
             if (isText)
             {
