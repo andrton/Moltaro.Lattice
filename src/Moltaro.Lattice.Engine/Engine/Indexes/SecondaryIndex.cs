@@ -38,6 +38,12 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // the moments between. A child that applies a transaction of several effects installs the new entries
 // of every effect before its position and removes the old ones after it.
 //
+// A unique index lets a value, a key with no null part, belong to one root only (decision on unique
+// indexes): a write that sets or moves a value is checked against the published tree before anything is
+// reserved for it, by one descent to the first entry of the value (TryFindOwner); the prepared and
+// unpublished writes that claim a value are the write coordinator's to know (Entities.ChangePublisher,
+// Writes.WriteCoordinator). A key with a null in any part is not compared.
+//
 // A child builds its indexes while it loads, an entry for each root it places, through the same members,
 // before it is ready, and keeps them while it follows. An entry its stream contradicts, one to add that
 // the index holds or one to take away that it does not hold, is a divergence: the publication fails and
@@ -67,10 +73,14 @@ internal sealed class SecondaryIndex
         _entry = new byte[layout.WidestEntryBytes];
         Layout = layout;
         Tree = tree;
+        IsUnique = definition.IsUnique;
     }
 
     // The index as the schema declares it.
     public LatticeIndex Definition { get; }
+
+    // Whether the schema declares the index unique.
+    public bool IsUnique { get; }
 
     // How its entries and nodes lie in the arena.
     public IndexLayout Layout { get; }
@@ -138,6 +148,54 @@ internal sealed class SecondaryIndex
 
         return _order.SameKey(replaced, root) ? IndexChangeEnum.Rewrite : IndexChangeEnum.Move;
     }
+
+    // For the writer, in the hold that prepares a write that sets or moves a value of this unique index, once
+    // its new root is written: the root entry of the published root that holds the value the root given
+    // contributes, true; false when no root holds it, and for a key with a null in any part, which is not
+    // checked. Between two publications the tree holds one entry for each live root, under the identity of
+    // its root entry, and nothing else, so an entry of the value names its owner. One descent, to the first
+    // entry at or after the entry of the value under the lowest identity, compared by the order of the
+    // index, which is the comparison of every part; where that place is past the end of a leaf, one more
+    // descent at the fence, to the first entry of the leaf beside, as a walk goes on (IndexWalk). The fence
+    // is a separator, which is not read as an owner: a separator is a copy of an entry, made when its leaf
+    // split, that stays in its inner node when that entry leaves its leaf (OrderedTree.Remove changes only
+    // the leaf; only the removal of a whole leaf or a merge takes a separator away), so it may be the copy
+    // of a removed entry, or of an entry rewritten since. Writes the entry into the scratch of the writer.
+    public bool TryFindOwner(in RootReader root, out RootHandle owner)
+    {
+        owner = default;
+
+        if (Layout.HasNull(root))
+        {
+            return false;
+        }
+
+        var entry = _entry.AsSpan(0, Layout.WriteEntry(root, default, _entry));
+        var place = Tree.Seek(entry, SeekSideEnum.AtOrAfter);
+
+        if (!place.HasEntry && place.HasFence)
+        {
+            place = Tree.Seek(place.Fence, SeekSideEnum.AtOrAfter);
+        }
+
+        if (!place.HasEntry || !_order.SameKey(place.Entry, entry))
+        {
+            return false;
+        }
+
+        owner = IndexLayout.IdentityOf(place.Entry);
+
+        return true;
+    }
+
+    // For the writer, under the lock of the writes: whether two roots, prepared or published, contribute
+    // one value of this unique index: keys with no null part, equal by the order of the index.
+    public bool IsValueOf(in RootReader root, in RootReader other) =>
+        !Layout.HasNull(root) && _order.SameKey(root, other);
+
+    // For a child at the position it becomes ready at, under the lock of the writes: whether the tree holds
+    // one value of this unique index twice (OrderedTree.HoldsAKeyTwice).
+    public bool HoldsAValueTwice() => Tree.HoldsAKeyTwice();
 
     // For the writer, in the hold that prepares the write: reserves what the change the write makes to
     // the index needs (OrderedTree.TryReserve, CountsOf). False when the arena cannot hold it, with nothing

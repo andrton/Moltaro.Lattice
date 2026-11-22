@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Comparison;
 using Moltaro.Lattice.Engine.Delivery;
@@ -39,12 +38,16 @@ namespace Moltaro.Lattice.Engine.Writes;
 //    which is the encoded size of the write; then what its publication uses is reserved
 //    (Entities.ChangePublisher.TryReserve): the nodes of the secondary indexes it changes, room in the
 //    primary index for an insert, which may grow it, and for a replace or a delete a place in the
-//    retired list, beside what the writes prepared before it and not published yet reserved. A failure
-//    frees all of it, so nothing of a failed write is left in any counter. An entity has no size limit
-//    of its own; only the memory of the arena, the memory budget of the database, refuses one or the
+//    retired list, beside what the writes prepared before it and not published yet reserved; before any of
+//    it, the values the write sets or moves in unique indexes are checked against the published state. A
+//    failure frees all of it, so nothing of a failed write is left in any counter. An entity has no size
+//    limit of its own; only the memory of the arena, the memory budget of the database, refuses one or the
 //    nodes of its indexes (docs/decisions/write-admission.md, "Configurable root-object size limit"):
-//    then TryPrepare returns false with everything freed, and the coordinator decides what the write
-//    waits for before it tries again (WriteCoordinator, "The refusal").
+//    then TryPrepare returns RefusedForMemory with everything freed, and the coordinator decides what the
+//    write waits for before it tries again (WriteCoordinator, "The refusal"). A value of a unique index
+//    that a published root of another entity holds ends it as KeyTaken, with everything freed and the
+//    index and the root recorded in the record of the write (PreparedWrite.Taken), and the coordinator
+//    decides whether the write is refused or waits (WriteCoordinator, "A value of a unique index").
 // A preparation never publishes, and nothing it does is seen by a read.
 //
 // A write a child forwarded brings the root the child wrote, in the load format, instead of values
@@ -119,17 +122,18 @@ internal sealed class WriteExecutor
         _delivery = delivery;
     }
 
-    // Prepares the write (see the class): true with what its publication installs, or false, with the
-    // refusal of the arena and with everything the write took freed, when the memory of the arena
-    // cannot hold the entity now. Refusals: RevisionConflict, DuplicateKey and NotFound for its
-    // condition; ValidationFailed for text that is not well-formed or a value above the bound of one
-    // value comes from the guard of the root writer, only for values that the validation of the core
-    // did not check; an OutOfMemoryException of the native allocator passes through. Each leaves
-    // nothing of the write behind.
-    public bool TryPrepare(PendingWrite write, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    // Prepares the write (see the class): Reserved with what its publication installs; RefusedForMemory,
+    // with the refusal of the arena and with everything the write took freed, when the memory of the arena
+    // cannot hold the entity now; KeyTaken, with everything freed, when a published root of another entity
+    // holds a value the write sets or moves in a unique index (PreparedWrite.Taken). Refusals:
+    // RevisionConflict, DuplicateKey and NotFound for its condition; ValidationFailed for text that is not
+    // well-formed or a value above the bound of one value comes from the guard of the root writer, only for
+    // values that the validation of the core did not check; an OutOfMemoryException of the native
+    // allocator passes through. Each leaves nothing of the write behind.
+    public ReservationEnum TryPrepare(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
-        var exists = table.TryFind(write.Key, out var handle);
+        var exists = table.TryFind(write.Key, out var handle, out var replaced);
 
         if (write.ExpectedRevision is { } expected)
         {
@@ -152,16 +156,16 @@ internal sealed class WriteExecutor
             prepared = write.PrepareNothingToDelete();
             refusal = null;
 
-            return true;
+            return ReservationEnum.Reserved;
         }
 
         if (write.Kind == WriteKindEnum.Delete)
         {
-            return TryPrepareDelete(write, handle, out prepared, out refusal);
+            return TryPrepareDelete(write, handle, replaced, out prepared, out refusal);
         }
 
         return exists
-            ? TryPrepareReplace(write, handle, out prepared, out refusal)
+            ? TryPrepareReplace(write, handle, replaced, out prepared, out refusal)
             : TryPrepareInsert(write, out prepared, out refusal);
     }
 
@@ -218,30 +222,33 @@ internal sealed class WriteExecutor
         new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
     // The change of each preparation is written into the record of the write where it lies (WriteChange),
-    // reserved from there, and is the write's once reserved (Set).
+    // with the root of the entity its lookup found, which a replace and a delete replace, reserved from
+    // there, and is the write's once reserved (Set).
     //
-    // False, with the refusal, when the arena cannot hold the nodes the indexes need for the delete.
-    private bool TryPrepareDelete(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    // RefusedForMemory, with the refusal, when the arena cannot hold the nodes the indexes need for the
+    // delete; a delete sets no value, so no value of it is taken.
+    private ReservationEnum TryPrepareDelete(PendingWrite write, RootHandle handle, ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var record = write.Record;
+        var reservation = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default, replaced), checksUnique: true);
 
-        if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default)))
+        if (reservation != ReservationEnum.Reserved)
         {
             prepared = null;
             refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
 
-            return false;
+            return reservation;
         }
 
         prepared = record.Set(0);
         refusal = null;
 
-        return true;
+        return reservation;
     }
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
     // root when an exception passes.
-    private bool TryPrepareReplace(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    private ReservationEnum TryPrepareReplace(PendingWrite write, RootHandle handle, ArenaAddress replaced, out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
         ArenaAddress root;
@@ -263,16 +270,16 @@ internal sealed class WriteExecutor
         {
             prepared = null;
 
-            return false;
+            return ReservationEnum.RefusedForMemory;
         }
 
         PreparedWrite record;
-        bool reserved;
+        ReservationEnum reservation;
 
         try
         {
             record = write.Record;
-            reserved = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
+            reservation = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root, replaced), checksUnique: true);
         }
         catch
         {
@@ -280,24 +287,24 @@ internal sealed class WriteExecutor
             throw;
         }
 
-        if (!reserved)
+        if (reservation != ReservationEnum.Reserved)
         {
             RootStorage.Free(_arena, table.Layout!, root);
-            refusal = RootWriter.RefusalForMemory(table.Layout!);
+            refusal = reservation == ReservationEnum.RefusedForMemory ? RootWriter.RefusalForMemory(table.Layout!) : null;
             prepared = null;
 
-            return false;
+            return reservation;
         }
 
         prepared = record.Set(size);
 
-        return true;
+        return reservation;
     }
 
     // Safe by its structure: from the new root entry to the reservation of the room in the index, one
     // finally gives back whatever was taken when the preparation does not end prepared, the new root if
     // it was written and the entry, to which no index maps a key.
-    private bool TryPrepareInsert(PendingWrite write, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    private ReservationEnum TryPrepareInsert(PendingWrite write, out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
         var layout = table.Layout!;
@@ -316,21 +323,22 @@ internal sealed class WriteExecutor
 
             if (root.IsNull)
             {
-                return false;
+                return ReservationEnum.RefusedForMemory;
             }
 
             var record = write.Record;
+            var reservation = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root, default), checksUnique: true);
 
-            if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root)))
+            if (reservation == ReservationEnum.RefusedForMemory)
             {
                 refusal = RootWriter.RefusalForMemory(layout);
-
-                return false;
+            }
+            else if (reservation == ReservationEnum.Reserved)
+            {
+                prepared = record.Set(size);
             }
 
-            prepared = record.Set(size);
-
-            return true;
+            return reservation;
         }
         finally
         {

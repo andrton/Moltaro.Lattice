@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Storage;
@@ -17,8 +18,14 @@ namespace Moltaro.Lattice.Engine.Entities;
 // key makes it at its second step, and its first step keeps only the key of the entity it returned
 // (FirstKey), in the same reference. So a search that finds one entity or none and passes over no match
 // holds 56 bytes and nothing else: the identity and the end, 8 bytes each, the read limits, 24, the
-// reference, 8, and the Offset, the direction, whether it holds its answer and whether its key is full, 7,
-// padded to 8.
+// reference, 8, and the Offset, the direction, whether it holds its answer, whether its key is full and
+// whether it ends at the entity it returns, 8.
+//
+// A search by the full key of a unique index with no null part ends at the entity a step returns, whatever
+// the fence of its leaf shows (EndsAtItsEntity, Commit): its value has at most one owner
+// (docs/decisions/unique-indexes.md, "Non-null full-key equality has at most one matching root"), and a
+// step after it could only meet a root that took the value between two steps, a second owner of one
+// search.
 //
 // Its owner holds it with the key, bound to the fields of the index (Access.Sets.IndexCriteria), for the
 // whole search: the one object of a lazy search (Sets.IndexMatches), or the stack of a search that runs to
@@ -41,6 +48,7 @@ internal struct IndexSearch
     {
         Limits = new ReadLimits(options);
         FullKey = index is not null && IndexWalk.IsFullKey(index.Layout, key);
+        EndsAtItsEntity = FullKey && index!.IsUnique && !HasNull(key);
     }
 
     // The search of FindAsync through the index by the key, a full key or not, in the direction given, which
@@ -57,6 +65,12 @@ internal struct IndexSearch
     // (Indexes.IndexWalk.IsFullKey), decided once for the search: such a search stands at an identity in the
     // run (From), any other after the entry of the entity it returned last (WalkProgress.Last).
     public bool FullKey { get; }
+
+    // Whether a step that returns an entity ends the search, decided once for the search: a search by the
+    // full key of a unique index with no null part (see the struct), for every form that steps, the lazy
+    // search, FindAsync with its Offset and its Limit, through a class and by name. A key with a null part,
+    // a key of leading parts and a range end as any search does.
+    public bool EndsAtItsEntity { get; }
 
     // For a search by a full key: in the index order, the identity the next step starts at, after the last
     // entity returned; in its reverse, the identity the next step stays before, that of the last entity
@@ -133,11 +147,17 @@ internal struct IndexSearch
     // after entries it returned none of and whose matches skipped by Offset it remembered, so the next step
     // still meets the entity and counts none of those twice. What the failed step staged stays until the
     // next step that returns an entity stages anew over it, before anything commits it; a key the failed step
-    // kept of a first entity (FirstKey) comes only with the place, so it is not taken either.
-    public void Commit((RootHandle From, ulong EndsAt, FirstKey? First) place)
+    // kept of a first entity (FirstKey) comes only with the place, so it is not taken either. The sequence is
+    // that of the answer of the step: a search that ends at its entity (EndsAtItsEntity) ends there, where
+    // the entity held the value and no other root did.
+    // Inlined into the step of a set (SetOperations.Next): the choice of the end takes it over the inline
+    // budget of the JIT, which would leave one call more for every entity a search returns (JIT listing of
+    // Next).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Commit((RootHandle From, ulong EndsAt, FirstKey? First) place, ulong sequence)
     {
         From = place.From;
-        EndsAt = place.EndsAt;
+        EndsAt = EndsAtItsEntity ? sequence : place.EndsAt;
 
         if (place.First is { } first)
         {
@@ -147,5 +167,19 @@ internal struct IndexSearch
         }
 
         Progress?.Commit();
+    }
+
+    // Whether a value of the key is null.
+    private static bool HasNull(in IndexKey key)
+    {
+        for (var place = 0; place < key.Count; place++)
+        {
+            if (key.ValueAt(place).IsNull)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -1,4 +1,5 @@
 using Moltaro.Lattice.Replication.Forwarding;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Child.Forwarding;
 
@@ -22,13 +23,18 @@ internal sealed class ForwardedCall
 
     private CancellationTokenRegistration _registration;
 
-    public ForwardedCall(OutgoingMessage request)
+    public ForwardedCall(OutgoingMessage request, LatticeEntityType entityType)
     {
         Request = request;
+        EntityType = entityType;
     }
 
     // The request, complete.
     public OutgoingMessage Request { get; }
+
+    // The entity type of the write, which gives the name of a unique index its refusal names
+    // (Replication.Forwarding.ForwardEncoding.NameIndex).
+    public LatticeEntityType EntityType { get; }
 
     // The id of the request on its connection, which the sender gives it when it takes it.
     public ulong CorrelationId { get; set; }

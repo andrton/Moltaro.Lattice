@@ -21,7 +21,9 @@ namespace Moltaro.Lattice.Access;
 /// not a snapshot: entities written while it runs may or may not be included. A search
 /// returns an entity at most once, also one that is deleted and created again while it runs
 /// or whose indexed values move it ahead of the search, and every entity that keeps its
-/// indexed values for the whole search, in the order of the index or its reverse.
+/// indexed values for the whole search, in the order of the index or its reverse. A search
+/// by the full key of a unique index, with no part null, returns at most one entity, also
+/// when writes move the value while it runs.
 /// </para>
 /// <para>
 /// The order is the order of the index: by its first field, then by its second, and so on,
@@ -57,7 +59,7 @@ public interface ILatticeIndex<TEntity>
     /// </para>
     /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
-    /// such as an owned value, a collection, a reference or a unique index, the search finds
+    /// such as an owned value, a collection or a reference, the search finds
     /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
     /// type holds no entity.
     /// </para>

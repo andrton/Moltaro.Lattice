@@ -100,14 +100,10 @@ namespace Moltaro.Lattice.Access;
 /// which refuses such arrays in the same way. Both come before the conditions of the write are looked at, whether the
 /// key exists and whether the entity has the expected revision, and before a write is
 /// refused as not implemented, for every entity type whose writes are refused until a
-/// feature of its schema is implemented, such as a unique index or an owned value: only a
-/// write that passes them ends in <see cref="NotSupportedException"/>. A check
-/// that belongs to what is not implemented is not made yet: whether a unique index already holds
-/// the key.
-/// </para>
-/// <para>
-/// <b>Not implemented yet.</b> Unique indexes are not implemented; what a write does until
-/// they are is stated at <see cref="LatticeIndex.IsUnique"/>.
+/// feature of its schema is implemented, such as an owned value: only a write that passes
+/// them ends in <see cref="NotSupportedException"/>. Whether a unique index already holds a
+/// value of the entity is decided after the conditions of the write, by the master, as
+/// <see cref="LatticeIndex.IsUnique"/> states.
 /// </para>
 /// <para>
 /// Each write here is atomic for its one entity. Writes that have to succeed or fail

@@ -81,8 +81,19 @@ one takes its turn and is checked against the state that is published then. So a
 write never overtakes an earlier one, whatever became of it.
 
 When persistence takes no time this happens only while a write refused for lack of memory is
-being settled: otherwise a write is published in the same hold of
-the lock that prepared it.
+being settled, and when the writes it held back are prepared together at its end: otherwise
+a write is published in the same hold of the lock that prepared it.
+
+A unique index is the same question across entities. A write whose value a published
+entity holds is refused at once, unless that entity has a write prepared and not published
+that gives the value up, a delete or a key move; a write whose value a write of another
+entity, prepared and not published, takes, an insert or a key move, cannot be checked
+either. In both cases the write waits for that one write, holding nothing, and when it
+completes in any way the waiting write is checked again from the start against what is
+published then. The write it waits for waits only for its persistence step, so the wait
+always ends. When persistence takes no time this happens only when the writes held back
+while a write refused for lack of memory is settled are prepared together at its end:
+otherwise a write is published before the next one is prepared.
 
 ## How a publication is made
 
@@ -198,6 +209,7 @@ The words of the engine, as its code and its comments use them, each with one me
 | Storage | The form of the entities in memory: the arena, the roots and their layouts, and the Plain or Dictionary storage of a text |
 | Persistence | What makes a write durable: the persistence step of a Durable database, which MemoryOnly completes at once |
 | Deferred write | A write admitted while a write the arena refused twice is resolved; it waits, first in first out, until the resolution ends |
+| Waiting for a value | A write whose value of a unique index a prepared, unpublished write of another entity takes or gives up; it waits for that one write and is prepared again when it completes |
 | Wait for reads | The last step of that resolution: outside every lock it waits for the reads that hold retired memory, then tries once more |
 | Capture | What a master gives a child that loads from it: its state at one sequence, copied a root at a time while writes go on |
 | Deliver | Send the children that follow a master the transactions after their capture |

@@ -151,7 +151,7 @@ internal sealed class SetOperations
 
             var result = copy.Build();
 
-            search.Commit(next);
+            search.Commit(next, sequence);
 
             return result;
         }

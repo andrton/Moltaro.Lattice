@@ -1,14 +1,12 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
-// What the engine cannot store until a later sprint, and what it does with such an entity type
-// (brief of Epic 1, sprint S06, "What the engine does where the block above does not say"). From S07
-// it stores every key type of the catalog, a String compared with either comparison, an Enum field
-// and both encodings (brief of S07), Dictionary storage from S13, and it still refuses, as S06 says:
-// an entity type with a unique index until S16, and the field types of S03 until S18 and S19. Every write of such an entity type, an insert, a replace, an
-// upsert and a delete, with or without a revision, is refused with NotSupportedException at the
-// write, after the checks of its arguments and the validation of the entity, in the order of Q25. A
-// read of it by key finds nothing and an enumeration of it is empty. Binding a class to it and
-// selecting one of its indexes work.
+// What the engine cannot store yet, and what it does with such an entity type. It stores every key type
+// of the catalog, a String compared with either comparison, an Enum field, both encodings, Dictionary
+// storage and unique indexes; it refuses an entity type with an owned value, a List, a Map, a Set or a
+// reference. Every write of such an entity type, an insert, a replace, an upsert and a delete, with or
+// without a revision, is refused with NotSupportedException at the write, after the checks of its
+// arguments and the validation of the entity, in the order of Q25. A read of it by key finds nothing
+// and an enumeration of it is empty. Binding a class to it and selecting one of its indexes work.
 //
 // Each case is one entity type, Item, in a schema of its own: the key Id, an Int64, the String field
 // Text with the index ByText, and the field Value. Where the case is not Value, Value is an Int32.
@@ -16,7 +14,6 @@ public sealed class NotStoredYetTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
     {
-        Case.Of("Unique index", unique: true),
         Case.WithValue<Stamp>(
             "Owned field",
             value: "'Type': 'Owned', 'OwnedType': 'Stamp'",
@@ -134,14 +131,9 @@ public sealed class NotStoredYetTests
         public LatticeRecord CompleteRecord(LatticeEntityType entityType, LatticeSchema schema) =>
             new(entityType) { ["Id"] = Key, ["Text"] = "a", ["Value"] = RecordValue(schema) };
 
-        // A case with an Int32 Value, which differs from what the engine stores in its Text field or
-        // its index.
-        public static Case Of(string name, string text = "", bool unique = false) =>
-            Of<long, int>(name, "'Type': 'Int64'", 1L, text, "'Type': 'Int32'", _ => 7, () => 7, unique);
-
         // A case whose Value is of another type.
         public static Case WithValue<TValue>(string name, string value, Func<LatticeSchema, object> recordValue, Func<TValue> classValue) =>
-            Of(name, "'Type': 'Int64'", 1L, "", value, recordValue, classValue, false);
+            Of(name, "'Type': 'Int64'", 1L, "", value, recordValue, classValue);
 
         private static Case Of<TKey, TValue>(
             string name,
@@ -150,8 +142,7 @@ public sealed class NotStoredYetTests
             string text,
             string value,
             Func<LatticeSchema, object> recordValue,
-            Func<TValue> classValue,
-            bool unique)
+            Func<TValue> classValue)
             where TKey : notnull
         {
             var json = $$"""
@@ -168,7 +159,7 @@ public sealed class NotStoredYetTests
                         { "Id": 3, "Name": "Value", {{value}} }
                       ],
                       "PrimaryKey": [1],
-                      "Indexes": [ { "Id": 1, "Name": "ByText", "Fields": [2]{{(unique ? ", 'Unique': true" : "")}} } ]
+                      "Indexes": [ { "Id": 1, "Name": "ByText", "Fields": [2] } ]
                     }
                   ]
                 }

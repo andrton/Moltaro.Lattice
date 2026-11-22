@@ -293,6 +293,25 @@ lost the old key; the check of every entry against its root covers both. A child
 applies a transaction of several effects inserts the new entries of all of them before
 its position and removes the old ones after it.
 
+### The owner of a value of a unique index
+
+A write that sets a value of a unique index, an insert, or a replace that moves its key,
+is checked in the hold that prepares it, after the change of every index is decided and
+before any node is reserved, so that a refused write takes nothing from a pool. A key with
+a null part is not checked. Between two publications the tree holds one entry for each live
+root and nothing else, so the owner of a value is the entry of that value: one descent to
+the first entry at or after the entry of the new root under the lowest identity, compared
+by the order of the index, which is the comparison of every part; where that place is past
+the end of its leaf, one more descent at the fence, to the first entry of the leaf beside,
+as a walk goes on. The fence is a probe there and never an owner: a separator is a copy of
+an entry made when its leaf split, and it stays in its inner node when that entry leaves its
+leaf, since a remove changes the leaf alone and only a leaf left empty or a merge takes a
+separator away; so a separator may be the copy of a removed entry, or of an entry rewritten
+since. A replace that keeps its key, in the same bytes or in others, is not checked. No key
+is built from the values of the write, since a write forwarded by a child brings only its
+root. The writes prepared and not published, which the tree does not show, are the write
+coordinator's to know ([the write path](write-path.md#two-writes-to-one-entity)).
+
 ### The reservation
 
 Nothing grows inside a publication. In the hold that prepares a write, each index it
@@ -442,6 +461,18 @@ protection, so that a step after a close is refused as every step is. A lazy sea
 ends at the sequence of the step that returned its last entity, not at the sequence of a
 later call.
 
+A search by the full key of a unique index with no part null ends at the entity a step
+returns, whatever the fence shows: at the sequence of that step the entity held the value,
+and no other root did ([unique indexes](../decisions/unique-indexes.md): non-null full-key
+equality has at most one matching root). A root a later step could meet took the value
+after it, when the owner moved away between two steps, and the search would return two
+owners of one value. So a search by the full key of a unique index, with no part null,
+returns at most one entity, also when writes move the value while it runs. Whether a
+search ends so is decided once, when it starts (`IndexSearch`), for every form that steps:
+the lazy search and `FindAsync` with its Offset and its Limit, through a class and by
+name; a step that returns an entity only reads that choice. A key with a null part, a key
+of leading parts and a range end as any search does.
+
 What the sequence of an answer is, in the words of the contract (`LatticeFindResult`): a
 position the node had applied when the search looked at the index. It is read in the step
 after the descent, so it covers every write whose effect the descent saw, an entry a
@@ -576,6 +607,15 @@ transaction above. An entry its stream contradicts, one to insert that the index
 one to remove that it does not, is a divergence: the publication fails, and the child is
 faulted as on any failed publication. A bulk build from sorted entries is not built; the
 build time for 100,000 users is reported.
+
+A child checks no unique index while it loads and catches up: the roots it copies may
+reflect different positions of its master, so two of them may hold one value for a while,
+and the tree, ordered by key and identity, holds both. At the position it becomes ready
+at, before it is ready, it walks each unique index once in order, each entry compared with
+the last one before it that has no null part; a value held twice is a protocol failure, and
+the open fails. From then on a change it receives is checked as a write on the master is,
+and one that would give a value a second owner stops the child as a protocol failure does,
+before anything of it is published; nothing is repaired.
 
 ## What the structure does not do
 

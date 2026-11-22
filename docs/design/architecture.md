@@ -121,7 +121,11 @@ collection, automatic index choice and keyset continuation are not in this miles
 
 **Unique is explicit.** The master validates the final state before effects commit.
 A conflict rejects the whole operation or WriteBatch. Keys with any null component
-are exempt. A batch may swap unique values or delete and reclaim one atomically.
+are exempt. A write of a value that another write, prepared and not published yet, takes
+or gives up waits for that write and is decided again. A child checks its unique indexes
+once, at the position it becomes ready at, and every change it receives after that. A
+batch may swap unique values or delete and reclaim one atomically; executing a batch is
+planned and not built yet.
 
 <a id="writes-and-persistence"></a>
 

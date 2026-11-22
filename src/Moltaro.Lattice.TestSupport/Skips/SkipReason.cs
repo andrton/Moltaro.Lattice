@@ -1,8 +1,10 @@
 namespace Moltaro.Lattice.TestSupport.Skips;
 
-// The one reason with which the tests of a sprint that cannot pass before its implementation are
-// skipped (AGENTS.md, "Tests And Samples"). The implementer of a sprint removes its skips and its
-// constant.
+// The reasons with which the tests that cannot pass before their feature is implemented are skipped
+// (AGENTS.md, "Tests And Samples"), one for each feature, shared by every test project. The implementer
+// of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
+    // The commit of a write batch.
+    public const string WriteBatch = "Executing a write batch is not implemented yet.";
 }

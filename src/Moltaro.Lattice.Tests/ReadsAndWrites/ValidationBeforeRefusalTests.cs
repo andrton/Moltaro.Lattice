@@ -3,9 +3,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // A write first checks what needs no engine: its arguments, and the entity against the schema
 // at every depth. Only a write that passes is refused as not implemented. That holds for every
 // entity type whose writes cannot be made yet: those with owned values, collections or
-// references, and those with a unique index. Whether an integer is a value
-// its enum type declares is part of that validation from Epic 1, sprint S07; a check that belongs
-// to what is not implemented is not made: a unique index is not consulted.
+// references. Whether an integer is a value its enum type declares is part of that validation.
 public sealed class ValidationBeforeRefusalTests
 {
     [Fact]
@@ -129,37 +127,10 @@ public sealed class ValidationBeforeRefusalTests
         await ExpectValidationFailedAsync(database, database.Set<Holder>(), holder, (batch, value) => batch.Insert(value));
     }
 
-    [Theory]
-    [InlineData("Unique")]
-    public async Task Record_of_an_entity_type_that_cannot_be_written_yet_is_validated_first(string entityTypeName)
-    {
-        await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
-
-        await ExpectValidatedFirstAsync(database, entityTypeName);
-    }
-
-    [Fact]
-    public async Task Object_of_an_entity_type_that_cannot_be_written_yet_is_validated_first()
-    {
-        await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
-        var unique = database.Set<UniqueItem>();
-        var graded = database.Set<GradedItem>();
-
-        // Without a required value.
-        await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => unique.InsertAsync(new UniqueItem { Id = 1, Text = null! }));
-        await TestData.ExpectErrorAsync(LatticeErrorEnum.ValidationFailed, () => graded.UpsertAsync(new GradedItem { Id = 1, Text = null! }));
-
-        // A key of another type.
-        await Assert.ThrowsAsync<ArgumentException>(async () => await unique.DeleteAsync("one"));
-
-        // Complete.
-        await Assert.ThrowsAsync<NotSupportedException>(async () => await unique.InsertAsync(new UniqueItem { Id = 1, Text = "a" }));
-    }
-
     [Fact]
     public async Task Integer_that_its_enum_type_does_not_declare_is_ValidationFailed()
     {
-        await using var database = await TestData.OpenMasterAsync(schema: RefusedSchema());
+        await using var database = await TestData.OpenMasterAsync(schema: GradedSchema());
         var graded = database.Set("Graded");
 
         // Level declares 0 and 1; the property of GradedItem is its underlying integer.
@@ -167,26 +138,6 @@ public sealed class ValidationBeforeRefusalTests
 
         await TestData.ExpectValidationFailedAsync("Level", () => graded.InsertAsync(record));
         await TestData.ExpectValidationFailedAsync("Level", () => database.Set<GradedItem>().InsertAsync(new GradedItem { Id = 1, Text = "a", Level = 7 }));
-    }
-
-    // A record without the required Text, a key of another type, and a complete record, through
-    // a set and through a write batch.
-    private static async Task ExpectValidatedFirstAsync(ILatticeDatabase database, string entityTypeName)
-    {
-        var set = database.Set(entityTypeName);
-        var incomplete = new LatticeRecord(set.EntityType) { ["Id"] = 1L };
-        if (set.EntityType.TryGetField("Level", out _))
-        {
-            incomplete["Level"] = (byte)1;
-        }
-
-        await ExpectValidationFailedAsync(database, set, incomplete, (batch, record) => batch.Upsert(record));
-
-        await Assert.ThrowsAsync<ArgumentException>(async () => await set.DeleteAsync("one"));
-        Assert.Throws<ArgumentException>(() => database.CreateWriteBatch().Delete(entityTypeName, "one"));
-
-        incomplete["Text"] = "complete";
-        await ExpectNotSupportedAsync(set, incomplete);
     }
 
     private static async Task ExpectValidationFailedAsync(ILatticeDatabase database, ILatticeSet set, LatticeRecord record, Action<ILatticeWriteBatch, LatticeRecord> add)
@@ -279,26 +230,13 @@ public sealed class ValidationBeforeRefusalTests
         }
         """);
 
-    // Entity types of the declarations of Epic 1, sprint 2: one that cannot be written yet, a unique
-    // index, and two that are written, a comparison that ignores case and an
-    // enum field; each has a required Text.
-    private static LatticeSchema RefusedSchema() => LatticeSchema.Compile($$"""
+    // An entity type with an enum field, Level, and a required Text.
+    private static LatticeSchema GradedSchema() => LatticeSchema.Compile($$"""
         {
           "Enums": [
             { "Id": 1, "Name": "Level", "UnderlyingType": "UInt8", "Members": [ { "Name": "Low", "Value": 0 }, { "Name": "High", "Value": 1 } ] }
           ],
           "EntityTypes": [
-            {
-              "Id": 1, "Name": "Unique", "ClrType": "{{typeof(UniqueItem).FullName}}",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" } ],
-              "PrimaryKey": [1],
-              "Indexes": [ { "Id": 1, "Name": "ByText", "Fields": [2], "Unique": true } ]
-            },
-            {
-              "Id": 2, "Name": "Folded",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String", "Comparison": "OrdinalIgnoreCase" } ],
-              "PrimaryKey": [1]
-            },
             {
               "Id": 4, "Name": "Graded", "ClrType": "{{typeof(GradedItem).FullName}}",
               "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Text", "Type": "String" }, { "Id": 3, "Name": "Level", "Type": "Enum", "Enum": "Level" } ],
@@ -334,13 +272,6 @@ public sealed class ValidationBeforeRefusalTests
         public string City { get; set; } = "Oslo";
 
         public List<string> Lines { get; set; } = [];
-    }
-
-    private sealed class UniqueItem
-    {
-        public long Id { get; set; }
-
-        public string Text { get; set; } = "";
     }
 
     private sealed class GradedItem

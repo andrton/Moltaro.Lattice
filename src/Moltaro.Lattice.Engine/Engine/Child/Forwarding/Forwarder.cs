@@ -133,7 +133,7 @@ internal sealed class Forwarder
             throw NoMaster();
         }
 
-        var call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, minimumPosition));
+        var call = new ForwardedCall(Request(table, kind, key, values, expectedRevision, minimumPosition), table.EntityType);
 
         call.WithdrawOn(cancellationToken);
 

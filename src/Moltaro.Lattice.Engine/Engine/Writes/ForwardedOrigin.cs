@@ -1,5 +1,6 @@
 using System.Buffers;
 using Moltaro.Lattice.Engine.Delivery;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -11,14 +12,18 @@ namespace Moltaro.Lattice.Engine.Writes;
 // delete. The receiver has checked the root as a child checks a root of a load, and that its key is the
 // key of the request; the write path places it when it prepares the write, with the sequence it
 // publishes at as its last mutation. The root is the request's own memory and lives as long as this
-// record.
+// record. The entity type of the write gives the identity of a unique index its refusal names, which the
+// reply carries in place of the name (Replication.Forwarding.ForwardEncoding).
 internal sealed class ForwardedOrigin
 {
-    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root)
+    private readonly LatticeEntityType _entityType;
+
+    public ForwardedOrigin(RecordedReplies replies, ulong correlationId, ReadOnlySequence<byte> root, LatticeEntityType entityType)
     {
         Replies = replies;
         CorrelationId = correlationId;
         Root = root;
+        _entityType = entityType;
     }
 
     public RecordedReplies Replies { get; }
@@ -34,7 +39,12 @@ internal sealed class ForwardedOrigin
     // is; the close of the master, which refused the write before it was executed, as Unavailable, not
     // executed; and any other exception, thrown before the dispatch for a defect of the child's
     // validation, as Unavailable with its message.
-    public void Refuse(Exception exception) => Replies.Refuse(CorrelationId, RefusalOf(exception));
+    public void Refuse(Exception exception)
+    {
+        var refusal = RefusalOf(exception);
+
+        Replies.Refuse(CorrelationId, refusal, refusal.IndexName is { } name && _entityType.TryGetIndex(name, out var index) ? index.Id : null);
+    }
 
     private static LatticeException RefusalOf(Exception exception) => exception switch
     {

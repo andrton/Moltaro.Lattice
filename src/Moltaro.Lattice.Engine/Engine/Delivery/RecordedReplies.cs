@@ -40,13 +40,14 @@ internal sealed class RecordedReplies
     // to the tail: the write of the correlation id succeeded with the result. The publication wakes the
     // senders after the hold.
     public void Succeed(ulong correlationId, in LatticeWriteResult result) =>
-        _replies.Enqueue(new RecordedReply(correlationId, result, null));
+        _replies.Enqueue(new RecordedReply(correlationId, result, null, null));
 
-    // From any thread outside the lock of the writes: the write of the correlation id was refused, and
-    // the senders are woken, since no publication does it.
-    public void Refuse(ulong correlationId, LatticeException refusal)
+    // From any thread outside the lock of the writes: the write of the correlation id was refused, with the
+    // identity of the unique index the refusal names, if it names one, and the senders are woken, since no
+    // publication does it.
+    public void Refuse(ulong correlationId, LatticeException refusal, int? indexId)
     {
-        _replies.Enqueue(new RecordedReply(correlationId, default, refusal));
+        _replies.Enqueue(new RecordedReply(correlationId, default, refusal, indexId));
         _tail.Wake();
     }
 

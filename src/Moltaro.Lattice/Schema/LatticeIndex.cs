@@ -33,13 +33,11 @@ namespace Moltaro.Lattice.Schema;
 /// are never null fit; 252 do not.
 /// </para>
 /// <para>
-/// <b>Not implemented yet.</b> Keeping a unique index is not implemented, as
-/// <see cref="IsUnique"/> states. What this documentation and that of
-/// <see cref="LatticeIndexPart"/> say of the comparison of a unique index, and of a part inside
-/// an owned value or of a Reference, whose entity types cannot be written yet, describes how
-/// they will work. The indexes of an entity type
-/// whose writes are refused until a feature of its schema is implemented are not checked for
-/// their width, as its fixed part is not, until it can be written.
+/// <b>Not implemented yet.</b> What this documentation and that of
+/// <see cref="LatticeIndexPart"/> say of a part inside an owned value or of a Reference, whose
+/// entity types cannot be written yet, describes how they will work. The indexes of an entity
+/// type whose writes are refused until a feature of its schema is implemented are not checked
+/// for their width, as its fixed part is not, until it can be written.
 /// </para>
 /// </remarks>
 public sealed class LatticeIndex
@@ -76,11 +74,22 @@ public sealed class LatticeIndex
     /// values of the indexed fields.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares unique indexes, and is compiled, saved
-    /// and loaded with them, but keeping them is not implemented. Until then no write of an
-    /// entity type that declares a unique index, an insert, a replace, an upsert or a
-    /// delete, is carried out: after the checks every write makes of its arguments and of
-    /// the entity against the schema, it throws <see cref="NotSupportedException"/>.
+    /// <para>
+    /// An insert, a replace or an upsert that would give a complete set of values to a second
+    /// entity is refused with <see cref="LatticeErrorEnum.UniqueConstraintViolation"/>, which
+    /// names the index in <see cref="LatticeException.IndexName"/>, and changes nothing; of two
+    /// unique indexes it would break, the one declared first is named. Two values are the same
+    /// when the comparison of every field holds them equal: a text by the comparison its field
+    /// declares, every NaN one value and the two zeros of a floating-point field one value, an
+    /// enum by its number. An empty text is a value. A write that keeps the values of its own
+    /// entity, in the same form or in another one the comparison holds equal, is not refused.
+    /// </para>
+    /// <para>
+    /// The master decides, for every write, also one submitted through a child, which does not
+    /// reserve a value itself. Of writes of one value made at the same time at most one
+    /// succeeds. A write of a value that another write, not completed yet, takes or gives up
+    /// waits for that write to complete, and is then decided again.
+    /// </para>
     /// </remarks>
     public bool IsUnique { get; }
 

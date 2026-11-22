@@ -398,6 +398,62 @@ internal sealed class OrderedTree
         AfterPublication();
     }
 
+    // For a child at the position it becomes ready at, under the lock of the writes: whether two entries next
+    // to each other in the order of the tree have keys equal by the order, neither with a null part, which a
+    // unique index may not hold. Entries of one key lie next to each other in that order, whatever lies
+    // between other keys, so one walk of every leaf in order, each entry compared with the last one before
+    // it that has no null part, finds every value held twice; no descent for an entry, and nothing is
+    // allocated.
+    public bool HoldsAKeyTwice()
+    {
+        if (_root == 0)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> previous = default;
+
+        return HoldsAKeyTwice(LoadRoot(), ref previous);
+    }
+
+    // The walk of HoldsAKeyTwice below the node, with the last entry with no null part met before it.
+    private bool HoldsAKeyTwice(ArenaAddress address, scoped ref ReadOnlySpan<byte> previous)
+    {
+        var node = NodeAt(address);
+
+        if (!node.IsLeaf)
+        {
+            for (var child = 0; child <= node.Count; child++)
+            {
+                if (HoldsAKeyTwice(node.ChildAt(child), ref previous))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        for (var place = 0; place < node.Count; place++)
+        {
+            var entry = node.EntryAt(place);
+
+            if (_layout.HasNull(entry))
+            {
+                continue;
+            }
+
+            if (!previous.IsEmpty && _order.SameKey(previous, entry))
+            {
+                return true;
+            }
+
+            previous = entry;
+        }
+
+        return false;
+    }
+
     // For the tests of the engine (EngineDatabase.IndexNodes): every live node, in the order of a walk
     // from the root, a node before its children and the children of an inner node in their order, with
     // its level and a copy of each of its entries or separators. Under the lock of the writes.

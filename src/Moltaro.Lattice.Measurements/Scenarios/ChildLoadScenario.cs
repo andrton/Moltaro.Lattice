@@ -63,8 +63,8 @@ internal static class ChildLoadScenario
         return report;
     }
 
-    // One timed load: the time, and the line of the report.
-    private static (TimeSpan Time, string Line) Load(Uri address, int count, int load)
+    // One timed load: the time, and the line of the report; for unique-writes as well.
+    internal static (TimeSpan Time, string Line) Load(Uri address, int count, int load)
     {
         GC.Collect();
         GC.WaitForPendingFinalizers();

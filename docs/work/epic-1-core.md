@@ -144,14 +144,18 @@ mode of its field, a longer one references the text entry of its root, and a fie
 is part of an index stores a value longer than 64 bytes as a text entry. A child builds
 its indexes while it loads and keeps them while it follows. A search remembers the
 entities it returned or passed over, so an entity is returned at most once, also across a
-delete and a re-creation and when its key moves ahead of the walk.
+delete and a re-creation and when its key moves ahead of the walk. From S16 a unique
+index gives a value one owner: the master refuses a write that would give it a second one,
+with `UniqueConstraintViolation` and the name of the index, and a write whose value another
+prepared write takes or frees waits for that write; a key with a null part is exempt; a
+child checks its unique indexes at the position it becomes ready at and stops on a
+violation it would have to apply.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Unique indexes | `"Unique": true`, `LatticeIndex.IsUnique`, `UniqueConstraintViolation` | `UniqueIndexTests` | S16 |
 | Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
@@ -197,7 +201,7 @@ the entry points exist and refuse, **absent** when not even the contract exists.
 | R14 | One comparison and binding service for indexes, collections and lookups: the numeric allowlist, NaN and zero, null order, enum order, both text encodings | [Q07.3.6](../decisions/queries.md), [engine contract](../design/milestone-1-engine-contract.md#index-preparation-and-traversal) | Must | Absent | S06–S08, S14–S15, S19 |
 | R15 | Search through a named index: full-key equality, leading fields with a range, both directions, Limit and Offset, budgets; never a silent scan | [Index access](../decisions/index-access.md), [Q07.1.1, Q07.3.x](../decisions/queries.md) | Must | Done: the full key in S14, leading fields, ranges, both directions, Offset, Limit and the read limits in S15, part 1; the binding rules wait for S15, part 2 | S14–S15 |
 | R16 | Enumeration and index traversal over live data: coherent entities, no identity twice in one pass, unchanged matches included, a budget on time and memory | [Q07.1, Q07.3.5](../decisions/queries.md) | Must | Done: an enumeration and a traversal of an index go on while entities change, with the budget of the options (S15, part 1) | S06–S08, S14–S15 |
-| R17 | Unique indexes on one field or several, validated against the final state on the master; keys with a null are exempt; swaps and delete-and-reclaim inside a batch | [Q07.4](../decisions/unique-indexes.md) | Must | Contract; `UniqueIndexTests` skipped | S16, S17 |
+| R17 | Unique indexes on one field or several, validated against the final state on the master; keys with a null are exempt; swaps and delete-and-reclaim inside a batch | [Q07.4](../decisions/unique-indexes.md) | Must | Done for one write on the master and on a child (S16); the two tests that commit a batch wait for S17 | S16, S17 |
 | R18 | Complete writes: Insert, Replace, Upsert, Delete; expected revisions; immutable keys; a complete write is never turned into a diff; inputs stay stable until completion | [Q13](../decisions/mutation-commands.md) | Must | Works | S06–S08 |
 | R19 | Explicit partial updates: scalar assignments, replacement of a whole collection field and the accepted List, Map and Set element commands, in order, atomic for one entity | [Q13](../decisions/mutation-commands.md) | Must | Absent | S20 |
 | R20 | The atomic write batch: several entity types, one operation per type and key, one position, bounded, refused as a whole | [Q01](../decisions/document-model.md), [Q13](../decisions/mutation-commands.md#repeated-roots-inside-an-explicit-writebatch) | Must | Contract; `WriteBatchTests` skipped | S17 |
@@ -418,6 +422,9 @@ documentation before this document is removed.
 | S15, part 1 | Writes and reads by key, the upkeep, forwarded writes, the first start | writes and reads by key lose nothing to the sprint; a type without indexes loses nothing (F7); the upkeep of one index 1.20 to 1.26 times the bare tree of the same rounds; the forwarded write loses nothing after F12; F9 not explained by how a step is called | rented-arm64-1 | 21 November 2026 |
 | S14R | Inserts and deletes of the reference fixture's users, write-callers, against 22b8ee1, as merged and with two fixes, the first and second starts of S15, part 1 | as merged 0.93 to 0.96; with V1 0.96 to 0.99; with V2 1.01 to 1.08, taken and merged (PR 37); V2 on index-long-text 8 to 14 % faster on a replace that changes a long key and on an insert and a delete with distinct heads | rented-arm64-1 | 21 November 2026 |
 | S15, part 1 | Exact search at the close, the third start, against 5cc64c8, 1 thread alone, class and by name | Int64 0.966 and 0.957; text of 8 bytes 0.899 and 0.911; text of 100 bytes 0.951 and 0.964; the first of many 0.826 and 0.869; beside a writer one entity 0.99 to 1.06. Targets of S14, part 2 at the head: 692 k against 700 k, 426 k against 450 k, 258 k against 200 k, with 5cc64c8 reading 730 k and 474 k | rented-arm64-1 | 21 November 2026 |
+| S16 | Unique indexes, unique-writes, three rounds of the head and its gauge: a refused insert, the price of the check, the replace that keeps every key, the load of a child | an insert refused for a held value 143 k a second, a `DuplicateKey` refusal 104 k, an accepted insert and delete 650 k; one Int64 index unique against not 0.89 for an insert and a delete, 0.84 for a replace that moves the key, about one descent of the tree; the fixture's users with their unique index 1.00 with one caller and 0.97 with 16 on a replace that keeps every key; the load of a child 572 ms with the walk against 566 ms | rented-arm64-1 | 22 November 2026 |
+| S16 | F6, G2 and the record of a write: index-writes and write-callers against 57be01b, five builds rotating | with 1, 3 and 6 indexes 1.02 to 1.13, the gauge 0.95 to 1.02; a type without an index 0.996 to 1.013; the upkeep of one index 1.08 to 1.18 times the bare tree (57be01b 1.20 to 1.30); the fixture's users, a replace 1.02 to 1.06, an insert and a delete with one caller 0.984, the gauge 0.990, every run of the head below the runs before, its cause not found | rented-arm64-1 | 22 November 2026 |
+| S16 | Reads by key and the exact search against 57be01b | reads by key at 1 and 8 readers 0.96 to 1.08, the gauge 0.97 to 1.06; the exact search on one thread 0.96 to 0.99, the gauge 0.96 to 1.01; Int64 737 k, text of 8 bytes 443 k (target 450 k, missed as before), of 100 bytes 269 k | rented-arm64-1 | 22 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -1269,7 +1276,7 @@ Why this order:
 | S15, part 1 | The walk: leading parts, ranges, both directions, Offset and Limit, at most once | Full, critical | Done on 21 November 2026 |
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
-| S16 | Unique indexes | Full | Not started |
+| S16 | Unique indexes | Full | Done on 22 November 2026 |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
@@ -7353,14 +7360,18 @@ touches anyway.
 - **Contract.** Exists.
 - **To read.** [Unique indexes](../decisions/unique-indexes.md); evidence:
   [unique-index extension](../../src/Prototypes/OperationRetry/README.md#unique-index-extension).
-- **Acceptance.** Every test of `UniqueIndexTests` passes with its assertions unchanged
-  and the sample runs to the end. In addition: of many concurrent writers of one value
+- **Acceptance.** Every test of `UniqueIndexTests` passes with its assertions unchanged,
+  except the two that commit a write batch (`Batch_is_checked_against_the_state_it_leaves`,
+  `Batch_that_would_break_a_unique_index_is_refused_as_a_whole`), which stay skipped with
+  the shared reason of the batch until S17; the sample runs up to its swap through a write
+  batch and reports where it stops. In addition: of many concurrent writers of one value
   exactly one succeeds; a key with any null component is exempt and is still found by
   search; equality follows the comparison of every component; a replace that keeps its
   own key does not conflict with itself; a refused write changes nothing and names the
   index; a write through a child is refused by the master. A child that would have to
-  apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes while it builds them, before it
-  is ready; a violation found there stops the load in the same way.
+  apply a violation stops as on a protocol failure and repairs nothing. A child validates its unique indexes once they are built, at the
+  position it becomes ready at and before it is ready; a violation found there stops the
+  load in the same way.
 - **Measured.** Reported: write time for the fixture's users with and without their
   unique index. The replace that keeps every indexed key, index-writes with 0, 1, 3 and 6
   indexes, measured again after the stored fields of an index are resolved once when its
@@ -7379,6 +7390,312 @@ Two things the sprint carries beside its own work. The start of the machine has 
 `BindingSearch.ExpectRefusedAsync` and `IndexPartTypeTests.ExpectRefused`, that holds the
 exception to be an `ArgumentException` itself and not a type derived from it: every such
 refusal is one today.
+
+**Changed by the owner on 22 November 2026, in the coordinator's session** ("да,
+подтверждаю": yes, I confirm), two sentences of the Acceptance above. The two tests of
+`UniqueIndexTests` that commit a write batch, and the swap of the sample, need the commit of
+a batch, which is S17's; the Acceptance of S17 names them. And a child checks its unique
+indexes at the position it becomes ready at, not while it builds them: the capture is not a
+snapshot, copied roots may reflect different published positions
+([replication and hosting](../decisions/replication-and-hosting.md)), so two roots may hold
+one value for a while during the load and the catch-up, and a check at each step would
+refuse a valid load.
+
+**The brief, as passed by the planner on 22 November 2026 after the study.** The study read
+PostgreSQL (`nbtinsert.c`), SQLite (`insert.c`), Tarantool memtx and Apache Derby
+(`BTreeController`) at the commits its report names; nothing is adapted, so nothing is
+added to the third-party notices. The names below are the study's proposal; the
+implementer may choose better ones and commits the internal contract with its first step
+of implementation, for the planner to read.
+
+*What is built.*
+
+1. **Three outcomes of a reservation.** `ChangePublisher.TryReserve` returns
+   `ReservationEnum { Reserved, RefusedForMemory, KeyTaken }`. On `KeyTaken` nothing is
+   reserved, and the change records which index and which published root holds the key;
+   they are read only after that outcome. There is no second out parameter. Whether a
+   taken key is a refusal or a wait is decided by `WriteCoordinator`, in one method that
+   every preparation passes through, because only it knows the prepared, unpublished
+   writes: `Entities` does not come to depend on `Writes`.
+2. **Checks before reservations, in the same hold.** For a type with a unique index and a
+   change that is not a delete: the mask of every index is decided and recorded first, so
+   `ChangeOf` runs once; then every unique index whose key the change sets or moves is
+   checked; only then are nodes reserved. A refused key therefore touches no pool: it
+   costs its encoded root and the free of it. A type without a unique index, and a
+   delete, pay nothing for the check; if `index-writes` or the listing of `TryReserve`
+   shows that such a type pays for the split of the loop, the implementer reports the
+   figure and the planner decides.
+3. **What a check reads.** A key with a null in any part is not checked. Otherwise one
+   descent of the published tree: the entry of the new root with the lowest identity,
+   sought at or after, compared by the order of the tree, which is the comparison of
+   every part; where the place found is the end of a leaf, one more seek at the fence, as
+   a walk does. The implementer first establishes by reading `OrderedTree` whether a
+   separator can be the copy of a removed entry, and says so in the comment of that
+   seek. A replace that keeps its key has the mask None or Rewrite and is not checked. No
+   key is built from the values of the write: a forwarded write has none.
+4. **Refuse or wait.** A key held by a published root whose own prepared write keeps it
+   is refused at once: `UniqueConstraintViolation` with the name of the index, made in
+   one place; of two violated indexes the first in the order of declaration is named. A
+   key claimed by a prepared, unpublished insert or key move of another entity, or held
+   by a published root whose prepared delete or key move frees it, makes the write wait
+   for that one holder: it gives back its root, its handle and what it reserved, stays
+   the head of the chain of its own entity, and stands on a list of its own
+   (`WaitingForValue`), not on the links of a chain. `MarkCompleted` stays the one place
+   where the end of a write starts what waited for it: the waiters of the completed
+   write become ready in their order and are prepared again from the start, so the check
+   runs again from scratch, whatever the holder ended as. A withdrawn waiter leaves the
+   list and ends as cancelled; a fault makes every waiter ready and they end
+   `Unavailable`. The prepared writes are scanned only while prepared memory is held, so
+   in MemoryOnly an ordinary write does not scan. The wait is taken only under the lock
+   of the writes, holds nothing, has the token of the write, and ends when the holder's
+   persistence step ends; a holder never waits for its waiter.
+5. **A write that does not fit and violates** may end as a refusal for memory, since its
+   root is encoded before the check.
+6. **The child.** During the load and the catch-up nothing is checked; the tree is
+   ordered by key and identity and may hold a key twice. At the position the child
+   becomes ready at, before it is ready, each unique index is walked once in order under
+   the lock, each entry compared with the one before, keys with a null skipped; a
+   duplicate is a protocol failure and the open fails `Unavailable`. From then on a
+   received change is checked as on the master, and a taken key gives back what was
+   prepared and stops the child as on a protocol failure, before anything is published;
+   nothing is repaired.
+7. **The wire.** The reply to a forwarded write that is refused for a unique index
+   carries the Id of the index; the child resolves it against its schema and reports the
+   name. `Protocol.WireFormat` becomes 4.
+8. **The first structural commit**, before any of this and with no change of behavior:
+   F6 and G2 of `refactoring.md`.
+
+*Not built here.* The stable rejected outcome of a repeated token (the decision, "a
+confirmed violation is a stable rejected operation outcome") belongs to the sprint of
+retries. The validation of the final state of a batch, with swaps, is S17: a child of
+S17 needs that form too, since a check of each effect would refuse a valid swap.
+
+*Conditions.* The size of the record of a write and the pinned bytes of a write of a
+type without a unique index do not grow, or the growth is stated with its figure before
+the review. A reader finds at most one root for a full non-null key of a unique index at
+every moment, under concurrent writes included.
+
+*Tests, committed before the implementation; beside `UniqueIndexTests`, whose assertions
+do not change.* Public ones in `Moltaro.Lattice.Tests/Indexes/Unique`, mechanisms in
+`Moltaro.Lattice.Engine.Tests` beside the tests of the coordinator and of the child.
+
+- Many concurrent writers of one value: exactly one succeeds, every other is refused
+  with the name of the index, and afterwards a search finds one root. The same with
+  inserts, with replaces that move a key onto it, and mixed.
+- A null in every position of a composite unique key, the first, a middle, the last and
+  all of them: exempt, several roots hold it, and a search for it finds them all.
+- Equality is the comparison of every part: text under each case policy, NaN and the two
+  zeros of a floating-point part, an Enum part by its number, an empty text as a value.
+- The owner at a boundary of the tree: an index large enough to have several leaves,
+  with the key sought as the last entry of a leaf, as the first of the next, and equal
+  to a separator; and after the owner was removed and the tree not yet merged.
+- A replace that keeps its key, one that keeps it while other fields change, and one
+  that moves it and back.
+- A refused write changes nothing: the entity, the indexes, the position, and, in the
+  engine's tests, the prepared bytes and the counts of every pool, equal before and
+  after; the same figures for an accepted insert that is then deleted, for comparison.
+- Two indexes violated at once: the first declared is named.
+- The wait, with the persistence step held as the tests of the chain of one entity hold
+  it: behind a prepared insert that is then published (refused), withdrawn (the waiter
+  takes the value) and cancelled in the forming of a group; behind a prepared delete and
+  a prepared key move that free the value (the waiter takes it); a published owner whose
+  prepared write keeps the key (refused at once, no wait); several waiters of one holder
+  released in their order, of which exactly one takes a freed value; a waiter cancelled
+  while it waits; a waiter that is also the head of a chain of its own entity, whose
+  later writes keep their order; a waiter released while a refusal for memory is being
+  resolved; a fault while writes wait (all end `Unavailable`, none is left waiting).
+- A write through a child is refused by the master with the name of the index, for a
+  record and for a class.
+- A child: a load in which two roots held one value at different positions of the
+  capture, and not at the position it becomes ready at, succeeds; a load with a real
+  duplicate at that position fails the open; a received change that would violate, after
+  it is ready, stops the child with nothing applied and nothing repaired.
+- A peer of wire format 3 is refused at the handshake, as the tests of the format hold
+  for every change of it.
+
+*The breaker's targets, in order.* (1) One value, many writers, with withdrawals,
+cancellations and a held persistence step: never two owners, never none when one writer
+was left to succeed, and no waiter left waiting when every holder has ended. (2) The
+list of waiters against the chains of entities and against the resolution of a refusal
+for memory: order kept, nothing prepared twice, nothing lost. (3) A fault and a close
+while writes wait. (4) The owner search at the boundaries of leaves while other writes
+split and merge them, and readers searching the same key. (5) The null exemption and
+the equality of parts at their edges. (6) The child: the capture that is not one
+position, and a violation after it is ready.
+
+*Measured, in the one start of the machine, beside what "Measured" above and the note of
+21 November name.* The withdrawal that "Measured" expected of a refused key does not
+happen, since a refusal reserves nothing; in its place: (1) an insert refused for a
+taken value beside an accepted insert and a `DuplicateKey` refusal; (2) the same index
+unique and not unique, for an insert and for a replace that moves the key: the price of
+the descent; (3) the replace that keeps every key on a type with unique indexes, equal
+to the line without them; (4) the load of a child with the fixture, with and without the
+walk; (5) the listing of `TryReserve` for a type without an index, with no added call.
+The wait behind a claim is a withdrawal after a reservation and stays rare by its cause,
+a held persistence step; the durable step measures it.
+
+**The record of S16** (closed on 22 November 2026). The study read PostgreSQL, SQLite,
+Tarantool memtx and Apache Derby and adapted nothing. Step 1 ended at c860067: its tests
+were written by the implementer from the brief and committed before the implementation.
+After round 1 of the review two of them were corrected on their premises, which the
+documented rules decide and the reviewer judged: a root entry is released only by a
+drain (Q32, `arena-protocol.md`), and a pool holds its standing reserve less what a
+publication took ("The standing reserve"). No other assertion of step 1 changed. The first
+structural commits are F6 (e79a710) and G2 (138215c), with no change of behavior. The
+implementation is 2da3bf7 and the wire 4 is e1678dd. The placeholder tests went with the
+implementation: `Unique_indexes_are_not_implemented_yet`, and the unique cases of
+`NotStoredYetTests` and `ValidationBeforeRefusalTests`. The two tests of `UniqueIndexTests`
+that commit a batch stay skipped with the shared reason of the batch, as the owner's
+change of the Acceptance says.
+
+The internal contract, read by the planner, departs from the study in three places.
+- The owner of a value is found through a reader of the new root.
+- The decision is split into `DecideTakenValue` and `WaitsForClaim`, over one scan of the
+  prepared writes.
+- G2 records the replaced root in the lookup (`EntityTable.TryFind`), where the
+  preparation writes it with the change. The study had the reservation read it, which
+  would have added a call that is not inlined to every replace and delete.
+
+The sizes, confirmed by the reviewer:
+- `PreparedChange` grows from 96 to 104 bytes, `PreparedWrite` from 136 to 144 and
+  `PendingWrite` from 336 to 344. The record of a write is 16 bytes larger, which the
+  planner accepted, to be judged by the lines below.
+- The prepared bytes of a type without a unique index do not change.
+- `IndexSearch` stays 56 bytes; the search object stays 360 bytes through a class and 352
+  by name.
+
+The JIT listings were taken on the workstation, from a Release driver over the public API,
+with `DOTNET_JitDisasm` and `DOTNET_TieredPGO=0`.
+- For a type without an index, `TryPrepareInsert`, `TryPrepareReplace` and
+  `TryPrepareDelete` make 21, 21 and 14 calls, and `TryReserve` makes 5, as before.
+- `TryReserveWithIndexes` makes 20 calls before G2, 15 after it, and 16 at the head. The one
+  more is the call of `TryReserveChecked`, for a type with a unique index only.
+- `MarkCompleted` makes 7 calls instead of 6; `ReleaseWaitersOf` is called only when a
+  write waits for a value.
+- The reviewer's own listings agree. A read by key does not go through
+  `EntityTable.TryFind`, and its one change is the offset of a field, 80 to 88. The exact
+  search of an index that is not unique makes no added call.
+
+Review: three rounds.
+- Round 1 found 1 P1: the two premises of step 1 above. It also found no P2, 4 P3 and 7 P4.
+- Round 2 found 1 P2: FindAsync and HasMore had no test that fails without the end of a
+  search at its entity. It also found 1 P3 and 2 P4.
+- Round 3 found nothing.
+
+The breaker:
+- Its probes passed in the order of its targets but one, a P2: a lazy search by the full
+  key of a unique index returned two roots when the value changed owner between two
+  steps (4757723). It was fixed in 5edcb5d: a step that returns an entity for such a key
+  ends the search (`IndexSearch.EndsAtItsEntity`, decided once, taken in `Commit`). The
+  public remark of `ILatticeIndex` and `ordered-index.md` say so.
+- One of its premises failed in 3 of 9 full runs: it sampled a counter from a reader
+  thread. It was made deterministic by holding the persistence step (00edb03), with no
+  assertion of a guarantee changed.
+
+The hardest part to follow, by the reviewer: how the decision on a taken value is split
+between `ChangePublisher`, which finds the holder, and `WriteCoordinator`, which alone
+knows the prepared writes; and `IndexSearch.Commit` with its flag.
+
+The effort trial (the [development process](process.md), "Models and effort by role"):
+- S15R, implemented at Opus 5.5 high, took 13 commits and one fix in about 76 minutes.
+  It needed one round of review, with no P1, no P2, 1 P3 and 5 P4.
+- S16, critical and implemented at xhigh, took 6 commits in about 80 minutes, then three
+  commits after round 1 in about 14 minutes. It needed three rounds, with the findings
+  above, and its breaker found one P2.
+
+Open, for the next coordinator and the architect:
+- `MalformedTransactionTests.Delete_whose_integer_key_is_outside…` failed once at 779641e,
+  in a full Release suite on a loaded workstation, and its message was not kept. It was
+  not reproduced in about 400 runs, alone and under load, at 779641e and at 57be01b. The
+  sprint is not on its path: the forged Delete is refused in `PrimaryKeys.ReadKey`
+  before every member the sprint changed. A fast refusal of a socket under load remains
+  possible and unproven. The next coordinator checks the class first, and every later
+  failure of it is kept with its message.
+- `ReadTimeInsideTheEngineTests.Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it`
+  failed twice under heavy parallel load at 779641e ("In each of 3 attempts a step took as
+  long as the limit by itself"). It was not recorded before as dependent on load, and it is
+  neither skipped nor loosened here. The next architect's review asks how it becomes
+  deterministic.
+
+**What the start of the machine showed, 22 November 2026** (the rented ARM64 machine,
+`rented-arm64-1`, .NET 10.0.15, from 11:30 to 13:07 UTC, after the review and the breaker
+were closed). Five builds rotated in every round:
+- 5f1907d, before S15, part 2;
+- 074f783, before S15R;
+- 57be01b, `main` before this sprint;
+- d00aab4, the head;
+- a second build of the head, the gauge.
+
+Five series ran: `unique-writes` (three rounds, the head and the gauge), `index-writes`
+(three rounds, with the bare tree of the prototype once a round), `write-callers` (four
+rounds), `read-by-key-threads` (three rounds, 57be01b, the head and the gauge) and
+`index-search` (three rounds). Every ratio below is of medians, the head over 57be01b
+unless it says otherwise, with the gauge beside it. The raw outputs are kept outside the
+repository.
+
+- **The lines the brief names, `unique-writes`.** The head and the gauge are taken
+  together, six runs of each line; the gauge on these lines is 0.97 to 1.05.
+  - (1) An insert refused for a value the index holds: 143 k a second and 1,426 bytes a
+    write, against 104 k and 1,659 bytes for a `DuplicateKey` refusal and 650 k and 144
+    bytes for an accepted insert and delete.
+  - (2) The same Int64 index unique and not unique. An insert and a delete run at 0.89
+    (649 k against 728 k), a replace that moves the key at 0.84 (318 k against 377 k).
+    That is about 335 ns more for an insert and 500 ns more for a move, one descent of
+    the tree: the bare tree searches in about 480 ns on a thread.
+  - (3) A replace that keeps every key on a type with unique indexes. The fixture's users
+    with and without their unique index run at 1.00 with one caller and at 0.97 with 16.
+    Three Int64 indexes unique and not run at 0.96, with a spread of 10 % in the runs of
+    the head. Their inserts and deletes run at 0.955 with one caller and 1.01 with 16.
+  - (4) The load of a child of the fixture's users, with the walk and without: a median of
+    572 ms against 566 ms over five loads a run; the first load of each run is a warm-up.
+  - (5) The listing of `TryReserve` for a type without an index: no added call (above).
+- **F6, G2 and the record of a write, `index-writes`.**
+  - A type without an index loses nothing: 0.996 to 1.013, the gauge 0.97 to 1.02.
+  - With 1, 3 and 6 indexes, one caller:
+    - a replace that changes every key runs at 1.07, 1.09 and 1.10;
+    - a replace that keeps every key at 1.02, 1.06 and 1.10;
+    - an insert and a delete at 1.07, 1.08 and 1.10.
+  - With eight callers the same lines run at 1.03 to 1.13. The gauge is 0.95 to 1.02.
+  - A replace that keeps every key now runs at 0.94, 0.98 and 0.93 of the rate of the type
+    without indexes, where 57be01b ran at 0.93, 0.93 and 0.85.
+  - The upkeep of one index for a replace that changes the key costs 1.08 to 1.18 times
+    the replace of the bare tree of the same round on the head, and 1.14 to 1.23 on the
+    gauge. It cost 1.20 to 1.30 on 57be01b, against a bound of 1.5. The bare tree took
+    1,146 to 1,239 ns.
+- **The fixture's users, `write-callers`.**
+  - A replace that keeps every key runs at 1.06 with one caller, 1.04 with 4 and 1.02
+    with 16, the gauge 0.98 to 0.99.
+  - An insert and a delete with one caller runs at 0.984, the gauge 0.990. This is the one
+    fall of the start, and it is real: the eight runs of the two builds of the head make
+    157.7 k to 163.8 k a second, the twelve runs of the three builds before 162.5 k to
+    166.6 k. With 4 and 16 callers the same line runs at 1.02 and 0.98. Beside 16
+    readers, replaces run at 1.02 to 1.04 and inserts and deletes at 0.97 to 0.98; the
+    reads run at 1.00 to 1.02.
+  - The users declare no unique index, so the check does not run for them. The same
+    changes make the inserts and deletes of `index-writes` 7 % faster with Int64 indexes.
+  - A control on the workstation, the builds of the sprint step by step (57be01b, F6, G2,
+    the implementation, the head), was not usable: one build scattered 85 k to 235 k a
+    second between rounds. So the cause is not found. No requirement of writes is missed,
+    and the fall goes to the architect (the entry of the backlog found while measuring
+    S16).
+- **Reads by key, `read-by-key-threads`.** The total is judged at 8 readers, half the
+  processors.
+  - One reader runs at 0.96 to 1.03, the gauge 0.99 to 1.02.
+  - Eight readers run at 0.96 to 1.08, the gauge 0.97 to 1.06.
+  - The total grows from 1.16 M a second with one reader to 8.07 M with eight.
+- **The exact search, `index-search`, one thread alone.**
+  - An Int64 key runs at 0.994 through the class and 0.965 by name.
+  - A text of 8 bytes runs at 0.991 and 0.983, a text of 100 bytes at 0.964 and 0.997.
+  - The gauge on these lines is 0.96 to 1.01, and the bytes of a search do not change.
+  - The targets of S14, part 2 at the head: Int64 737 k against 700 k, a text of 100 bytes
+    269 k against 200 k. A text of 8 bytes makes 443 k against 450 k, still missed as at
+    the close of S15, part 1, where 57be01b reads 447 k.
+  - The first of 16 keys beside a writer runs at 0.956 on both builds of the head, but its
+    rounds overlap those of every earlier build (812 k to 911 k against 777 k to 932 k),
+    so it is not judged a fall.
+- **The lines of S15R** (57be01b over 074f783) are written in H1, H3, F13 and J1 of the
+  [refactoring backlog](refactoring.md): nothing is lost. The exact search of an Int64 key
+  through the class gains about 5 %.
 
 #### S17 · Atomic write batch
 
@@ -7406,7 +7723,9 @@ position of a batch sees all of it, for a batch that inserts, replaces and delet
   [arena protocol, write batch extension](../design/arena-protocol.md#bounded-writebatch-extension);
   evidence: [write batch and recovery](../design/prototype-evidence.md#bounded-writebatch-postgresql-and-application-recovery).
 - **Acceptance.** Every test of `WriteBatchTests` passes with its assertions unchanged
-  and the sample runs to the end. In addition: a reader running during publication sees
+  and the sample runs to the end. The two tests of `UniqueIndexTests` that commit a write
+  batch pass with their assertions unchanged, and the sample of unique indexes runs to the
+  end. In addition: a reader running during publication sees
   all of a batch or none of it, on the master and on a child, by key and by index. All
   identities of a batch are claimed together; two batches with overlapping entities do
   not deadlock. Two entities exchange unique values in one batch; a delete frees a value

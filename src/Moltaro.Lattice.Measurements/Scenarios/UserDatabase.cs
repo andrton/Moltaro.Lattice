@@ -7,7 +7,8 @@ using Moltaro.Lattice.Schema;
 namespace Moltaro.Lattice.Measurements.Scenarios;
 
 // The database the scenarios of reads by an integer key read: the 100,000 users of the scalar form of
-// the reference fixture without its Unique marks, inserted by name into the engine, MemoryOnly. The
+// the reference fixture without its Unique marks, or with them for the scenario of unique indexes,
+// inserted by name into the engine, MemoryOnly. The
 // class FixtureUser is named for the entity type User, which leaves the schema the scalar form, so
 // that the users are read through the class as well as by name.
 //
@@ -52,12 +53,13 @@ internal sealed class UserDatabase : IDisposable
     // Generates the fixture, opens the database, under the read limits given or none and accepting
     // children at the address given or at none, and inserts the users by name; with Region in Dictionary
     // storage when dictionaryRegion is true; without the three indexes of User when withoutIndexes is
-    // true, the same users of a type that declares none.
-    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false)
+    // true, the same users of a type that declares none; with the Unique marks of the scalar form when
+    // unique is true, so that ByLogin of User is unique.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false, bool unique = false)
     {
-        var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false)));
+        var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique)));
         var records = ReferenceFixture.Generate(scalar).ToList();
-        var json = WithUserClass(ReferenceFixture.ScalarSchemaJson(unique: false));
+        var json = WithUserClass(ReferenceFixture.ScalarSchemaJson(unique));
         var schema = dictionaryRegion || withoutIndexes
             ? LatticeSchema.Compile(withoutIndexes ? WithoutUserIndexes(json) : WithDictionaryRegion(json))
             : scalar;
@@ -88,7 +90,7 @@ internal sealed class UserDatabase : IDisposable
         return new UserDatabase(
             database,
             users,
-            $"Fixture: the scalar form without its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}{(withoutIndexes ? ", User without its indexes" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
+            $"Fixture: the scalar form {(unique ? "with" : "without")} its Unique marks{(dictionaryRegion ? ", Region in Dictionary storage" : "")}{(withoutIndexes ? ", User without its indexes" : "")}, seed {ReferenceFixture.Seed}, {ReadSeries.Number(records.Count)} records, digest {ReferenceFixture.Digest(records)}",
             $"Database: the engine, MemoryOnly; {ReadSeries.Number(users.Count)} users inserted by name in {ReadSeries.Seconds(loading.Elapsed)} s");
     }
 
