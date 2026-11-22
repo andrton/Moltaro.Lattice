@@ -11,19 +11,19 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 
 // A child applies the transaction of a write batch through the publisher of the master and acknowledges only
-// its position (the brief of Epic 1, sprint S17, point 6; decision on the document model: "A child must not
-// expose a prefix or advance applied progress past a partial batch"):
+// its position (decision on the document model: "A child must not expose a prefix or advance applied
+// progress past a partial batch"):
 // - a batch that inserts, replaces and deletes is applied whole, at its one position, and every member has
 //   on the child the revision it has on the master;
 // - while its application is held before the position (HeldPublication), the child has acknowledged no
 //   sequence of the batch, and once it goes on it acknowledges the position of the batch;
 // - an exchange of unique values, which the master checks on the state the batch leaves, is applied, and so
-//   is a transaction that exchanges them, which the child checks on the state it leaves; a transaction that
-//   would give a value of a unique index a second owner on the state it leaves — two effects that claim one
-//   value, or an effect that claims the value of an owner no effect frees — stops the child as a protocol
-//   failure does, with nothing of it applied: it ends its connection and serves its reads at the position it
-//   had, Ready.
-// The transactions of the last three are forged by a relay (FrameRelay) from transactions of the master, as
+//   is a transaction that exchanges them, or one whose delete frees a value another effect takes, in either
+//   order, which the child checks on the state it leaves; a transaction that would give a value of a unique
+//   index a second owner on the state it leaves — two effects that claim one value, or an effect that claims
+//   the value of an owner no effect frees — stops the child as a protocol failure does, with nothing of it
+//   applied: it ends its connection and serves its reads at the position it had, Ready.
+// The transactions of the last four are forged by a relay (FrameRelay) from transactions of the master, as
 // a master writes the members of a batch: one transaction at the sequence of the first, whose Writes carry
 // that sequence.
 public sealed class ChildBatchTests
@@ -105,7 +105,7 @@ public sealed class ChildBatchTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await InsertBeforeAsync(master.Set<Item>());
-        var (relay, readiness, child) = await ForgedAsync(master, kept: [0, 2]);
+        var (relay, readiness, child) = await ForgedAsync(master, count: 3, kept: [0, 2]);
 
         await using (relay)
         await using (child)
@@ -128,7 +128,7 @@ public sealed class ChildBatchTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await InsertBeforeAsync(master.Set<Item>());
-        var (relay, readiness, child) = await ForgedAsync(master, kept: [0, 2]);
+        var (relay, readiness, child) = await ForgedAsync(master, count: 3, kept: [0, 2]);
 
         await using (relay)
         await using (child)
@@ -152,7 +152,7 @@ public sealed class ChildBatchTests
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
         await InsertBeforeAsync(master.Set<Item>());
-        var (relay, readiness, child) = await ForgedAsync(master, kept: [1, 2]);
+        var (relay, readiness, child) = await ForgedAsync(master, count: 3, kept: [1, 2]);
 
         await using (relay)
         await using (child)
@@ -177,22 +177,54 @@ public sealed class ChildBatchTests
         }
     }
 
-    // A child of the master through a relay that holds the next three transactions of the master and passes, in
-    // their place, one at the sequence of the first with the effects of those kept, each Write carrying that
-    // sequence as its last mutation.
-    private static async Task<(FrameRelay Relay, LatticePosition Readiness, EngineDatabase Child)> ForgedAsync(EngineDatabase master, int[] kept)
+    // The master deletes 1 and gives its login to 9; the relay passes the two as one transaction, the delete
+    // first or the insert first: the delete frees the value the insert takes, on the state the transaction
+    // leaves, whichever comes first among its effects.
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    public async Task Child_applies_a_transaction_whose_delete_frees_a_value_another_effect_takes_in_either_order(int first, int second)
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await InsertBeforeAsync(master.Set<Item>());
+        var (relay, readiness, child) = await ForgedAsync(master, count: 2, kept: [first, second]);
+
+        await using (relay)
+        await using (child)
+        {
+            var items = master.Set<Item>();
+
+            await items.DeleteAsync(1L);
+            await items.InsertAsync(new Item { Id = 9, Tag = "old", Group = 1, Login = "login 1" });
+
+            var applied = PositionSequence.Of(readiness) + 1;
+
+            await Eventually.HoldsAsync(() => PositionSequence.Of(child.Position) == applied, "The child did not apply the transaction whose delete frees the login.");
+
+            var onChild = child.Set<Item>();
+
+            Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+            Assert.Null(onChild.Get(1L));
+            Assert.Equal([9L], onChild.Index("ByLogin").Find(IndexKey.Equal("login 1")).Select(item => item.Id));
+        }
+    }
+
+    // A child of the master through a relay that holds the next transactions of the master, as many as count,
+    // and passes, in their place, one at the sequence of the first with the effects of those kept, in the order
+    // given, each Write carrying that sequence as its last mutation; later transactions pass as they are.
+    private static async Task<(FrameRelay Relay, LatticePosition Readiness, EngineDatabase Child)> ForgedAsync(EngineDatabase master, int count, int[] kept)
     {
         var held = new List<WireFrame>();
         var relay = FrameRelay.Start(master.ListenUri!, frame =>
         {
-            if (frame.Kind != FrameKindEnum.Transaction)
+            if (frame.Kind != FrameKindEnum.Transaction || held.Count >= count)
             {
                 return [frame];
             }
 
             held.Add(frame);
 
-            return held.Count < 3 ? [] : [Merged(held, kept)];
+            return held.Count < count ? [] : [Merged(held, kept)];
         });
         var child = await ReplicationNodes.OpenChildAsync(relay.Address);
 
