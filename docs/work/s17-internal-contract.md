@@ -280,7 +280,10 @@ Tests that now pass: `LinearBoundTests.Bounds_of_the_pool_are_the_linear_bounds_
 and the new `ChildBatchTests.Child_applies_a_transaction_that_exchanges_unique_values_on_the_state_it_leaves`,
 an exchange forged by the relay, which no order of single writes can apply.
 
-Premises of step 1 found wrong, left as they are for the reviewer:
+Premises of step 1 found wrong. *Decided by the coordinator after review round 1:* each test is changed
+to `ordered-index.md` in a commit of its own, which gives the old and the new assertion (`d6cf4f2`,
+`cf01f8c`, `a1926bb`); the first and the third are no longer skipped, the second needs the commit of a
+batch.
 
 - `LinearBoundTests.Reservation_withdrawn_gives_back_exactly_what_it_took_and_keeps_the_standing_reserve`
   holds the reserve after a withdrawal. By `ordered-index.md` it goes back: with nothing else waiting the
