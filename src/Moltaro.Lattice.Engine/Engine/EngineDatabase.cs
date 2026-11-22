@@ -308,12 +308,13 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
     }
 
     // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
-    // outside every lock (Entities.RootValues.Export); empty for an entity type the engine does not store.
-    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[] values)
+    // outside every lock (Entities.RootValues.Export); empty for a delete and for an entity type the engine
+    // does not store. ObjectDisposedException once the database is closed, for every kind of member.
+    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[]? values)
     {
         var table = Part(_parts).Operations[entityType].Table;
 
-        return table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
+        return values is not null && table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
     }
 
     // The commit of a write batch of the core: on a master its members go to the write coordinator as one

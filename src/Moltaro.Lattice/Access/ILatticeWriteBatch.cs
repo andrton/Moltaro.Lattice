@@ -20,8 +20,10 @@ namespace Moltaro.Lattice.Access;
 /// that the entity has not changed since it was read.
 /// </para>
 /// <para>
-/// <b>Building.</b> Adding an operation contacts nothing. The entity or record is copied
-/// when it is added, so later edits of the object are not part of the batch. A batch
+/// <b>Building.</b> Adding an operation to a batch of an open database contacts nothing. The
+/// entity or record is copied when it is added, so later edits of the object are not part of
+/// the batch. Once the database is closed, every operation added is refused with
+/// <see cref="ObjectDisposedException"/>, whatever its kind. A batch
 /// takes one operation per entity. Two operations address the same entity when they name the
 /// same entity type and their primary keys are equal as the schema compares them: an integer
 /// key by its value whatever the width it was given in, a String key under the comparison
@@ -72,6 +74,7 @@ public interface ILatticeWriteBatch
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the entity violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -83,6 +86,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert(LatticeRecord record);
 
     /// <summary>Adds the replacement of an existing entity as a whole.</summary>
@@ -93,6 +97,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -108,6 +113,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity, LatticeRevision expectedRevision)
         where TEntity : class;
 
@@ -119,6 +125,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record);
 
     /// <summary>
@@ -133,6 +140,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record, LatticeRevision expectedRevision);
 
     /// <summary>
@@ -146,6 +154,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert<TEntity>(TEntity entity)
         where TEntity : class;
 
@@ -159,6 +168,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert(LatticeRecord record);
 
     /// <summary>
@@ -175,6 +185,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key)
         where TEntity : class;
 
@@ -193,6 +204,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key, LatticeRevision expectedRevision)
         where TEntity : class;
 
@@ -210,6 +222,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key)
         where TKey : notnull;
 
@@ -228,6 +241,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key, LatticeRevision expectedRevision)
         where TKey : notnull;
 

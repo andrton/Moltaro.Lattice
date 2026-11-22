@@ -1,4 +1,3 @@
-using System.Buffers;
 using Moltaro.Lattice.Access.Binding;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
@@ -125,7 +124,7 @@ internal sealed class WriteBatch : ILatticeWriteBatch
                 $"The batch already has an operation for {entityType.Name} '{key}'. A batch takes one operation per entity.");
         }
 
-        var root = values is null ? ReadOnlySequence<byte>.Empty : _executor.EncodeRoot(entityType, values);
+        var root = _executor.EncodeRoot(entityType, values);
 
         _identities.Add(entity);
         _operations.Add(new WriteBatchOperation(kind, entityType, key, expectedRevision, root));

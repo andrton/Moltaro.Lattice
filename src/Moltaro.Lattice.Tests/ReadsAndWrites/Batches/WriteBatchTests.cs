@@ -230,6 +230,24 @@ public sealed class WriteBatchTests
     }
 
     [Fact]
+    public async Task Every_operation_added_after_the_close_of_the_database_is_refused()
+    {
+        var database = await TestData.OpenMasterAsync();
+        var setting = Setting(database, "theme", "dark");
+        var batch = database.CreateWriteBatch();
+        batch.Insert(new User { Id = 1, Name = "Ada" });
+
+        await database.CloseAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => batch.Insert(new User { Id = 2, Name = "Grace" }));
+        Assert.Throws<ObjectDisposedException>(() => batch.Replace(new User { Id = 3, Name = "Linus" }));
+        Assert.Throws<ObjectDisposedException>(() => batch.Upsert(setting));
+        Assert.Throws<ObjectDisposedException>(() => batch.Delete<User>(4));
+        Assert.Throws<ObjectDisposedException>(() => batch.Delete("Setting", "language"));
+        Assert.Equal(1, batch.Count);
+    }
+
+    [Fact]
     public async Task Batch_takes_records_and_names_like_classes()
     {
         await using var database = await TestData.OpenMasterAsync();
