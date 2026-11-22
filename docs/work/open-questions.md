@@ -118,6 +118,26 @@ in the meantime.
 | **What the code does** | New entries before the store of the root, old ones after the position (`ChangePublisher`), since S14 |
 | **Where the rule lives** | `docs/decisions/unique-indexes.md`, "Master validation and publication"; `docs/design/write-path.md` |
 
+### Q57. Is the barrier of the decision on the write batch a guarantee or a means?
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the study of Epic 1, sprint S17 |
+| **Question** | `docs/decisions/document-model.md` says a batch is published "behind an exclusive database barrier", that every protected access cooperates with it and that "existing protected users drain before batch publication", and leaves the gate to engineering. The study proposes no barrier: every member is stored with its final stamp, the position is published last, and a read that meets a stamp above the position waits as it waits at the mark. A reader then sees all of a batch or none, a read of an entity that is not a member is never held, and nothing drains. Is the guarantee "all or none, and no position before all is visible", with the barrier as one way to keep it? |
+| **Answer** | Decided by the owner, 22 November 2026, in the planner's session: yes. The guarantee is that a reader sees all of a batch or none of it and that no answer carries its position before all of it is visible; the barrier was a means. The engine keeps the guarantee with the protection of reads and the stamps it has, by publishing the position last; no read of an entity that is not a member is held, and nothing drains. The sentences of the decision record are corrected to say so |
+| **What the code does** | Nothing yet: committing a batch is refused until S17 |
+| **Where the rule lives** | `docs/decisions/document-model.md`, "Atomic WriteBatch within one database"; `docs/design/arena-protocol.md`, the write batch extension |
+
+### Q58. Which member of a batch is the failing one when two of them claim one unique value
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the study of Epic 1, sprint S17 |
+| **Question** | `UniqueIndexTests` assert the number of the failing member against a published owner. For two members of one batch that claim the same value no test and no document names it |
+| **Answer** | Taken by the planner, 22 November 2026, for the owner to read at the close of the sprint: the later member, in the first violated index by declaration, since the earlier member alone would have been accepted; against a published owner that no member frees, the member that claims |
+| **What the code does** | As the brief of S17 says |
+| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema

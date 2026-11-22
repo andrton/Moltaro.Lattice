@@ -7824,6 +7824,74 @@ K1 by the builds of S16 step by step and judges L2. And the author of the tests 
 the forged frame reached the child before the child ended: today the tests pass also
 when the connection dies first.
 
+**The brief, as passed by the planner on 22 November 2026 after the study.** The study read
+RocksDB, PostgreSQL, Garnet and Tarantool at the commits its report names; nothing is
+adapted. The names below are the study's proposal; the implementer commits the internal
+contract with its first step of implementation, for the planner to read.
+
+*What is built.*
+
+1. **The structural commit, first, with no change of behavior for a single write:** L1 of
+   `refactoring.md` with G6 and F3. The changes of one publication are a span. Every
+   change is decided first; a taken value is found on the state the publication leaves;
+   each index reserves once for the summed counts; `TakenIndex` and `TakenBy` leave the
+   change. The pool of an index becomes a type of its own whose reserved nodes are linked
+   through their own payload, so a refused reservation leaves no managed room.
+2. **Exposed whole (subject to Q57 of `open-questions.md`).** The publication of a span at
+   a sequence: the new index entries of every change; then for every change the stores of
+   the entity with its final stamp, an insert included; then the position; then the
+   removals and the retirement. A read does not accept a stamp above the position: it
+   backs off as it does at the mark, checks the state of the instance, and tries again.
+   The position of an answer is the position read inside the step, at its three places. A
+   search passes over an index entry whose root is not installed before it takes a stamp;
+   a deleted one is still taken by its stamp. A read by key gets no added load. The same
+   publisher serves a child.
+3. **Unique indexes on the final state.** Before anything is installed, for each unique
+   index of the span: an owner in the published tree is no conflict when a change of the
+   span frees it; two members that claim one value are found by sorting the members that
+   set a value by the order of the index. A prepared, unpublished batch answers a later
+   write's question, who claims and who frees a value, through its sorted claims, not by
+   a scan of its changes. A batch that meets the claim or the release of another
+   unpublished write gives everything back, waits for that one holder and is prepared
+   again whole. Of two members that claim one value the later is the failing member, in
+   the first violated index by declaration (Q58).
+4. **One way to wait for another write.** The wait for a holder of S16 becomes the wait
+   for a write: a batch waits for the latest earlier write not completed that shares an
+   entity with it, and is started again from the beginning when that write ends; a single
+   write whose latest earlier write of its entity is a batch waits the same way. Two
+   single writes keep the chain. Every such wait goes to an earlier admission, and a wait
+   for a value to a prepared write that waits only for its persistence step, so there is
+   no cycle. The identities of a batch are a set of (table, key) by the comparison of the
+   entity type; a repeated identity refuses the batch before anything is prepared.
+5. **The reservation of a batch.** One bound for the nodes a span can take from an index,
+   linear in its inserts and removes, kept by a ledger of the pool because it is
+   amortised. Three conditions. A randomized test holds the bound against what
+   publications take, for random and ascending keys, through splits of the root, growth
+   of the height and removes that merge, before anything relies on it; the same for the
+   places retired by removes, which the study only sketched. A refused or withdrawn
+   reservation gives back exactly what it took. And the bound must not refuse a batch
+   that fits: with the default options a batch of 10,000 small entities of the fixture,
+   with its indexes, is executed; the record states nodes reserved against nodes taken
+   for each size, and if a batch whose take fits is refused for its bound, the tighter
+   bound of the study is taken in this sprint, not later.
+6. **A child** applies a transaction through the same publisher and acknowledges only the
+   position; "each key once" is the set of point 4; a valid exchange of unique values is
+   not refused and a violation on the final state stops the child as on a protocol
+   failure.
+7. **A batch through a child** travels as one request: a head with the minimum position
+   and the count, and each member as its kind, its type, its expected revision, its key
+   and its root in the load format, delimited by its length. The master checks every
+   member, refuses a repeated identity, and submits one write, all or nothing. The reply
+   has the bytes of today's; a refusal for a unique index carries the number of the
+   member, and the index is resolved in the entity type of that member. `WireFormat`
+   becomes 5. The master refuses a body above its memory limit at the first frame; its
+   managed copy of a request is not counted in the budget, as the memory of a transfer is
+   not. Tests: a batch through a child that inserts, replaces and deletes, for a class
+   and by name; each refusal of `WriteBatchTests` through a child with its number; a
+   unique refusal with its number and index; a reply for a unique index without a number
+   refused as a protocol failure; a body above the limit refused with the database as it
+   was; a peer of wire format 4 refused.
+
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
