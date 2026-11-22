@@ -16,7 +16,7 @@ public sealed class OwnerAtLeafBoundaryTests
 {
     private const int Entities = 3000;
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Value_held_as_the_last_entry_of_a_leaf_as_the_first_of_the_next_and_equal_to_a_separator_is_taken()
     {
         await using var database = await OpenAsync();
@@ -50,7 +50,7 @@ public sealed class OwnerAtLeafBoundaryTests
         Assert.Equal(Entities + 1, numbered.Enumerate().Count());
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Value_of_an_owner_removed_at_a_boundary_while_the_tree_keeps_its_separator_is_free_and_then_taken_once()
     {
         await using var database = await OpenAsync();

@@ -102,6 +102,7 @@ internal sealed class EntityTable
         _clock = clock;
         _index = layout is null ? null : new PrimaryIndex(retired);
         _indexes = layout is null ? [] : [.. entityType.Indexes.Select(index => SecondaryIndex.Open(index, layout, arena, retired))];
+        HasUniqueIndex = _indexes.Any(index => index.IsUnique);
     }
 
     public LatticeEntityType EntityType { get; }
@@ -130,6 +131,10 @@ internal sealed class EntityTable
     // The secondary indexes of the entity type, in the order the schema declares them, each kept with the
     // data (Indexes.SecondaryIndex); none when the engine does not store the entity type.
     public ReadOnlySpan<SecondaryIndex> Indexes => _indexes;
+
+    // Whether one of the secondary indexes is unique, so that a write that sets a value of it is checked
+    // (Entities.ChangePublisher.TryReserve).
+    public bool HasUniqueIndex { get; }
 
     // The secondary index of the declaration, an index of this entity type; null when the engine does
     // not store the entity type, which holds no entity.
@@ -171,20 +176,17 @@ internal sealed class EntityTable
         PositionClock clock,
         ulong seed)
     {
-        var refusal = RefusalOf(entityType);
+        string? refusal = null;
         RootLayout? layout = null;
 
-        if (refusal is null)
+        try
         {
-            try
-            {
-                layout = RootLayout.Compile(entityType, schema);
-            }
-            catch (NotSupportedException exception)
-            {
-                // A field the root layout cannot store yet: an owned value, a collection, a reference.
-                refusal = $"{exception.Message} The engine does not store the entity type {entityType.Name} yet, so it cannot be written.";
-            }
+            layout = RootLayout.Compile(entityType, schema);
+        }
+        catch (NotSupportedException exception)
+        {
+            // A field the root layout cannot store yet: an owned value, a collection, a reference.
+            refusal = $"{exception.Message} The engine does not store the entity type {entityType.Name} yet, so it cannot be written.";
         }
 
         var keys = new PrimaryKeys(entityType, schema.StringEncoding, seed);
@@ -827,22 +829,6 @@ internal sealed class EntityTable
         index.DetachAt(entry, progress.StandAt(length), PlaceOf(identity, search.Reverse, after: false));
 
         return 0;
-    }
-
-    // Why the engine does not store an entity type yet, for what the root layout does not refuse
-    // itself; null when nothing of this list applies. The root layout refuses an owned value, a
-    // collection and a reference.
-    private static string? RefusalOf(LatticeEntityType entityType)
-    {
-        foreach (var index in entityType.Indexes)
-        {
-            if (index.IsUnique)
-            {
-                return $"Unique indexes are not implemented yet: {entityType.Name} declares the unique index {index.Name}, so the engine does not store it and it cannot be written.";
-            }
-        }
-
-        return null;
     }
 
     // The slot of the root entry of the key: the first entry of its hash whose root stores the key.

@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Unique;
 // write adds a text entry and frees it.
 public sealed class RefusedUniqueWriteTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Refused_write_leaves_every_counter_every_pool_every_text_and_every_node_as_it_was()
     {
         await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema);

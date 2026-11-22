@@ -14,7 +14,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Unique;
 // frame that carries it, once the child is Ready. Account of UniqueSchema.
 public sealed class ChildUniqueFollowTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Received_change_that_would_give_a_value_a_second_owner_stops_the_child_with_nothing_applied_and_nothing_repaired()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);

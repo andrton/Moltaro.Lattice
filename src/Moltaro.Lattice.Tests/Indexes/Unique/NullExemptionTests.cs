@@ -16,7 +16,7 @@ public sealed class NullExemptionTests
         new(null, null, null),
     ];
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(KeysWithANull))]
     public async Task Key_with_a_null_in_any_part_is_held_by_several_entities_and_a_search_finds_them_all(string? a, int? b, string? c)
     {
@@ -37,7 +37,7 @@ public sealed class NullExemptionTests
         Assert.Equal([1L, 2L, 3L, 4L], UniqueSchemas.IdsOf(slots.Index("ByABC").Find(IndexKey.Equal(a, b, c))));
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(KeysWithANull))]
     public async Task Complete_key_beside_keys_with_a_null_keeps_one_owner(string? a, int? b, string? c)
     {

@@ -83,8 +83,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // Cancellation (docs/decisions/mutation-commands.md, "Cancellation at the commit boundary"). Until its
 // dispatch, the call of IPersistence.CommitAsync for its group, the token of a write is honored at every
-// wait — chained, deferred, prepared and in the queue, waiting in a resolution for the writes admitted
-// before it, for the writes in flight or for the reads that hold retired memory — and when its
+// wait — chained, deferred, waiting for a value of a unique index, prepared and in the queue, waiting in a
+// resolution for the writes admitted before it, for the writes in flight or for the reads that hold
+// retired memory — and when its
 // preparation ends, also a preparation the arena refused. The cancellation of a write that waits in a
 // list or in a resolution hands its withdrawal to the thread pool (PendingWrite.Execute, Withdraw), so
 // that the thread that cancels never takes the lock of the writes: there it leaves its list, gives back
@@ -142,11 +143,30 @@ namespace Moltaro.Lattice.Engine.Writes;
 // any step, and the deferred writes then go on. The switch of the tests runs at the first wait of the
 // resolution of a write, whichever it is (ArmWaitSwitch).
 //
+// A value of a unique index (decision on unique indexes). A value, a key with no null part, belongs to one
+// entity. The check against the published state is the publisher's, before anything is reserved
+// (Entities.ChangePublisher.TryReserve); what the published state does not show, the writes prepared and
+// not published, is decided here, in the one try every preparation passes through (TryPrepare), since only
+// the coordinator knows them. A value held by a published root of another entity whose prepared write
+// keeps it, or that has none, refuses the write with UniqueConstraintViolation and the name of the index,
+// of two indexes the one declared first (Violation). A value claimed by a prepared write of another
+// entity, an insert or a key move, or held by a published root whose prepared delete or key move frees it,
+// makes the write wait for that one write (PendingWriteStateEnum.WaitingForValue): it gives back its root,
+// its handle and what it reserved, stays the head of the chain of its entity, and is prepared again from
+// the start once that write completes, whatever it completes as (MarkCompleted), so its check runs again
+// on what that write left. The prepared writes are looked at only while prepared memory is held, so in
+// MemoryOnly an ordinary write looks at none; the search is linear in them (FindValueHolder), as the
+// search of the chain of an entity is. A write that does not fit the memory and would take a value held
+// may end refused for memory, since its root is encoded before the check.
+//
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of
 // the writes is that of a lock: it ends when the holder releases it, after work in memory alone. The
 // waits in a chain, in the deferred list, in the queue of the prepared writes and in steps 1 and 2 of a
 // resolution have no timeout and have the token; each ends when the writes it waits for end, as above.
+// The wait for the write that holds a value of a unique index has no timeout and has the token; it ends
+// when that one write completes, which is prepared and waits for nothing but its persistence step, never
+// for a write that waits for it, so no two writes wait for each other; a fault ends it (exception X6).
 // The wait for the reads that hold retired memory has no timeout and has the token; a read leaves within
 // one step (exception X6).
 //
@@ -184,8 +204,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // for a position end (EngineDatabase.Fault). The writes of the group published before the failure get
 // their results; the write whose publication failed and the writes of the group after it get
 // IndeterminateOutcome, the first with the failure as its InnerException, and when the persistence step
-// itself failed the whole group does; every other write admitted gets Unavailable once it has released
-// what it held. Every later write is Unavailable, and a close works.
+// itself failed the whole group does; every other write admitted, one that waits for a value among them,
+// gets Unavailable once it has released what it held. Every later write is Unavailable, and a close
+// works.
 internal sealed class WriteCoordinator
 {
     // The lock of the writes (see the class).
@@ -233,6 +254,10 @@ internal sealed class WriteCoordinator
 
     // The writes deferred while a refused write is resolved, in the order they were deferred.
     private WriteQueue _deferred;
+
+    // The writes that wait for the write that holds a value of a unique index, in the order they began to
+    // wait (WaitForValue).
+    private WriteQueue _waitingForValue;
 
     // The write being resolved after the arena refused it twice, from step 2 of its resolution to its
     // end; null otherwise (see the class).
@@ -387,6 +412,12 @@ internal sealed class WriteCoordinator
 
                 case PendingWriteStateEnum.Deferred:
                     _deferred.Remove(write);
+                    DecideFailure(write, cancelled, ref hold);
+                    break;
+
+                case PendingWriteStateEnum.WaitingForValue:
+                    _waitingForValue.Remove(write);
+                    write.ValueHolder = null;
                     DecideFailure(write, cancelled, ref hold);
                     break;
 
@@ -762,20 +793,16 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: prepares the write, which has no earlier write of its entity that has not
-    // completed, and puts it into the queue of the prepared writes; or ends it, or begins its
-    // resolution (see the class, "The refusal").
+    // completed, and puts it into the queue of the prepared writes; or ends it, makes it wait for a value of
+    // a unique index, or begins its resolution (see the class, "The refusal").
     private void Prepare(PendingWrite write, ref Hold hold)
     {
+        ReservationEnum reservation;
         PreparedWrite? prepared;
 
         try
         {
-            if (!TryPrepareTwice(write, out prepared))
-            {
-                BeginResolution(write, ref hold);
-
-                return;
-            }
+            reservation = TryPrepareTwice(write, ref hold, out prepared);
         }
         catch (Exception exception)
         {
@@ -784,11 +811,24 @@ internal sealed class WriteCoordinator
             return;
         }
 
+        if (reservation == ReservationEnum.RefusedForMemory)
+        {
+            BeginResolution(write, ref hold);
+
+            return;
+        }
+
+        // Refused for a value of a unique index, or waiting for the write that holds it (TryPrepare).
+        if (reservation == ReservationEnum.KeyTaken)
+        {
+            return;
+        }
+
         // Once the write has all it needs, the standing reserves of the indexes it changes are topped up
         // (see the class, "The refusal").
-        if (TryQueue(write, prepared, ref hold))
+        if (TryQueue(write, prepared!, ref hold))
         {
-            _changes.TopUp(prepared.Changes);
+            _changes.TopUp(prepared!.Changes);
         }
     }
 
@@ -813,13 +853,17 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: the preparation of a write with the first two tries of a refusal of the arena
-    // (see the class): true when it is prepared, false when it was refused twice and holds nothing. Its
-    // token is honored at the end of each refused try, with OperationCanceledException.
-    private bool TryPrepareTwice(PendingWrite write, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out PreparedWrite? prepared)
+    // (see the class), each through TryPrepare: Reserved when it is prepared, KeyTaken when TryPrepare
+    // refused it or made it wait for a value of a unique index, RefusedForMemory when the arena refused it
+    // twice and it holds nothing. Its token is honored at the end of each try the arena refused, with
+    // OperationCanceledException.
+    private ReservationEnum TryPrepareTwice(PendingWrite write, ref Hold hold, out PreparedWrite? prepared)
     {
-        if (_executor.TryPrepare(write, out prepared, out _))
+        var reservation = TryPrepare(write, ref hold, out prepared, out _);
+
+        if (reservation != ReservationEnum.RefusedForMemory)
         {
-            return true;
+            return reservation;
         }
 
         write.Token.ThrowIfCancellationRequested();
@@ -827,14 +871,172 @@ internal sealed class WriteCoordinator
         // Refused once: what is retired is freed, and the write tries again.
         _retired.Drain();
 
-        if (_executor.TryPrepare(write, out prepared, out _))
+        reservation = TryPrepare(write, ref hold, out prepared, out _);
+
+        if (reservation == ReservationEnum.RefusedForMemory)
         {
-            return true;
+            write.Token.ThrowIfCancellationRequested();
         }
 
-        write.Token.ThrowIfCancellationRequested();
+        return reservation;
+    }
 
-        return false;
+    // Under the lock: one try of the preparation of the write (WriteExecutor.TryPrepare), which every
+    // preparation passes through, so that a value of a unique index is decided in one place, where the
+    // writes prepared and not published are known (see the class, "A value of a unique index"). Reserved,
+    // with the prepared write, when it may be queued; RefusedForMemory, with the refusal of the arena, as
+    // the arena refused it; KeyTaken when it was refused for a value or waits for the write that holds one:
+    // it holds nothing then, its outcome or its wait is decided, and the caller does nothing more for it.
+    private ReservationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
+    {
+        var reservation = _executor.TryPrepare(write, out prepared, out refusal);
+
+        if (reservation == ReservationEnum.KeyTaken)
+        {
+            DecideTakenValue(write, ref hold);
+        }
+        else if (reservation == ReservationEnum.Reserved && write.Table.HasUniqueIndex && HoldsPreparedMemory() && WaitsForClaim(write, prepared!))
+        {
+            prepared = null;
+            reservation = ReservationEnum.KeyTaken;
+        }
+
+        return reservation;
+    }
+
+    // Under the lock, after a preparation that found a value of a unique index held by a published root of
+    // another entity (ReservationEnum.KeyTaken; PreparedWrite.Taken): when that entity has a prepared write
+    // that gives the value up, a delete or a key move, the write waits for it; otherwise, also when that
+    // write keeps the value, the write is refused (Violation).
+    private void DecideTakenValue(PendingWrite write, ref Hold hold)
+    {
+        var record = write.Record;
+
+        if (HoldsPreparedMemory() && FindValueHolder(record, taken: true) is { } holder)
+        {
+            WaitForValue(write, holder);
+
+            return;
+        }
+
+        DecideFailure(write, Violation(write, record.Taken.Index), ref hold);
+    }
+
+    // Under the lock, for a write just prepared and reserved, of an entity type with a unique index, while
+    // writes hold prepared memory: when a prepared and unpublished write of another entity claims a value
+    // the write sets or moves, which the published state does not show, the write gives back what it
+    // prepared and waits for that write, true; false when none does. A delete sets no value.
+    private bool WaitsForClaim(PendingWrite write, PreparedWrite prepared)
+    {
+        if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Delete || FindValueHolder(prepared, taken: false) is not { } holder)
+        {
+            return false;
+        }
+
+        _changes.Release(prepared.Changes);
+        prepared.Withdraw();
+        WaitForValue(write, holder);
+
+        return true;
+    }
+
+    // Under the lock, while writes hold prepared memory: the prepared and unpublished write that holds a
+    // value of a unique index the record of the write wants. When taken, the record is that of a
+    // preparation whose value a published root holds (PreparedWrite.Taken), and the holder is the write of
+    // that root's entity, when it gives the value up (Entities.ChangePublisher.Frees); otherwise the record
+    // holds the change just prepared, and the holder is a write of another entity whose change claims a
+    // value it sets (Entities.ChangePublisher.ClaimsSameKey). Null when there is none. Linear in the writes
+    // prepared, those in the queue and those of the group in the persistence step; only one write of an
+    // entity is prepared at a time, so the write of an entity is found by its root entry.
+    private PendingWrite? FindValueHolder(PreparedWrite record, bool taken)
+    {
+        for (var write = _prepared.First; write is not null; write = write.Next)
+        {
+            if (HoldsValue(write.Prepared!, record, taken))
+            {
+                return write;
+            }
+        }
+
+        if (_groupPending)
+        {
+            foreach (var prepared in _group.Writes)
+            {
+                if (HoldsValue(prepared, record, taken))
+                {
+                    return prepared.Write;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Whether the prepared write holds the value the record wants (FindValueHolder).
+    private bool HoldsValue(PreparedWrite held, PreparedWrite record, bool taken)
+    {
+        if (!held.ChangesEntity)
+        {
+            return false;
+        }
+
+        if (!taken)
+        {
+            return _changes.ClaimsSameKey(record.Change, held.Change, out _);
+        }
+
+        var (index, owner) = record.Taken;
+
+        return held.Change.Handle == owner && _changes.Frees(held.Change, index);
+    }
+
+    // Under the lock: the write waits, holding nothing, for the one prepared and unpublished write that holds
+    // the value it wants, in the list of the writes that wait for a value; it stays the head of the chain of
+    // its entity, and starts again when that write completes (MarkCompleted). The wait ends: the holder waits
+    // only for its persistence step, never for a write that waits for it (see the class, "The waits").
+    private void WaitForValue(PendingWrite write, PendingWrite holder)
+    {
+        write.ValueHolder = holder;
+        write.State = PendingWriteStateEnum.WaitingForValue;
+        _waitingForValue.Append(write);
+    }
+
+    // Under the lock, at the end of a write: the writes that wait for a value it held become ready, in the
+    // order they began to wait, and are prepared again from the start in this hold (StartReadyAndCommit), so
+    // that each check runs again on what the write left. Linear in the writes that wait for a value.
+    private void ReleaseWaitersOf(PendingWrite holder, ref Hold hold)
+    {
+        var waiting = _waitingForValue;
+
+        _waitingForValue = default;
+
+        while (waiting.TakeFirst() is { } waiter)
+        {
+            if (ReferenceEquals(waiter.ValueHolder, holder))
+            {
+                waiter.ValueHolder = null;
+                hold.AddReady(waiter);
+            }
+            else
+            {
+                _waitingForValue.Append(waiter);
+            }
+        }
+    }
+
+    // The refusal of a write that would give a value of a unique index a second owner, made in this one
+    // place: UniqueConstraintViolation with the name of the index at the place given (decision on unique
+    // indexes). The write changed nothing.
+    private static LatticeException Violation(PendingWrite write, int index)
+    {
+        var name = write.Table.Indexes[index].Definition.Name;
+
+        return new LatticeException(
+            LatticeErrorEnum.UniqueConstraintViolation,
+            $"{write.Table.EntityType.Name} '{write.Key}' would take a value of the unique index {name} that another entity holds; nothing was written.")
+        {
+            IndexName = name,
+        };
     }
 
     // Under the lock: the resolution of a write refused twice begins (see the class): step 1 while a
@@ -1039,10 +1241,18 @@ internal sealed class WriteCoordinator
             _retired.Drain();
             _changes.GiveBackReserves();
 
-            if (_executor.TryPrepare(write, out var prepared, out var refusal))
-            {
-                _ = TryQueue(write, prepared, ref hold);
+            var reservation = TryPrepare(write, ref hold, out var prepared, out var refusal);
 
+            if (reservation == ReservationEnum.Reserved)
+            {
+                _ = TryQueue(write, prepared!, ref hold);
+
+                return;
+            }
+
+            // Refused for a value of a unique index, or waiting for the write that holds it (TryPrepare).
+            if (reservation == ReservationEnum.KeyTaken)
+            {
                 return;
             }
 
@@ -1308,8 +1518,15 @@ internal sealed class WriteCoordinator
             waiter = newer;
         }
 
-        // The deferred writes and the writes of every chain start, and end with Unavailable (Start).
+        // The deferred writes, the writes that wait for a value and the writes of every chain start, and end
+        // with Unavailable (Start).
         ReleaseDeferred(ref hold);
+
+        while (_waitingForValue.TakeFirst() is { } waiter)
+        {
+            waiter.ValueHolder = null;
+            hold.AddReady(waiter);
+        }
     }
 
     // Under the lock: the next write of the chain of the write, which has ended or is published, starts.
@@ -1338,9 +1555,10 @@ internal sealed class WriteCoordinator
         MarkCompleted(write, ref hold);
     }
 
-    // Under the lock: the write has ended, with the outcome decided, and the next write of its chain
-    // starts. Every end of a write passes here, so a completed write never has a write waiting behind it;
-    // AdvanceChain does nothing for a write with nothing behind it.
+    // Under the lock: the write has ended, with the outcome decided, and what waited for it starts: the
+    // writes that wait for a value it held, and the next write of its chain. Every end of a write passes
+    // here, so a completed write never has a write waiting for it; AdvanceChain does nothing for a write
+    // with nothing behind it, and only a test of the empty list is made when no write waits for a value.
     private void MarkCompleted(PendingWrite write, ref Hold hold)
     {
         write.State = PendingWriteStateEnum.Completed;
@@ -1360,6 +1578,11 @@ internal sealed class WriteCoordinator
         else
         {
             hold.AddEnded(write);
+        }
+
+        if (!_waitingForValue.IsEmpty)
+        {
+            ReleaseWaitersOf(write, ref hold);
         }
 
         AdvanceChain(write, ref hold);
@@ -1476,9 +1699,10 @@ internal sealed class WriteCoordinator
         public bool Faulted;
 
         // The writes to start in this hold, first in first out. A ready write keeps the state it waited
-        // in, Chained without the write before it or Deferred outside the deferred list, which only
-        // Start may see; so StartReadyAndCommit starts every ready write before the hold ends, and
-        // Withdraw, which takes the lock, never finds one.
+        // in, Chained without the write before it, Deferred outside the deferred list or WaitingForValue
+        // outside the list of the writes that wait for a value, which only Start may see; so
+        // StartReadyAndCommit starts every ready write before the hold ends, and Withdraw, which takes the
+        // lock, never finds one.
         private WriteQueue _ready;
 
         // The writes another thread's call waits for whose outcome this hold decided, linked by NextEnded.
@@ -1498,7 +1722,8 @@ internal sealed class WriteCoordinator
     }
 
     // A queue of writes, first in first out, linked through PendingWrite.Next: the queue of the prepared
-    // writes, the deferred list, and the writes a hold has to start (Hold). A write is in one of them at
+    // writes, the deferred list, the writes that wait for a value, and the writes a hold has to start
+    // (Hold). A write is in one of them at
     // most. A value in a field of its owner, changed in place, under the lock of the writes. The list of
     // the writes that waited, whose writes leave it from any place, and the writes a hold ended, which
     // are only pushed and walked once, have links of their own (PendingWrite.Older, Newer, NextEnded).

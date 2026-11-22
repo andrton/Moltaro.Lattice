@@ -18,10 +18,11 @@ through an index by its full key, by its leading fields and a range on the next,
 order of the index or its reverse and in pages, each entity at most once. A child loads
 the whole database from its master over TCP while the master keeps writing, builds its
 own indexes, then follows its changes, and forwards its own writes to the master. A
+unique index gives a value to one entity only, whichever node submits the write. A
 schema can already declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Unique
-indexes, write batches and PostgreSQL persistence are not implemented yet, and the
-contract may still change.
+value, a List, a Map, a Set or a reference compiles, but cannot be written yet. Write
+batches and PostgreSQL persistence are not implemented yet, and the contract may still
+change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -196,17 +197,20 @@ var page = await bySectionAndName.FindAsync(
     new LatticeFindOptions { Session = session, Reverse = true, Limit = 20 });
 ```
 
-**Unique indexes.** *Declared in the schema and part of the contract; keeping the rule is
-not implemented yet, so an entity type that declares a unique index cannot be written.*
-Several entities can have the same indexed values unless the index says otherwise:
+**Unique indexes.** Several entities can have the same indexed values unless the index says
+otherwise:
 
 ```json
 { "Id": 1, "Name": "ByEmail", "Fields": [5], "Unique": true }
 ```
 
 The master then refuses a write that would give a value a second owner, with
-`UniqueConstraintViolation` and the name of the index. A value in which any field is
-missing is not compared, so any number of entities may have no email.
+`UniqueConstraintViolation` and the name of the index, and nothing is written. A value in
+which any field is missing is not compared, so any number of entities may have no email.
+Values are compared as the index orders them: a text by the comparison of its field. Of
+writes of one value made at the same time, through the master or through a child, exactly
+one succeeds; a write of a value that another write still in progress takes or gives up
+waits for it. A batch that exchanges two values waits for the execution of a batch.
 
 **Writing several entities together.** *The contract below is in place; executing a batch
 is not implemented yet, and `CommitAsync` throws `NotSupportedException`.* One write is
@@ -396,7 +400,7 @@ path, from simple to complex.
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
-In the contract but not implemented yet: unique indexes, executing a
+In the contract but not implemented yet: executing a
 write batch, Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and

@@ -12,7 +12,7 @@ public sealed class PartEqualityTests
 {
     public static IEnumerable<TheoryDataRow<string>> Encodings => [new("Utf8"), new("Utf16")];
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Text_compared_Ordinal_is_one_value_in_the_same_code_units_and_another_in_another_case(string encoding)
     {
@@ -22,7 +22,7 @@ public sealed class PartEqualityTests
         await ExpectOneValueAsync(database, first: 200, "Exact", "École", taken: ["École"], free: ["école", "ÉCOLE"]);
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Text_compared_without_case_is_one_value_in_every_case_of_it(string encoding)
     {
@@ -32,7 +32,7 @@ public sealed class PartEqualityTests
         await ExpectOneValueAsync(database, first: 200, "Folded", "École", taken: ["ÉCOLE", "école"], free: ["Ecole"]);
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Empty_text_is_a_value_that_one_entity_holds_and_not_a_null(string encoding)
     {
@@ -42,7 +42,7 @@ public sealed class PartEqualityTests
         await ExpectOneValueAsync(database, first: 200, "Folded", "", taken: [""], free: [" "]);
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Every_NaN_is_one_value_and_the_two_zeros_are_one_value_of_a_Float64(string encoding)
     {
@@ -55,7 +55,7 @@ public sealed class PartEqualityTests
         await ExpectOneValueAsync(database, first: 200, "Real", 0.0, taken: [-0.0, 0.0], free: [double.Epsilon]);
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Every_NaN_is_one_value_and_the_two_zeros_are_one_value_of_a_Float32(string encoding)
     {
@@ -68,7 +68,7 @@ public sealed class PartEqualityTests
         await ExpectOneValueAsync(database, first: 200, "Single", -0.0f, taken: [0.0f, -0.0f], free: [float.Epsilon]);
     }
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [MemberData(nameof(Encodings))]
     public async Task Enum_part_is_one_value_by_its_number(string encoding)
     {

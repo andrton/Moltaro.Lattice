@@ -57,7 +57,7 @@ public interface ILatticeIndex<TEntity>
     /// </para>
     /// <para>
     /// Of an entity type whose writes are refused until a feature of its schema is implemented,
-    /// such as an owned value, a collection, a reference or a unique index, the search finds
+    /// such as an owned value, a collection or a reference, the search finds
     /// nothing, as a read of it by key finds nothing and an enumeration of it is empty: such a
     /// type holds no entity.
     /// </para>

@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Unique;
 // again, while the value it left was free in between. Profiles of UniqueSchemas.
 public sealed class KeptKeyTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Replace_with_every_value_as_it_was_is_accepted()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -21,7 +21,7 @@ public sealed class KeptKeyTests
         Assert.Equal([1L], UniqueSchemas.IdsOf(profiles.Index("ByNick").Find(IndexKey.Equal("ada"))));
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Replace_that_keeps_its_keys_while_other_fields_change_is_accepted_and_still_owns_them()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -38,7 +38,7 @@ public sealed class KeptKeyTests
         await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(Profile(profiles, 2, "ada", "grace")));
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Replace_that_moves_its_key_away_and_back_holds_it_again_and_the_value_was_free_between()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);

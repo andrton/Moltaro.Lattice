@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
 // holds the write of the owner. Account of UniqueSchema; every wait is bounded.
 public sealed class FreedValueTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_whose_owner_has_a_prepared_delete_waits_for_it_and_takes_the_value()
     {
         var storage = new HeldPersistence(holding: false);
@@ -47,7 +47,7 @@ public sealed class FreedValueTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_whose_owner_has_a_prepared_key_move_waits_for_it_and_takes_the_value()
     {
         var storage = new HeldPersistence(holding: false);
@@ -80,7 +80,7 @@ public sealed class FreedValueTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_whose_owner_has_a_prepared_write_that_keeps_it_is_refused_at_once()
     {
         var storage = new HeldPersistence(holding: false);
@@ -114,7 +114,7 @@ public sealed class FreedValueTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Writes_waiting_for_one_holder_go_on_in_the_order_they_began_to_wait_and_only_the_first_takes_the_freed_value()
     {
         var storage = new HeldPersistence(holding: false);

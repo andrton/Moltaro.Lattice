@@ -15,9 +15,10 @@ namespace Moltaro.Lattice.Engine.Child.Following;
 // (docs/decisions/replication-and-hosting.md, "Initial capture and readiness handoff").
 //
 // Before Ready (CatchUpAsync). The transactions of (S, R] are applied in their order, each received within
-// OpenTimeout, as every part of a load is: the open of the child waits for them. Only then is the child
-// Ready at R, its clock having moved from S through every sequence it applied. Nothing is acknowledged
-// before R: the state before it is a mixture of the copy and the stream, which no position names.
+// OpenTimeout, as every part of a load is: the open of the child waits for them. Only then are its unique
+// indexes checked, at R (Loading.ReceivedChanges.ValidateUniqueIndexes), and only then is the child Ready
+// at R, its clock having moved from S through every sequence it applied. Nothing is acknowledged before R:
+// the state before it is a mixture of the copy and the stream, which no position names.
 //
 // After Ready (FollowAsync). The child acknowledges R, then applies every transaction as it comes and,
 // whenever no more of the stream has arrived whole and it is about to read more, acknowledges the last one
@@ -141,6 +142,8 @@ internal sealed class Follower
                 throw new LatticeException(LatticeErrorEnum.Unavailable, "The master closed before this child had applied the transactions up to its readiness position.");
             }
         }
+
+        _changes.ValidateUniqueIndexes();
 
         // From here on the writes of the child go to the queue of its sender, before the child is Ready,
         // so that none finds the child without a connection while the task that follows has not begun;

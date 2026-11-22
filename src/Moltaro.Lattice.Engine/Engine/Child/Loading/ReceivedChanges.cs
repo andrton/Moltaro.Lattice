@@ -67,6 +67,16 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // of the instance, its state and its clock (the action given to the constructor; EngineDatabase, the order
 // of the locks).
 //
+// Unique indexes. During the load and the catch-up nothing is checked: copied roots may reflect different
+// published positions (docs/decisions/replication-and-hosting.md), so two of them may hold one value of a
+// unique index for a while, and the tree, ordered by key and identity, holds both. At the position the
+// child becomes ready at, before it is ready, each unique index is walked once, and a value held twice is a
+// protocol failure that fails the open (ValidateUniqueIndexes). From then on a change received is checked as
+// a write on a master is (Entities.ChangePublisher.TryReserve); one that would give a value a second owner
+// gives back what the transaction prepared and stops the child as a protocol failure does, before anything
+// of it is published, and nothing is repaired: the master cannot have sent it, so the stream contradicts
+// what the child holds.
+//
 // Memory. A root or a transaction the arena refuses follows the rule of a write refused for memory: what
 // is retired is freed and it is tried once more, each try and each drain in a hold of the lock of its own
 // (TryPlace, TryApply), and the wait for the reads outside it. Between those holds nothing takes memory of
@@ -126,6 +136,10 @@ internal sealed class ReceivedChanges
     // Whether a publication failed between its stores, so that the instance is faulted after the lock (see
     // the class); it stays so.
     private bool _publicationFailed;
+
+    // Whether a change received is checked against the unique indexes: from the position the child becomes
+    // ready at on (see the class, "Unique indexes").
+    private bool _checksUnique;
 
     public ReceivedChanges(
         Arena arena,
@@ -190,6 +204,39 @@ internal sealed class ReceivedChanges
             }
 
             throw;
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
+    }
+
+    // At the position the child becomes ready at, before it is ready, once every transaction up to it is
+    // applied: each unique index is walked once in order under the lock of the writes, and a value held
+    // twice, a key with no null part, is a protocol failure, ValidationFailed, which fails the open with
+    // Unavailable; nothing is repaired. From then on every change received is checked (see the class,
+    // "Unique indexes").
+    public void ValidateUniqueIndexes()
+    {
+        _barrier.Enter();
+
+        try
+        {
+            lock (_writes)
+            {
+                foreach (var table in _tables.InSchemaOrder)
+                {
+                    foreach (var index in table.Indexes)
+                    {
+                        if (index.IsUnique && index.HoldsAValueTwice())
+                        {
+                            throw Protocol.Invalid($"The database of the master reached this child with one value of the unique index {index.Definition.Name} of {table.EntityType.Name} held by two entities at the position it becomes ready at.");
+                        }
+                    }
+                }
+
+                _checksUnique = true;
+            }
         }
         finally
         {
@@ -378,8 +425,9 @@ internal sealed class ReceivedChanges
     // input holds, from its layout version on, whose last mutation is given, and prepares its state by
     // the rule (see the class). True when it is prepared or skipped; false when the arena refused it,
     // with every change prepared since the last Publish abandoned. ValidationFailed for a root that is not
-    // valid, and for a key an earlier effect of the same transaction names, prepared or skipped; every
-    // change prepared since the last Publish is abandoned then as well.
+    // valid, for a key an earlier effect of the same transaction names, prepared or skipped, and, once the
+    // child checks its unique indexes, for a root that would give a value of one of them a second owner;
+    // every change prepared since the last Publish is abandoned then as well.
     private bool TryPrepareWrite(EntityTable table, ulong lastMutation, ref SequenceReader<byte> rest)
     {
         var layout = table.Layout!;
@@ -425,6 +473,7 @@ internal sealed class ReceivedChanges
 
         var root = default(ArenaAddress);
         PreparedChange change;
+        ReservationEnum reservation;
 
         try
         {
@@ -438,18 +487,19 @@ internal sealed class ReceivedChanges
             }
 
             change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced);
-
-            if (!_publisher.TryReserve(ref change))
-            {
-                GiveBack(table, inserts, handle, root);
-
-                return false;
-            }
+            reservation = _publisher.TryReserve(ref change, _checksUnique);
         }
         catch
         {
             GiveBack(table, inserts, handle, root);
             throw;
+        }
+
+        if (reservation != ReservationEnum.Reserved)
+        {
+            GiveBack(table, inserts, handle, root);
+
+            return reservation == ReservationEnum.KeyTaken ? throw Taken(table, key, change.TakenIndex) : false;
         }
 
         _prepared.Add(change);
@@ -486,7 +536,8 @@ internal sealed class ReceivedChanges
 
         try
         {
-            reserved = _publisher.TryReserve(ref change);
+            // A delete sets no value, so it is never refused for one.
+            reserved = _publisher.TryReserve(ref change, _checksUnique) == ReservationEnum.Reserved;
         }
         catch
         {
@@ -575,6 +626,11 @@ internal sealed class ReceivedChanges
             }
         }
     }
+
+    // A change received that would give a value of the unique index at the place given a second owner: the
+    // master checks every write, so the stream contradicts what this child holds (see the class).
+    private static LatticeException Taken(EntityTable table, in EntityKey key, int index) =>
+        Protocol.Invalid($"A transaction received from the master gives {table.EntityType.Name} '{key}' a value of the unique index {table.Indexes[index].Definition.Name} that another entity of this child holds.");
 
     private static LatticeException NamedTwice(EntityTable table, in EntityKey key) =>
         new(LatticeErrorEnum.ValidationFailed, $"A transaction received from the master changes the key '{key}' of {table.EntityType.Name} twice.");

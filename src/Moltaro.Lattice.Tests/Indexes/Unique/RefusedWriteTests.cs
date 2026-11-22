@@ -7,7 +7,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Unique;
 // second names the second. An insert, a replace and an upsert alike. Profiles of UniqueSchemas.
 public sealed class RefusedWriteTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Refused_insert_replace_and_upsert_change_no_entity_no_index_and_not_the_position()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
@@ -31,7 +31,7 @@ public sealed class RefusedWriteTests
         Assert.Equal("admiral", profiles.Get(2L)!["Note"]);
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_that_would_violate_two_unique_indexes_names_the_one_declared_first()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);

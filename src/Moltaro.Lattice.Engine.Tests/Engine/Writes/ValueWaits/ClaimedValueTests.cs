@@ -12,7 +12,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
 // so that the holder stays prepared and unpublished. Account of UniqueSchema; every wait is bounded.
 public sealed class ClaimedValueTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_a_prepared_insert_claims_waits_holding_nothing_and_is_refused_once_that_insert_is_published()
     {
         var storage = new HeldPersistence();
@@ -48,7 +48,7 @@ public sealed class ClaimedValueTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_a_prepared_insert_claims_takes_it_once_that_insert_is_withdrawn_by_its_cancellation()
     {
         var storage = new HeldPersistence();
@@ -96,7 +96,7 @@ public sealed class ClaimedValueTests
     // insert of entity 9 that waited behind it, whose growth of the primary index, the ninth entry of a
     // table that holds eight, cancels the token of the holder in that hold (EngineDatabase.ArmGrowthSwitch);
     // the next group withdraws the holder instead of taking it, and the waiter is prepared in the same hold.
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_of_a_value_a_prepared_key_move_claims_takes_it_once_the_forming_of_a_group_withdraws_that_move()
     {
         var storage = new HeldPersistence(holding: false);

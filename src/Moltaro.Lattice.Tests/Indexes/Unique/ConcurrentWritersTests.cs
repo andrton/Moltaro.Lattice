@@ -14,7 +14,7 @@ public sealed class ConcurrentWritersTests
 
     private const int Rounds = 20;
 
-    [Theory(Skip = SkipReason.UniqueIndexes)]
+    [Theory]
     [InlineData("inserts")]
     [InlineData("replaces")]
     [InlineData("inserts and replaces")]

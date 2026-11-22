@@ -426,6 +426,25 @@ internal sealed class IndexLayout
         return true;
     }
 
+    // Whether any part of the entry the root contributes is null, read from its stored fields: a key that
+    // is not complete, which a unique index does not compare (decision on unique indexes). For the writer,
+    // under the lock of the writes.
+    public bool HasNull(in RootReader root)
+    {
+        foreach (ref readonly var part in Parts)
+        {
+            if (root.IsNull(part.Stored))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Whether any part of the entry is null, by its null bitmap.
+    public bool HasNull(ReadOnlySpan<byte> entry) => entry.Slice(IdentityBytes, NullBitmapBytes).ContainsAnyExcept((byte)0);
+
     // The descriptors of the text entries the String parts of an entry reference, its shared keys, one at a
     // time and as a root names them (SharedKeys): for the count of a node, which holds one reference for
     // each shared key among its entries or separators from the moment it is written until it is freed

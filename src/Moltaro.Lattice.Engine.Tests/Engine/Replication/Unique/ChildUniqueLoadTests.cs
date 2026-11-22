@@ -29,7 +29,7 @@ public sealed class ChildUniqueLoadTests
 
     private const int Large = 32;
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Load_in_which_two_roots_held_one_value_at_different_positions_of_the_capture_and_not_at_readiness_becomes_ready()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);
@@ -61,7 +61,7 @@ public sealed class ChildUniqueLoadTests
         Assert.Equal([1L], UniqueSchema.OwnersOf(copies, "moved"));
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Load_with_one_value_held_twice_at_readiness_fails_the_open_with_Unavailable_and_holds_nothing()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);

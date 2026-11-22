@@ -23,7 +23,7 @@ public sealed class WaiterTests
 {
     private const int Mebibyte = 1024 * 1024;
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Waiter_cancelled_while_it_waits_ends_cancelled_at_once_and_leaves_nothing()
     {
         var storage = new HeldPersistence(holding: false);
@@ -64,7 +64,7 @@ public sealed class WaiterTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Waiter_stays_the_head_of_the_chain_of_its_entity_and_the_later_writes_of_that_entity_run_after_it_in_order()
     {
         var storage = new HeldPersistence(holding: false);
@@ -118,7 +118,7 @@ public sealed class WaiterTests
     // refused insert is the write being resolved and waits for the delete, which is then published: the
     // waiter, made ready, is deferred behind the resolution, and the refused insert, which fits once
     // entity 1 is freed, completes first.
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Waiter_made_ready_while_a_refused_write_is_resolved_is_deferred_and_runs_after_the_resolution()
     {
         var storage = new HeldPersistence(holding: false);
@@ -165,7 +165,7 @@ public sealed class WaiterTests
         }
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Fault_of_the_persistence_step_while_writes_wait_for_a_value_ends_each_of_them_and_leaves_none_waiting()
     {
         var storage = new HeldPersistence(holding: false);
