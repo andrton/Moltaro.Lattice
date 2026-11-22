@@ -73,17 +73,17 @@ internal static class BindingSearch
         }
     }
 
-    // That the index refuses the key with ArgumentException through the class and by name, by Find and by
-    // FindAsync.
+    // That the index refuses the key with ArgumentException itself through the class and by name, by Find
+    // and by FindAsync (ArgumentRefusal).
     public static async Task ExpectRefusedAsync(ILatticeDatabase database, string index, IndexKey key, string search)
     {
         var byClass = database.Set<Item>().Index(index);
         var byName = database.Set("Item").Index(index);
 
-        Assert.True(Record.Exception(() => byClass.Find(key).ToList()) is ArgumentException, $"{search} through the class was not refused by Find.");
-        Assert.True(Record.Exception(() => byName.Find(key).ToList()) is ArgumentException, $"{search} by name was not refused by Find.");
-        Assert.True(await Record.ExceptionAsync(async () => await byClass.FindAsync(key, Forward)) is ArgumentException, $"{search} through the class was not refused by FindAsync.");
-        Assert.True(await Record.ExceptionAsync(async () => await byName.FindAsync(key, Forward)) is ArgumentException, $"{search} by name was not refused by FindAsync.");
+        ArgumentRefusal.Expect(() => byClass.Find(key).ToList(), $"{search} through the class by Find");
+        ArgumentRefusal.Expect(() => byName.Find(key).ToList(), $"{search} by name by Find");
+        await ArgumentRefusal.ExpectAsync(async () => await byClass.FindAsync(key, Forward), $"{search} through the class by FindAsync");
+        await ArgumentRefusal.ExpectAsync(async () => await byName.FindAsync(key, Forward), $"{search} by name by FindAsync");
     }
 
     private static List<Stored> Of(string field, IEnumerable<Item> items) => [.. items.Select(item => new Stored(item.Id, item.ValueOf(field)))];

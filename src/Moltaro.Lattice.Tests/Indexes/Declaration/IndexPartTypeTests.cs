@@ -112,7 +112,7 @@ public sealed class IndexPartTypeTests
         AcceptedKey.Expect(() => Find(index, key));
 
     private static void ExpectRefused(object index, IndexKey key) =>
-        Assert.Throws<ArgumentException>(() => Find(index, key));
+        ArgumentRefusal.Expect(() => Find(index, key), $"The key {key} of {index}");
 
     private static List<object> Find(object index, IndexKey key) => index switch
     {

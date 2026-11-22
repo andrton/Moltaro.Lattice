@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Handshakes;
 // The handshake checks that a peer is compatible (brief of Epic 1, sprint S10, Acceptance; the planner's
 // blocks of 15 November 2026, "Identity", "Byte order" and "The version of the case table", and of
 // 17 November, point 1): a peer whose Hello names another database, another history, another schema
-// fingerprint, another wire format, another layout format, among them the layout version 1 of the form
+// fingerprint, another wire format, the wire format 3 of a node before the reply of a forwarded write named
+// the index of a refusal for a unique index, another layout format, among them the layout version 1 of the form
 // of a root before an indexed value longer than 64 bytes was stored as a text entry, the byte order of
 // a big-endian machine (bit 16 of the layout format, as the implementer of S10 encodes it) or another
 // version of the case table, or the role of a master, is refused with the matching reason — Database, History, Schema,
@@ -29,6 +30,7 @@ public sealed class RefusedPeerTests
         new("another history", "History"),
         new("another schema", "Schema"),
         new("another wire format", "Format"),
+        new("the wire format 3", "Format") { Skip = SkipReason.UniqueIndexes },
         new("another layout format", "Format"),
         new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),
@@ -67,6 +69,10 @@ public sealed class RefusedPeerTests
             "another history" => child with { DatabaseId = master.DatabaseId, History = master.History + 1, SchemaFingerprint = master.SchemaFingerprint },
             "another schema" => child with { DatabaseId = master.DatabaseId, History = master.History, SchemaFingerprint = OtherSchema.Fingerprint },
             "another wire format" => child with { WireFormat = child.WireFormat + 1 },
+
+            // The format before the refusal of a forwarded write carried the index of a unique index it
+            // would have violated.
+            "the wire format 3" => child with { WireFormat = 3 },
             "another layout format" => child with { LayoutFormat = child.LayoutFormat + 1 },
 
             // The layout version is bits 0 to 15 of the layout format. Version 1 is the form of a root

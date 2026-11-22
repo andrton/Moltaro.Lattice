@@ -5,4 +5,5 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // constant.
 internal static class SkipReason
 {
+    public const string UniqueIndexes = "Unique indexes are not implemented yet.";
 }

@@ -8,7 +8,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 // skipped: remove their Skip when batches execute, and they have to pass.
 public sealed class WriteBatchTests
 {
-    private const string ExecutionNotImplemented = "Executing a write batch is not implemented yet.";
+    // The one reason of every test that commits a write batch, here and in the tests of unique indexes.
+    internal const string ExecutionNotImplemented = "Executing a write batch is not implemented yet.";
 
     [Fact]
     public async Task Executing_a_batch_is_not_implemented_yet()
