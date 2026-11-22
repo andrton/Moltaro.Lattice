@@ -6,8 +6,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Unique;
 // the root it encoded is freed. After a drain the database
 // holds what it held before (HeldState): every counter, the prepared bytes of the arena among them, which
 // are the pools of the indexes, every text entry and every node. For comparison, an insert that is
-// accepted and then deleted leaves the prepared bytes as they were as well: the pools keep the standing
-// reserve of the tree, which has the shape it had. An insert, a replace that moves its key onto the value
+// accepted and then deleted leaves the prepared bytes as they were as well: after a publication the pool
+// of an index holds the standing reserve of its tree less the nodes the publication took, which the next
+// preparation tops up (docs/design/ordered-index.md, "The standing reserve"), and the tree has the shape
+// it had. An insert, a replace that moves its key onto the value
 // and an upsert; Account of UniqueSchema, with a login longer than a copy in an entry, so that a refused
 // write adds a text entry and frees it.
 public sealed class RefusedUniqueWriteTests
@@ -42,6 +44,9 @@ public sealed class RefusedUniqueWriteTests
         database.DrainRetired();
 
         Assert.Equal(prepared, database.Counters.Arena.PreparedBytes);
-        Assert.Equal(IndexReserve.BytesOf(database, "Account"), database.Counters.Arena.PreparedBytes);
+
+        // The publication of the delete took the one leaf it copied from the pool, and the next
+        // preparation tops the pool up (docs/design/ordered-index.md, "The standing reserve").
+        Assert.Equal(IndexReserve.BytesOf(database, "Account") - IndexSchema.NodeBytes, database.Counters.Arena.PreparedBytes);
     }
 }

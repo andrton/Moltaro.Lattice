@@ -55,6 +55,9 @@ public sealed class WaiterTests
             Assert.Empty(UniqueSchema.OwnersOf(accounts, "v"));
             Assert.Null(accounts.Get(2L));
             Assert.Equal(0, database.Counters.QueuedWrites);
+
+            // The entry of the deleted root is retired, not freed, until a drain (EngineCounters).
+            database.DrainRetired();
             Assert.Equal(0, database.Counters.RootEntries);
         }
         finally
