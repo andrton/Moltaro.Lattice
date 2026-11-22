@@ -57,7 +57,11 @@ a usage limit is not retried in a loop; the owner is told.
 ## New sessions at a sprint boundary
 
 The coordinator and the planner are sessions, and a session reads its whole history again
-at every turn. The coordinator is therefore replaced when a sprint is closed. The planner,
+at every turn. The coordinator is therefore replaced when a sprint is closed. The owner
+may depart from this for a time, for example keep one coordinator for the sprints of a
+night so that the work does not wait for him at each boundary; such a departure is his
+word, and the record of each sprint says who coordinated it (the owner, 22 November
+2026). The planner,
 whose history grows more slowly because the coordinator and its agents do the work, stays
 for several sprints and is replaced after five closed sprints or three days, whichever
 comes first (the owner, 21 November 2026).

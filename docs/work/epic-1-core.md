@@ -233,7 +233,8 @@ The epic is done when all of the following hold.
    `UniqueIndexTests` and `WriteBatchTests` — pass with their assertions unchanged. So do
    the tests written in each sprint of this plan. One assertion of an older test changes,
    by the owner's decision of 15 November 2026 on the position of a write that changes
-   nothing: the brief of S12 names it. The four tests that assert a refusal,
+   nothing: the brief of S12 names it. A second follows from the same rule, by the owner's
+   word of 22 November 2026: the brief of S17 names it. The four tests that assert a refusal,
    such as `Durable_persistence_is_not_implemented_yet`, are gone.
 3. The placeholder is gone. The samples run to the end against the engine, and the code in
    `README.md` compiles.
@@ -7896,6 +7897,14 @@ contract with its first step of implementation, for the planner to read.
    was; a peer of wire format 4 refused.
 
 ### Stage 5. The full type model and access
+
+**Changed by the owner on 22 November 2026, in the coordinator's session** ("ок. по обеим
+пунктам": ok, to both points), one assertion of the Acceptance above. A batch in which no
+operation has anything to do takes a position of its own, as a single write that changes
+nothing does since S12 (`docs/decisions/mutation-commands.md`, `LatticeWriteResult.Position`):
+in `WriteBatchTests.Deleting_an_absent_key_in_a_batch_is_not_a_failure` the assertion that
+its position equals the position of the write before it becomes that its position is later.
+The implementer of part 2 makes the change, citing these words.
 
 **The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
 by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
