@@ -36,8 +36,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // builds a tree of the size it gives, change by change, and from there publishes its changes one at a time,
 // checking both bounds after each.
 //
-// A reservation withdrawn gives back exactly what it took, the standing reserve kept, and a reservation,
-// made or refused, takes no managed room for its nodes, which are linked through their own payload.
+// A reservation withdrawn with nothing else waiting gives back what it took and the standing reserve with it,
+// and a reservation, made or refused, takes no managed room for its nodes, which are linked through their
+// own payload.
 public sealed class LinearBoundTests
 {
     // The pattern of the keys and of the removes, the seed, the entries of the tree built first, the inserts
@@ -184,8 +185,11 @@ public sealed class LinearBoundTests
         Assert.Empty(differ);
     }
 
-    [Fact(Skip = SkipReason.WriteBatchMechanisms)]
-    public void Reservation_withdrawn_gives_back_exactly_what_it_took_and_keeps_the_standing_reserve()
+    // With nothing else waiting, a withdrawal gives back what the reservation took and the standing reserve
+    // with it (docs/design/ordered-index.md, "The standing reserve"): the pool, topped up to the reserve, the
+    // need of one change of key at the tree, holds no node afterwards.
+    [Fact]
+    public void Reservation_withdrawn_gives_back_exactly_what_it_took()
     {
         using var item = new RootArena(IndexSchema.Utf8, "Counted");
         var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
@@ -200,16 +204,23 @@ public sealed class LinearBoundTests
             retired.Drain();
         }
 
-        var before = item.Arena.Counters;
-
-        Assert.True(before.PreparedBytes > 0, "The index holds no standing reserve.");
-
         foreach (var (inserts, removes) in new[] { (1, 0), (0, 1), (1, 1), (2_000, 300) })
         {
+            index.Tree.TopUp();
+
+            var before = item.Arena.Counters;
+            var least = index.Layout.LeastSeparators;
+            var room = Math.Max(0, least - index.Tree.Nodes()[0].Items.Count);
+            var reserve = NodePool.Need(index.Tree.Height, room, least, inserts: 1, removes: 1) * index.Layout.NodeBytes;
+
+            Assert.Equal(reserve, before.PreparedBytes);
+
             Assert.True(index.Tree.TryReserve(inserts, removes));
             index.Tree.Release(inserts, removes);
 
-            Assert.Equal((before.LiveBytes, before.PreparedBytes, before.RetiredBytes), (item.Arena.Counters.LiveBytes, item.Arena.Counters.PreparedBytes, item.Arena.Counters.RetiredBytes));
+            var after = item.Arena.Counters;
+
+            Assert.Equal((before.LiveBytes, 0L, before.RetiredBytes), (after.LiveBytes, after.PreparedBytes, after.RetiredBytes));
         }
     }
 
