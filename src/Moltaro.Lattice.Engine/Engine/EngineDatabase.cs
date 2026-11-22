@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Runtime.ExceptionServices;
@@ -64,7 +65,7 @@ namespace Moltaro.Lattice.Engine;
 // the close frees the arena only after the reads and the writes in progress have ended. No code of the
 // application runs, and nothing waits, while a read is inside.
 //
-internal sealed partial class EngineDatabase : ILatticeDatabase
+internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExecutor
 {
     private readonly LatticeDatabaseOptions _options;
 
@@ -297,13 +298,22 @@ internal sealed partial class EngineDatabase : ILatticeDatabase
             : throw new LatticeException(LatticeErrorEnum.BindingFailed, $"The schema has no entity type '{entityName}'.");
     }
 
-    // The batch of the core: building it works, and its commit is NotSupportedException, since the commit of
-    // a batch is not built yet.
+    // The batch of the core, whose members this database encodes as they are added (EncodeRoot); its commit
+    // is NotSupportedException, since the commit of a batch is not built yet.
     public ILatticeWriteBatch CreateWriteBatch()
     {
         ThrowIfNotReady();
 
-        return new WriteBatch(Part(_parts).Schema);
+        return new WriteBatch(Part(_parts).Schema, this);
+    }
+
+    // The root of a member of a write batch, encoded when it is added, on the thread of the caller and
+    // outside every lock (Entities.RootValues.Export); empty for an entity type the engine does not store.
+    ReadOnlySequence<byte> IWriteBatchExecutor.EncodeRoot(LatticeEntityType entityType, object?[] values)
+    {
+        var table = Part(_parts).Operations[entityType].Table;
+
+        return table.Layout is { } layout ? RootValues.Export(layout, entityType, values) : ReadOnlySequence<byte>.Empty;
     }
 
     // Lets no operation start any more, ends the waits for a position, lets every write admitted before it

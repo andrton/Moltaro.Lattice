@@ -49,13 +49,13 @@ internal static class RecordValues
     // an owned value is not: whether the bound holds for it is the planner's, with the contracts of
     // S18 and S19 (Q35, point 7, of Epic 1), and no entity type with such a field is stored yet.
     //
-    // A Binary value of a field of the entity is copied when copyBinary is true, for a write batch,
-    // which copies an operation when it is added. When it is false the array the record holds is taken as it is, after the same check that
+    // A Binary value of a field of the entity is taken as the record holds it, after the same check that
     // it is a byte[] and nothing else: the engine copies it once, into its own memory, while the write
-    // runs, and the caller keeps it unchanged until the write completes (the planner's answer to Q43,
-    // from the accepted decision "Stable write inputs until completion"). A Binary value inside a
-    // collection or an owned value is copied with it either way; the engine stores no such field yet.
-    public static object?[] Submit(LatticeEntityType entityType, object?[] values, bool copyBinary)
+    // runs, or a write batch while the operation is added, and the caller keeps it unchanged until then
+    // (the planner's answer to Q43, from the accepted decision "Stable write inputs until completion"). A
+    // Binary value inside a collection or an owned value is copied with it; the engine stores no such
+    // field yet.
+    public static object?[] Submit(LatticeEntityType entityType, object?[] values)
     {
         foreach (var field in entityType.FieldsByOrdinal)
         {
@@ -66,7 +66,7 @@ internal static class RecordValues
         }
 
         var submitted = new object?[values.Length];
-        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType.Name, entityType.Name, copyBinary);
+        CopyFields(entityType.FieldsByOrdinal, values, submitted, entityType.Name, entityType.Name, copyBinary: false);
 
         return submitted;
     }

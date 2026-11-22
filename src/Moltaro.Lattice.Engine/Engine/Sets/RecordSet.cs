@@ -123,7 +123,7 @@ internal sealed class RecordSet : ILatticeSet
 
         try
         {
-            values = record.ValuesForWrite(copyBinary: false);
+            values = record.ValuesForWrite();
         }
         catch (LatticeException exception)
         {

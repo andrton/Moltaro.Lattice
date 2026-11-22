@@ -1,7 +1,10 @@
+using System.Buffers;
 using System.Diagnostics;
+using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Roots;
+using Moltaro.Lattice.Storage.Values;
 
 namespace Moltaro.Lattice.Engine.Entities;
 
@@ -92,6 +95,45 @@ internal static class RootValues
                     // reference does, so no write of one comes here.
                     throw new UnreachableException($"The field {entityType.Name}.{field.Name} is {field.Declaration.Type}, which the engine does not store.");
             }
+        }
+    }
+
+    // The root of the values in the load format, after its envelope, written without the arena as a child
+    // writes the root of a write it forwards (Storage.Roots.RootWriter, "A root for a forwarded write"),
+    // for a member of a write batch, which keeps it from its Add to its commit, when the write path places
+    // it as it places a forwarded root (Writes.WriteExecutor). A root that fits one piece of a transfer is
+    // one array of its exact length; a larger one is held in pieces (Replication.Load.TransferBuffer), so
+    // that a root of any size is held and nothing of it lies in the large object heap. The root writer
+    // refuses what it refuses for a write of values, and keeps nothing then.
+    public static ReadOnlySequence<byte> Export(RootLayout layout, LatticeEntityType entityType, object?[] values)
+    {
+        var writer = new RootWriter(layout, new ExportedValues(layout.DescriptorCount));
+
+        try
+        {
+            Write(ref writer, entityType, values);
+
+            var length = writer.ExportLength;
+
+            if (length > TransferBuffer.PieceSize)
+            {
+                var pieces = new TransferBuffer();
+
+                writer.Export(pieces);
+
+                return pieces.Sequence;
+            }
+
+            var bytes = new ArrayBufferWriter<byte>((int)length);
+
+            writer.Export(bytes);
+
+            return new ReadOnlySequence<byte>(bytes.WrittenMemory);
+        }
+        catch
+        {
+            writer.Abandon();
+            throw;
         }
     }
 
