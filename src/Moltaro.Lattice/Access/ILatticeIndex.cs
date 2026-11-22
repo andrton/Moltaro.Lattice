@@ -23,7 +23,7 @@ namespace Moltaro.Lattice.Access;
 /// or whose indexed values move it ahead of the search, and every entity that keeps its
 /// indexed values for the whole search, in the order of the index or its reverse. A search
 /// by the full key of a unique index, with no part null, returns at most one entity, also
-/// when writes move the value between its steps.
+/// when writes move the value while it runs.
 /// </para>
 /// <para>
 /// The order is the order of the index: by its first field, then by its second, and so on,

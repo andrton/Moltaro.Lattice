@@ -9,10 +9,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Writes.ValueWaits;
 // databases with the same history, one of them with an insert, a replace and an upsert that wait for the
 // claim and are refused, hold the same entities, the same live and retired bytes, root entries, text
 // entries with their references, and nodes of every index, after a drain. The prepared bytes, the pools of
-// the indexes, are not compared: a withdrawal after a reservation gives the standing reserve back (the brief
-// of S16, "Measured"). The persistence step of the test (HeldPersistence) holds the claim. Account of
-// UniqueSchema, with a login longer than a copy in an entry, so that each waiter adds a text entry and frees
-// it.
+// the indexes, are not compared: a withdrawal after a reservation gives the standing reserve back
+// (docs/design/ordered-index.md, "The standing reserve"). The persistence step of the test (HeldPersistence)
+// holds the claim. Account of UniqueSchema, with a login longer than a copy in an entry, so that each waiter
+// adds a text entry and frees it.
 public sealed class RefusedWaiterTests
 {
     [Fact]

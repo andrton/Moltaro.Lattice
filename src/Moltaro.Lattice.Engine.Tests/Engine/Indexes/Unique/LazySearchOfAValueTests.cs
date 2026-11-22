@@ -7,18 +7,16 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Unique;
 // one matching root"; docs/design/ordered-index.md, "The search by a full key"). A lazy search takes a step
 // for each entity; the step that returns the owner cannot see the end of the run when the owner is the last
 // entry of its leaf and the fence of that leaf is a separator of the same key, the copy of an entry removed
-// earlier. Between that step and the next, the owner moves away and another entity takes the value. The
-// search is through the class and by name.
+// earlier (ValueAtTheEndOfALeaf). Between that step and the next, the owner moves away and another entity
+// takes the value. The search is through the class and by name.
 public sealed class LazySearchOfAValueTests
 {
-    private const int Entities = 3000;
-
     [Fact]
     public async Task Lazy_search_by_a_full_key_of_a_unique_index_returns_at_most_one_root_while_the_value_changes_owner()
     {
         await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema);
         var numbered = database.Set<UniqueSchema.Numbered>();
-        var value = await OwnerAtTheEndOfALeafAsync(database, numbered);
+        var value = await ValueAtTheEndOfALeaf.MakeAsync(database, "Numbered");
 
         var found = new List<UniqueSchema.Numbered>();
 
@@ -43,7 +41,7 @@ public sealed class LazySearchOfAValueTests
     {
         await using var database = await EngineMaster.OpenAsync(UniqueSchema.Schema);
         var numbered = database.Set<UniqueSchema.Numbered>();
-        var value = await OwnerAtTheEndOfALeafAsync(database, numbered);
+        var value = await ValueAtTheEndOfALeaf.MakeAsync(database, "Numbered");
 
         var found = new List<LatticeRecord>();
 
@@ -61,32 +59,6 @@ public sealed class LazySearchOfAValueTests
         }
 
         Assert.True(found.Count <= 1, $"The search by name by the full key {value} of ByNumber returned {found.Count} roots: {string.Join(", ", found.Select(entity => $"{entity.Get<long>("Id")} with {entity.Get<long>("Number")}"))}.");
-    }
-
-    // Fills ByNumber with Number = 10 Id and gives the value of the first entry of its second leaf to entity 1:
-    // that entry goes, its separator stays; entity 1, whose root entry comes first, takes the value, and its
-    // entry is the last of a leaf, below the separator of the same key. Returns the value.
-    private static async Task<long> OwnerAtTheEndOfALeafAsync(EngineDatabase database, ILatticeSet<UniqueSchema.Numbered> numbered)
-    {
-        for (var id = 1L; id <= Entities; id++)
-        {
-            await numbered.InsertAsync(new UniqueSchema.Numbered { Id = id, Number = 10 * id });
-        }
-
-        Assert.True(database.Schema.TryGetEntityType("Numbered", out var type));
-
-        var leaves = database.IndexNodes(type, "ByNumber").Where(node => node.Level == 0).Select(node => node.Items.Select(item => (long)item.Key[0]!).ToList()).ToList();
-        var value = leaves[1][0];
-
-        await numbered.DeleteAsync(value / 10);
-        await numbered.ReplaceAsync(new UniqueSchema.Numbered { Id = 1, Number = value });
-
-        var after = database.IndexNodes(type, "ByNumber").Where(node => node.Level == 0).Select(node => node.Items.Select(item => (long)item.Key[0]!).ToList()).ToList();
-
-        Assert.Contains(after, leaf => leaf[^1] == value);
-        Assert.DoesNotContain(after, leaf => leaf[0] == value);
-
-        return value;
     }
 
     // Between two steps of the search the value changes owner: entity 1 moves away, and a new entity takes it.

@@ -467,7 +467,7 @@ and no other root did ([unique indexes](../decisions/unique-indexes.md): non-nul
 equality has at most one matching root). A root a later step could meet took the value
 after it, when the owner moved away between two steps, and the search would return two
 owners of one value. So a search by the full key of a unique index, with no part null,
-returns at most one entity, also when writes move the value between its steps. Whether a
+returns at most one entity, also when writes move the value while it runs. Whether a
 search ends so is decided once, when it starts (`IndexSearch`), for every form that steps:
 the lazy search and `FindAsync` with its Offset and its Limit, through a class and by
 name; a step that returns an entity only reads that choice. A key with a null part, a key
