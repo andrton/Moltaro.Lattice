@@ -187,6 +187,8 @@ internal sealed class LoopbackLink : IAsyncDisposable
                 Track(master);
                 await master.ConnectAsync(_master, _ended.Token);
             }
+            // A test that ends the link during the setup still ends it: DisposeAsync cancels _ended before
+            // it stops the listener and cuts the sockets, so their failures come after the cancellation.
             catch (SocketException exception) when (!_ended.IsCancellationRequested)
             {
                 throw new InvalidOperationException($"The link cannot connect the child to its master at {_master}: {exception.Message} {ListenFailure.Describe(exception)}", exception);
