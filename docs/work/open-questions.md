@@ -154,7 +154,7 @@ in the meantime.
 | **Found** | 14 November 2026, review of Epic 1, sprint S02 |
 | **Question** | `LatticeIndex.IsUnique`, `LatticeErrorEnum.UniqueConstraintViolation` and the remarks of `ILatticeSet<TEntity>` describe a unique index as enforced. Until S16 every write of an entity type that declares one is refused with `NotSupportedException`, and no XML text said so; `ILatticeIndex` does say "Not implemented yet" for search |
 | **Answer** | The owner, 14 November 2026, through the planner's session and then directly: yes, the sentence is added, and in the branch of S02 instead of a change of its own |
-| **Where the rule lives** | The XML documentation of the three members, since S02. S16 removes the sentences when it implements unique indexes: remark 8 for the coordinator in the [document of Epic 1](epic-1-core.md) |
+| **Where the rule lives** | The XML documentation of the three members, since S02. S16 removed the sentences when it implemented unique indexes (2da3bf7): remark 8 for the coordinator in the [document of Epic 1](epic-1-core.md) |
 
 ### Q8. Is a property given twice an error of the descriptor?
 
