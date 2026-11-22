@@ -678,7 +678,13 @@ internal sealed class WriteCoordinator
             {
                 write = _spare ?? new PendingWrite(this);
                 _spare = null;
-                write.Begin(table, kind, key, values, members, keys, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
+                write.Begin(table, kind, key, values, forwarded, expectedRevision, session, cancellationToken, ++_admitted);
+
+                if (members is not null)
+                {
+                    write.BeginBatch(members, keys!);
+                }
+
                 _queued++;
                 hold.Own = write;
                 Start(write, ref hold);

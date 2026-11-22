@@ -142,8 +142,6 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         WriteKindEnum kind,
         in EntityKey key,
         object?[]? values,
-        BatchMember[]? members,
-        PublicationKeys? keys,
         ForwardedOrigin? forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session,
@@ -154,13 +152,20 @@ internal sealed class PendingWrite : IValueTaskSource<LatticeWriteResult>, IThre
         Kind = kind;
         Key = key;
         Values = values;
-        Members = members;
-        Keys = keys;
         Forwarded = forwarded;
         ExpectedRevision = expectedRevision;
         Session = session;
         Token = token;
         Admission = admission;
+    }
+
+    // For a write batch, after Begin: its members and their entities. Apart from Begin, so that a single write,
+    // whose record holds none (ResetAfterItsCall), stores nothing for them (JIT listing at full optimization:
+    // a store of a reference that is not a constant is a call of the write barrier).
+    public void BeginBatch(BatchMember[] members, PublicationKeys keys)
+    {
+        Members = members;
+        Keys = keys;
     }
 
     // The hash of its key, as its entity type hashes keys (Entities.PrimaryKeys.HashOf), computed once.

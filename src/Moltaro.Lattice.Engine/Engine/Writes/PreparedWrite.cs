@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Storage;
@@ -63,9 +64,17 @@ internal sealed class PreparedWrite
 
     // What the publication of the write installs, as the publisher takes it: its one change, or none, a span
     // over the field of this record, so that it is passed without a copy and without an allocation, its
-    // length the flag; or the changes of a batch.
-    public ReadOnlySpan<PreparedChange> Changes =>
-        _batch is null ? MemoryMarshal.CreateReadOnlySpan(ref _change, ChangesEntity ? 1 : 0) : new ReadOnlySpan<PreparedChange>(_batch, 0, _batchCount);
+    // length the flag; or the changes of a batch, whose count is never above the length of its array
+    // (SetBatch). Inlined where it is read, and made without a check of the bounds, so that the publication
+    // and the preparation of a single write make no call for it, as before there were batches (JIT listing
+    // at full optimization: without either the accessor or the throw of the check is a call of its own).
+    public ReadOnlySpan<PreparedChange> Changes
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _batch is null
+            ? MemoryMarshal.CreateReadOnlySpan(ref _change, ChangesEntity ? 1 : 0)
+            : MemoryMarshal.CreateReadOnlySpan(ref MemoryMarshal.GetArrayDataReference(_batch), _batchCount);
+    }
 
     // For a write being prepared: writes its change into the record where it lies, so that the reservation
     // of what its publication uses reads it there and records its decision for each index in it
@@ -113,6 +122,8 @@ internal sealed class PreparedWrite
     // reserved, as many as given, with the bytes it encoded.
     public PreparedWrite SetBatch(int count, long encodedSize)
     {
+        Debug.Assert(count <= _batch!.Length, "A write batch holds more changes than its array.");
+
         _claims = null;
         _batchCount = count;
         ChangesEntity = count > 0;
