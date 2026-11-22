@@ -1,8 +1,10 @@
+using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Engine.Delivery;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
+using Moltaro.Lattice.Storage;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
@@ -155,9 +157,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // its handle and what it reserved, stays the head of the chain of its entity, and is prepared again from
 // the start once that write completes, whatever it completes as (MarkCompleted), so its check runs again
 // on what that write left. The prepared writes are looked at only while prepared memory is held, so in
-// MemoryOnly an ordinary write looks at none; the search is linear in them (FindValueHolder), as the
-// search of the chain of an entity is. A write that does not fit the memory and would take a value held
-// may end refused for memory, since its root is encoded before the check.
+// MemoryOnly an ordinary write looks at none; each search is linear in them (FindClaimant,
+// FindWriteThatFrees), as the search of the chain of an entity is. A write that does not fit the memory
+// and would take a value held may end refused for memory, since its root is encoded before the check.
 //
 // The waits of a write before its dispatch, and how each ends. The wait for the position of its
 // session has the timeout of the session and the token, and the close ends it. The wait for the lock of
@@ -797,12 +799,12 @@ internal sealed class WriteCoordinator
     // a unique index, or begins its resolution (see the class, "The refusal").
     private void Prepare(PendingWrite write, ref Hold hold)
     {
-        ReservationEnum reservation;
+        PreparationEnum preparation;
         PreparedWrite? prepared;
 
         try
         {
-            reservation = TryPrepareTwice(write, ref hold, out prepared);
+            preparation = TryPrepareTwice(write, ref hold, out prepared);
         }
         catch (Exception exception)
         {
@@ -811,15 +813,14 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        if (reservation == ReservationEnum.RefusedForMemory)
+        if (preparation == PreparationEnum.RefusedForMemory)
         {
             BeginResolution(write, ref hold);
 
             return;
         }
 
-        // Refused for a value of a unique index, or waiting for the write that holds it (TryPrepare).
-        if (reservation == ReservationEnum.KeyTaken)
+        if (preparation == PreparationEnum.DecidedByValue)
         {
             return;
         }
@@ -853,17 +854,15 @@ internal sealed class WriteCoordinator
     }
 
     // Under the lock: the preparation of a write with the first two tries of a refusal of the arena
-    // (see the class), each through TryPrepare: Reserved when it is prepared, KeyTaken when TryPrepare
-    // refused it or made it wait for a value of a unique index, RefusedForMemory when the arena refused it
-    // twice and it holds nothing. Its token is honored at the end of each try the arena refused, with
-    // OperationCanceledException.
-    private ReservationEnum TryPrepareTwice(PendingWrite write, ref Hold hold, out PreparedWrite? prepared)
+    // (see the class), each through TryPrepare, which says what each ends with (PreparationEnum). Its token
+    // is honored at the end of each try the arena refused, with OperationCanceledException.
+    private PreparationEnum TryPrepareTwice(PendingWrite write, ref Hold hold, out PreparedWrite? prepared)
     {
-        var reservation = TryPrepare(write, ref hold, out prepared, out _);
+        var preparation = TryPrepare(write, ref hold, out prepared, out _);
 
-        if (reservation != ReservationEnum.RefusedForMemory)
+        if (preparation != PreparationEnum.RefusedForMemory)
         {
-            return reservation;
+            return preparation;
         }
 
         write.Token.ThrowIfCancellationRequested();
@@ -871,37 +870,49 @@ internal sealed class WriteCoordinator
         // Refused once: what is retired is freed, and the write tries again.
         _retired.Drain();
 
-        reservation = TryPrepare(write, ref hold, out prepared, out _);
+        preparation = TryPrepare(write, ref hold, out prepared, out _);
 
-        if (reservation == ReservationEnum.RefusedForMemory)
+        if (preparation == PreparationEnum.RefusedForMemory)
         {
             write.Token.ThrowIfCancellationRequested();
         }
 
-        return reservation;
+        return preparation;
     }
 
     // Under the lock: one try of the preparation of the write (WriteExecutor.TryPrepare), which every
     // preparation passes through, so that a value of a unique index is decided in one place, where the
-    // writes prepared and not published are known (see the class, "A value of a unique index"). Reserved,
-    // with the prepared write, when it may be queued; RefusedForMemory, with the refusal of the arena, as
-    // the arena refused it; KeyTaken when it was refused for a value or waits for the write that holds one:
-    // it holds nothing then, its outcome or its wait is decided, and the caller does nothing more for it.
-    private ReservationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
+    // writes prepared and not published are known (see the class, "A value of a unique index"): Prepared,
+    // with the prepared write; RefusedForMemory, with the refusal of the arena; DecidedByValue when the write
+    // was refused for a value or waits for the write that holds one, a value a published root holds
+    // (DecideTakenValue) or one a prepared write claims (WaitsForClaim). Inlined, so that a preparation
+    // makes the one call of the executor it made before there were unique indexes: left out of line, this
+    // try is a call of its own on every write (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private PreparationEnum TryPrepare(PendingWrite write, ref Hold hold, out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var reservation = _executor.TryPrepare(write, out prepared, out refusal);
+
+        if (reservation == ReservationEnum.RefusedForMemory)
+        {
+            return PreparationEnum.RefusedForMemory;
+        }
 
         if (reservation == ReservationEnum.KeyTaken)
         {
             DecideTakenValue(write, ref hold);
-        }
-        else if (reservation == ReservationEnum.Reserved && write.Table.HasUniqueIndex && HoldsPreparedMemory() && WaitsForClaim(write, prepared!))
-        {
-            prepared = null;
-            reservation = ReservationEnum.KeyTaken;
+
+            return PreparationEnum.DecidedByValue;
         }
 
-        return reservation;
+        if (write.Table.HasUniqueIndex && HoldsPreparedMemory() && WaitsForClaim(write, prepared!))
+        {
+            prepared = null;
+
+            return PreparationEnum.DecidedByValue;
+        }
+
+        return PreparationEnum.Prepared;
     }
 
     // Under the lock, after a preparation that found a value of a unique index held by a published root of
@@ -910,16 +921,16 @@ internal sealed class WriteCoordinator
     // write keeps the value, the write is refused (Violation).
     private void DecideTakenValue(PendingWrite write, ref Hold hold)
     {
-        var record = write.Record;
+        var taken = write.Record.Taken;
 
-        if (HoldsPreparedMemory() && FindValueHolder(record, taken: true) is { } holder)
+        if (HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)
         {
             WaitForValue(write, holder);
 
             return;
         }
 
-        DecideFailure(write, Violation(write, record.Taken.Index), ref hold);
+        DecideFailure(write, Violation(write, taken.Index), ref hold);
     }
 
     // Under the lock, for a write just prepared and reserved, of an entity type with a unique index, while
@@ -928,7 +939,7 @@ internal sealed class WriteCoordinator
     // prepared and waits for that write, true; false when none does. A delete sets no value.
     private bool WaitsForClaim(PendingWrite write, PreparedWrite prepared)
     {
-        if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Delete || FindValueHolder(prepared, taken: false) is not { } holder)
+        if (!prepared.ChangesEntity || prepared.Change.Kind == ChangeKindEnum.Delete || FindClaimant(prepared.Change) is not { } holder)
         {
             return false;
         }
@@ -940,55 +951,42 @@ internal sealed class WriteCoordinator
         return true;
     }
 
-    // Under the lock, while writes hold prepared memory: the prepared and unpublished write that holds a
-    // value of a unique index the record of the write wants. When taken, the record is that of a
-    // preparation whose value a published root holds (PreparedWrite.Taken), and the holder is the write of
-    // that root's entity, when it gives the value up (Entities.ChangePublisher.Frees); otherwise the record
-    // holds the change just prepared, and the holder is a write of another entity whose change claims a
-    // value it sets (Entities.ChangePublisher.ClaimsSameKey). Null when there is none. Linear in the writes
-    // prepared, those in the queue and those of the group in the persistence step; only one write of an
-    // entity is prepared at a time, so the write of an entity is found by its root entry.
-    private PendingWrite? FindValueHolder(PreparedWrite record, bool taken)
+    // Under the lock, while writes hold prepared memory: the prepared and unpublished write of another
+    // entity whose change claims a value of a unique index the change given sets or moves, which the
+    // published state does not show (Entities.ChangePublisher.ClaimsSameKey); null when there is none.
+    private PendingWrite? FindClaimant(in PreparedChange change)
     {
-        for (var write = _prepared.First; write is not null; write = write.Next)
+        foreach (var held in PreparedNow)
         {
-            if (HoldsValue(write.Prepared!, record, taken))
+            if (held.ChangesEntity && _changes.ClaimsSameKey(change, held.Change, out _))
             {
-                return write;
-            }
-        }
-
-        if (_groupPending)
-        {
-            foreach (var prepared in _group.Writes)
-            {
-                if (HoldsValue(prepared, record, taken))
-                {
-                    return prepared.Write;
-                }
+                return held.Write;
             }
         }
 
         return null;
     }
 
-    // Whether the prepared write holds the value the record wants (FindValueHolder).
-    private bool HoldsValue(PreparedWrite held, PreparedWrite record, bool taken)
+    // Under the lock, while writes hold prepared memory: the prepared and unpublished write of the entity of
+    // the root entry given, whose published root holds a value of the unique index at the place given, when
+    // that write gives the value up (Entities.ChangePublisher.Frees); null when it has none or keeps the
+    // value. Only one write of an entity is prepared at a time, so its write is found by its root entry.
+    private PendingWrite? FindWriteThatFrees(int index, RootHandle owner)
     {
-        if (!held.ChangesEntity)
+        foreach (var held in PreparedNow)
         {
-            return false;
+            if (held.ChangesEntity && held.Change.Handle == owner && _changes.Frees(held.Change, index))
+            {
+                return held.Write;
+            }
         }
 
-        if (!taken)
-        {
-            return _changes.ClaimsSameKey(record.Change, held.Change, out _);
-        }
-
-        var (index, owner) = record.Taken;
-
-        return held.Change.Handle == owner && _changes.Frees(held.Change, index);
+        return null;
     }
+
+    // Under the lock: the writes prepared and not published, which the searches for the holder of a value
+    // walk (PreparedWrites).
+    private PreparedWrites PreparedNow => new(_prepared.First, _groupPending ? _group.Writes : []);
 
     // Under the lock: the write waits, holding nothing, for the one prepared and unpublished write that holds
     // the value it wants, in the list of the writes that wait for a value; it stays the head of the chain of
@@ -1241,17 +1239,16 @@ internal sealed class WriteCoordinator
             _retired.Drain();
             _changes.GiveBackReserves();
 
-            var reservation = TryPrepare(write, ref hold, out var prepared, out var refusal);
+            var preparation = TryPrepare(write, ref hold, out var prepared, out var refusal);
 
-            if (reservation == ReservationEnum.Reserved)
+            if (preparation == PreparationEnum.Prepared)
             {
                 _ = TryQueue(write, prepared!, ref hold);
 
                 return;
             }
 
-            // Refused for a value of a unique index, or waiting for the write that holds it (TryPrepare).
-            if (reservation == ReservationEnum.KeyTaken)
+            if (preparation == PreparationEnum.DecidedByValue)
             {
                 return;
             }
@@ -1718,6 +1715,51 @@ internal sealed class WriteCoordinator
         {
             write.NextEnded = Ended;
             Ended = write;
+        }
+    }
+
+    // The writes prepared and not published, those of the queue of the prepared writes in its order and
+    // then those of the group in the persistence step while it is pending, for a foreach: what the searches
+    // for the holder of a value walk (FindClaimant, FindWriteThatFrees). A value on the stack of a search,
+    // which allocates nothing; linear in the writes it walks.
+    private struct PreparedWrites
+    {
+        private readonly IReadOnlyList<PreparedWrite> _group;
+
+        private PendingWrite? _next;
+
+        private int _inGroup;
+
+        public PreparedWrites(PendingWrite? first, IReadOnlyList<PreparedWrite> group)
+        {
+            _next = first;
+            _group = group;
+            _inGroup = -1;
+            Current = null!;
+        }
+
+        public PreparedWrite Current { get; private set; }
+
+        public readonly PreparedWrites GetEnumerator() => this;
+
+        public bool MoveNext()
+        {
+            if (_next is { } queued)
+            {
+                Current = queued.Prepared!;
+                _next = queued.Next;
+
+                return true;
+            }
+
+            if (++_inGroup < _group.Count)
+            {
+                Current = _group[_inGroup];
+
+                return true;
+            }
+
+            return false;
         }
     }
 

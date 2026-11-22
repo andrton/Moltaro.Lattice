@@ -13,6 +13,8 @@ internal enum ReservationEnum
 
     // A value the change sets or moves in a unique index is held by a published root of another entity:
     // nothing is reserved, and the change records which index and which root (PreparedChange.TakenIndex,
-    // TakenBy). Whether that refuses the change or makes it wait is its caller's to decide.
+    // TakenBy), which are read right after this outcome and at no other time. Whether that refuses the change
+    // or makes it wait is its caller's to decide: on a master the write coordinator, which reports its own
+    // outcome (Writes.PreparationEnum); on a child it is a protocol failure.
     KeyTaken = 3,
 }
