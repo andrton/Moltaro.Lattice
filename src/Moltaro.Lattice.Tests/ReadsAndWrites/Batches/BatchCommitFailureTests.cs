@@ -4,7 +4,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // public API"; brief of Epic 1, sprint S14, part 2, acceptance (c)): what the caller can know from its own
 // arguments is thrown at the call — a batch submitted a second time, or with no operation —, and everything
 // the database decides comes through the task: the refusal of a member, the close of the database, a
-// token cancelled before the batch is executed, a session of another history. A failing member refuses
+// token cancelled before the batch is executed, a session of another history, a member of an entity type
+// the engine does not store yet. A failing member refuses
 // the whole batch and carries its number (the remarks of ILatticeWriteBatch, "Executing").
 public sealed class BatchCommitFailureTests
 {
@@ -93,6 +94,48 @@ public sealed class BatchCommitFailureTests
 
         Assert.Equal(LatticeErrorEnum.HistoryMismatch, refused.Error);
         Assert.Null(database.Set<User>().Get(1L));
+    }
+
+    // Item holds an owned value, which the engine does not store yet; Plain is stored.
+    [Theory]
+    [InlineData("insert")]
+    [InlineData("delete")]
+    public async Task Member_of_an_entity_type_the_engine_does_not_store_yet_is_not_supported_through_the_task_and_nothing_is_written(string kind)
+    {
+        var schema = LatticeSchema.Compile("""
+            {
+              "OwnedTypes": [ { "Id": 1, "Name": "Stamp", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] } ],
+              "EntityTypes": [
+                { "Id": 1, "Name": "Item", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Value", "Type": "Owned", "OwnedType": "Stamp" } ], "PrimaryKey": [1] },
+                { "Id": 2, "Name": "Plain", "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" } ], "PrimaryKey": [1] }
+              ]
+            }
+            """);
+        await using var database = await TestData.OpenMasterAsync(schema: schema);
+        var items = database.Set("Item");
+        var plain = database.Set("Plain");
+        Assert.True(schema.TryGetOwnedType("Stamp", out var stamp));
+        var before = database.Position;
+
+        var batch = database.CreateWriteBatch();
+        batch.Insert(new LatticeRecord(plain.EntityType) { ["Id"] = 1L });
+
+        if (kind == "insert")
+        {
+            batch.Insert(new LatticeRecord(items.EntityType) { ["Id"] = 1L, ["Value"] = new LatticeOwnedValue(stamp!) { ["Text"] = "a" } });
+        }
+        else
+        {
+            batch.Delete("Item", 1L);
+        }
+
+        var commit = default(ValueTask<LatticeWriteResult>);
+        var atTheCall = Record.Exception(() => commit = batch.CommitAsync());
+
+        Assert.Null(atTheCall);
+        await Assert.ThrowsAsync<NotSupportedException>(() => commit.AsTask());
+        Assert.Equal(before, database.Position);
+        Assert.Null(plain.Get(1L));
     }
 
     [Fact]
