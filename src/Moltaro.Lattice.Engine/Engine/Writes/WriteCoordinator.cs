@@ -1071,17 +1071,15 @@ internal sealed class WriteCoordinator
 
     // Under the lock, while writes hold prepared memory: the prepared and unpublished write of another
     // entity with a change that claims a value of a unique index the change given sets or moves, which the
-    // published state does not show (Entities.ChangePublisher.ClaimsSameKey); null when there is none.
+    // published state does not show (Entities.ChangePublisher.ClaimsSameKey); null when there is none. A
+    // prepared batch answers through its sorted claims, not by a scan of its changes (Entities.UniqueClaims).
     private PendingWrite? FindClaimant(in PreparedChange change)
     {
         foreach (var held in PreparedNow)
         {
-            foreach (ref readonly var other in held.Changes)
+            if (held.IsBatch ? held.ClaimsOf(_changes).Claims(change) : held.ChangesEntity && _changes.ClaimsSameKey(change, held.Change))
             {
-                if (_changes.ClaimsSameKey(change, other))
-                {
-                    return held.Write;
-                }
+                return held.Write;
             }
         }
 
@@ -1092,17 +1090,16 @@ internal sealed class WriteCoordinator
     // the entity of the root entry given, whose published root holds a value of the unique index at the
     // place given, when that change gives the value up (Entities.ChangePublisher.Frees); null when there is
     // none or it keeps the value. Only one write of an entity is prepared at a time, so its write is found by
-    // its root entry.
+    // its root entry; a prepared batch finds it among its sorted root entries (Entities.UniqueClaims).
     private PendingWrite? FindWriteThatFrees(int index, RootHandle owner)
     {
         foreach (var held in PreparedNow)
         {
-            foreach (ref readonly var other in held.Changes)
+            if (held.IsBatch
+                ? held.ClaimsOf(_changes).Frees(owner, index)
+                : held.ChangesEntity && held.Change.Handle == owner && _changes.Frees(held.Change, index))
             {
-                if (other.Handle == owner && _changes.Frees(other, index))
-                {
-                    return held.Write;
-                }
+                return held.Write;
             }
         }
 

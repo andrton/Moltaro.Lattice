@@ -426,9 +426,13 @@ internal sealed class ChangePublisher
     public bool Frees(in PreparedChange change, int index) =>
         change.Kind == ChangeKindEnum.Delete || (change.Kind == ChangeKindEnum.Replace && ChangeAt(change, index) == IndexChangeEnum.Move);
 
+    // Under the lock of the writes, for the changes of a write batch prepared and not published: what they
+    // claim and free in the unique indexes, sorted, for the questions of later writes (UniqueClaims).
+    public UniqueClaims ClaimsOf(PreparedChange[] changes, int count) => new(this, _arena, changes, count);
+
     // Whether the change puts a value into the index at the place given: an insert, or a replace that
     // moves its key there, as the change records it.
-    private bool SetsValue(in PreparedChange change, int index) =>
+    public bool SetsValue(in PreparedChange change, int index) =>
         ChangeAt(change, index) is IndexChangeEnum.Insert or IndexChangeEnum.Move;
 
     // Records with the change what it does to the index at the place given, as the change is decided and

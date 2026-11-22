@@ -38,6 +38,10 @@ internal sealed class PreparedWrite
 
     private int _batchCount;
 
+    // What the changes of a batch claim and free in unique indexes, made on the first question of a later
+    // write (ClaimsOf); null until then, and again once the changes are let go of.
+    private UniqueClaims? _claims;
+
     public PreparedWrite(PendingWrite write)
     {
         Write = write;
@@ -101,10 +105,15 @@ internal sealed class PreparedWrite
         return _batch;
     }
 
+    // For a write batch prepared and not published: what its changes claim and free in unique indexes,
+    // sorted, made on the first question (Entities.ChangePublisher.ClaimsOf).
+    public UniqueClaims ClaimsOf(ChangePublisher publisher) => _claims ??= publisher.ClaimsOf(_batch!, _batchCount);
+
     // What the preparation of a write batch made: the changes it wrote at the start of BatchChanges and
     // reserved, as many as given, with the bytes it encoded.
     public PreparedWrite SetBatch(int count, long encodedSize)
     {
+        _claims = null;
         _batchCount = count;
         ChangesEntity = count > 0;
         EncodedSize = encodedSize;
@@ -129,6 +138,7 @@ internal sealed class PreparedWrite
     {
         ChangesEntity = false;
         _batchCount = 0;
+        _claims = null;
     }
 
     // No change: what the preparation of a delete of a key that is absent made. The change itself is left
@@ -152,5 +162,6 @@ internal sealed class PreparedWrite
         _change.Key = default;
         _batch = null;
         _batchCount = 0;
+        _claims = null;
     }
 }
