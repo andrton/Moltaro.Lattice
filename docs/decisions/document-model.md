@@ -32,13 +32,13 @@ That optimization does not grant the explicit application batch contract by itse
   entire group and reserve its preparation/publication resources before commit. A
   definitive validation/admission/rollback failure changes none of the batch's data.
 - In Durable mode the journal commits the complete batch in one PostgreSQL transaction.
-  Publish all members and affected indexes/revisions behind an exclusive database
-  barrier, then report success. In MemoryOnly, omit the storage commit/wait while
+  Publish all members and affected indexes/revisions so that a reader sees all of the
+  batch or none of it, then report success. In MemoryOnly, omit the storage commit/wait while
   retaining the same atomic publication boundary.
-- All protected arena access and publication paths must cooperate with the barrier.
-  Existing protected users drain before batch publication. No root/index/database
-  read-write gate spans storage I/O, and no gate is held while application code builds
-  the batch. Exact gate implementation and scheduling remain engineering work.
+- The means of that atomic publication is the engine's to choose (amended on 22 November
+  2026, the owner's answer to Q57 of the open questions): an exclusive barrier that
+  drains readers is not required. No root/index/database read-write gate spans storage
+  I/O, and no gate is held while application code builds the batch.
 - Separate reads and root-by-root scans may cross the publication boundary and combine
   observations from before and after it. WriteBatch does not add a multi-object read
   snapshot, interactive read/write transaction or long application-held lock.

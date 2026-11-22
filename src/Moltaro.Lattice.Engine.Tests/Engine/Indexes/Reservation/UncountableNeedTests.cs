@@ -7,17 +7,18 @@ using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.IndexEntries;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
-// A need the pool of an index cannot count is a reservation that cannot be made (docs/design/ordered-index.md,
-// "The reservation"): the pool counts its nodes as an Int32, and the need of the writes that wait grows with
-// the square of the inserts among them (OrderedTree.Need), so enough inserts need more nodes than it counts.
-// A reservation for them is refused as one the arena cannot hold, and takes nothing: the arena's counters,
-// the prepared nodes of the pool among them, are as before, and no write is left waiting on the tree. The
-// count is the boundary, taken from the need of an empty tree, whose height and room are none: the largest
-// count of inserts whose need the pool counts, and one more, whose need it does not. Only the one more is
-// reserved: the need of the largest is a reservation the pool counts, of some two thousand million nodes,
-// which the test does not make. The test works the parts as the writer does (ContradictionTests): an
-// arena with a root layout, the retired list and the index ByNumber of Counted. The arena has a memory limit
-// of two segments, so that a reservation that took nodes for the wrong count is held to what the limit gives.
+// A reservation of more inserts than the need of the pool of an index counts is refused and takes nothing
+// (docs/design/ordered-index.md, "The reservation"). The pool counts its nodes as an Int32, and the need of
+// the writes that wait grows with the square of the inserts among them (NodePool.Need), so enough inserts
+// need more nodes than it counts; the count is the boundary, taken from the need of an empty tree, whose
+// height and room are none: the largest count of inserts whose need the pool counts, and one more, whose
+// need it does not. The pool reserves the lesser of the need and the linear bound of the inserts,
+// NodePool.Bound, three nodes an insert at that tree, which it counts; so the one more is refused because
+// those nodes do not fit the memory limit of two segments beside the slots in use (NodePool.Fits), before
+// the pool takes any: the arena's counters, the prepared nodes of the pool among them, are as before, and no
+// write is left waiting on the tree. Only the one more is reserved: the largest is a reservation the test
+// does not need to make. The test works the parts as the writer does (ContradictionTests): an arena with a
+// root layout, the retired list and the index ByNumber of Counted.
 public sealed class UncountableNeedTests
 {
     [Fact]
@@ -30,8 +31,8 @@ public sealed class UncountableNeedTests
         var least = index.Layout.LeastSeparators;
         var counted = LargestCountedInserts(least);
 
-        Assert.True(OrderedTree.Need(height: 0, room: 0, least, counted, removes: 0) <= int.MaxValue, $"The need of {counted} inserts passes what the pool counts.");
-        Assert.True(OrderedTree.Need(height: 0, room: 0, least, counted + 1, removes: 0) > int.MaxValue, $"The need of {counted + 1} inserts is one the pool counts.");
+        Assert.True(NodePool.Need(height: 0, room: 0, least, counted, removes: 0) <= int.MaxValue, $"The need of {counted} inserts passes what the pool counts.");
+        Assert.True(NodePool.Need(height: 0, room: 0, least, counted + 1, removes: 0) > int.MaxValue, $"The need of {counted + 1} inserts is one the pool counts.");
 
         var before = item.Arena.Counters;
 
@@ -40,7 +41,7 @@ public sealed class UncountableNeedTests
         Assert.Equal((0, 0L, 0L), (index.Tree.Height, TreeWalk.CountOf(index), TreeWalk.BytesOf(index)));
 
         // No write was left waiting: one insert reserves, publishes, and once the pool gives back what is
-        // above the need of the writes still waiting, the arena holds no prepared node.
+        // above the lesser bound of the writes still waiting, the arena holds no prepared node.
         Assert.True(index.Tree.TryReserve(inserts: 1, removes: 0));
         index.Tree.Insert(EntryOf(item, index, new RootHandle(1, 1), number: 7));
         retired.Drain();
@@ -61,7 +62,7 @@ public sealed class UncountableNeedTests
         {
             var middle = fits + ((passes - fits) / 2);
 
-            if (OrderedTree.Need(height: 0, room: 0, least, middle, removes: 0) <= int.MaxValue)
+            if (NodePool.Need(height: 0, room: 0, least, middle, removes: 0) <= int.MaxValue)
             {
                 fits = middle;
             }

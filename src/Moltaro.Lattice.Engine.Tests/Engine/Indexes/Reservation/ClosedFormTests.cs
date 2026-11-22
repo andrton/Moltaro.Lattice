@@ -5,7 +5,7 @@ using Moltaro.Lattice.Storage.Roots;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
-// The need of the writes that wait on an index has a closed form, OrderedTree.Need, which costs the same
+// The need of the writes that wait on an index has a closed form, NodePool.Need, which costs the same
 // for any number of writes and is the sum the tree first took one write at a time (ReservationNeed;
 // docs/design/ordered-index.md, "The reservation"). The two agree over heights 0 to 4; a root with no
 // room, with room for one insert, for L − 1 and for L; an L of 2 and the L of an index of one Int64 part;
@@ -29,7 +29,7 @@ public sealed class ClosedFormTests
                         for (var removes = 0; removes <= 3; removes++)
                         {
                             var sum = ReservationNeed.Of(height, room, least, inserts, removes);
-                            var closed = OrderedTree.Need(height, room, least, inserts, removes);
+                            var closed = NodePool.Need(height, room, least, inserts, removes);
 
                             if (closed != sum)
                             {

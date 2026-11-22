@@ -69,6 +69,9 @@ internal static class ForwardPayload
 
     public const byte Delete = 3;
 
+    // The kind of a write batch, the value after those of WriteKindEnum, from the wire format 5.
+    public const byte Batch = 4;
+
     // Where the last mutation sequence of a root stands: after its type id.
     private const int LastMutationAt = sizeof(uint);
 
@@ -112,6 +115,34 @@ internal static class ForwardPayload
         {
             AddUInt64(body, (ulong)root.Length);
             body.AddRange(root);
+        }
+
+        return [.. body];
+    }
+
+    // The body of a write batch, from the wire format 5 (the brief of Epic 1, sprint S17, point 7, in the
+    // shapes its internal contract gives): the kind Batch, the minimum position as a request carries it, the
+    // count of the members (UInt32), the members' own unless given, and each member in its order — its kind,
+    // the type id of its entity type, the expected revision (0 here), its key and, but for a Delete, the length
+    // of its root (UInt64) and the root, so that a member ends where its length says.
+    public static byte[] BatchRequest(IReadOnlyList<(byte Kind, uint TypeId, byte[] Key, byte[] Root)> members, uint? count = null, ulong? rootLength = null)
+    {
+        var body = new List<byte> { Batch, 0 };
+
+        AddUInt32(body, count ?? (uint)members.Count);
+
+        foreach (var (kind, typeId, key, root) in members)
+        {
+            body.Add(kind);
+            AddUInt32(body, typeId);
+            body.Add(0);
+            body.AddRange(key);
+
+            if (kind != Delete)
+            {
+                AddUInt64(body, rootLength ?? (ulong)root.Length);
+                body.AddRange(root);
+            }
         }
 
         return [.. body];

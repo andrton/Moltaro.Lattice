@@ -1082,7 +1082,7 @@ S01 ground
                                                  └─ S29 storage failures ── S30 saved base
                                                      └─ S31 journal limits ── S32 recovery
                                                          └─ S33 bounded delivery
-                                                             └─ S34 reconnect ── S35 cluster
+                                                             └─ S34 reconnect ── S34A advisory locks ── S35 cluster
                                                                  └─ S36 restore ── S37 ── S38
                                                                      └─ S39 ── S40 ── S41 ── S42
 ```
@@ -1278,7 +1278,9 @@ Why this order:
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
 | S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
-| S17 | Atomic write batch | Full | Not started |
+| S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
+| S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Not started |
+| S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
@@ -1296,6 +1298,7 @@ Why this order:
 | S32 | Recovery under failure | Full | Not started |
 | S33 | Bounded delivery and slow children | Full | Not started |
 | S34 | Reconnect, reload and a restarted master | Full | Not started |
+| S34A | Advisory locks | Full | Not started |
 | S35 | Cluster verification | Full | Not started |
 | S36 | Restore and a new history | Full | Not started |
 | S37 | Schema migration on the master | Full | Not started |
@@ -7824,7 +7827,127 @@ K1 by the builds of S16 step by step and judges L2. And the author of the tests 
 the forged frame reached the child before the child ended: today the tests pass also
 when the connection dies first.
 
+**The brief, as passed by the planner on 22 November 2026 after the study.** The study read
+RocksDB, PostgreSQL, Garnet and Tarantool at the commits its report names; nothing is
+adapted. The names below are the study's proposal; the implementer commits the internal
+contract with its first step of implementation, for the planner to read.
+
+*What is built.*
+
+1. **The structural commit, first, with no change of behavior for a single write:** L1 of
+   `refactoring.md` with G6 and F3. The changes of one publication are a span. Every
+   change is decided first; a taken value is found on the state the publication leaves;
+   each index reserves once for the summed counts; `TakenIndex` and `TakenBy` leave the
+   change. The pool of an index becomes a type of its own whose reserved nodes are linked
+   through their own payload, so a refused reservation leaves no managed room.
+2. **Exposed whole (subject to Q57 of `open-questions.md`).** The publication of a span at
+   a sequence: the new index entries of every change; then for every change the stores of
+   the entity with its final stamp, an insert included; then the position; then the
+   removals and the retirement. A read does not accept a stamp above the position: it
+   backs off as it does at the mark, checks the state of the instance, and tries again.
+   The position of an answer is the position read inside the step, at its three places. A
+   search passes over an index entry whose root is not installed before it takes a stamp;
+   a deleted one is still taken by its stamp. A read by key gets no added load. The same
+   publisher serves a child.
+3. **Unique indexes on the final state.** Before anything is installed, for each unique
+   index of the span: an owner in the published tree is no conflict when a change of the
+   span frees it; two members that claim one value are found by sorting the members that
+   set a value by the order of the index. A prepared, unpublished batch answers a later
+   write's question, who claims and who frees a value, through its sorted claims, not by
+   a scan of its changes. A batch that meets the claim or the release of another
+   unpublished write gives everything back, waits for that one holder and is prepared
+   again whole. Of two members that claim one value the later is the failing member, in
+   the first violated index by declaration (Q58).
+4. **One way to wait for another write.** The wait for a holder of S16 becomes the wait
+   for a write: a batch waits for the latest earlier write not completed that shares an
+   entity with it, and is started again from the beginning when that write ends; a single
+   write whose latest earlier write of its entity is a batch waits the same way. Two
+   single writes keep the chain. Every such wait goes to an earlier admission, and a wait
+   for a value to a prepared write that waits only for its persistence step, so there is
+   no cycle. The identities of a batch are a set of (table, key) by the comparison of the
+   entity type; a repeated identity refuses the batch before anything is prepared.
+5. **The reservation of a batch.** One bound for the nodes a span can take from an index,
+   linear in its inserts and removes, kept by a ledger of the pool because it is
+   amortised. Three conditions. A randomized test holds the bound against what
+   publications take, for random and ascending keys, through splits of the root, growth
+   of the height and removes that merge, before anything relies on it; the same for the
+   places retired by removes, which the study only sketched. A refused or withdrawn
+   reservation gives back exactly what it took. And the bound must not refuse a batch
+   that fits: with the default options a batch of 10,000 small entities of the fixture,
+   with its indexes, is executed; the record states nodes reserved against nodes taken
+   for each size, and if a batch whose take fits is refused for its bound, the tighter
+   bound of the study is taken in this sprint, not later.
+6. **A child** applies a transaction through the same publisher and acknowledges only the
+   position; "each key once" is the set of point 4; a valid exchange of unique values is
+   not refused and a violation on the final state stops the child as on a protocol
+   failure.
+7. **A batch through a child** travels as one request: a head with the minimum position
+   and the count, and each member as its kind, its type, its expected revision, its key
+   and its root in the load format, delimited by its length. The master checks every
+   member, refuses a repeated identity, and submits one write, all or nothing. The reply
+   has the bytes of today's; a refusal for a unique index carries the number of the
+   member, and the index is resolved in the entity type of that member. `WireFormat`
+   becomes 5. The master refuses a body above its memory limit at the first frame; its
+   managed copy of a request is not counted in the budget, as the memory of a transfer is
+   not. Tests: a batch through a child that inserts, replaces and deletes, for a class
+   and by name; each refusal of `WriteBatchTests` through a child with its number; a
+   unique refusal with its number and index; a reply for a unique index without a number
+   refused as a protocol failure; a body above the limit refused with the database as it
+   was; a peer of wire format 4 refused.
+
 ### Stage 5. The full type model and access
+
+**The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
+by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
+at the close of the last part): part 1 is point 1 of the brief with the reservation of
+point 5 and the check of a child's transaction on the state it leaves; part 2 is points 2
+to 4 with the revision of a member; part 3 is points 6 and 7. Each part is reviewed,
+broken and merged on its own; the Acceptance is not reworded, and part 1 closes no
+sentence of it whole. It was coordinated by the sixth coordinator of the epic.
+
+- The study read RocksDB, PostgreSQL, Garnet and Tarantool and adapted nothing. Step 1,
+  the tests of all three parts, ended at b9dce97, written by the implementer from the brief
+  and committed before any implementation.
+- Built: one span of changes decided first, a taken value found on the state the
+  publication leaves, each index reserving once for the summed counts; `NodePool`, a type
+  of its own whose reserved nodes are linked through their own payload, with a ledger that
+  keeps the lesser of the need and what the linear bound p(2h + 3) + 2q leaves; retired
+  places bounded by p(2h + 3) + q(h + 2 + log2 p), where the sketch of the study, q(h + 1)
+  + p, was found not to hold. `PreparedChange` is 96 bytes again. A child checks a
+  transaction on the state it leaves, so a valid exchange of unique values is applied.
+- A departure from "no change of behavior for a single write", found by the implementer
+  and judged safe by the reviewer: a remove now reserves 2 nodes where it reserved h + 1,
+  and a change of key at a height of 4 or more reserves the linear bound. It shows only
+  while a pool is below its standing reserve, at the boundary of memory, where a delete or
+  a key move that was refused may now be executed; it never runs short of a node.
+- The JIT listings, of a Release driver over the public API with `DOTNET_JitDisasm` and
+  tiered PGO off, on the workstation: `EntityTable.Step`, `TrySearch`, `TryFind` and the
+  publication of an insert and a delete are unchanged; `TryReserve` makes 6 calls where it
+  made 5, the call of `TryReserveWithIndexes` being no longer a jump, and a type without an
+  index makes the calls it made inside the preparation. `WriteCoordinator.TryPrepare` and
+  `TryPrepareTwice` grew because the JIT now inlines the cold decision on a taken value;
+  if a write line falls in the start of the machine, keeping it out of line is the first
+  candidate. The write figures are owed to the one start of S17, after part 2.
+- Three tests of step 1 had wrong premises against `ordered-index.md`, The reservation, by
+  which a withdrawal gives back the standing reserve as well, and one measured more than
+  the nodes of a reservation; they were changed on the coordinator's decision after review
+  round 1, each in a commit that gives the reason with the old and the new assertion
+  (d6cf4f2, cf01f8c, a1926bb). A test helper written in step 1, the relay, recorded a
+  frame only after passing it on, so a child that refused it first could hide it; it
+  records the frame first (805a12d), with no assertion changed.
+- Review: three rounds. Round 1 found 3 P2 (the premises), 3 P3 and 4 P4; round 2 found 1
+  P3 (expected figures taken from the members they check) and 2 P4; round 3 found 1 P4.
+  The hardest part to follow, by the reviewer: `NodePool.Targets`, which computed the
+  targets and moved the base of the ledger at once; the two are apart now.
+- The breaker: 43 probes, five full runs, nothing failed: the ledger never short of a node
+  through splits of the root and growth of the height, the pool back at its base after a
+  refusal and a withdrawal, a refusal for memory that leaves every counter as it was, a
+  child's exchange, rotation and freed value applied whole and a violation in the last of
+  300 effects with nothing applied. Not reached: a refusal while other writes wait, the
+  pool after a fault.
+- Every suite at the head: 3,128 tests, 2,938 passing, 190 skipped, Debug and Release.
+- The effort trial: the implementer ran at Opus 5.5 xhigh, a critical sprint; step 1 took
+  about 57 minutes, part 1 about 50, and the fixes of the three rounds about 37.
 
 #### S18 · Owned values, Lists and references
 
@@ -8580,9 +8703,52 @@ bytes, decided here together with the case of bytes that wait. Until then `OpenT
 says that a part is a frame of at most 64 KiB and its header and has to arrive whole
 within the timeout.
 
+#### S34A · Advisory locks
+
+**Added by the planner on 22 November 2026, on the owner's decision of that day (Q59 of
+`open-questions.md`).** It stands after S34 because what a lock means when a connection
+is lost is decided by S33 and S34: a master does not notice a child lost without a reset
+before S33, and a child does not notice a vanished master before S34.
+
+**Track:** full · **Needs:** S34 · **Owners:** E03, E08
+
+- **Goal.** An application can take a named lock, exclusive or shared, from any node, to
+  arrange its own work; the database arbitrates it and protects nothing with it.
+- **Contract.** Absent. The sprint starts with a decision record, which the owner
+  approves and which amends the sentences of `docs/decisions/document-model.md` that
+  defer locks held by an application beyond v1; then the contract, a sample and tests,
+  then the engine.
+- **To read.** Q59; `docs/decisions/document-model.md` (application-held locks, and why
+  an advisory lock alone does not freeze a graph); the study of 22 November 2026, kept
+  with the notes of the planner, which read PostgreSQL advisory locks, `sp_getapplock`
+  of SQL Server, the locks of etcd and ZooKeeper with leases and fencing, and the
+  forwarding of a write in this engine.
+- **Acceptance.** Written with the decision record and approved by the owner before the
+  sprint starts.
+- **For the decision record, the planner's recommendations, none decided:** a lock is
+  held by a handle and ends with it, with the connection of its child, or with the
+  master; nothing is persisted; after a reconnection it is lost, and the holder learns it
+  through a token; a grant carries the position of the master and a child waits for that
+  position before the call returns, as a forwarded write does, so a shared holder never
+  reads a state older than the last exclusive holder's writes; purely advisory, no write
+  is checked against a lock; no reentrancy and no upgrade; a wait is bounded by an option
+  with a default and by the token, with no detector of deadlocks between locks; waiters
+  in the order they came, so a waiting exclusive holds back new shared grants; no limit
+  on the number of locks or of waiters. Left to the record: the type of the key, and
+  whether a wait that ran out is a result or an error.
+- **Known in advance.** The lock table lives on the master beside the write coordinator;
+  neither the read path nor the write path of entities is touched. Three kinds of frame
+  and a new wire format; lock requests need their own sequence of ids, since the ids of
+  forwarded writes are consecutive; the receiver of a master must not wait for a grant.
+  A reader on a child that takes a lock for each read of a set makes a round trip to the
+  master and fails while the master cannot be reached; the record of the sprint reports
+  that cost beside the same read done with a root revision.
+- **Out of scope.** A snapshot of several reads, a transaction of an application, a lock
+  that the engine enforces on entities.
+
 #### S35 · Cluster verification
 
-**Track:** full, verification · **Needs:** S34 · **Decisions:** P3 · **Closes:** Q08.1.3, Q13, R30
+**Track:** full, verification · **Needs:** S34, S34A · **Decisions:** P3 · **Closes:** Q08.1.3, Q13, R30
 
 - **Goal.** The guarantees hold between real processes, with real connection faults, in
   the deployment profile.

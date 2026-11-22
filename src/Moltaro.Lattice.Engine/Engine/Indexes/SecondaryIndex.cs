@@ -27,10 +27,10 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // (Entities.PreparedChange), which every later step reads; an entry is built only by the step that
 // inserts, removes or rewrites it. What the place where the effects of a write are installed calls, for
 // each index the write changes, under the lock of the writes, on a master and on a child alike:
-// - in the hold that prepares the write: TryReserve; false when the arena cannot hold what the change
-//   needs, which refuses the write as one the memory budget cannot hold, with nothing taken; then, once
-//   every index has what the write needs, the top-up of the standing reserve (TopUp);
-// - when the write is withdrawn before its publication: Release;
+// - in the hold that prepares the changes of one publication: TryReserve, once, for what they all need;
+//   false when the arena cannot hold it, which refuses them as changes the memory budget cannot hold, with
+//   nothing taken; then, once every index has what they need, the top-up of the standing reserve (TopUp);
+// - when the changes are withdrawn before their publication: Release, once;
 // - in its publication, before the stores that publish the root and the position: InstallNew;
 // - after the position, before the old root or the deleted entry is retired: RemoveOld.
 // So the entries of one publication are installed in this order: the new entries, then the root, then
@@ -197,31 +197,20 @@ internal sealed class SecondaryIndex
     // one value of this unique index twice (OrderedTree.HoldsAKeyTwice).
     public bool HoldsAValueTwice() => Tree.HoldsAKeyTwice();
 
-    // For the writer, in the hold that prepares the write: reserves what the change the write makes to
-    // the index needs (OrderedTree.TryReserve, CountsOf). False when the arena cannot hold it, with nothing
-    // taken (see the class).
-    public bool TryReserve(IndexChangeEnum change)
-    {
-        var (inserts, removes) = CountsOf(change);
+    // For the writer, in the hold that prepares changes: reserves what the inserts and the removes the
+    // changes of one publication make to the index need, summed over them (OrderedTree.TryReserve, CountsOf).
+    // False when the arena cannot hold it, with nothing taken (see the class).
+    public bool TryReserve(int inserts, int removes) => Tree.TryReserve(inserts, removes);
 
-        return Tree.TryReserve(inserts, removes);
-    }
-
-    // For the writer: gives back what TryReserve took for the change, for a write withdrawn before its
-    // publication.
-    public void Release(IndexChangeEnum change)
-    {
-        var (inserts, removes) = CountsOf(change);
-
-        Tree.Release(inserts, removes);
-    }
+    // For the writer: gives back what TryReserve took for changes withdrawn before their publication.
+    public void Release(int inserts, int removes) => Tree.Release(inserts, removes);
 
     // For the writer, in the hold that prepares a write, once every index of the write has what the write
     // needs: tops the standing reserve of the tree up, as far as the arena gives (OrderedTree.TopUp).
     public void TopUp() => Tree.TopUp();
 
     // For the writer, before a write is refused for memory: gives back what the pool of the tree holds
-    // above the need of the writes prepared and not published (OrderedTree.GiveBackReserve).
+    // above the lesser bound of the writes prepared and not published (OrderedTree.GiveBackReserve).
     public void GiveBackReserve() => Tree.GiveBackReserve();
 
     // For the writer, in the publication of the write, before the stores of its root: adds the entry the
@@ -254,14 +243,15 @@ internal sealed class SecondaryIndex
     }
 
     // The inserts and the removes a change of the index takes in its tree: an insert for Insert, Move and
-    // Rewrite, a remove for Remove and Move. Inlined, so that a reservation and a release make no call for
-    // it (JIT listing at full optimization).
+    // Rewrite, a remove for Remove and Move; none for None. Inlined, so that a reservation and a release make
+    // no call for it (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (int Inserts, int Removes) CountsOf(IndexChangeEnum change) => change switch
+    public static (int Inserts, int Removes) CountsOf(IndexChangeEnum change) => change switch
     {
         IndexChangeEnum.Insert or IndexChangeEnum.Rewrite => (1, 0),
         IndexChangeEnum.Remove => (0, 1),
-        _ => (1, 1),
+        IndexChangeEnum.Move => (1, 1),
+        _ => (0, 0),
     };
 
     // The entry the root contributes under the handle, in the scratch of the writer.

@@ -19,6 +19,11 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Transactions;
 //   passes after LoadEnd a transaction at that position, which first writes the state of "code" the load
 //   copied — the child holds it at that sequence already, so the rule skips it — and then writes or
 //   deletes "code". The open of the child fails with Unavailable.
+// - A transaction of many effects whose last effect names the key of its first, as a forged batch would: the
+//   relay passes, in the place of the transactions of 199 inserts and a replace of the first of them, one
+//   at the sequence of the first, as a master writes the members of a batch. The child refuses it whole, as
+//   above: a transaction names each key once however many effects lie between (the brief of Epic 1, sprint
+//   S17, point 6, where the check becomes a set of the keys of a transaction).
 // The shapes of the frames are those TransactionPayload states; the master holds one root of MarkedRoot.
 public sealed class KeyNamedOnceTests
 {
@@ -65,6 +70,61 @@ public sealed class KeyNamedOnceTests
         Assert.Null(child.Set("Marked").Get("second"));
         Assert.Null(child.Set("Marked").Get("after"));
         Assert.Equal("name", child.Set("Marked").Get("code")?["Name"]);
+    }
+
+    [Fact]
+    public async Task Transaction_of_many_effects_whose_last_names_the_key_of_its_first_is_refused_whole()
+    {
+        const int Inserts = 199;
+
+        await using var master = await ReplicationNodes.OpenMasterAsync(MarkedRoot.Schema);
+        var records = master.Set("Marked");
+        await records.InsertAsync(MarkedRoot.RecordOf(records.EntityType, "code"));
+        var held = new List<WireFrame>();
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+        {
+            if (frame.Kind != FrameKindEnum.Transaction || held.Count > Inserts)
+            {
+                return [frame];
+            }
+
+            held.Add(frame);
+
+            if (held.Count <= Inserts)
+            {
+                return [];
+            }
+
+            var sequence = TransactionPayload.SequenceOf(held[0]);
+            var effects = new List<byte>();
+
+            foreach (var member in held)
+            {
+                var effect = TransactionPayload.EffectsOf(member);
+
+                Assert.Equal(TransactionPayload.Write, effect[0]);
+                BinaryPrimitives.WriteUInt64LittleEndian(effect.AsSpan(TransactionPayload.WriteLastMutationAt), sequence);
+                effects.AddRange(effect);
+            }
+
+            return [held[0].WithPayload(TransactionPayload.Make(sequence, [.. effects]))];
+        });
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var readiness = child.Position;
+
+        for (var index = 0; index < Inserts; index++)
+        {
+            await records.InsertAsync(MarkedRoot.RecordOf(records.EntityType, $"member {index}"));
+        }
+
+        await records.ReplaceAsync(MarkedRoot.RecordOf(records.EntityType, "member 0"));
+        await relay.ChildEndedAsync().WaitAsync(Bound);
+
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+        Assert.Equal(readiness, child.Position);
+        Assert.Null(child.Set("Marked").Get("member 0"));
+        Assert.Null(child.Set("Marked").Get($"member {Inserts - 1}"));
+        Assert.Single(child.Set("Marked").Enumerate());
     }
 
     [Theory]

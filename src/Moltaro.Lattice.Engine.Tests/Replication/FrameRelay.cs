@@ -6,12 +6,15 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // A link between one child and its master (LoopbackLink) that reads what the master sends frame by frame
 // (WireFrame) and passes each frame through the change a test gives: as it is, changed, dropped or more
 // than once. What the child sends passes unchanged. The link keeps every frame each side sent, in the
-// order it arrived, so that a test can read the handshake and the frames of a load. The frames of the
-// master are those a node of the engine wrote, so their lengths are trusted; a change runs on the thread
-// of the copy, and an assertion that fails in it ends the link and fails DisposeAsync. A test learns
-// that the connection of the child has ended — the child closed or reset it, or the link was cut —
-// from ChildEndedAsync. An end in order of the master's side reaches the child in order as well, after
-// everything the relay passed, and not as the reset with which the link ends a connection otherwise.
+// order it arrived, so that a test can read the handshake and the frames of a load, and every frame it
+// passed to the child while the child was connected, so that a test can state that a frame it changed
+// reached the child before the child ended its connection. A frame is recorded before it is sent, since a
+// child that refuses it may end its connection before the send returns. The frames of the master are those
+// a node of the engine wrote, so their lengths are trusted; a change runs on the thread of the copy, and an
+// assertion that fails in it ends the link and fails DisposeAsync. A test learns that the connection of the
+// child has ended — the child closed or reset it, or the link was cut — from ChildEndedAsync. An end in
+// order of the master's side reaches the child in order as well, after everything the relay passed, and not
+// as the reset with which the link ends a connection otherwise.
 internal sealed class FrameRelay : IAsyncDisposable
 {
     // Guards what the copies keep, which a test reads from its own thread.
@@ -22,6 +25,8 @@ internal sealed class FrameRelay : IAsyncDisposable
     private readonly List<WireFrame> _fromMaster = [];
 
     private readonly List<byte> _fromChild = [];
+
+    private readonly List<WireFrame> _toChild = [];
 
     private readonly Func<WireFrame, IEnumerable<WireFrame>> _change;
 
@@ -44,6 +49,20 @@ internal sealed class FrameRelay : IAsyncDisposable
             lock (_lock)
             {
                 return [.. _fromMaster];
+            }
+        }
+    }
+
+    // Every frame the relay passed to the child so far, in the order it sent them, each recorded before its
+    // send began while the copy from the child had not ended: the child was connected when the bytes went to
+    // it.
+    public IReadOnlyList<WireFrame> ToChild
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _toChild];
             }
         }
     }
@@ -103,6 +122,14 @@ internal sealed class FrameRelay : IAsyncDisposable
 
                 foreach (var passed in _change(frame))
                 {
+                    lock (_lock)
+                    {
+                        if (!_childEnded.Task.IsCompleted)
+                        {
+                            _toChild.Add(passed);
+                        }
+                    }
+
                     await LoopbackLink.SendAsync(child, passed.Bytes, cancellationToken);
                 }
             }
