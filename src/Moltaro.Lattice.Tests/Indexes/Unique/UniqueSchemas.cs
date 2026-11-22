@@ -120,6 +120,10 @@ internal static class UniqueSchemas
         return record;
     }
 
+    // A record of Profile of Profiles with its Id, Login and Nick, and its Note when one is given.
+    public static LatticeRecord Profile(ILatticeSet profiles, long id, string login, string nick, string? note = null) =>
+        RecordOf(profiles, id, ("Login", login), ("Nick", nick), ("Note", note));
+
     // The ids of the records a search found, in ascending order: a search returns the entities of one key
     // in no order the contract states.
     public static long[] IdsOf(IEnumerable<LatticeRecord> found) => [.. found.Select(record => record.Get<long>("Id")).Order()];

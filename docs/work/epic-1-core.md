@@ -1277,6 +1277,7 @@ Why this order:
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
+| S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
@@ -7610,7 +7611,8 @@ Open, for the next coordinator and the architect:
   sprint is not on its path: the forged Delete is refused in `PrimaryKeys.ReadKey`
   before every member the sprint changed. A fast refusal of a socket under load remains
   possible and unproven. The next coordinator checks the class first, and every later
-  failure of it is kept with its message.
+  failure of it is kept with its message. Since S16R a failure of the setup of the link
+  names its cause (L6 of the refactoring backlog).
 - `ReadTimeInsideTheEngineTests.Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it`
   failed twice under heavy parallel load at 779641e ("In each of 3 attempts a step took as
   long as the limit by itself"). It was not recorded before as dependent on load, and it is
@@ -7696,6 +7698,22 @@ repository.
 - **The lines of S15R** (57be01b over 074f783) are written in H1, H3, F13 and J1 of the
   [refactoring backlog](refactoring.md): nothing is lost. The exact search of an Int64 key
   through the class gains about 5 %.
+
+**The record of S16R** (closed on 22 November 2026; its entries are L2, L3, L5 and L6 of
+the [refactoring backlog](refactoring.md), and the listings of K1). It was coordinated by
+the sixth coordinator of the epic, who stays for the sprints of one day by the owner's
+word in the planner's session, not replaced at this boundary. The two open tests of the record of S16 were run first, at
+5d27900: 55 runs of the two classes, 45 of them in three loops beside three full Release
+suites at once, and five full suites, with no failure; the outputs are kept outside the
+repository. The implementer ran at Opus 5.5 high, as in the trial of the
+[development process](process.md): four commits in about 34 minutes, and four after
+round 1 of the review in about 11. The review took two rounds. Round 1 found no P1 and
+no P2, 3 P3 and 5 P4: the statuses of L2, L3 and L6, the head of `RootReader` against its
+new overloads, and `EntryPart.Type`, which repeated `Stored.Type`. The hardest part to
+follow, by the reviewer: the two catches of `LoopbackLink.RunAsync` over the same
+exception, which a comment now explains. Every suite had 3,043 tests, 2,904 passing and
+139 skipped, as at its base. No start of the machine: the figure of L2 and the cause of K1
+are owed to the start of S17.
 
 #### S17 · Atomic write batch
 
@@ -7797,6 +7815,15 @@ counts of the whole batch; today `ChangePublisher.TryReserve` takes one change a
 `PreparedWrite` holds one change inline, so a batch would top up each index once for each
 change. The linear reserve and this are one design.
 
+**Added by the planner on 22 November 2026, from the architect's review after S16.** The
+first structural commit after the study is L1 of `refactoring.md`, with G6 and F3: the
+changes of one publication are decided first, a taken value is found on the state the
+publication leaves, and each index reserves once. The start of the machine also decides
+K1 by the builds of S16 step by step and judges L2. And the author of the tests makes
+`MalformedTransactionTests` assert, through what the relay passed on from the master, that
+the forged frame reached the child before the child ended: today the tests pass also
+when the connection dies first.
+
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
@@ -7858,6 +7885,16 @@ floating-point field and back, a floating-point value or a Decimal for an intege
 back) refused with the message of J2; an Enum field refuses an integer its enum type does
 not declare, as today. If this needs a sentence of the Acceptance of S18, the coordinator
 of S18 asks the owner for it.
+
+**Added by the planner on 22 November 2026, from the architect's review after S16.** The
+sprint also makes the time limit of a read testable without the clock of the machine:
+`ReadLimits` reads its timestamp through an engine-internal settings object made once for
+a database, which holds the limit in ticks and the source of the timestamp, and which the
+tests replace through `EngineTestInputs` (X3 of the exceptions register).
+`ReadTimeInsideTheEngineTests` advances that clock instead of waiting, and loses its loop
+of attempts. Shown: the listing of `EntityTable.Step` with no call added for a read
+without a time limit, the 56 pinned bytes of a search, and `ReadLimits` at 24 bytes. If
+`Step` was not changed by S17, L4 of `refactoring.md` is done in the same commit.
 
 #### S19 · Maps and Sets
 

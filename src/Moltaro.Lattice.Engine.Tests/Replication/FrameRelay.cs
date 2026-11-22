@@ -1,6 +1,5 @@
 using System.Net.Sockets;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
-using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication;
 
@@ -69,7 +68,7 @@ internal sealed class FrameRelay : IAsyncDisposable
 
     // Completes once the copy from the child has ended: the child ended its connection, or the link was
     // cut or ended; fails when that has not happened within the bound.
-    public Task ChildEndedAsync() => _childEnded.Task.WaitAsync(Bound);
+    public Task ChildEndedAsync() => BoundedWait.ForAsync(_childEnded.Task, "The end of the connection of the child");
 
     public ValueTask DisposeAsync() => _link.DisposeAsync();
 

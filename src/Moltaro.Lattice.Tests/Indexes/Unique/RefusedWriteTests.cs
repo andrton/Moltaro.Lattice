@@ -13,16 +13,16 @@ public sealed class RefusedWriteTests
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "ada", "Ada"));
-        await profiles.InsertAsync(Profile(profiles, 2, "grace", "Grace", note: "admiral"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "grace", "Grace", note: "admiral"));
 
         var position = database.Position;
         var before = Contents(profiles);
 
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(Profile(profiles, 3, "ada", "Alan")));
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.ReplaceAsync(Profile(profiles, 2, "ada", "Grace", note: "moved")));
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.UpsertAsync(Profile(profiles, 2, "ada", "Grace", note: "moved")));
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.UpsertAsync(Profile(profiles, 4, "ada", "Alan")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "ada", "Alan")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 2, "ada", "Grace", note: "moved")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.UpsertAsync(UniqueSchemas.Profile(profiles, 2, "ada", "Grace", note: "moved")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.UpsertAsync(UniqueSchemas.Profile(profiles, 4, "ada", "Alan")));
 
         Assert.Equal(position, database.Position);
         Assert.Equal(before, Contents(profiles));
@@ -37,18 +37,18 @@ public sealed class RefusedWriteTests
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
 
-        await profiles.InsertAsync(Profile(profiles, 1, "ada", "Ada"));
-        await profiles.InsertAsync(Profile(profiles, 2, "grace", "Grace"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 1, "ada", "Ada"));
+        await profiles.InsertAsync(UniqueSchemas.Profile(profiles, 2, "grace", "Grace"));
 
         // ByNick is declared before ByLogin, though its identity is the higher one.
-        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(Profile(profiles, 3, "ada", "ADA")));
-        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.ReplaceAsync(Profile(profiles, 2, "ada", "ada")));
+        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "ada", "ADA")));
+        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.ReplaceAsync(UniqueSchemas.Profile(profiles, 2, "ada", "ada")));
 
         // The two values held by two different entities.
-        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(Profile(profiles, 3, "ada", "grace")));
+        await UniqueSchemas.ExpectTakenAsync("ByNick", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "ada", "grace")));
 
         // Only the second violated.
-        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(Profile(profiles, 3, "ada", "Alan")));
+        await UniqueSchemas.ExpectTakenAsync("ByLogin", () => profiles.InsertAsync(UniqueSchemas.Profile(profiles, 3, "ada", "Alan")));
     }
 
     // Every entity of the set and what each index finds for each of their values, in an order of their own.
@@ -68,7 +68,4 @@ public sealed class RefusedWriteTests
 
         return contents;
     }
-
-    private static LatticeRecord Profile(ILatticeSet profiles, long id, string login, string nick, string? note = null) =>
-        UniqueSchemas.RecordOf(profiles, id, ("Login", login), ("Nick", nick), ("Note", note));
 }

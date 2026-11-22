@@ -155,7 +155,7 @@ internal sealed class IndexLayout
             var isText = stored.Type == StoredTypeEnum.String;
             var nullBit = part.CanBeNull ? nullable++ : EntryPart.NoNullBit;
 
-            parts[place] = new EntryPart(part.Field, stored.Type, isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null, stored);
+            parts[place] = new EntryPart(isText ? 0 : stored.Width, nullBit, isText ? 0 : fixedBytes, isText ? part.Field.Declaration.TextComparison : null, stored);
 
             if (isText)
             {
@@ -361,7 +361,7 @@ internal sealed class IndexLayout
 
         foreach (ref readonly var part in Parts)
         {
-            if (root.IsNull(part.Field))
+            if (root.IsNull(part.Stored))
             {
                 bitmap[part.NullBit / 8] |= (byte)(1 << (part.NullBit % 8));
 
@@ -373,11 +373,11 @@ internal sealed class IndexLayout
             }
             else if (part.IsText)
             {
-                length += WriteText(root, part.Field, destination[length..]);
+                length += WriteText(root, part.Stored, destination[length..]);
             }
             else
             {
-                root.StoredBytes(part.Field).CopyTo(destination[length..]);
+                root.StoredBytes(part.Stored).CopyTo(destination[length..]);
                 length += part.Width;
             }
         }
@@ -468,7 +468,7 @@ internal sealed class IndexLayout
             var bytes = part.IsText ? TextPartBytes(entry[offset]) : part.Width;
             var value = entry.Slice(offset, bytes);
 
-            values[place] = IsNull(entry, part) ? null : part.IsText ? TextOf(arena, value) : ScalarOf(part.Field, value);
+            values[place] = IsNull(entry, part) ? null : part.IsText ? TextOf(arena, value) : ScalarOf(part.Stored.Field, value);
             offset += bytes;
         }
     }
@@ -485,9 +485,9 @@ internal sealed class IndexLayout
     // Writes the String part of a value that is not null, and returns its bytes: a copy of a text of
     // TextCopyLimit bytes or less from where it lies, or a reference to the text entry of a longer one,
     // which the layout of the root places in an entry (StoredField.LiesInTextEntry).
-    private static int WriteText(in RootReader root, LatticeField field, Span<byte> destination)
+    private static int WriteText(in RootReader root, in StoredField stored, Span<byte> destination)
     {
-        var descriptor = ValueBlocks.Read(root.StoredBytes(field));
+        var descriptor = ValueBlocks.Read(root.StoredBytes(stored));
 
         if (descriptor.Length <= TextCopyLimit)
         {
