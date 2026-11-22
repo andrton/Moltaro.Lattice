@@ -8,9 +8,9 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 // exchange or rotate their values, and a delete frees a value another member of the same batch takes.
 // When the final state would give a value two owners the whole batch is refused with
 // UniqueConstraintViolation, the index named and the failing member numbered (Q58 of the open questions):
-// of two members that claim one value, the later; against a published owner no member frees, the member
-// that claims; and of several violations, the one in the first violated index by the order of the
-// declaration. A key with a null in any part is no value. Nothing of a refused batch is written.
+// the member with the lowest number among those that fail; of two members that claim one value, the later;
+// against a published owner no member frees, the member that claims; and for one member that violates
+// several indexes, the index declared first in its entity type. A key with a null in any part is no value. Nothing of a refused batch is written.
 // Schemas of UniqueSchemas: Accounts (ByLogin; ByTenantAndEmail), Profiles (ByNick declared before
 // ByLogin) and Slots (ByABC, three parts that can each be null).
 public sealed class BatchUniqueValueTests
@@ -149,10 +149,10 @@ public sealed class BatchUniqueValueTests
         Assert.Null(accounts.Get(2L));
     }
 
-    // The earlier member violates ByLogin and the later one ByNick, each against a published owner: ByNick is
-    // declared first, so the later member is the failing one.
+    // The earlier member violates ByLogin and the later one ByNick, each against a published owner: the
+    // earlier member is the failing one, although ByNick is declared first.
     [Fact]
-    public async Task Of_violations_in_two_indexes_the_batch_names_the_index_declared_first()
+    public async Task Of_violations_by_two_members_the_batch_names_the_earliest_member()
     {
         await using var database = await TestData.OpenMasterAsync(schema: UniqueSchemas.Profiles);
         var profiles = database.Set("Profile");
@@ -164,8 +164,8 @@ public sealed class BatchUniqueValueTests
 
         var refused = await TestData.ExpectErrorAsync(LatticeErrorEnum.UniqueConstraintViolation, () => batch.CommitAsync());
 
-        Assert.Equal(1, refused.OperationIndex);
-        Assert.Equal("ByNick", refused.IndexName);
+        Assert.Equal(0, refused.OperationIndex);
+        Assert.Equal("ByLogin", refused.IndexName);
         Assert.Single(profiles.Enumerate());
     }
 
