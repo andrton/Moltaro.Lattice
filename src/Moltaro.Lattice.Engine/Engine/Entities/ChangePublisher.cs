@@ -68,6 +68,13 @@ internal sealed class ChangePublisher
 
     private ulong[] _freed = [];
 
+    // What a test of the engine runs at the place of the next publication that passes it
+    // (ArmPublicationSwitch), and the place; null when no test armed it, which is all a publication pays:
+    // one load of a field nothing else writes, at each place.
+    private Action? _publicationSwitch;
+
+    private PublicationPointEnum _switchPoint;
+
     public ChangePublisher(Arena arena, RootTable roots, RetiredMemory retired, PositionClock clock, EntityTables tables)
     {
         _arena = arena;
@@ -575,13 +582,15 @@ internal sealed class ChangePublisher
         }
     }
 
-    // Under the lock of the writes: the first step of the publication of the changes of one publication, in
-    // their order and each with the stamp given (see the class): the stores before the position, the new
-    // entries of the secondary indexes, then Install, MarkReplace and MarkDelete. The caller makes the rest
-    // of the publication next, under the same hold of the lock (PublishPositionAndAfter). An entry an index
-    // refuses to add (Indexes.OrderedTree.Insert) fails the publication with InvalidOperationException: on a
-    // master a defect, on a child its stream contradicting its index, and the caller faults the database
-    // either way.
+    // Under the lock of the writes: the first step of the publication of the changes of one publication, with
+    // the stamp given (see the class): the stores before the position, the new entries of the secondary
+    // indexes of every change first, then, in the order of the changes, the stores of each entity with the
+    // stamp, Install, StoreReplace and StoreDelete, so that a read that meets any of them finds a stamp above
+    // the position and waits for it (EntityTable.TakeEntry). The caller makes the rest of the publication
+    // next, under the same hold of the lock (PublishPositionAndAfter). An entry an index refuses to add
+    // (Indexes.OrderedTree.Insert) fails the publication with InvalidOperationException: on a master a defect,
+    // on a child its stream contradicting its index, and the caller faults the database either way; so does
+    // an exception of the switch of the tests.
     public void PublishBeforePosition(ReadOnlySpan<PreparedChange> changes, ulong stamp)
     {
         foreach (ref readonly var change in changes)
@@ -590,6 +599,13 @@ internal sealed class ChangePublisher
             {
                 InstallNew(change);
             }
+        }
+
+        OfferPublicationSwitch(PublicationPointEnum.AfterNewEntries);
+
+        for (var place = 0; place < changes.Length; place++)
+        {
+            ref readonly var change = ref changes[place];
 
             switch (change.Kind)
             {
@@ -598,25 +614,31 @@ internal sealed class ChangePublisher
                     break;
 
                 case ChangeKindEnum.Replace:
-                    MarkReplace(change.Table.Layout!, change.Handle, change.Root);
+                    StoreReplace(change.Table.Layout!, change.Handle, change.Root, stamp);
                     break;
 
                 default:
-                    MarkDelete(change.Handle);
+                    StoreDelete(change.Handle, stamp);
                     break;
             }
+
+            if (place == 0)
+            {
+                OfferPublicationSwitch(PublicationPointEnum.AfterFirstChange);
+            }
         }
+
+        OfferPublicationSwitch(PublicationPointEnum.BeforePosition);
     }
 
     // Under the lock of the writes, after PublishBeforePosition of the same changes with the same stamp:
     // the rest of their publication (see the class). The stamp becomes the position of the database, unless
-    // the changes are a root of a load, whose position the end of the load sets: after the entry of the
-    // index of an insert, so that a read that sees the position finds the key, and between the mark and
-    // the stamp of a replace or a delete, so that a read that loads the new stamp reads that position or a
-    // later one (the position of an answer, EntityTable). Then the stores after it: StampReplace and
-    // StampDelete, each of which takes the old entries of the secondary indexes away before it retires the
-    // root they belong to. With no change it publishes only the position, as a delete of a key that is
-    // absent does. The caller wakes the waits for a position once it has released the lock
+    // the changes are a root of a load, whose position the end of the load sets: after every entity of the
+    // changes is stored with it, so that a read that sees the position finds every one of them in its new
+    // state, and none before (the position of an answer, EntityTable). Then the stores after it:
+    // RemoveReplaced and RemoveDeleted, each of which takes the old entries of the secondary indexes away
+    // before it retires the root they belong to. With no change it publishes only the position, as a delete
+    // of a key that is absent does. The caller wakes the waits for a position once it has released the lock
     // (PositionClock.Wake). An entry an index refuses to take away (Indexes.OrderedTree.Remove) fails the
     // publication as in PublishBeforePosition.
     public void PublishPositionAndAfter(ReadOnlySpan<PreparedChange> changes, ulong stamp, bool publishesPosition)
@@ -626,18 +648,38 @@ internal sealed class ChangePublisher
             _clock.Publish(stamp);
         }
 
+        OfferPublicationSwitch(PublicationPointEnum.AfterPosition);
+
         foreach (ref readonly var change in changes)
         {
             switch (change.Kind)
             {
                 case ChangeKindEnum.Replace:
-                    StampReplace(change, stamp);
+                    RemoveReplaced(change);
                     break;
 
                 case ChangeKindEnum.Delete:
-                    StampDelete(change, stamp);
+                    RemoveDeleted(change);
                     break;
             }
+        }
+    }
+
+    // For the tests of the engine (EngineDatabase.ArmPublicationSwitch): the next publication that passes the
+    // place given runs the action there, once.
+    public void ArmPublicationSwitch(PublicationPointEnum point, Action action)
+    {
+        _switchPoint = point;
+        Volatile.Write(ref _publicationSwitch, action);
+    }
+
+    // The switch of the tests at a place of a publication, on the publishing thread under the lock of the
+    // writes; an exception of the action fails the publication there.
+    private void OfferPublicationSwitch(PublicationPointEnum point)
+    {
+        if (_publicationSwitch is not null && _switchPoint == point)
+        {
+            Interlocked.Exchange(ref _publicationSwitch, null)?.Invoke();
         }
     }
 
@@ -699,8 +741,9 @@ internal sealed class ChangePublisher
 
     // The stores of a replace before the position (see the class), each with release semantics: the mark
     // first; the release of the root's store keeps the mark before the root, as the release fence after the
-    // source's swap keeps it before the data.
-    private void MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
+    // source's swap keeps it before the data; then the stamp, whose release keeps the root before it, so a
+    // read that loads it sees the new root, and which a read takes only once the position is published.
+    private void StoreReplace(RootLayout layout, RootHandle handle, ArenaAddress root, ulong sequence)
     {
         RootStorage.Publish(_arena, layout, root);
 
@@ -708,16 +751,14 @@ internal sealed class ChangePublisher
 
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseRoot(root);
+        entry.ReleaseLastMutation(sequence);
     }
 
-    // The stores of a replace after the position: the new stamp, whose release keeps the root before it,
-    // so a read that loads it sees the new root; then the old entries of the indexes go, while the old root
-    // they were made from is still there. Reads that took the old root before go on copying it; it is
-    // freed once they have left.
-    private void StampReplace(in PreparedChange change, ulong sequence)
+    // The stores of a replace after the position: the old entries of the indexes go, while the old root they
+    // were made from is still there. Reads that took the old root before go on copying it; it is freed once
+    // they have left.
+    private void RemoveReplaced(in PreparedChange change)
     {
-        _roots.Entry(change.Handle).ReleaseLastMutation(sequence);
-
         if (change.IndexChanges != 0)
         {
             RemoveOld(change);
@@ -726,26 +767,27 @@ internal sealed class ChangePublisher
         _retired.RetireRoot(change.Table.Layout!, change.Replaced);
     }
 
-    // The stores of a delete before the position: the mark, then the state where a replace has the root.
-    // The entry keeps the address of its root, which is retired, not freed.
-    private void MarkDelete(RootHandle handle)
+    // The stores of a delete before the position: the mark, then the state where a replace has the root,
+    // then the stamp, which a read takes only once the position is published. The entry keeps the address
+    // of its root, which is retired, not freed.
+    private void StoreDelete(RootHandle handle, ulong sequence)
     {
         ref var entry = ref _roots.Entry(handle);
 
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseState(RootStateEnum.Deleted);
+        entry.ReleaseLastMutation(sequence);
     }
 
-    // The stores of a delete after the position: the stamp, then the entry of the primary index is removed,
-    // so a read that misses the key reads the position of the delete or a later one, and the entries of
-    // the secondary indexes; the root and its entry are retired after them, so that no search can meet the
-    // entry of the root once it may be given to another root (Entities.IndexSearch).
+    // The stores of a delete after the position: the entry of the primary index is removed, so a read that
+    // misses the key reads the position of the delete or a later one, and the entries of the secondary
+    // indexes; the root and its entry are retired after them, so that no search can meet the entry of the
+    // root once it may be given to another root (Entities.IndexSearch).
     // Inlined into PublishPositionAndAfter, as it was into the publication before there were indexes,
     // which made it too large to be inlined by the JIT's choice (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void StampDelete(in PreparedChange change, ulong sequence)
+    private void RemoveDeleted(in PreparedChange change)
     {
-        _roots.Entry(change.Handle).ReleaseLastMutation(sequence);
         change.Table.Remove(change.Key, change.Handle);
 
         if (change.IndexChanges != 0)

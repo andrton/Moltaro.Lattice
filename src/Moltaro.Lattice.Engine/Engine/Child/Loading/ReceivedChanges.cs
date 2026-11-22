@@ -152,6 +152,7 @@ internal sealed class ReceivedChanges
         PositionClock clock,
         ReadEpochs epochs,
         EntityTables tables,
+        ChangePublisher publisher,
         Lock writes,
         CloseBarrier barrier,
         Action fault)
@@ -161,7 +162,7 @@ internal sealed class ReceivedChanges
         _retired = retired;
         _clock = clock;
         _epochs = epochs;
-        _publisher = new ChangePublisher(arena, roots, retired, clock, tables);
+        _publisher = publisher;
         _tables = tables;
         _writes = writes;
         _barrier = barrier;

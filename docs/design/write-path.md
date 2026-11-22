@@ -106,37 +106,45 @@ child publishes every change of a transaction at once, or one root of its load. 
 publication at the sequence s has three steps:
 
 1. **The stores before the position.** First the new entries of the secondary indexes of
-   the entity type, of an insert and of a replace that moves a key, each by the one store
-   of its tree ([ordered index](ordered-index.md#the-entries-of-one-write)); a search that
-   finds one checks it against its root. Then an insert installs its root, then its root
-   entry, whose state Live is stored last, then its entry of the primary index, which
-   publishes both to a read by key. A replace stores the mark of a write in progress in
-   the root entry, then the new root. A delete stores the mark, then the state Deleted.
-2. **The position.** The position of the database becomes s. A root of a load has no
-   position of its own: the end of the load sets it.
-3. **The stores after the position.** A replace and a delete store the stamp s in the
-   root entry; then a delete removes its entry of the primary index, and both take their
-   old entries out of the secondary indexes, or rewrite an entry whose key is equal in
-   other bytes. What they replaced or deleted is retired, and freed once no read can
-   reach it.
+   every change, of an insert and of a replace that moves a key, each by the one store of
+   its tree ([ordered index](ordered-index.md#the-entries-of-one-write)); a search that
+   finds one checks it against its root. Then, change by change, the stores of each entity
+   with the stamp s: an insert installs its root, then its root entry, with the stamp s and
+   the state Live stored last, then its entry of the primary index, which publishes both to
+   a read by key. A replace stores the mark of a write in progress in the root entry, then
+   the new root, then the stamp s. A delete stores the mark, then the state Deleted, then
+   the stamp s.
+2. **The position.** The position of the database becomes s, once every entity of the
+   publication is stored. A root of a load has no position of its own: the end of the load
+   sets it.
+3. **The stores after the position.** A delete removes its entry of the primary index, and
+   a replace and a delete take their old entries out of the secondary indexes, or rewrite
+   an entry whose key is equal in other bytes. What they replaced or deleted is retired,
+   and freed once no read can reach it.
 
 Each store is a release, so a read that sees one sees every store before it, the values
-the preparation wrote included. The position is s − 1 until step 2, so a read never
-returns a state at a position at which the master did not have it:
+the preparation wrote included. A read does not take a stamp above the position of the
+database, which it loads right after the stamp ([the arena
+protocol](arena-protocol.md#the-stamp-of-a-root-entry)), and the position is s − 1 until
+step 2, so a read never returns a state at a position at which the master did not have it,
+and it sees every entity of a publication in its new state or none:
 
-- A read that finds an inserted key reads its stamp s, at s; one that misses it read
-  s − 1 before its lookup.
+- A read that finds an inserted key before step 2 finds the stamp s above the position
+  and waits for it; one that misses it read s − 1 before its lookup.
 - A read of a replaced or deleted key returns its old state only if the mark was not
   stored yet when it loaded the stamp the second time; the mark comes before the
   position, so that read saw the position s − 1 or earlier.
-- A read that finds the mark backs off until step 3; one that loads the stamp s reads
-  the new root, or the state Deleted at s, with the position s or later.
+- A read that finds the mark, or the stamp s before step 2, backs off until the position
+  is s; then it reads the new root, or the state Deleted at s, with the position s or
+  later.
 - A read that misses a deleted key does so after step 3, at s or later.
 
-A delete of a key that is absent changes no entity and publishes only its position. Once
-step 1 has begun nothing can fail but a defect, or the fault point a test of the engine
-arms between steps 1 and 2; either faults the database, and a read that backs off on a
-mark then gives up instead of waiting for a stamp that will never come.
+A read waits only when it meets an entity of the publication, for as long as the
+publication takes in memory, which for the transaction of a child grows with its effects
+(exception X6). A delete of a key that is absent changes no entity and publishes only its
+position. Once step 1 has begun nothing can fail but a defect, or the fault point a test of
+the engine arms between steps 1 and 2; either faults the database, and a read that backs off
+then gives up with `Unavailable` instead of waiting for a position that will never come.
 
 ## What an application can rely on
 

@@ -119,7 +119,7 @@ internal sealed class Capture
         {
             ref var entry = ref _roots.EntryOfSlot(slot);
 
-            if (!EntityTable.TryTakeLive(ref entry, _epochs, _clock, out var root, out var lastMutation))
+            if (!EntityTable.TryTakeLive(ref entry, _epochs, _clock, cancellationToken, out var root, out var lastMutation))
             {
                 return false;
             }

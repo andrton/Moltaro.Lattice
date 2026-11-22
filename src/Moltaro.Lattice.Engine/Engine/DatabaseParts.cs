@@ -37,6 +37,9 @@ internal sealed class DatabaseParts
 
     public required WriteCoordinator Coordinator { get; init; }
 
+    // Where prepared changes become visible, for the writes of a master and for what a child applies alike.
+    public required ChangePublisher Publisher { get; init; }
+
     // The tail of the transactions a master holds for its children; on a child it never retains.
     public required DeliveryTail Delivery { get; init; }
 

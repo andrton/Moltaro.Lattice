@@ -289,9 +289,10 @@ The entries of a write are installed in the hold of the lock that publishes its 
 each by its own stores, in this order: the new entries are inserted, the root is
 published, the old entries are removed or rewritten. Between those stores a reader may
 find the new entry before the root has the new key, or the old entry after the root has
-lost the old key; the check of every entry against its root covers both. A child that
-applies a transaction of several effects inserts the new entries of all of them before
-its position and removes the old ones after it.
+lost the old key; the check of every entry against its root covers both. A publication
+of several changes, as a child applies a transaction of several effects, inserts the new
+entries of all of them first, then stores every entity, then publishes its position, and
+removes the old entries after it ([the write path](write-path.md#how-a-publication-is-made)).
 
 ### The owner of a value of a unique index
 
@@ -486,13 +487,15 @@ between two steps only the key and the identity of the last entity it returned:
    at the fence of the leaf, the separator above it, at or after which every entry of the
    next leaf lies. No entry of the key: the search ends.
 2. It takes the root entry the identity names by its stamp, whatever its state, as a read
-   by key does, so that it waits through the mark of a replace or a delete in flight and
-   ends at its position or a later one, never before it. No entry the tree names keeps the
-   mark for good: the entries of an insert enter the tree in the publication that stores
-   its root entry right after them, and those of a delete leave before its root entry is
-   retired; a publication that fails between the two faults the database, and the wait
-   then reports `Unavailable`. An entry that is not live, a delete or an insert not yet
-   published, is passed over: such an insert has its position after the start of the step.
+   by key does, so that it waits through the mark, or a stamp above the position, of an
+   entity of a publication in flight and ends at its position or a later one, never before
+   it. The root entry of an insert whose root is not stored yet holds the mark, so the step
+   waits for it as well. No entry the tree names keeps the mark for good: the entries of an
+   insert enter the tree in the publication that stores its root entry after them, and
+   those of a delete leave before its root entry is retired; a publication that fails
+   between the two faults the database, and the wait then reports `Unavailable`. An entry
+   that is not live, a delete, is passed over. A step whose take waited walks again from
+   where it began ("How a range is walked", below).
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is
@@ -638,6 +641,17 @@ protection.
    `WalkProgress`, room for a key or for an entry, is counted against `ReadMemoryLimit` and
    made outside the protection, and the step reads its entry anew; a round that cannot write
    where it stands goes on from where the search stood, and what it remembered stays.
+8. **A take that waited.** A take that waited for the position of a publication found its
+   entity in the state the publication left, while the entries the step passed before were
+   seen before it, a member of the same publication among them in its state before. So the
+   step walks again from where it began: a search by a full key from the identity it stood
+   at, any other from the entry it stands after, the place a round of the step stood at
+   dropped (`WalkProgress` keeps that place apart from the entry it stands after). The new
+   round looks at the state of the instance and at the token, as every round does; what the
+   step passed over by Offset is remembered, so the walk counts none of it twice, and one
+   step never holds a part of a publication. A step that never waits pays one test of a
+   byte for it. Steps of one search may still combine states before and after a
+   publication, as separate reads may ([the document model](../decisions/document-model.md)).
 8. **Offset and Limit.** Offset is linear in the matches it passes over, which are
    remembered and counted once; Limit ends the walk after its last entity, and one more look,
    which copies nothing, says whether a match follows.

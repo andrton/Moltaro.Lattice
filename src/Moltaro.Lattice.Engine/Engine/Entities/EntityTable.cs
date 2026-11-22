@@ -310,7 +310,7 @@ internal sealed class EntityTable
             // The switch of the tests, after the read found its root and before it copies it.
             _epochs.OfferReadSwitch(new RootHandle(entry.Generation, slot));
 
-            return TryCopy<TCopy, TResult>(ref entry, ref copy, out revision, out sequence);
+            return TryCopy<TCopy, TResult>(ref entry, ref copy, out revision, out sequence, cancellationToken);
         }
         finally
         {
@@ -400,7 +400,7 @@ internal sealed class EntityTable
                             break;
                         }
 
-                        if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence))
+                        if (!TryCopy<TCopy, TResult>(ref entry, ref copy, out _, out sequence, cancellationToken))
                         {
                             continue;
                         }
@@ -563,6 +563,9 @@ internal sealed class EntityTable
         sequence = 0;
         next = search.Place;
 
+        // Where the step began, to which it goes back when a take waited for the position of a publication.
+        var stepFrom = search.From;
+
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
 
@@ -583,8 +586,11 @@ internal sealed class EntityTable
                 var keyBound = -1;
                 var entryLength = 0;
 
+                // Whether a take of the round waited for the position of a publication.
+                var waitedForPosition = false;
+
                 // The keys of the walk are written on the stack outside the protection, once for the round.
-                var after = !full && search.Progress is { } walked ? walked.Last : default;
+                var after = !full && search.Progress is { } walked ? walked.WalkFrom : default;
 
                 var walk = new IndexWalk(index, key, full, search.Reverse, search.From, after, scratch);
                 var protection = EnterProtection(ref search, cancellationToken);
@@ -615,9 +621,26 @@ internal sealed class EntityTable
 
                         // The entry is a hint: its root entry is not released while the step is inside,
                         // since the entries of a delete leave the tree before the entry is retired. Every
-                        // entry the step meets is taken by its stamp, whatever its state, as a read takes it.
+                        // entry the step meets is taken by its stamp, whatever its state, as a read takes it:
+                        // the entry of an insert whose root is not installed yet as well, whose stamp is the
+                        // mark until it is, so the take waits for the position of its publication.
                         ref var rootEntry = ref _roots.EntryOfSlot(identity.Slot);
-                        var stamp = TakeEntry(ref rootEntry, _epochs, _clock, out var state, out var root, out var at);
+
+                        TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out var at, out var waited);
+
+                        // A take that waited for the position of a publication found its entity in the state
+                        // the publication left, while the entries the step passed before were seen before it:
+                        // a member of the same publication not stored yet among them, which the step passed
+                        // in its state before. The step walks again from where it began, so that one step
+                        // never holds a part of a publication (docs/design/ordered-index.md, "How a range is
+                        // walked").
+                        if (waited)
+                        {
+                            waitedForPosition = true;
+                            exhausted = false;
+
+                            break;
+                        }
 
                         if (state != RootStateEnum.Live)
                         {
@@ -644,7 +667,7 @@ internal sealed class EntityTable
 
                         if (!copies && !skips)
                         {
-                            sequence = Math.Max(at, stamp);
+                            sequence = at;
                             next = search.Place;
 
                             return true;
@@ -692,10 +715,10 @@ internal sealed class EntityTable
                         copy.Copy(reader);
 
                         // The sequence of the answer, as LatticeFindResult.Position states it: the node had
-                        // applied everything up to it when the search looked at the index. The later of the
-                        // sequence read after the descent and the last mutation of the entity copied
+                        // applied everything up to it when the search looked at the index. The sequence the
+                        // take read, at which the entity copied had the state copied
                         // (docs/design/ordered-index.md, "The search by a full key").
-                        sequence = Math.Max(at, stamp);
+                        sequence = at;
 
                         if (progress is not null)
                         {
@@ -737,6 +760,19 @@ internal sealed class EntityTable
                 finally
                 {
                     _epochs.Exit(protection);
+                }
+
+                // The next round walks again from where the step began: a search by a full key from the
+                // identity it stood at, any other from the entry it stands after, the place a round of the
+                // step stood at dropped. Every match the step passed over by Offset is remembered, so the walk
+                // counts none of them twice, and the next round looks at the state of the instance and at
+                // the token as every round does.
+                if (waitedForPosition)
+                {
+                    search.From = stepFrom;
+                    search.Progress?.DropStand();
+
+                    continue;
                 }
 
                 // The first entity of a lazy search by a full key, returned with its key, which is stored now
@@ -881,13 +917,14 @@ internal sealed class EntityTable
     //   load that read it is an acquire, so the second load of the stamp reads MutationInProgress or
     //   the stamp of a later write, never S again: every write stores a sequence greater than the
     //   entry's.
-    // The sequence of the database is read between the two loads of the stamp for the position of the
-    // answer (arena-protocol.md, "The position of an answer"); it takes no part in the stamp.
-    private bool TryCopy<TCopy, TResult>(ref RootEntry entry, ref TCopy copy, out LatticeRevision revision, out ulong sequence)
+    // The sequence of the database is read between the two loads of the stamp, right after the first, for the
+    // position of the answer (arena-protocol.md, "The position of an answer"), and no stamp above it is
+    // taken (TakeEntry). The token of an asynchronous read ends a wait for the position of a publication.
+    private bool TryCopy<TCopy, TResult>(ref RootEntry entry, ref TCopy copy, out LatticeRevision revision, out ulong sequence, CancellationToken cancellationToken)
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var stamp = TakeEntry(ref entry, _epochs, _clock, out var state, out var root, out var at);
+        var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var state, out var root, out var at, out _);
 
         if (state != RootStateEnum.Live)
         {
@@ -899,7 +936,7 @@ internal sealed class EntityTable
 
         copy.Copy(new RootReader(_arena, Layout!, root));
         revision = new LatticeRevision(_clock.History, stamp);
-        sequence = Math.Max(at, stamp);
+        sequence = at;
 
         return true;
     }
@@ -923,8 +960,10 @@ internal sealed class EntityTable
     // new lifetime, only after the reads that entered before its delete was retired have left
     // (Protection.RetiredMemory), and a read that enters after that sees the delete (Protection.ReadEpochs).
     // A replace or a delete of the lifetime meanwhile is taken by the stamp, as for any read. A root found
-    // live stays allocated, and its entry keeps its lifetime, until the caller leaves the protection.
-    public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out ArenaAddress root, out ulong lastMutation)
+    // live stays allocated, and its entry keeps its lifetime, until the caller leaves the protection. A
+    // root of a publication whose position is not published yet is waited for, as a read waits; the token,
+    // the close of the master, ends that wait.
+    public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out ArenaAddress root, out ulong lastMutation)
     {
         if (entry.AcquireState() != RootStateEnum.Live)
         {
@@ -934,35 +973,47 @@ internal sealed class EntityTable
             return false;
         }
 
-        lastMutation = TakeEntry(ref entry, epochs, clock, out var state, out root, out _);
+        lastMutation = TakeEntry(ref entry, epochs, clock, cancellationToken, out var state, out root, out _, out _);
 
         return state == RootStateEnum.Live;
     }
 
     // Step 2 of a read, inside the protection: the state, the root and the sequence of the last mutation
     // of the entry as one state, by the stamp of the entry (arena-protocol.md, "The stamp of a root
-    // entry"), with the sequence of the database read between the two loads of the stamp; returns the
-    // stamp.
-    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, out RootStateEnum state, out ArenaAddress root, out ulong at)
+    // entry"), with the sequence of the database read right after the first load of the stamp, which is
+    // the position of the answer; returns the stamp. A stamp above that sequence is a publication whose
+    // position is not published yet: the read does not take it, and waits as it waits at the mark, and
+    // waited says it did. The root entry of an insert whose root a publication has not stored yet holds
+    // the mark, as its preparation left it (Storage.Roots.RootTable.Add), so it is waited for as well. The
+    // token ends the wait, with OperationCanceledException.
+    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out RootStateEnum state, out ArenaAddress root, out ulong at, out bool waited)
     {
         var backoff = default(SpinWait);
+
+        waited = false;
 
         while (true)
         {
             var stamp = entry.AcquireLastMutation();
+            var sequence = clock.Sequence;
 
-            if (stamp == MutationInProgress)
+            at = sequence;
+
+            if (stamp == MutationInProgress || stamp > sequence)
             {
-                // A write of this root is between its stores, which take a few nanoseconds and wait
-                // for nothing: the read backs off until the write has stored its sequence. A
-                // publication that failed between its stores never stores it, and it faulted the
-                // database: the read then reports Unavailable instead of retrying. Only this retry
-                // looks.
+                // The stores of a publication are made under the lock of the writes, take a few
+                // nanoseconds for a write and as long as its members take for a batch, and wait for
+                // nothing; its position is published once every entity is stored. The read backs off
+                // until the position is. A publication that failed between its stores never publishes
+                // it, and it faulted the database: the read then reports Unavailable instead of retrying.
+                // Only this retry looks, at the state of the instance and at the token.
                 if (epochs.IsFaulted)
                 {
                     epochs.ThrowForState();
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+                waited = true;
                 backoff.SpinOnce();
 
                 continue;
@@ -970,7 +1021,6 @@ internal sealed class EntityTable
 
             state = entry.AcquireState();
             root = entry.AcquireRoot();
-            at = clock.Sequence;
 
             // Another stamp: a write stored between the two loads, so what they framed may be torn.
             // The next round finds the mark, while the write goes on, or its stamp.

@@ -27,7 +27,7 @@ public sealed class MergedTransactionPrefixTests
 
     public static IEnumerable<TheoryDataRow<int>> Runs => Enumerable.Range(0, 3).Select(run => new TheoryDataRow<int>(run));
 
-    [Theory(Skip = SkipReason.WriteBatchMechanisms)]
+    [Theory]
     [MemberData(nameof(Runs))]
     public async Task Child_that_applies_a_transaction_of_many_effects_shows_none_of_it_or_all_of_it(int run)
     {

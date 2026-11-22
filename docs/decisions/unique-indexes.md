@@ -49,7 +49,9 @@ of proposed keys is bounded by operation/group admission limits.
    the ordered writer prevents another logical operation from invalidating this
    decision. If an independent group member fails validation, record its rejection
    without adopting its proposed index effects into the group's overlay.
-4. Commit effects/results and publish through the ordinary root/WriteBatch barrier.
+4. Commit effects/results and publish them as an ordinary root or WriteBatch is published, which a
+   reader sees whole or not at all (amended on 22 November 2026, the owner's answer to Q57 of the open
+   questions).
    Readers cannot observe an intermediate duplicate during whole-batch publication; the
    order in which old keys are removed and final entries are installed is the engine's to
    choose (amended on 22 November 2026, the owner's answer to Q56 of the open questions).
