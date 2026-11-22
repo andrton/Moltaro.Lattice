@@ -7,13 +7,12 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Memory;
 
 // A write batch that the memory budget cannot hold is refused with WriteRejected and Limit Memory before
-// anything is written, and the database is as it was (the brief of Epic 1, sprint S17, Acceptance and the
-// tests of point 5; docs/design/ordered-index.md, "The reservation"): no entity, no entry of an index, no
-// root entry and no position of it is left, and the arena holds no prepared byte of it. Every pool of an
-// index gives back exactly what the batch took from the arena when the batch is withdrawn, so the prepared
-// bytes are what they were before it; before a refusal every index gives back what its pool holds above the
-// need of the writes still prepared, so that the reserves are never the reason of a refusal, and the
-// prepared bytes are then at most what they were. The same holds for a batch that waited behind a write of
+// anything is written, and the database is as it was (docs/design/ordered-index.md, "The reservation"): no
+// entity, no entry of an index, no root entry and no position of it is left, and the arena holds no prepared
+// byte of it. Every pool of an index gives back what the batch took from the arena when the batch is
+// withdrawn, and the standing reserve with it, keeping the lesser bound of the writes still prepared
+// (IndexReserve); before a refusal every index gives back what its pool holds above that bound, so that the
+// reserves are never the reason of a refusal, and the prepared bytes are then at most what they were. The same holds for a batch that waited behind a write of
 // one of its entities and does not fit once that write is published, and for a batch whose token is
 // cancelled at the wait of the resolution of its refusal, where the limit is looked at last.
 // UniqueSchema, whose Account holds a Data of the size each test gives, on an arena of four segments of
@@ -92,8 +91,11 @@ public sealed class RefusedBatchTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => batched.WaitAsync(Bound));
 
             var after = database.Counters;
+            var reserveAboveTheInsert = IndexReserve.BytesOf(database, "Account") - IndexReserve.LesserBoundBytesOf(database, "Account", inserts: 1, removes: 0);
 
-            Assert.Equal(BytesOf(before.Arena), BytesOf(after.Arena));
+            Assert.Equal(
+                (before.Arena.LiveBytes, before.Arena.ClassSlackBytes, before.Arena.PreparedBytes - reserveAboveTheInsert, before.Arena.RetiredBytes),
+                BytesOf(after.Arena));
             Assert.Equal(before.RootEntries, after.RootEntries);
             Assert.Equal(EntriesOf(entries), EntriesOf(IndexContents.Of(database, "Account", "ByLogin").Entries));
 
