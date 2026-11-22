@@ -270,7 +270,7 @@ public sealed class WriteBatchTests
         Assert.NotNull(database.Set<User>().Get(1));
     }
 
-    [Fact(Skip = SkipReason.WriteBatch)]
+    [Fact(Skip = SkipReason.BatchThroughAChild)]
     public async Task Batch_through_a_child_is_on_that_child_when_it_completes()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);
