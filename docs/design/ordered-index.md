@@ -461,6 +461,18 @@ protection, so that a step after a close is refused as every step is. A lazy sea
 ends at the sequence of the step that returned its last entity, not at the sequence of a
 later call.
 
+A search by the full key of a unique index with no part null ends at the entity a step
+returns, whatever the fence shows: at the sequence of that step the entity held the value,
+and no other root did ([unique indexes](../decisions/unique-indexes.md): non-null full-key
+equality has at most one matching root). A root a later step could meet took the value
+after it, when the owner moved away between two steps, and the search would return two
+owners of one value. So a search by the full key of a unique index, with no part null,
+returns at most one entity, also when writes move the value between its steps. Whether a
+search ends so is decided once, when it starts (`IndexSearch`), for every form that steps:
+the lazy search and `FindAsync` with its Offset and its Limit, through a class and by
+name; a step that returns an entity only reads that choice. A key with a null part, a key
+of leading parts and a range end as any search does.
+
 What the sequence of an answer is, in the words of the contract (`LatticeFindResult`): a
 position the node had applied when the search looked at the index. It is read in the step
 after the descent, so it covers every write whose effect the descent saw, an entry a
