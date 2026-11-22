@@ -7611,7 +7611,8 @@ Open, for the next coordinator and the architect:
   sprint is not on its path: the forged Delete is refused in `PrimaryKeys.ReadKey`
   before every member the sprint changed. A fast refusal of a socket under load remains
   possible and unproven. The next coordinator checks the class first, and every later
-  failure of it is kept with its message.
+  failure of it is kept with its message. Since S16R a failure of the setup of the link
+  names its cause (L6 of the refactoring backlog).
 - `ReadTimeInsideTheEngineTests.Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it`
   failed twice under heavy parallel load at 779641e ("In each of 3 attempts a step took as
   long as the limit by itself"). It was not recorded before as dependent on load, and it is

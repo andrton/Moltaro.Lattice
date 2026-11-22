@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
 using Moltaro.Lattice.TestSupport.Replication;
-using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -48,7 +47,9 @@ internal sealed class LoopbackLink : IAsyncDisposable
 
     // Each copy reads from its first socket and writes to its second until the token ends or a socket
     // fails; an exception of a socket or of the token ends the copy and so the link. A link whose socket
-    // the system refuses fails with the state of the system in the message (ListenFailure).
+    // the system refuses fails with the state of the system in the message (ListenFailure): when it
+    // listens, at once; when it accepts the child or connects to the master, in DisposeAsync, as a copy
+    // that fails otherwise does.
     public LoopbackLink(Uri masterUri, Func<Socket, Socket, CancellationToken, Task> toChild, Func<Socket, Socket, CancellationToken, Task>? toMaster = null)
     {
         _master = new IPEndPoint(IPAddress.Parse(masterUri.Host), masterUri.Port);
@@ -144,7 +145,7 @@ internal sealed class LoopbackLink : IAsyncDisposable
         _listener.Stop();
         Cut();
 
-        await _run.WaitAsync(Bound);
+        await BoundedWait.ForAsync(_run, "The end of the link");
     }
 
     private static void Reset(Socket socket)
@@ -169,15 +170,27 @@ internal sealed class LoopbackLink : IAsyncDisposable
     {
         try
         {
-            var child = await _listener.AcceptSocketAsync(_ended.Token);
+            Socket child;
+            Socket master;
 
-            Track(child);
-            _listener.Stop();
+            // A failure of a socket here, before the test ends the link, is not a peer that ended its
+            // connection: the link was never set up.
+            try
+            {
+                child = await _listener.AcceptSocketAsync(_ended.Token);
 
-            var master = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ReceiveBufferSize = ReceiveBuffer };
+                Track(child);
+                _listener.Stop();
 
-            Track(master);
-            await master.ConnectAsync(_master, _ended.Token);
+                master = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { ReceiveBufferSize = ReceiveBuffer };
+
+                Track(master);
+                await master.ConnectAsync(_master, _ended.Token);
+            }
+            catch (SocketException exception) when (!_ended.IsCancellationRequested)
+            {
+                throw new InvalidOperationException($"The link cannot connect the child to its master at {_master}: {exception.Message} {ListenFailure.Describe(exception)}", exception);
+            }
 
             var toMaster = RunCopyAsync(_toMaster, child, master);
             var toChild = RunCopyAsync(_toChild, master, child);

@@ -1,6 +1,5 @@
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.TestSupport.Replication;
-using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 
@@ -10,8 +9,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication;
 // interface, at a port the system chooses (MasterAndChild.Loopback) unless the test gives the address;
 // a child is given the address its master reports in its ListenUri. Either takes the inputs a test gives (EngineTestInputs),
 // such as an allocator that counts the native memory or the seed of the hashes; inputs left empty are
-// what an instance made without them uses. A master whose socket the system refuses fails its open with
-// the state of the system in the message (ListenFailure).
+// what an instance made without them uses. A master or a child whose socket the system refuses fails its
+// open with the state of the system in the message (ListenFailure), and an open that does not end within
+// the bound of the tests says which open it was (BoundedWait).
 internal static class ReplicationNodes
 {
     // An open timeout far beyond the bound of a wait of a test (TestWait.Bound): an open given it that ends
@@ -37,7 +37,7 @@ internal static class ReplicationNodes
     {
         var master = EngineDatabase.Create(MasterOptions(schema, listenUri), inputs);
 
-        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
+        await ListenFailure.ExplainAsync(BoundedWait.ForAsync(master.OpenAsync().AsTask(), "The open of the master"));
         return master;
     }
 
@@ -54,7 +54,7 @@ internal static class ReplicationNodes
         };
         var master = (EngineDatabase)LatticeDatabase.Create(options);
 
-        await ListenFailure.ExplainAsync(master.OpenAsync().AsTask().WaitAsync(Bound));
+        await ListenFailure.ExplainAsync(BoundedWait.ForAsync(master.OpenAsync().AsTask(), "The open of the master"));
         return master;
     }
 
@@ -77,7 +77,7 @@ internal static class ReplicationNodes
     {
         var child = EngineDatabase.Create(options, inputs);
 
-        await child.OpenAsync().AsTask().WaitAsync(Bound);
+        await ListenFailure.ExplainAsync(BoundedWait.ForAsync(child.OpenAsync().AsTask(), "The open of the child"));
         return child;
     }
 
