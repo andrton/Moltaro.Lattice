@@ -88,7 +88,8 @@ internal sealed class RequestReceiver
                     $"The forwarded write announces more bytes than the memory budget of the master, {memoryLimit} bytes, can hold.")
                 {
                     Limit = LatticeLimitEnum.Memory,
-                });
+                },
+                indexId: null);
                 break;
 
             case MessageStepEnum.Whole:
@@ -123,7 +124,7 @@ internal sealed class RequestReceiver
 
         var session = request.MinimumPosition is { } position ? new LatticeSession(position) : null;
 
-        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root), request.ExpectedRevision, session);
+        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType), request.ExpectedRevision, session);
     }
 
     // The root of an insert, a replace or an upsert, with its envelope: its type id is the one of the

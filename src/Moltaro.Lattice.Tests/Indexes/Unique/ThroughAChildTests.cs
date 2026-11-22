@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Unique;
 // refused write is applied on either node. Accounts of UniqueSchemas.
 public sealed class ThroughAChildTests
 {
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_through_a_child_is_refused_by_the_master_with_the_name_of_the_index_by_name_and_through_a_class()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, UniqueSchemas.Accounts);

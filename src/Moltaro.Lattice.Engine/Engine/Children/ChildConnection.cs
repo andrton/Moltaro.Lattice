@@ -366,7 +366,7 @@ internal sealed class ChildConnection
             {
                 var body = new OutgoingMessage();
 
-                ForwardEncoding.WriteReply(body, reply.Refusal);
+                ForwardEncoding.WriteReply(body, reply.Refusal, reply.IndexId);
                 body.Complete();
 
                 for (var index = 0; index < body.FrameCount; index++)

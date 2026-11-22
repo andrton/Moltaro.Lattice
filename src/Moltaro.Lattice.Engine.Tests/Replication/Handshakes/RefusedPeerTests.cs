@@ -30,7 +30,7 @@ public sealed class RefusedPeerTests
         new("another history", "History"),
         new("another schema", "Schema"),
         new("another wire format", "Format"),
-        new("the wire format 3", "Format") { Skip = SkipReason.UniqueIndexes },
+        new("the wire format 3", "Format"),
         new("another layout format", "Format"),
         new("the layout version 1", "Format"),
         new("the byte order of a big-endian machine", "Format"),

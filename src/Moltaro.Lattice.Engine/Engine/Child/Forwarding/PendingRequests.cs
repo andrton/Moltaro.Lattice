@@ -101,7 +101,7 @@ internal sealed class PendingRequests
 
         lock (_lock)
         {
-            _calls.Remove(correlationId, out call);
+            _calls.TryGetValue(correlationId, out call);
         }
 
         if (call is null)
@@ -109,7 +109,16 @@ internal sealed class PendingRequests
             throw Protocol.Invalid($"The master replied to the request {correlationId}, which this child has not sent or has had its reply for.");
         }
 
-        call.Answer(reply);
+        // Before the call leaves the table: a refusal that names a unique index its entity type does not
+        // declare is not valid, and the call then ends with the connection, as every call without a reply.
+        var answer = ForwardEncoding.NameIndex(reply, call.EntityType);
+
+        lock (_lock)
+        {
+            _calls.Remove(correlationId);
+        }
+
+        call.Answer(answer);
     }
 
     // At the end of the connection, once nothing more is sent or received on it: every call left was sent

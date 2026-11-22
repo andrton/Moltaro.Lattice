@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Unicode;
 using Moltaro.Lattice.Access;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Replication.Forwarding;
 
@@ -22,8 +23,11 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 //
 // A reply: 0 and a result — its position, history and sequence, and Changed (one byte, 0 or 1) — or 1 and
 // a refusal: its error (Int32, LatticeErrorEnum), its message (the length of its UTF-8, UInt32, and that
-// UTF-8), Limit (0, or 1 and LatticeLimitEnum as an Int32), OperationIndex (0, or 1 and an Int32) and
-// CommittedPosition (0, or 1, its history and its sequence).
+// UTF-8), Limit (0, or 1 and LatticeLimitEnum as an Int32), OperationIndex (0, or 1 and an Int32),
+// CommittedPosition (0, or 1, its history and its sequence) and the unique index (0, or 1 and the
+// identity of the index, an Int32, which UniqueConstraintViolation always has and no other error has). The
+// identity is that of the index within the entity type of the write (Schema.LatticeIndex.Id), the same on
+// the child, whose schema the handshake bound to the master's, and the child gives the caller its name.
 //
 // Each Read… refuses a body that is truncated, that goes on after its end, or that holds a value no write
 // of the engine makes, with ValidationFailed, before anything of it is used.
@@ -152,9 +156,10 @@ internal static class ForwardEncoding
         span[ResultLength - 1] = result.Changed ? (byte)1 : (byte)0;
     }
 
-    // The reply of a write the master refused. The message may be as long as the master made it, longer
-    // than a span of the output holds, so it is encoded into the spans as the output gives them.
-    public static void WriteReply(IBufferWriter<byte> output, LatticeException refusal)
+    // The reply of a write the master refused, with the identity of the unique index it names when it is
+    // UniqueConstraintViolation. The message may be as long as the master made it, longer than a span of
+    // the output holds, so it is encoded into the spans as the output gives them.
+    public static void WriteReply(IBufferWriter<byte> output, LatticeException refusal, int? indexId)
     {
         var head = output.GetSpan(1 + sizeof(int) + sizeof(uint));
         var message = refusal.Message.AsSpan();
@@ -171,13 +176,14 @@ internal static class ForwardEncoding
             message = message[read..];
         }
 
-        const int Most = 1 + sizeof(int) + 1 + sizeof(int) + 1 + (2 * sizeof(ulong));
+        const int Most = 1 + sizeof(int) + 1 + sizeof(int) + 1 + (2 * sizeof(ulong)) + 1 + sizeof(int);
 
         var tail = output.GetSpan(Most);
         var at = WriteOptional(tail, refusal.Limit is { } limit ? (int)limit : null);
 
         at += WriteOptional(tail[at..], refusal.OperationIndex);
         at += WritePosition(tail[at..], refusal.CommittedPosition);
+        at += WriteOptional(tail[at..], indexId);
         output.Advance(at);
     }
 
@@ -197,7 +203,7 @@ internal static class ForwardEncoding
 
             ExpectEndOfReply(reader);
 
-            return new ForwardedReply(new LatticeWriteResult(position, changed == 1), null);
+            return new ForwardedReply(new LatticeWriteResult(position, changed == 1), null, null);
         }
 
         if (!reader.TryReadLittleEndian(out int error) || !Enum.IsDefined((LatticeErrorEnum)error))
@@ -248,6 +254,22 @@ internal static class ForwardEncoding
         }
 
         var committed = ReadPosition(ref reader, "its committed position");
+        int? indexId = null;
+
+        if (ReadMark(ref reader, "its unique index"))
+        {
+            if (!reader.TryReadLittleEndian(out int id))
+            {
+                throw Truncated("its unique index");
+            }
+
+            indexId = id;
+        }
+
+        if ((indexId is not null) != ((LatticeErrorEnum)error == LatticeErrorEnum.UniqueConstraintViolation))
+        {
+            throw Protocol.Invalid($"The refusal of a forwarded write is {(LatticeErrorEnum)error} and {(indexId is null ? "names no" : "names a")} unique index; UniqueConstraintViolation names one and no other refusal does.");
+        }
 
         ExpectEndOfReply(reader);
 
@@ -256,7 +278,39 @@ internal static class ForwardEncoding
             Limit = limit,
             OperationIndex = operationIndex,
             CommittedPosition = committed,
-        });
+        }, indexId);
+    }
+
+    // The reply with the refusal naming its unique index by the name the entity type of the write gives
+    // the identity in the reply (see the class); the reply as it is when it names none. ValidationFailed
+    // when the entity type declares no unique index of that identity: no master sends one.
+    public static ForwardedReply NameIndex(in ForwardedReply reply, LatticeEntityType entityType)
+    {
+        if (reply.IndexId is not { } id)
+        {
+            return reply;
+        }
+
+        foreach (var index in entityType.Indexes)
+        {
+            if (index.Id == id && index.IsUnique)
+            {
+                var refusal = reply.Refusal!;
+
+                return reply with
+                {
+                    Refusal = new LatticeException(refusal.Error, refusal.Message)
+                    {
+                        Limit = refusal.Limit,
+                        OperationIndex = refusal.OperationIndex,
+                        CommittedPosition = refusal.CommittedPosition,
+                        IndexName = index.Name,
+                    },
+                };
+            }
+        }
+
+        throw Protocol.Invalid($"The master refused a forwarded write of {entityType.Name} for the unique index {id}, which {entityType.Name} does not declare.");
     }
 
     private static LatticeException Truncated(string part) => Protocol.Invalid($"A forwarded write or its reply ends before {part}.");

@@ -12,8 +12,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // not valid (S10, S11), and keeps serving its reads, Ready; its writes end by the two moments of point 7
 // (settled by the planner with the tests of S12): a write it had sent whole and whose reply it did not
 // take ends in IndeterminateOutcome. A relay (FrameRelay) changes the reply of the master on its
-// way: another correlation id, the id 0, a body one byte short; or it passes a reply twice, after which
-// the second is the reply of a request already answered. The relay numbers the frames it passes again
+// way: another correlation id, the id 0, a body one byte short, a refusal for a unique index that the
+// entity type of the write does not declare, UniqueConstraintViolation without its index, and another
+// refusal with one; or it passes a reply twice, after which the second is the reply of a request already
+// answered. The relay numbers the frames it passes again
 // where it adds one.
 public sealed class MalformedReplyTests
 {
@@ -22,6 +24,9 @@ public sealed class MalformedReplyTests
         new("an unknown correlation id"),
         new("the correlation id 0"),
         new("a body one byte short"),
+        new("a refusal for a unique index the entity type does not declare"),
+        new("a refusal for a unique index without the index"),
+        new("another refusal with a unique index"),
     ];
 
     [Theory]
@@ -120,8 +125,21 @@ public sealed class MalformedReplyTests
 
                 return Assert.Single(ForwardPayload.Frames(ForwardPayload.WriteReply, reply.CorrelationId, reply.StreamSequence, body[..^1]));
 
+            // Piece declares no index.
+            case "a refusal for a unique index the entity type does not declare":
+                return WithBody(reply, ForwardPayload.Refusal(LatticeErrorEnum.UniqueConstraintViolation, "Taken.", null, null, null, indexId: 1));
+
+            case "a refusal for a unique index without the index":
+                return WithBody(reply, ForwardPayload.Refusal(LatticeErrorEnum.UniqueConstraintViolation, "Taken.", null, null, null));
+
+            case "another refusal with a unique index":
+                return WithBody(reply, ForwardPayload.Refusal(LatticeErrorEnum.DuplicateKey, "Taken.", null, null, null, indexId: 1));
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(damage), damage, "No such damage.");
         }
     }
+
+    private static WireFrame WithBody(WireFrame reply, byte[] body) =>
+        Assert.Single(ForwardPayload.Frames(ForwardPayload.WriteReply, reply.CorrelationId, reply.StreamSequence, body));
 }

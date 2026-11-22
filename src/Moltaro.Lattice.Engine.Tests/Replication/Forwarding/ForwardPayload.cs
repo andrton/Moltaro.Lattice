@@ -49,7 +49,8 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // - 0 and a result: its position, history (UInt64) and sequence (UInt64), and Changed (one byte, 0 or 1).
 // - 1 and a refusal: the error (Int32, LatticeErrorEnum), the message (the length of its UTF-8, UInt32,
 //   and that UTF-8), Limit (0, or 1 and LatticeLimitEnum as an Int32), OperationIndex (0, or 1 and an
-//   Int32) and CommittedPosition (0, or 1, its history and its sequence).
+//   Int32), CommittedPosition (0, or 1, its history and its sequence) and, from the wire format 4, the
+//   unique index (0, or 1 and the identity of the index, an Int32) of UniqueConstraintViolation.
 internal static class ForwardPayload
 {
     // FrameKindEnum.WriteRequest and FrameKindEnum.WriteReply of the brief of S12.
@@ -208,8 +209,9 @@ internal static class ForwardPayload
         return [.. body];
     }
 
-    // The body of a reply with a refusal of the values given.
-    public static byte[] Refusal(LatticeErrorEnum error, string message, LatticeLimitEnum? limit, int? operationIndex, LatticePosition? committedPosition)
+    // The body of a reply with a refusal of the values given, which names the unique index of the identity
+    // given, or none.
+    public static byte[] Refusal(LatticeErrorEnum error, string message, LatticeLimitEnum? limit, int? operationIndex, LatticePosition? committedPosition, int? indexId = null)
     {
         var body = new List<byte> { 1 };
 
@@ -229,6 +231,8 @@ internal static class ForwardPayload
         {
             body.Add(0);
         }
+
+        AddOptional(body, indexId is { } id ? (uint)id : null);
 
         return [.. body];
     }
@@ -250,8 +254,9 @@ internal static class ForwardPayload
         var limit = reader.Byte() == 1 ? (LatticeLimitEnum?)reader.UInt32() : null;
         var operationIndex = reader.Byte() == 1 ? (int?)reader.UInt32() : null;
         var committed = reader.Byte() == 1 ? (LatticePosition?)reader.Position() : null;
+        var indexId = reader.Byte() == 1 ? (int?)reader.UInt32() : null;
 
-        return new Reply(null, false, new LatticeException(error, message) { Limit = limit, OperationIndex = operationIndex, CommittedPosition = committed });
+        return new Reply(null, false, new LatticeException(error, message) { Limit = limit, OperationIndex = operationIndex, CommittedPosition = committed }, indexId);
     }
 
     // The history of a position, which the contract keeps internal, from its text: the history, a hyphen
@@ -295,8 +300,9 @@ internal static class ForwardPayload
         body.AddRange(bytes);
     }
 
-    // A reply as the tests read it: the position and Changed of a result, or the refusal.
-    public sealed record Reply(LatticePosition? Position, bool Changed, LatticeException? Refusal);
+    // A reply as the tests read it: the position and Changed of a result, or the refusal, with the identity
+    // of the unique index it names.
+    public sealed record Reply(LatticePosition? Position, bool Changed, LatticeException? Refusal, int? IndexId = null);
 
     // Reads the fields of a body in their order; a body that ends early fails the test.
     private sealed class BodyReader(byte[] body)

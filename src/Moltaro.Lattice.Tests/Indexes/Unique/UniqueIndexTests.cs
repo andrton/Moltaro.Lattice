@@ -228,7 +228,7 @@ public sealed class UniqueIndexTests
         Assert.Null(accounts.Get(5));
     }
 
-    [Fact(Skip = SkipReason.UniqueIndexes)]
+    [Fact]
     public async Task Write_through_a_child_is_held_to_the_same_rule()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback, Schema);
