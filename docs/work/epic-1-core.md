@@ -1277,7 +1277,7 @@ Why this order:
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
-| S16R | Refactoring after S16 | Full | In progress ([refactoring backlog](refactoring.md), its order) |
+| S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
@@ -7698,6 +7698,22 @@ repository.
 - **The lines of S15R** (57be01b over 074f783) are written in H1, H3, F13 and J1 of the
   [refactoring backlog](refactoring.md): nothing is lost. The exact search of an Int64 key
   through the class gains about 5 %.
+
+**The record of S16R** (closed on 22 November 2026; its entries are L2, L3, L5 and L6 of
+the [refactoring backlog](refactoring.md), and the listings of K1). It was coordinated by
+the sixth coordinator of the epic, who stays for the sprints of one day by the owner's
+word in the planner's session, not replaced at this boundary. The two open tests of the record of S16 were run first, at
+5d27900: 55 runs of the two classes, 45 of them in three loops beside three full Release
+suites at once, and five full suites, with no failure; the outputs are kept outside the
+repository. The implementer ran at Opus 5.5 high, as in the trial of the
+[development process](process.md): four commits in about 34 minutes, and four after
+round 1 of the review in about 11. The review took two rounds. Round 1 found no P1 and
+no P2, 3 P3 and 5 P4: the statuses of L2, L3 and L6, the head of `RootReader` against its
+new overloads, and `EntryPart.Type`, which repeated `Stored.Type`. The hardest part to
+follow, by the reviewer: the two catches of `LoopbackLink.RunAsync` over the same
+exception, which a comment now explains. Every suite had 3,043 tests, 2,904 passing and
+139 skipped, as at its base. No start of the machine: the figure of L2 and the cause of K1
+are owed to the start of S17.
 
 #### S17 · Atomic write batch
 
