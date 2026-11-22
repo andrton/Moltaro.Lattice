@@ -29,6 +29,10 @@ internal struct PreparedChange
 
     public ChangeKindEnum Kind;
 
+    // The number of the member of the write batch the change belongs to, 0 for a single write, which its
+    // publication stores in the root entry with its stamp (Storage.Roots.RootEntry.Member).
+    public uint Member;
+
     public EntityTable Table;
 
     // The key of the entity, in the form its primary index takes it.

@@ -93,7 +93,7 @@ internal sealed class RootTable
         entry.StoredRootId = 0;
         entry.Generation = generation;
         entry.TypeId = typeId;
-        entry.Reserved = 0;
+        entry.Member = 0;
 
         _counts.Count++;
 

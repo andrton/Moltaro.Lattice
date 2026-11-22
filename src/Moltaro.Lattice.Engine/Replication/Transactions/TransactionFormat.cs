@@ -50,10 +50,11 @@ internal static class TransactionFormat
     // past it; for a Delete its type id, with the effects left at its key; for an Unchanged nothing more.
     // ValidationFailed for a Write whose bytes do not hold the root it announces, a Delete that ends before
     // its type id, and a kind that is none.
-    public static EffectKindEnum ReadEffect(ref SequenceReader<byte> effects, ulong sequence, out uint typeId, out ulong lastMutation, out SequenceReader<byte> root)
+    public static EffectKindEnum ReadEffect(ref SequenceReader<byte> effects, ulong sequence, out uint typeId, out ulong lastMutation, out uint member, out SequenceReader<byte> root)
     {
         typeId = 0;
         lastMutation = 0;
+        member = 0;
         root = default;
 
         effects.TryRead(out var kind);
@@ -68,7 +69,7 @@ internal static class TransactionFormat
 
                 root = new SequenceReader<byte>(effects.UnreadSequence.Slice(0, rootLength));
                 effects.Advance(rootLength);
-                RootEnvelope.TryRead(ref root, out typeId, out lastMutation);
+                RootEnvelope.TryRead(ref root, out typeId, out lastMutation, out member);
 
                 return EffectKindEnum.Write;
 

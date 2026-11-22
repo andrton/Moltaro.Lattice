@@ -54,10 +54,13 @@ internal struct RootEntry
     // Where the slot and its lifetime stand.
     public RootStateEnum State;
 
-    // The four bytes the milestone contract gave to the claims of lookups. Reads protected by epochs
-    // take no claim (brief of S08), so nothing uses them; they keep the entry at its 48 bytes and its
-    // fields where the contract places them, until a later sprint gives them a use.
-    public int Reserved;
+    // The number of the member of the write batch whose publication made the last mutation, 0 for a single
+    // write, in the four bytes the milestone contract gave to the claims of lookups, which reads protected by
+    // epochs do not take: part of the revision (Engine.Entities.EntityTable.RevisionOf), so that the members
+    // of one batch, which share its position, have revisions of their own while a single write keeps its
+    // revision bit for bit. Stored before the stamp of the mutation, and read with the state as one aligned
+    // word (AcquireState), so that a read loads nothing more for it.
+    public uint Member;
 
     // The root, read with acquire semantics: a read that sees a root sees what was written before
     // the store that published it.
@@ -79,6 +82,17 @@ internal struct RootEntry
 
     // The state, read with acquire semantics.
     public RootStateEnum AcquireState() => (RootStateEnum)Volatile.Read(ref Unsafe.As<RootStateEnum, uint>(ref State));
+
+    // The state and the member, read with acquire semantics as one aligned word: State at an offset of 40,
+    // Member after it, the state in the low half of a little-endian word.
+    public RootStateEnum AcquireState(out uint member)
+    {
+        var word = Volatile.Read(ref Unsafe.As<RootStateEnum, ulong>(ref State));
+
+        member = (uint)(word >> 32);
+
+        return (RootStateEnum)(uint)word;
+    }
 
     // Writes the state, by a store with release semantics.
     public void ReleaseState(RootStateEnum state) => Volatile.Write(ref Unsafe.As<RootStateEnum, uint>(ref State), (uint)state);

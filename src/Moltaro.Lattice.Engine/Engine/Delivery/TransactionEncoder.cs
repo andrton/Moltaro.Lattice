@@ -35,7 +35,7 @@ internal static class TransactionEncoder
         TransactionFormat.WriteHeader(start, sequence, effects);
         envelope[0] = (byte)EffectKindEnum.Write;
         BinaryPrimitives.WriteUInt64LittleEndian(envelope[1..], (ulong)rootLength);
-        RootEnvelope.Write(envelope[TransactionFormat.WriteEnvelopeSize..], (uint)table.EntityType.Id, sequence);
+        RootEnvelope.Write(envelope[TransactionFormat.WriteEnvelopeSize..], (uint)table.EntityType.Id, sequence, member: 0);
         tail.Advance(Start);
 
         BlockExport.Write(tail, arena, layout, root);

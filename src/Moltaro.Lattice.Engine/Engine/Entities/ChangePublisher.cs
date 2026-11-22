@@ -610,11 +610,11 @@ internal sealed class ChangePublisher
             switch (change.Kind)
             {
                 case ChangeKindEnum.Insert:
-                    Install(change.Table, change.Key, change.Handle, change.Root, stamp);
+                    Install(change.Table, change.Key, change.Handle, change.Root, change.Member, stamp);
                     break;
 
                 case ChangeKindEnum.Replace:
-                    StoreReplace(change.Table.Layout!, change.Handle, change.Root, stamp);
+                    StoreReplace(change.Table.Layout!, change.Handle, change.Root, change.Member, stamp);
                     break;
 
                 default:
@@ -718,7 +718,7 @@ internal sealed class ChangePublisher
 
     // The stores of an insert before its position: the root becomes live, then the entry, its state last,
     // then the entry of the index, which publishes both to a read by key.
-    private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ulong sequence)
+    private void Install(EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, uint member, ulong sequence)
     {
         RootStorage.Publish(_arena, table.Layout!, root);
 
@@ -733,6 +733,7 @@ internal sealed class ChangePublisher
 
         entry.Root = root;
         entry.LastMutationSequence = sequence;
+        entry.Member = member;
         entry.ReleaseState(RootStateEnum.Live);
 
         // The store that publishes the entry and the root to a read by key, with release semantics.
@@ -743,7 +744,7 @@ internal sealed class ChangePublisher
     // first; the release of the root's store keeps the mark before the root, as the release fence after the
     // source's swap keeps it before the data; then the stamp, whose release keeps the root before it, so a
     // read that loads it sees the new root, and which a read takes only once the position is published.
-    private void StoreReplace(RootLayout layout, RootHandle handle, ArenaAddress root, ulong sequence)
+    private void StoreReplace(RootLayout layout, RootHandle handle, ArenaAddress root, uint member, ulong sequence)
     {
         RootStorage.Publish(_arena, layout, root);
 
@@ -751,6 +752,7 @@ internal sealed class ChangePublisher
 
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseRoot(root);
+        entry.Member = member;
         entry.ReleaseLastMutation(sequence);
     }
 

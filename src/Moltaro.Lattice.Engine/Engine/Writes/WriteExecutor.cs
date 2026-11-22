@@ -220,8 +220,12 @@ internal sealed class WriteExecutor
         _timesToLetThrough = timesToLetThrough;
     }
 
-    private LatticeRevision RevisionOf(RootHandle handle) =>
-        new(_clock.History, _roots.Entry(handle).LastMutationSequence);
+    private LatticeRevision RevisionOf(RootHandle handle)
+    {
+        ref var entry = ref _roots.Entry(handle);
+
+        return EntityTable.RevisionOf(_clock.History, entry.LastMutationSequence, entry.Member);
+    }
 
     // The change of each preparation is written into the record of the write where it lies (WriteChange),
     // with the root of the entity its lookup found, which a replace and a delete replace, reserved from

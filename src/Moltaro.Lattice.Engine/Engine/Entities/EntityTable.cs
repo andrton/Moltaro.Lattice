@@ -626,7 +626,7 @@ internal sealed class EntityTable
                         // mark until it is, so the take waits for the position of its publication.
                         ref var rootEntry = ref _roots.EntryOfSlot(identity.Slot);
 
-                        TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out var at, out var waited);
+                        TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out _, out var at, out var waited);
 
                         // A take that waited for the position of a publication found its entity in the state
                         // the publication left, while the entries the step passed before were seen before it:
@@ -924,7 +924,7 @@ internal sealed class EntityTable
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var state, out var root, out var at, out _);
+        var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var state, out var root, out var member, out var at, out _);
 
         if (state != RootStateEnum.Live)
         {
@@ -935,7 +935,7 @@ internal sealed class EntityTable
         }
 
         copy.Copy(new RootReader(_arena, Layout!, root));
-        revision = new LatticeRevision(_clock.History, stamp);
+        revision = RevisionOf(_clock.History, stamp, member);
         sequence = at;
 
         return true;
@@ -963,17 +963,18 @@ internal sealed class EntityTable
     // live stays allocated, and its entry keeps its lifetime, until the caller leaves the protection. A
     // root of a publication whose position is not published yet is waited for, as a read waits; the token,
     // the close of the master, ends that wait.
-    public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out ArenaAddress root, out ulong lastMutation)
+    public static bool TryTakeLive(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out ArenaAddress root, out ulong lastMutation, out uint member)
     {
         if (entry.AcquireState() != RootStateEnum.Live)
         {
             root = default;
             lastMutation = 0;
+            member = 0;
 
             return false;
         }
 
-        lastMutation = TakeEntry(ref entry, epochs, clock, cancellationToken, out var state, out root, out _, out _);
+        lastMutation = TakeEntry(ref entry, epochs, clock, cancellationToken, out var state, out root, out member, out _, out _);
 
         return state == RootStateEnum.Live;
     }
@@ -986,7 +987,7 @@ internal sealed class EntityTable
     // waited says it did. The root entry of an insert whose root a publication has not stored yet holds
     // the mark, as its preparation left it (Storage.Roots.RootTable.Add), so it is waited for as well. The
     // token ends the wait, with OperationCanceledException.
-    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out RootStateEnum state, out ArenaAddress root, out ulong at, out bool waited)
+    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out RootStateEnum state, out ArenaAddress root, out uint member, out ulong at, out bool waited)
     {
         var backoff = default(SpinWait);
 
@@ -1019,7 +1020,7 @@ internal sealed class EntityTable
                 continue;
             }
 
-            state = entry.AcquireState();
+            state = entry.AcquireState(out member);
             root = entry.AcquireRoot();
 
             // Another stamp: a write stored between the two loads, so what they framed may be torn.
@@ -1032,6 +1033,13 @@ internal sealed class EntityTable
             return stamp;
         }
     }
+
+    // The revision of a state of an entity: the history of the database with the number of the member of the
+    // batch that made the state in its high word, and the sequence of the state. A single write has the
+    // member 0, so its revision is the history and the sequence as they are; the members of one batch, which
+    // share its sequence, differ in the high word (Storage.Roots.RootEntry.Member).
+    public static LatticeRevision RevisionOf(ulong history, ulong lastMutation, uint member) =>
+        new(history ^ ((ulong)member << 32), lastMutation);
 
     // The copy of a step that copies nothing: for a look at whether a match follows (SearchHasMore). A
     // value type, so that the step is compiled for it without virtual dispatch, as for every copy.
