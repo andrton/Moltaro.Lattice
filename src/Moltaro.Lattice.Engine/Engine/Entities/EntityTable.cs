@@ -194,19 +194,24 @@ internal sealed class EntityTable
 
     // For a write being prepared, under the lock of the writes, whose holder is the only thread that
     // changes the index and the root entries, so it reads them without the protection of reads: finds a
-    // key of an entity type the engine stores, with the handle of the lifetime of its root. No other
-    // write of that key is prepared and unpublished meanwhile (Writes.WriteCoordinator), so what it
-    // finds stays the state of its key until the write is published or withdrawn.
-    public bool TryFind(in EntityKey key, out RootHandle handle)
+    // key of an entity type the engine stores, with the handle of the lifetime of its root and the root
+    // its entry holds. No other write of that key is prepared and unpublished meanwhile
+    // (Writes.WriteCoordinator), so what it finds stays the state of its key until the write is published
+    // or withdrawn.
+    public bool TryFind(in EntityKey key, out RootHandle handle, out ArenaAddress root)
     {
         if (TryFindSlot(key, Keys.HashOf(key), out var slot))
         {
-            handle = new RootHandle(_roots.EntryOfSlot(slot).Generation, slot);
+            ref var entry = ref _roots.EntryOfSlot(slot);
+
+            handle = new RootHandle(entry.Generation, slot);
+            root = entry.Root;
 
             return true;
         }
 
         handle = default;
+        root = default;
 
         return false;
     }

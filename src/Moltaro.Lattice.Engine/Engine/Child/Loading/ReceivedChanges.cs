@@ -398,7 +398,7 @@ internal sealed class ReceivedChanges
             throw;
         }
 
-        var held = table.TryFind(key, out var handle);
+        var held = table.TryFind(key, out var handle, out var replaced);
 
         if (held && _roots.Entry(handle).LastMutationSequence >= lastMutation)
         {
@@ -437,7 +437,7 @@ internal sealed class ReceivedChanges
                 return false;
             }
 
-            change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root);
+            change = new PreparedChange(inserts ? ChangeKindEnum.Insert : ChangeKindEnum.Replace, table, key, handle, root, replaced);
 
             if (!_publisher.TryReserve(ref change))
             {
@@ -474,14 +474,14 @@ internal sealed class ReceivedChanges
             throw;
         }
 
-        if (!table.TryFind(key, out var handle) || _roots.Entry(handle).LastMutationSequence >= sequence)
+        if (!table.TryFind(key, out var handle, out var replaced) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
             _skipped.Add((table, key));
 
             return true;
         }
 
-        var change = new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default);
+        var change = new PreparedChange(ChangeKindEnum.Delete, table, key, handle, default, replaced);
         bool reserved;
 
         try

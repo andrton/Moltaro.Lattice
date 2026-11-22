@@ -21,7 +21,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // Plain fields, not readonly: the record of a write on a master writes its change in place, one field at a
 // time, where the change lies (Writes.PreparedWrite.WriteChange), and lets go of its references alone
 // (Writes.PreparedWrite.LetGo), so that a write neither builds the change elsewhere and copies it nor
-// clears more than it must. Nothing changes a field after the preparation but Replaced.
+// clears more than it must. Nothing changes a field after the preparation.
 internal struct PreparedChange
 {
     // The last bit of a mask, which every index at place 63 or above shares (IndexChanges).
@@ -41,8 +41,11 @@ internal struct PreparedChange
     // The new root of an insert or a replace, in prepared blocks; null for a delete.
     public ArenaAddress Root;
 
-    // For a replace, the root it replaces, which its publication stores here before its position and
-    // retires after it; null otherwise.
+    // For a replace and a delete, the root it replaces or deletes: the root the lookup of its key found in the
+    // entry of its entity (EntityTable.TryFind), which the entry holds until the change is published or
+    // given back, since no other change of the entity is prepared meanwhile. Written with the change, and
+    // read by every step after it, the reservation and the publication, which retires it after the
+    // position, included; null for an insert.
     public ArenaAddress Replaced;
 
     // The secondary indexes the change changes, written by the reservation and 0 until then; 0 for an entity
@@ -66,14 +69,14 @@ internal struct PreparedChange
     // again whole, a move or a rewrite with it. 0 for an insert and a delete.
     public ulong IndexRewrites;
 
-    public PreparedChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
+    public PreparedChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ArenaAddress replaced)
     {
         Kind = kind;
         Table = table;
         Key = key;
         Handle = handle;
         Root = root;
-        Replaced = default;
+        Replaced = replaced;
         IndexChanges = 0;
         IndexRewrites = 0;
     }

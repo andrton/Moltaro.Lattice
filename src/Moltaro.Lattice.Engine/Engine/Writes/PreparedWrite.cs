@@ -18,8 +18,8 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // The rest is what the publication installs (WriteExecutor.Publish): the write it belongs to and the change
 // of its entity (Entities.PreparedChange), written into the record by the preparation (WriteChange), the
-// write's once what its publication uses is reserved (Set), and not changed until the write has its outcome,
-// but for the root a replace replaces, which its publication records. A delete of a key that is absent
+// write's once what its publication uses is reserved (Set), and not changed until the write has its outcome.
+// A delete of a key that is absent
 // changes no entity: it has no change and publishes only its position. Until the write is published or
 // withdrawn its change holds what it took and reserved (Entities.ChangePublisher.Release gives it back). The
 // record of a write owns it and gives it to each write it holds (PendingWrite.Record), so that it is made
@@ -48,13 +48,13 @@ internal sealed class PreparedWrite
     // What the publication of the write installs, as the publisher takes it: its one change, or none. A
     // span over the field of this record, so that it is passed without a copy and without an allocation;
     // its length is the flag, without a branch, so that the accessor is inlined where it is read.
-    public Span<PreparedChange> Changes => MemoryMarshal.CreateSpan(ref _change, ChangesEntity ? 1 : 0);
+    public ReadOnlySpan<PreparedChange> Changes => MemoryMarshal.CreateReadOnlySpan(ref _change, ChangesEntity ? 1 : 0);
 
     // For a write being prepared: writes its change into the record where it lies, so that the reservation
     // of what its publication uses reads it there and records its decision for each index in it
     // (Entities.ChangePublisher.TryReserve). It is the write's change only once the preparation has made
     // that reservation (Set).
-    public ref PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root)
+    public ref PreparedChange WriteChange(ChangeKindEnum kind, EntityTable table, in EntityKey key, RootHandle handle, ArenaAddress root, ArenaAddress replaced)
     {
         Debug.Assert(!ChangesEntity, "The record of a write is written while it holds the change of a write that has no outcome yet.");
 
@@ -66,7 +66,7 @@ internal sealed class PreparedWrite
         _change.Key = key;
         _change.Handle = handle;
         _change.Root = root;
-        _change.Replaced = default;
+        _change.Replaced = replaced;
         _change.IndexChanges = 0;
         _change.IndexRewrites = 0;
 

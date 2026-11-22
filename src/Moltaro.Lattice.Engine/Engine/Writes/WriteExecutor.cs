@@ -129,7 +129,7 @@ internal sealed class WriteExecutor
     public bool TryPrepare(PendingWrite write, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
-        var exists = table.TryFind(write.Key, out var handle);
+        var exists = table.TryFind(write.Key, out var handle, out var replaced);
 
         if (write.ExpectedRevision is { } expected)
         {
@@ -157,11 +157,11 @@ internal sealed class WriteExecutor
 
         if (write.Kind == WriteKindEnum.Delete)
         {
-            return TryPrepareDelete(write, handle, out prepared, out refusal);
+            return TryPrepareDelete(write, handle, replaced, out prepared, out refusal);
         }
 
         return exists
-            ? TryPrepareReplace(write, handle, out prepared, out refusal)
+            ? TryPrepareReplace(write, handle, replaced, out prepared, out refusal)
             : TryPrepareInsert(write, out prepared, out refusal);
     }
 
@@ -218,14 +218,15 @@ internal sealed class WriteExecutor
         new(_clock.History, _roots.Entry(handle).LastMutationSequence);
 
     // The change of each preparation is written into the record of the write where it lies (WriteChange),
-    // reserved from there, and is the write's once reserved (Set).
+    // with the root of the entity its lookup found, which a replace and a delete replace, reserved from
+    // there, and is the write's once reserved (Set).
     //
     // False, with the refusal, when the arena cannot hold the nodes the indexes need for the delete.
-    private bool TryPrepareDelete(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    private bool TryPrepareDelete(PendingWrite write, RootHandle handle, ArenaAddress replaced, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var record = write.Record;
 
-        if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default)))
+        if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Delete, write.Table, write.Key, handle, default, replaced)))
         {
             prepared = null;
             refusal = RootWriter.RefusalForMemory(write.Table.Layout!);
@@ -241,7 +242,7 @@ internal sealed class WriteExecutor
 
     // Safe by its structure: until the place in the retired list is reserved, one catch frees the new
     // root when an exception passes.
-    private bool TryPrepareReplace(PendingWrite write, RootHandle handle, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
+    private bool TryPrepareReplace(PendingWrite write, RootHandle handle, ArenaAddress replaced, [NotNullWhen(true)] out PreparedWrite? prepared, out LatticeException? refusal)
     {
         var table = write.Table;
         ArenaAddress root;
@@ -272,7 +273,7 @@ internal sealed class WriteExecutor
         try
         {
             record = write.Record;
-            reserved = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root));
+            reserved = _changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Replace, table, write.Key, handle, root, replaced));
         }
         catch
         {
@@ -321,7 +322,7 @@ internal sealed class WriteExecutor
 
             var record = write.Record;
 
-            if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root)))
+            if (!_changes.TryReserve(ref record.WriteChange(ChangeKindEnum.Insert, table, write.Key, handle, root, default)))
             {
                 refusal = RootWriter.RefusalForMemory(layout);
 

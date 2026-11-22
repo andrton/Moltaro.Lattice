@@ -100,10 +100,9 @@ internal sealed class ChangePublisher
     {
         var indexes = change.Table.Indexes;
         var layout = change.Table.Layout!;
-        var replaced = ReplacedBy(change);
         var replaces = change.Kind == ChangeKindEnum.Replace;
         var every = change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
-        var old = replaces ? new RootReader(_arena, layout, replaced) : default;
+        var old = replaces ? new RootReader(_arena, layout, change.Replaced) : default;
         var current = replaces ? new RootReader(_arena, layout, change.Root) : default;
         var reserved = 0;
 
@@ -120,7 +119,7 @@ internal sealed class ChangePublisher
 
                 if (!indexes[reserved].TryReserve(decided))
                 {
-                    ReleaseIndexes(change, reserved, replaced);
+                    ReleaseIndexes(change, reserved);
 
                     return false;
                 }
@@ -132,7 +131,7 @@ internal sealed class ChangePublisher
         }
         catch
         {
-            ReleaseIndexes(change, reserved, replaced);
+            ReleaseIndexes(change, reserved);
             throw;
         }
 
@@ -157,9 +156,8 @@ internal sealed class ChangePublisher
     // inserts and a delete removes in every index its masks name; a replace rewrites or moves, below the
     // shared bit as the masks of the change say, and at the place of the shared bit or above, when that bit
     // is set, as the same two roots decide again by the same test, which builds no entry
-    // (PreparedChange.IndexChanges). Replaced is the root the change replaces or deletes, null for an
-    // insert.
-    private IndexChangeEnum ChangeAt(in PreparedChange change, int index, ArenaAddress replaced)
+    // (PreparedChange.IndexChanges).
+    private IndexChangeEnum ChangeAt(in PreparedChange change, int index)
     {
         var bit = PreparedChange.BitOf(index);
 
@@ -184,7 +182,7 @@ internal sealed class ChangePublisher
         }
 
         var layout = change.Table.Layout!;
-        var old = new RootReader(_arena, layout, replaced);
+        var old = new RootReader(_arena, layout, change.Replaced);
         var current = new RootReader(_arena, layout, change.Root);
 
         return change.Table.Indexes[index].ChangeOf(old, current);
@@ -225,11 +223,10 @@ internal sealed class ChangePublisher
     private void TopUpIndexes(in PreparedChange change)
     {
         var indexes = change.Table.Indexes;
-        var replaced = ReplacedBy(change);
 
         for (var index = 0; index < indexes.Length; index++)
         {
-            if (ChangeAt(change, index, replaced) != IndexChangeEnum.None)
+            if (ChangeAt(change, index) != IndexChangeEnum.None)
             {
                 indexes[index].TopUp();
             }
@@ -263,7 +260,7 @@ internal sealed class ChangePublisher
 
             if (change.IndexChanges != 0)
             {
-                ReleaseIndexes(change, change.Table.Indexes.Length, ReplacedBy(change));
+                ReleaseIndexes(change, change.Table.Indexes.Length);
             }
 
             switch (change.Kind)
@@ -293,9 +290,9 @@ internal sealed class ChangePublisher
     // refuses to add (Indexes.OrderedTree.Insert) fails the publication with InvalidOperationException: on a
     // master a defect, on a child its stream contradicting its index, and the caller faults the database
     // either way.
-    public void PublishBeforePosition(Span<PreparedChange> changes, ulong stamp)
+    public void PublishBeforePosition(ReadOnlySpan<PreparedChange> changes, ulong stamp)
     {
-        foreach (ref var change in changes)
+        foreach (ref readonly var change in changes)
         {
             if (change.IndexChanges != 0)
             {
@@ -309,7 +306,7 @@ internal sealed class ChangePublisher
                     break;
 
                 case ChangeKindEnum.Replace:
-                    change.Replaced = MarkReplace(change.Table.Layout!, change.Handle, change.Root);
+                    MarkReplace(change.Table.Layout!, change.Handle, change.Root);
                     break;
 
                 default:
@@ -356,11 +353,10 @@ internal sealed class ChangePublisher
     private void InstallNew(in PreparedChange change)
     {
         var indexes = change.Table.Indexes;
-        var replaced = ReplacedBy(change);
 
         for (var index = 0; index < indexes.Length; index++)
         {
-            var decided = ChangeAt(change, index, replaced);
+            var decided = ChangeAt(change, index);
 
             if (decided != IndexChangeEnum.None)
             {
@@ -371,17 +367,17 @@ internal sealed class ChangePublisher
 
     // The old entries of a change in the indexes it changes, after the position and before the root they
     // were made from, replaced or deleted, is retired.
-    private void RemoveOld(in PreparedChange change, ArenaAddress replaced)
+    private void RemoveOld(in PreparedChange change)
     {
         var indexes = change.Table.Indexes;
 
         for (var index = 0; index < indexes.Length; index++)
         {
-            var decided = ChangeAt(change, index, replaced);
+            var decided = ChangeAt(change, index);
 
             if (decided != IndexChangeEnum.None)
             {
-                indexes[index].RemoveOld(decided, change.Handle, replaced, change.Root);
+                indexes[index].RemoveOld(decided, change.Handle, change.Replaced, change.Root);
             }
         }
     }
@@ -411,18 +407,15 @@ internal sealed class ChangePublisher
 
     // The stores of a replace before the position (see the class), each with release semantics: the mark
     // first; the release of the root's store keeps the mark before the root, as the release fence after the
-    // source's swap keeps it before the data. Returns the root replaced.
-    private ArenaAddress MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
+    // source's swap keeps it before the data.
+    private void MarkReplace(RootLayout layout, RootHandle handle, ArenaAddress root)
     {
         RootStorage.Publish(_arena, layout, root);
 
         ref var entry = ref _roots.Entry(handle);
-        var replaced = entry.Root;
 
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseRoot(root);
-
-        return replaced;
     }
 
     // The stores of a replace after the position: the new stamp, whose release keeps the root before it,
@@ -435,7 +428,7 @@ internal sealed class ChangePublisher
 
         if (change.IndexChanges != 0)
         {
-            RemoveOld(change, change.Replaced);
+            RemoveOld(change);
         }
 
         _retired.RetireRoot(change.Table.Layout!, change.Replaced);
@@ -460,33 +453,26 @@ internal sealed class ChangePublisher
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void StampDelete(in PreparedChange change, ulong sequence)
     {
-        ref var entry = ref _roots.Entry(change.Handle);
-
-        entry.ReleaseLastMutation(sequence);
+        _roots.Entry(change.Handle).ReleaseLastMutation(sequence);
         change.Table.Remove(change.Key, change.Handle);
 
         if (change.IndexChanges != 0)
         {
-            RemoveOld(change, entry.Root);
+            RemoveOld(change);
         }
 
-        _retired.RetireDeleted(change.Table.Layout!, change.Handle, entry.Root);
+        _retired.RetireDeleted(change.Table.Layout!, change.Handle, change.Replaced);
     }
 
-    // The root a change replaces or deletes, which the entry of its entity holds until the change is
-    // published; null for an insert.
-    private ArenaAddress ReplacedBy(in PreparedChange change) =>
-        change.Kind == ChangeKindEnum.Insert ? default : _roots.Entry(change.Handle).Root;
-
     // Gives back what the first indexes of the entity type of the change, as many as given, reserved for
-    // it, as its reservation recorded it; replaced is the root it replaces or deletes.
-    private void ReleaseIndexes(in PreparedChange change, int count, ArenaAddress replaced)
+    // it, as its reservation recorded it.
+    private void ReleaseIndexes(in PreparedChange change, int count)
     {
         var indexes = change.Table.Indexes;
 
         for (var index = 0; index < count; index++)
         {
-            var decided = ChangeAt(change, index, replaced);
+            var decided = ChangeAt(change, index);
 
             if (decided != IndexChangeEnum.None)
             {
