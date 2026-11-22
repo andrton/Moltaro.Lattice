@@ -211,9 +211,10 @@ internal sealed class ChangePublisher
     // first change, and the unique indexes of each in the order of their declaration; the first index with a
     // conflict is the one found. In it a change that sets or moves a value conflicts with the published root
     // of another entity that holds it, unless a change frees that value, by a delete or a move of its own key;
-    // and of two changes that set one value, the later conflicts. Of several conflicts in the index, the change
-    // that comes first among the changes is found (Q58 of docs/work/open-questions.md). Neither value is in the
-    // published tree yet, so the prepared and unpublished changes of other publications are not the
+    // and of two changes that set one value, the later conflicts, since the earlier alone would have been
+    // accepted. Of several conflicts in the index, the change that comes first among the changes is found, so
+    // that the change reported does not depend on the order in which the check meets them. Neither value is in
+    // the published tree yet, so the prepared and unpublished changes of other publications are not the
     // publisher's to know: that one of them claims or frees a value is the caller's to find
     // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, needs one descent for each
     // index in which it sets a value, as before there were several.

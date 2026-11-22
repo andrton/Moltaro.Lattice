@@ -25,8 +25,9 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // bound of the changes waiting, and no more than the larger of that and the reserve (AssertReserved).
 //
 // The reserved nodes are linked through their own payload, the address of the next one in its first bytes,
-// so that the pool takes no managed room for them: what a reservation takes is the arena's alone, and a
-// reservation the arena refuses leaves nothing behind (entry F3 of docs/work/refactoring.md).
+// so that the pool takes no managed room for them: what a reservation takes is the arena's alone, a
+// reservation the arena refuses leaves nothing behind, and a pool that once held many nodes keeps no managed
+// room for them.
 //
 // The tree gives its height and the room of its root to every member that needs them; only the publishing
 // thread calls it, under the lock of the writes.
