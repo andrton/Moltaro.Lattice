@@ -8,12 +8,13 @@ namespace Moltaro.Lattice.Engine.Tests.Replication;
 // than once. What the child sends passes unchanged. The link keeps every frame each side sent, in the
 // order it arrived, so that a test can read the handshake and the frames of a load, and every frame it
 // passed to the child while the child was connected, so that a test can state that a frame it changed
-// reached the child before the child ended its connection. The frames of the master are those a node of
-// the engine wrote, so their lengths are trusted; a change runs on the thread of the copy, and an
-// assertion that fails in it ends the link and fails DisposeAsync. A test learns
-// that the connection of the child has ended — the child closed or reset it, or the link was cut —
-// from ChildEndedAsync. An end in order of the master's side reaches the child in order as well, after
-// everything the relay passed, and not as the reset with which the link ends a connection otherwise.
+// reached the child before the child ended its connection. A frame is recorded before it is sent, since a
+// child that refuses it may end its connection before the send returns. The frames of the master are those
+// a node of the engine wrote, so their lengths are trusted; a change runs on the thread of the copy, and an
+// assertion that fails in it ends the link and fails DisposeAsync. A test learns that the connection of the
+// child has ended — the child closed or reset it, or the link was cut — from ChildEndedAsync. An end in
+// order of the master's side reaches the child in order as well, after everything the relay passed, and not
+// as the reset with which the link ends a connection otherwise.
 internal sealed class FrameRelay : IAsyncDisposable
 {
     // Guards what the copies keep, which a test reads from its own thread.
@@ -52,8 +53,9 @@ internal sealed class FrameRelay : IAsyncDisposable
         }
     }
 
-    // Every frame the relay passed to the child so far, in the order it sent them, whose send completed while
-    // the copy from the child had not ended: the child was connected when it took the bytes.
+    // Every frame the relay passed to the child so far, in the order it sent them, each recorded before its
+    // send began while the copy from the child had not ended: the child was connected when the bytes went to
+    // it.
     public IReadOnlyList<WireFrame> ToChild
     {
         get
@@ -120,8 +122,6 @@ internal sealed class FrameRelay : IAsyncDisposable
 
                 foreach (var passed in _change(frame))
                 {
-                    await LoopbackLink.SendAsync(child, passed.Bytes, cancellationToken);
-
                     lock (_lock)
                     {
                         if (!_childEnded.Task.IsCompleted)
@@ -129,6 +129,8 @@ internal sealed class FrameRelay : IAsyncDisposable
                             _toChild.Add(passed);
                         }
                     }
+
+                    await LoopbackLink.SendAsync(child, passed.Bytes, cancellationToken);
                 }
             }
         }
