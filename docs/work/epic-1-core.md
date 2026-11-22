@@ -1277,6 +1277,7 @@ Why this order:
 | S15, part 2 | The binding rules | Full | Done on 21 November 2026 |
 | S15R | Refactoring after S15 | Full | Done ([refactoring backlog](refactoring.md), its order) |
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
+| S16R | Refactoring after S16 | Full | In progress ([refactoring backlog](refactoring.md), its order) |
 | S17 | Atomic write batch | Full | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
@@ -7797,6 +7798,15 @@ counts of the whole batch; today `ChangePublisher.TryReserve` takes one change a
 `PreparedWrite` holds one change inline, so a batch would top up each index once for each
 change. The linear reserve and this are one design.
 
+**Added by the planner on 22 November 2026, from the architect's review after S16.** The
+first structural commit after the study is L1 of `refactoring.md`, with G6 and F3: the
+changes of one publication are decided first, a taken value is found on the state the
+publication leaves, and each index reserves once. The start of the machine also decides
+K1 by the builds of S16 step by step and judges L2. And the author of the tests makes
+`MalformedTransactionTests` assert, through what the relay passed on from the master, that
+the forged frame reached the child before the child ended: today the tests pass also
+when the connection dies first.
+
 ### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
@@ -7858,6 +7868,16 @@ floating-point field and back, a floating-point value or a Decimal for an intege
 back) refused with the message of J2; an Enum field refuses an integer its enum type does
 not declare, as today. If this needs a sentence of the Acceptance of S18, the coordinator
 of S18 asks the owner for it.
+
+**Added by the planner on 22 November 2026, from the architect's review after S16.** The
+sprint also makes the time limit of a read testable without the clock of the machine:
+`ReadLimits` reads its timestamp through an engine-internal settings object made once for
+a database, which holds the limit in ticks and the source of the timestamp, and which the
+tests replace through `EngineTestInputs` (X3 of the exceptions register).
+`ReadTimeInsideTheEngineTests` advances that clock instead of waiting, and loses its loop
+of attempts. Shown: the listing of `EntityTable.Step` with no call added for a read
+without a time limit, the 56 pinned bytes of a search, and `ReadLimits` at 24 bytes. If
+`Step` was not changed by S17, L4 of `refactoring.md` is done in the same commit.
 
 #### S19 · Maps and Sets
 

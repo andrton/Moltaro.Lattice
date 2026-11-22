@@ -33,7 +33,7 @@ This introduces neither referential integrity nor collection-member indexes.
 
 ## Master validation and publication
 
-Use the existing OrderedMultiMap and schema comparer. No second full copy of the
+Use the existing ordered index and schema comparer. No second full copy of the
 index or additional per-key uniqueness table is required. A small temporary map/set
 of proposed keys is bounded by operation/group admission limits.
 
@@ -50,8 +50,10 @@ of proposed keys is bounded by operation/group admission limits.
    decision. If an independent group member fails validation, record its rejection
    without adopting its proposed index effects into the group's overlay.
 4. Commit effects/results and publish through the ordinary root/WriteBatch barrier.
-   Remove old keys before installing final entries; readers cannot observe an
-   intermediate duplicate during whole-batch publication. Unexpected publication
+   Readers cannot observe an intermediate duplicate during whole-batch publication; the
+   order in which old keys are removed and final entries are installed is the engine's to
+   choose (amended on 22 November 2026, the owner's answer to Q56 of the open questions).
+   Unexpected publication
    failure follows the accepted instance-stop/reopen contract.
 
 Initial load/recovery and explicit schema migration validate unique indexes before
