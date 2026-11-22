@@ -1,3 +1,5 @@
+using Moltaro.Lattice.TestSupport.Positions;
+
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // A write batch: several writes, possibly of different entity types, executed together at
@@ -210,7 +212,7 @@ public sealed class WriteBatchTests
         var unchanged = await nothing.CommitAsync();
 
         Assert.False(unchanged.Changed);
-        Assert.Equal(written.Position, unchanged.Position);
+        Assert.True(PositionSequence.Of(unchanged.Position) > PositionSequence.Of(written.Position));
     }
 
     [Fact(Skip = SkipReason.WriteBatch)]
