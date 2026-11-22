@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.ReadsAndWrites;
+namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // On a master CreateWriteBatch returns the write batch of the core: building it works, through
 // classes and by name, and checks every operation when it is added, and its commit is

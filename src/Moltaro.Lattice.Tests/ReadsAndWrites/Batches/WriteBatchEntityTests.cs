@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.ReadsAndWrites;
+namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // A write batch takes one operation per entity, and it tells entities apart as the schema reads the
 // key, not as the caller spelled it (the planner's answer to Q45; the remarks of ILatticeWriteBatch):

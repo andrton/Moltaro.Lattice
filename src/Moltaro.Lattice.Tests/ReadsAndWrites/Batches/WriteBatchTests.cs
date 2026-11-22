@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.ReadsAndWrites;
+namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // A write batch: several writes, possibly of different entity types, executed together at
 // one position or not at all.
