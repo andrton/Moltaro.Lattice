@@ -191,7 +191,7 @@ internal sealed class OrderedTree
 
         try
         {
-            GrowPath(_height + NodePool.Growth(_pool.Inserts, room, _layout.LeastSeparators));
+            GrowPath(NodePool.MostLevels(_height, _pool.Inserts));
         }
         catch
         {

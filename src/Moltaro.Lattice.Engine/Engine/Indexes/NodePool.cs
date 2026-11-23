@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Protection;
@@ -155,7 +156,7 @@ internal sealed class NodePool
                 if (_count >= nodes)
                 {
                     // The levels first: an OutOfMemoryException of their arrays leaves no place reserved.
-                    var levels = height + Growth(_inserts, room, _layout.LeastSeparators);
+                    var levels = MostLevels(height, _inserts);
 
                     if (_progress.Length < levels)
                     {
@@ -331,8 +332,16 @@ internal sealed class NodePool
     // The rule of growth: the most levels the inserts given can add to a tree whose root has the room given,
     // the first after the room of the root, and each further one after LeastSeparators more, since the root a
     // growth makes holds one separator and one insert adds at most one separator to any node.
-    public static int Growth(int inserts, int room, int leastSeparators) =>
+    private static int Growth(int inserts, int room, int leastSeparators) =>
         inserts <= room ? 0 : 1 + ((inserts - 1 - room) / leastSeparators);
+
+    // The most levels a tree of the height given can have while the inserts given wait, published in any
+    // order and among any removes: one more than the levels that can split by their bound (Bounds), since only
+    // a split of the root adds a level. Every level of the tree may split, and the leaves of an empty tree;
+    // above them a level has no progress and makes at most half the splits of the level below, since the
+    // credit of an inner node is 1 at least, so p inserts split at most floor(log2 p) levels more. The rule of
+    // growth bounds the levels as well, but grows with the inserts.
+    public static int MostLevels(int height, int inserts) => Math.Max(height, 1) + 1 + BitOperations.Log2((uint)inserts);
 
     // The bounds by levels (see the class) of the inserts and the removes given from a tree whose levels have
     // the progress given, the leaves first, one for each level of its height, and whose leaves and inner nodes

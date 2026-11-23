@@ -438,7 +438,12 @@ one level to the next, and the sum ends. The bound is linear in the changes or b
 
 The pool keeps the progress of every level: the tree tells it of each node it writes into
 the tree and of each node it replaces, and the pool adds or takes away the progress of
-the node, one division of its bytes, in the hold that publishes. A read pays nothing.
+the node, one division of its bytes, in the hold that publishes. A read pays nothing. It
+keeps room for every level the tree can reach while the changes reserved wait, and the
+path of the writer as many: one more than the levels that can split, since only a split of
+the root adds a level, which are at most the levels of the tree, the leaves of an empty
+tree among them, and ⌊log₂ *p*⌋ above them, where each level splits at most half as often
+as the one below.
 
 That bound holds for a sequence of publications from the tree as it was when the sequence
 began, not again at the tree after each of them, so the pool keeps a ledger
