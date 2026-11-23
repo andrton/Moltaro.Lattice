@@ -126,11 +126,16 @@ internal sealed class ForwardedCall
 
         if (_memberTypes is { } members)
         {
-            var place = refusal.OperationIndex;
-
-            if (place is { } given ? (uint)given >= (uint)members.Length : reply.IndexId is not null)
+            if (refusal.OperationIndex is { } place)
             {
-                throw Protocol.Invalid($"The master refused a forwarded write batch of {members.Length} members with {refusal.Error} and named {(place is { } beyond ? $"the member {beyond}, which it does not have" : "no member for its unique index")}.");
+                if ((uint)place >= (uint)members.Length)
+                {
+                    throw Protocol.Invalid($"The master refused a forwarded write batch of {members.Length} members with {refusal.Error} and named the member {place}, which it does not have.");
+                }
+            }
+            else if (reply.IndexId is not null)
+            {
+                throw Protocol.Invalid($"The master refused a forwarded write batch of {members.Length} members for a unique index and named no member.");
             }
         }
 

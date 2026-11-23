@@ -11,10 +11,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // A write batch travels from a child to its master as one request (docs/design/milestone-1-engine-contract.md,
 // "Replication transport and initial loading"; the shape is ForwardPayload.BatchRequest): a head with the
 // minimum position and the count of the members, then each member as its kind, its type, its expected
-// revision, its key and its root in the load format, delimited by its length. The master checks every member and the batch as a whole before anything of it is
-// used, and submits it as one write, all or nothing; a request that is not valid is a defect of the peer,
-// and the master executes nothing of it and ends the connection without a reply, as for a single write
-// (MalformedRequestTests): a member that names an entity a member before it names, a count of no member, a
+// revision, its key and its root in the load format, delimited by its length. The master checks every
+// member and the batch as a whole before anything of it is used, and submits it as one write, all or
+// nothing; a request that is not valid is a defect of the peer, and the master executes nothing of it and
+// ends the connection without a reply, as for a single write (MalformedRequestTests): a member that names an entity a member before it names, a count of no member, a
 // count the members do not reach, a member whose root goes on past its length, and a member that is itself a
 // batch. A request in the shape is executed whole. On the way back:
 // - a refusal of a batch for a unique index carries the number of the failing member, in whose entity type
