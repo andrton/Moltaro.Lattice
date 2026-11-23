@@ -460,3 +460,132 @@ Too large for one review. Proposed:
   if it is still too large, point 2 alone (B1, proven on a child by merged transactions) before the
   commit (B2).
 - **C.** Points 6 and 7: the child and the forwarded batch, the wire format 5.
+
+## Part 3, C: points 6 and 7
+
+Written before the code, for the planner to read. No order of stores changes: a child publishes a batch
+through the publisher of part 2, and a forwarded batch is published as a batch of the master.
+
+**Point 6, the child.** Built already: one publisher (B1), a transaction checked on the state it leaves
+(part 1), acknowledged only at its position (`ChildBatchTests`). Left:
+
+- `Entities/PublicationKeys.Clear()`: empties the set and keeps its capacity. Its head adds that a child
+  keeps one set, changed under its lock of the writes by the thread that applies.
+- `Child/Loading/ReceivedChanges`: a `PublicationKeys` replaces the scans of `ThrowIfNamed` over
+  `_prepared` and `_skipped`; a key `TryAdd` refuses is named twice (`NamedTwice`, as today), and `_skipped`
+  becomes the count `SkippedStates` takes. Held by `KeyNamedOnceTests`, unchanged.
+
+**Point 7, the body of a batch request** (wire format 5, little-endian; `ForwardPayload.BatchRequest`):
+
+| Part | Bytes |
+| --- | --- |
+| Kind | 1: `ForwardEncoding.BatchKind`, 4, the value after those of `WriteKindEnum` |
+| Minimum position | 0, or 1, its history and its sequence (UInt64 each), as a request carries it |
+| Count | UInt32, at least 1 |
+| Each member, in its order | its kind (1 byte, a `WriteKindEnum`), its type id (UInt32), its expected revision (0, or 1 and two UInt64; never for an insert), its key (`PrimaryKeys.WriteKey`), and but for a delete the length of its root (UInt64) and the root with its envelope, last mutation 0 and member 0 |
+
+The body ends after its last member. The reply has the bytes of today's.
+
+`Replication/Forwarding/ForwardEncoding`:
+- `BatchKind`; `IsBatch(body)`, its first byte.
+- `WriteMemberHead`/`ReadMemberHead`: kind, type id, revision. `ReadMemberHead` refuses a kind above Delete,
+  so a member that is a batch, and a revision on an insert. `WriteRequestHead`/`ReadRequestHead` become the
+  member head and the position, so the two share one encoding.
+- `WriteBatchHead`/`ReadBatchHead`: the position and the count.
+- `ReadRoot` returns what its length announces and stands after it; `ExpectEnd` closes every request, one
+  write as well. Today `ReadRoot` demands that the root end the body and `ExpectEnd` serves a delete; one rule
+  then covers both: a root ends where its length says, and the body after its last part.
+- `SmallestMember`, 10 bytes (kind, type id, mark, the length of an empty String key): a count above what the
+  rest of the body holds at that size is refused before the array of members is allocated, by the rule of the
+  receiver that what it takes grows with the bytes received, not with what a peer announces.
+
+**How the master submits it.** `Children/RequestReceiver.SubmitBatch`: the head; each member read and checked
+as one write is (a stored entity type, its key, `CheckRoot`, which holds the key) into
+`Writes/BatchMember(kind, table, key, revision, root)`, the root a slice of the request body after its
+envelope, whose member number is not checked, as for one write; a repeated (table, key) refused by
+`PublicationKeys.TryAdd`; then the end of the body. Each failure is `ValidationFailed` before anything is
+submitted, and the connection ends. Then one call, `Writes/WriteCoordinator.Forward(BatchMember[] members,
+PublicationKeys keys, ForwardedOrigin forwarded, LatticeSession? session)`, the twin of `Forward` for one
+write: `TryEnter`, then `ForwardAfterAsync` (which gains the members and the keys) or `Admit` with members,
+keys and origin. So it is prepared, waits, is refused and is published as a batch of the master (part 2), and
+its reply is recorded as a forwarded write's: a success in the hold that publishes it, `Changed` when a member
+changed an entity; a refusal where its outcome is given.
+
+**How a refusal resolves its index.** Both ends resolve the identity of a unique index in one entity type: the
+write's, or for a batch that of the member `OperationIndex` names, which `Violation` always sets for a batch
+(the member is the one Q58 decides on the master).
+- `Writes/ForwardedOrigin`: a constructor for a batch with the entity types of its members (`LatticeEntityType[]`,
+  no root) and `EntityTypeOf(int? operationIndex)`, by which `Refuse` maps the name to the identity. Not the
+  members themselves: the record lets go of them, with their roots, before the refusal is recorded
+  (`PendingWrite.LetGoOfInputs`).
+- `Child/Forwarding/ForwardedCall`: the same constructor and `EntityTypeOf`; for a batch, no number or one beyond
+  its members is `ValidationFailed`, the connection ends and the call ends `IndeterminateOutcome`.
+  `PendingRequests.Receive` asks it only for a reply that names an index, so a refusal for memory passes.
+
+**How the child sends and waits.** `Child/Forwarding/Forwarder.WriteBatchAsync(BatchMember[] members,
+LatticeSession? session, CancellationToken)`, with the steps of `WriteAsync` shared, not copied: a member of an
+entity type not stored is `NotSupportedException`, then the token, the close, the session bound, the sender; the
+request written from the roots the core encoded at `Add` (`RootValues.Export`), each after its envelope; one
+`ForwardedCall`; the reply; the wait on the clock of the child, bounded as for one write; the session moved in
+`finally`. The child applies the batch at one position, so with its clock there every member is visible.
+`EngineDatabase.ExecuteAsync` builds the members on either node and hands them to the coordinator or the
+forwarder; its `NotSupportedException` goes, and `SkipReason.BatchThroughAChild` with its last use.
+
+**The cost the record states**, for a batch whose request is B bytes, about its encoded roots:
+- On the child: the roots from their `Add` to the commit, as on a master; 2B while the request is written from
+  them; then the request, B, until the reply, held by the call as for one write; then the transaction, B, in the
+  buffer of its stream while it is applied, kept afterwards (question 4).
+- On the master: B of managed memory for the request from its first frame to the outcome of the batch, outside
+  the budget; B in the arena; B in the tail until every child has applied it; for each member its record, its
+  entry in the set of entities, its change (96 bytes) and its entity type (8 bytes).
+- Held back: the child sends its requests one at a time, so its later writes wait until the last frame of the
+  batch is sent; its Applied pass between the frames. The master checks every root on the task of the
+  connection and prepares and publishes the batch in one hold of the lock of the writes; meanwhile it reads no
+  frame of that child, neither an Applied nor a request, and every other write waits for the lock, as for a
+  batch of the master.
+- Figures: a probe on the workstation, kept outside the repository, of B and the managed bytes on both nodes for
+  batches of 1,000 and 10,000 users of the fixture.
+
+**Tests.** `ForwardedBatchTests` 1 and 2 need the master; its 3 and 4, `BatchThroughAChildTests` and
+`WriteBatchTests.Batch_through_a_child_is_on_that_child_when_it_completes` need both ends. Every case of the list of
+point 7 has a test, "a peer of wire format 4 refused" in `RefusedPeerTests` (active since part 2); of point 6, the
+exchange applied and the violation that stops the child are in `ChildBatchTests` (active). Two sentences have none,
+and get one first, in a commit of its own, skipped with the shared reason until the code:
+- "A child never acknowledges a part", for a batch it forwarded:
+  `ChildBatchTests.Child_that_forwarded_a_batch_acknowledges_no_sequence_of_it_and_completes_no_commit_before_it_has_applied_all_of_it`,
+  held at `BeforePosition` on the child, through a relay.
+- The minimum position of the head: `ForwardedBatchTests.Batch_request_waits_for_the_position_of_its_head_and_runs_once_direct_writes_reach_it`,
+  a hand-made child as in `MinimumPositionTests`; `ForwardPayload.BatchRequest` gains an optional position, an
+  edit that states nothing new.
+
+**The commits.** The two tests; point 6; the wire and the master (`ForwardedBatchTests` 1, 2 and the position); the
+child (the rest); the documents: the remarks of `ILatticeWriteBatch` (the `NotSupportedException` of a child goes),
+`README.md`, `docs/design/architecture.md` and the cost sentences (question 2).
+
+**Questions, each with the answer recommended.**
+
+1. **The wire format.** The brief says `WireFormat` becomes 5; part 2 made it 5 for the member number in the
+   envelope, and nothing was released between. Recommended: it stays 5, and its comment says 5 adds to 4 the member
+   number and the batch a child forwards; `RefusedPeerTests` keeps "the wire format 4".
+2. **The page of the cost sentences.** No `docs/design/replication*` exists; forwarding is described in
+   `milestone-1-engine-contract.md`, "Replication transport and initial loading", the paragraph "A child forwards a
+   write as a request". Recommended: the two sentences there, the bytes held on each node and what a large batch
+   holds back, and nowhere else.
+3. **A child's set keeps the capacity of its largest transaction**, as `_prepared` does (the note carried from S13
+   names both): about 60 bytes a key (an entry of 56 and a bucket) beside the 96 of a change. Recommended: kept and stated in the record; a trim
+   of both is a decision of its own.
+4. **A child's stream keeps the pieces of its largest transaction** (`TransactionAssembler`, `TransferBuffer`):
+   after a batch of B bytes every child holds B managed bytes, outside its budget, for the life of its connection.
+   True of every batch since part 2, found while costing this one. Recommended: stated in the record and entered in
+   the refactoring backlog; giving the pieces back after a transaction of several frames, at the cost of new pieces
+   for each, is outside points 6 and 7 and is built only on the planner's word.
+5. **The child holds its request until the reply**, as for one write. Recommended: kept; dropping it after the last
+   frame shortens the hold, not the peak of 2B.
+6. **`Child.Forwarding` uses `Writes.BatchMember`**, an edge it does not have today. Recommended: accepted; `Writes`
+   refers to nothing of `Child`, and one record serves a batch of the master, a forwarded batch and a child's
+   request.
+7. **One add to the set for every effect a child applies**, a hash and a store, where a transaction of one effect
+   scans an empty list today. Recommended: built plainly, and `following-children` owed to the next start of the
+   machine beside the write lines already owed.
+8. **No line of the measurement program for a forwarded batch.** Recommended: none; the bytes come from the probe,
+   and what a batch holds back is its send and its commit, which part 2 measured.
