@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A search of an index of one temporal part agrees with the model of the order, the field nullable and not
 // (docs/design/ordered-index.md, "Entries and their order": the temporal types by their ticks or day

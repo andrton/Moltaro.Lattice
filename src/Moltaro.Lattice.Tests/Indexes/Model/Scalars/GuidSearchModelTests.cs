@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A search of an index of one Guid part agrees with the model of the order, the field nullable and not
 // (docs/design/ordered-index.md, "Entries and their order": a Guid by CompareTo, field by field). A cell

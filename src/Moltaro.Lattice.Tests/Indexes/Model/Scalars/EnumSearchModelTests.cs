@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A search of an index of one Enum or Flags part agrees with the model of the order, the field nullable and
 // not (LatticeEnumType: values compare as numbers of the underlying type, with its sign; IndexKey: a value
@@ -6,7 +6,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // drawn from the members of its enum type, which lie on both sides of zero and at the ends of the
 // underlying type: Grade over Int16, Span over Int64, Wide over UInt64 with members on both sides of the
 // largest Int64, and Rights, Flags over Int32, any combination of its bits, the sign bit among them
-// (ModelSchema, ScalarTypes). The member Unused of each is never stored, so that a search of it finds
+// (ScalarSchema, ScalarTypes). The member Unused of each is never stored, so that a search of it finds
 // nothing. It searches as every cell does (IntegerSearchModelTests).
 // An Enum over Int64 that is never null is held by OneNumberSearchModelTests.
 public sealed class EnumSearchModelTests

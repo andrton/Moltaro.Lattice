@@ -1,6 +1,6 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
 
-// Bound to the entity type "Colleague" of ModelSchema.References: Manager, a nullable Reference to a
+// Bound to the entity type "Colleague" of UnstoredSchema.References: Manager, a nullable Reference to a
 // Colleague, held as the key of its target, an Int64.
 internal sealed class Colleague
 {

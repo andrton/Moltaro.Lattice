@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A search of an index of one Float32 or Float64 part agrees with the model of the order, the field
 // nullable and not (docs/decisions/queries.md, "Floating-point special values": NaN values are one key and

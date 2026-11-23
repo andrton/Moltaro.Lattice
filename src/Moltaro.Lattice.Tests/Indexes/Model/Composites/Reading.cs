@@ -1,6 +1,6 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Composites;
 
-// Bound to the entity type "Reading" of ModelSchema.Composite, whose index ByKey is (Day, Level, Sensor): a
+// Bound to the entity type "Reading" of CompositeSchema, whose index ByKey is (Day, Level, Sensor): a
 // DateOnly never null, a nullable Float64 and an Int16 never null.
 internal sealed class Reading
 {

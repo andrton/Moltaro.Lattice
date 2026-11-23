@@ -1,6 +1,6 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Composites;
 
-// The composite keys of the model tests, of parts of mixed widths (ModelSchema.Composite):
+// The composite keys of the model tests, of parts of mixed widths (CompositeSchema):
 // - Payment (Guid, String without case, Decimal?), a fixed part after a text part: the Guids differ in
 //   their later fields as well, the texts are case pairs and a long text in two spellings, and the
 //   Decimals include two scales of one key;

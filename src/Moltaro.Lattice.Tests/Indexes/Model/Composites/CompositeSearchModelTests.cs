@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Composites;
 
 // A search of a composite index of parts of mixed widths agrees with the model of the order, in a UTF-8 and
 // in a UTF-16 database (docs/design/ordered-index.md, "Entries and their order" and "How a range is walked"):

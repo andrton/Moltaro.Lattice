@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // How a cell of one scalar type runs (ScalarCell, ModelRun): Count entities of Sample, each with a value of
 // the type or, when the field is nullable, about one in eight with none; the edge values of the type, then
@@ -48,7 +48,7 @@ internal static class ScalarRun
 
         return ModelRun.RunAsync(
             cell.ToString(),
-            ModelSchema.Of(cell, typeof(Sample<TValue>)),
+            ScalarSchema.Of(cell, typeof(Sample<TValue>)),
             table,
             given,
             ModelSearches.Of(model, given, [neverStored], mostKeys: int.MaxValue),

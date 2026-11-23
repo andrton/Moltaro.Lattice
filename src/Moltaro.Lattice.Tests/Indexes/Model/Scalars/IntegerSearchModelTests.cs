@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A search of an index of one integer part agrees with the model of the order, for every width signed and
 // unsigned, the field nullable and not (docs/design/ordered-index.md, "Entries and their order": an

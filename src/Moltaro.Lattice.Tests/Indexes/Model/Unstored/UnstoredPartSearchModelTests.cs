@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Unstored;
 
 // A search of an index of a part the engine cannot store yet agrees with the model of the order, as every
 // other part does (ModelRun, ModelSearches), once its feature is implemented (SkipReason):
@@ -29,7 +29,7 @@ public sealed class UnstoredPartSearchModelTests
             Equal = values => values.Count == 0 ? IndexKey.All : IndexKey.Equal((long?)values[0]),
         };
 
-        return RunAsync(table, ModelSchema.References, References(nullable: true), [NeverReferenced]);
+        return RunAsync(table, UnstoredSchema.References, References(nullable: true), [NeverReferenced]);
     }
 
     [Fact(Skip = SkipReason.OwnedValuesAndReferences)]
@@ -46,7 +46,7 @@ public sealed class UnstoredPartSearchModelTests
             Equal = values => values.Count == 0 ? IndexKey.All : IndexKey.Equal((long)values[0]!),
         };
 
-        return RunAsync(table, ModelSchema.References, References(nullable: false), [NeverReferenced]);
+        return RunAsync(table, UnstoredSchema.References, References(nullable: false), [NeverReferenced]);
     }
 
     [Fact(Skip = SkipReason.OwnedValuesAndReferences)]
@@ -66,7 +66,7 @@ public sealed class UnstoredPartSearchModelTests
         string?[] cities = [null, "", "Bergen", "bergen", "Oslo", "Tromsø", "Ålesund", "\U0001F600", new string('x', 300)];
         var given = Enumerable.Range(1, Count).Select(id => new ModelEntry(id, [cities[random.Next(cities.Length)]])).ToList();
 
-        return RunAsync(table, ModelSchema.OwnedPath, given, [["Molde", "\U0000FFFF"]]);
+        return RunAsync(table, UnstoredSchema.OwnedPath, given, [["Molde", "\U0000FFFF"]]);
     }
 
     // The entities of a reference: the key of another entity or, for a few, a key no entity has, the least

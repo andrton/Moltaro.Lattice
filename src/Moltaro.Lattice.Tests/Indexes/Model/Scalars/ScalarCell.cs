@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // One cell of the model tests of one scalar type: the type, whether its field is nullable, and the string
 // encoding of the database, which only a text depends on.

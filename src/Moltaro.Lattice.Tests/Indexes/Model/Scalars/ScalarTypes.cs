@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // Every scalar type an index part can be, as the model tests store it (ScalarType). The edge values are
 // where an order is easy to get wrong: the ends of the type, zero, one and minus one, the sign bit and the
@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // pairs, characters on both sides of the surrogates, and lengths at the copy of an entry (64 bytes), at the
 // piece of a decoded comparison (256 code units) and in chunks (beyond 4 KiB, and beyond one chunk of
 // 65,504 bytes). An Enum is given as the integer of its underlying type, from the members of its enum type
-// (ModelSchema), and Flags as a combination of declared bits.
+// (ScalarSchema), and Flags as a combination of declared bits.
 internal static class ScalarTypes
 {
     // The type of the name given, as ScalarType.Name states it.
@@ -256,7 +256,7 @@ internal static class ScalarTypes
         Run = ScalarRun.Of<TimeSpan>(),
     };
 
-    // Grade over Int16 (ModelSchema); Unused, 7, is never stored.
+    // Grade over Int16 (ScalarSchema); Unused, 7, is never stored.
     public static ScalarType EnumOverInt16 { get; } = new()
     {
         Name = "Enum over Int16",
@@ -269,7 +269,7 @@ internal static class ScalarTypes
         Run = ScalarRun.Of<short>(),
     };
 
-    // Span over Int64 (ModelSchema); Unused, 7, is never stored.
+    // Span over Int64 (ScalarSchema); Unused, 7, is never stored.
     public static ScalarType EnumOverInt64 { get; } = new()
     {
         Name = "Enum over Int64",
@@ -282,7 +282,7 @@ internal static class ScalarTypes
         Run = ScalarRun.Of<long>(),
     };
 
-    // Wide over UInt64 (ModelSchema); Unused, 7, is never stored.
+    // Wide over UInt64 (ScalarSchema); Unused, 7, is never stored.
     public static ScalarType EnumOverUInt64 { get; } = new()
     {
         Name = "Enum over UInt64",
@@ -294,7 +294,7 @@ internal static class ScalarTypes
         Run = ScalarRun.Of<ulong>(),
     };
 
-    // Rights over Int32 (ModelSchema): any combination of Read 1, Write 2, Delete 4, Share 2^30 and the sign
+    // Rights over Int32 (ScalarSchema): any combination of Read 1, Write 2, Delete 4, Share 2^30 and the sign
     // bit; Unused, 8, is never stored, alone or with another bit.
     public static ScalarType Flags { get; } = new()
     {

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Composites;
 
 // A composite key of the model tests (CompositeKeys) and how a cell of it runs: Count entities, each part
 // drawn by a generator of the seed ModelRun.Seed from the few values it takes, a null among them where the
@@ -34,7 +34,7 @@ internal sealed class CompositeKey<TEntity>
 
         return ModelRun.RunAsync(
             $"{Table.EntityType}({string.Join(", ", Table.Fields)}) in {encoding}, {Count} entities of seed {ModelRun.Seed}",
-            ModelSchema.Composite(encoding),
+            CompositeSchema.Of(encoding),
             Table,
             given,
             ModelSearches.Of(Table.Model, given, NeverStored, MostKeys),

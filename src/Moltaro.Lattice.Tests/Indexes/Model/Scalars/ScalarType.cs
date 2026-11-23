@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // A scalar type an index part can be, as the model tests store and search it (ScalarTypes):
 // - its declaration in a field of the schema, and the order of its values (IndexModel);

@@ -1,4 +1,4 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Scalars;
 
 // The index of one part, never null, whose stored form is a signed integer of 8 bytes — an Int64, an Enum
 // over Int64, a DateTimeOffset as its UTC ticks, a TimeOnly and a TimeSpan as their ticks — is ordered by

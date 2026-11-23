@@ -1,6 +1,6 @@
-namespace Moltaro.Lattice.Tests.Indexes.Model;
+namespace Moltaro.Lattice.Tests.Indexes.Model.Composites;
 
-// Bound to the entity type "Payment" of ModelSchema.Composite, whose index ByKey is (Code, Payee, Amount):
+// Bound to the entity type "Payment" of CompositeSchema, whose index ByKey is (Code, Payee, Amount):
 // a Guid never null, a String compared without case that is never null, and a nullable Decimal.
 internal sealed class Payment
 {
