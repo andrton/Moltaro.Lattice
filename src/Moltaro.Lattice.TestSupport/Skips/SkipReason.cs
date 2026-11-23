@@ -5,4 +5,7 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
+    // A write of an entity type with an Owned or a Reference field is refused with NotSupportedException
+    // (LatticeFieldTypeEnum.Owned and LatticeFieldTypeEnum.Reference).
+    public const string OwnedValuesAndReferences = "Storing owned values and references is not implemented yet.";
 }

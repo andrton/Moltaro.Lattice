@@ -8387,6 +8387,54 @@ start of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to
 `following-children`; if `index-writes` falls, the first remedy to try is to inline
 `NodePool.AfterPublication` again.
 
+**The record of the search by index against a model** (closed on 24 November 2026; tests
+only, beside S17R and S18). The owner asked on 23 November 2026 whether the search by index
+is tested close to completely for correctness across the types of a part. An audit of the
+tests found equality close to complete for every type, and order and range held against a
+model only for Int32, Int64 and String. This work adds one differential test of a search
+against a sorted list in memory, in `Moltaro.Lattice.Tests/Indexes/Model`, with the shared
+model there and the tests in `Scalars`, `Composites` and `Unstored`. It was coordinated by
+the eighth coordinator of the epic; the implementer ran at Opus 5.5 high, its one reviewer
+at xhigh, no breaker.
+
+- *What it covers.* Every scalar type that can be a part, nullable and never null, 400
+  entities a cell (at least 4 leaves at the narrowest entry), seeded values and the edges of
+  each type (zero, NaN in three forms and the empty text stored beside the nulls); the exact
+  search of every stored value and of values never stored; ranges with every kind of bound,
+  on, between and beyond stored values; both directions; pages by Offset and Limit with
+  `HasMore`, an Offset at the end and past it included; through a class and by name; on a
+  master and on a child, which builds its index once from the load and once while
+  following. Composite keys of three and four parts of mixed widths, a fixed part after a
+  text part included, with every count of leading parts and a range after them. The path of
+  a single never-null part of eight signed bytes (`IndexOrder.OneNumber`) has a test of its
+  own. A Reference part and a part on a path into an owned value are written and skipped
+  with the shared reason. The two older oracles became the one model, and no assertion
+  changed.
+- *Mutants killed by hand,* each made in the engine of a copy and restored: an order of
+  signed or unsigned numbers read the other way, an exclusive lower bound taken as
+  inclusive, nulls at the wrong end and a reverse walk started before them, a comparison
+  without case that does not map a non-ASCII letter or a surrogate pair, a separator one
+  entry off, `HasMore` true after a full page, a Decimal ordered by its scale, the UTF-8
+  order around the surrogates, a zero fixed part or a NaN taken as null, an offset past a
+  text part one byte off. An inner node splits only in the composite of four parts.
+- *What stays empty, and why.* Leading parts for Int8, UInt8, UInt16, UInt64, Float32,
+  TimeOnly, TimeSpan, Enum and Flags, which are a part of no composite key of the tests;
+  Boolean ranges whose bounds are only stored values, since it has no value between or
+  beyond false and true; negative values on the eight-byte path for DateTimeOffset and
+  TimeOnly, whose ticks are never negative; Reference and owned paths, skipped until S18
+  stores them; text that is not normalized; text with Dictionary storage in the model
+  (`TextKeySearchTests` keeps its equality); trees of three levels.
+- *Review:* two rounds. Round 1: no P1; one P2 (the nullable cells held back the values
+  that share a null's bytes or its edge of the order, so a mutant that took a zero part or
+  a NaN for null passed the model) and four P3 (no fixed part after a text part, an id check
+  that named nothing, no page past the end, the folder). Round 2: every finding closed. The
+  hardest part to follow, by the reviewer: which searches a cell makes, assembled from four
+  members of `ModelSearches` and the comments of the runs.
+- *No defect of the engine was found.* The tests add about 25 to 35 seconds to a Debug run
+  of `Moltaro.Lattice.Tests` and 10 to 15 in Release, under a minute, so no lane of their
+  own. Every suite at the head: 3,274 tests, 3,142 passing and 132 skipped, the three new
+  skips being the Reference and owned paths.
+
 #### S18 · Owned values, Lists and references
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not

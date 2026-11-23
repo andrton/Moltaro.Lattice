@@ -102,7 +102,7 @@ public sealed class EnumAndFlagsTests
 
         foreach (var value in new[] { 0, 5, 7 })
         {
-            await BindingSearch.ExpectAsync(database, "Rights", IndexKey.Equal(value), reverse: false, ValueOracle.Equal(stored, value), $"ByRights = {value}");
+            await BindingSearch.ExpectAsync(database, "Rights", IndexKey.Equal(value), reverse: false, BindingSearch.Equal(stored, value), $"ByRights = {value}");
         }
 
         await BindingSearch.ExpectRangeAsync(database, "Rights", stored, RangeEnd.Including(5), RangeEnd.Excluding(7));
