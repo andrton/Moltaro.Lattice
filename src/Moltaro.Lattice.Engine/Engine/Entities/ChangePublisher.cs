@@ -35,7 +35,7 @@ namespace Moltaro.Lattice.Engine.Entities;
 // a write of a master between its two calls (Writes.WriteExecutor).
 //
 // It holds no state of its own but the scratch of a reservation of several changes, which a reservation
-// fills and the next one writes over. What it changes — the arena, the table of root entries, the primary
+// fills and the next one writes over, and which a publication lets go when it is larger than KeptRoom. What it changes — the arena, the table of root entries, the primary
 // and the secondary indexes of the tables of the database, the position clock and the retired list — has
 // one changing thread at a time, the holder of the lock of the writes, and every member runs under that
 // lock.
@@ -49,6 +49,15 @@ namespace Moltaro.Lattice.Engine.Entities;
 // source. The rest of the type is the engine's own.
 internal sealed class ChangePublisher
 {
+    // The most entries of the managed room of one publication that a node keeps for the next: the scratch of a
+    // reservation of several changes here, and the list of the changes and the set of the keys of a transaction
+    // a child applies (Child.Loading.ReceivedChanges). A publication that grew them past it lets them go and
+    // the next starts with new ones, so that a node does not keep the room of the largest batch it ever
+    // published; up to it they are used again, and an ordinary publication allocates nothing for them. At this
+    // count the scratch of the publisher holds at most 24 KiB, a claim of 16 bytes and a freed handle of 8 an
+    // entry.
+    public const int KeptRoom = 1024;
+
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -61,7 +70,8 @@ internal sealed class ChangePublisher
 
     // The scratch of a reservation of several changes (TryReserve): the entity types of the changes, and for
     // one unique index the values the changes set, with the place of each among them, and the handles of the
-    // owners they free.
+    // owners they free. The values and the handles grow with the changes and are let go after a publication
+    // past KeptRoom (PublishPositionAndAfter); the entity types are at most those of the schema, and are kept.
     private EntityTable[] _tablesOf = [];
 
     private (int Place, ArenaAddress Root)[] _claims = [];
@@ -424,8 +434,8 @@ internal sealed class ChangePublisher
         return (inserts, removes);
     }
 
-    // A scratch array of the publisher with room for the count given; it grows and is kept for the next
-    // publication, and only the holder of the lock of the writes uses it.
+    // A scratch array of the publisher with room for the count given; it grows, is kept for the next
+    // publication up to KeptRoom, and only the holder of the lock of the writes uses it.
     private static void Grow<T>(ref T[] scratch, int count)
     {
         if (scratch.Length < count)
@@ -710,6 +720,23 @@ internal sealed class ChangePublisher
                     break;
             }
         }
+
+        // A scratch grown past KeptRoom, by this publication or by a reservation refused since the last one, is
+        // let go, so that the next publication starts with new scratch; every publication pays two loads and a
+        // test for it.
+        if (_claims.Length > KeptRoom || _freed.Length > KeptRoom)
+        {
+            LetGoOfScratch();
+        }
+    }
+
+    // The scratch of the values and the handles of a reservation of several changes, empty again (see
+    // PublishPositionAndAfter); apart from it, so that a publication makes no call for it.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void LetGoOfScratch()
+    {
+        _claims = [];
+        _freed = [];
     }
 
     // For the tests of the engine (EngineDatabase.ArmPublicationSwitch): the next publication that passes the

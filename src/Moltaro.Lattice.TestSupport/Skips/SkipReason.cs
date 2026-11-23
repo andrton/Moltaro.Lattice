@@ -5,6 +5,4 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
-    // The publisher of a node that lets the scratch of a large batch go once it has published it.
-    public const string PublisherScratch = "Letting the scratch of the publisher of a large batch go is not implemented yet.";
 }

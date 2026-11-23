@@ -23,7 +23,7 @@ public sealed class PublisherScratchTests
     // Below the size the scratch is kept for, so that the items inserted before grow nothing to watch.
     private const int Part = 500;
 
-    [Fact(Skip = SkipReason.PublisherScratch)]
+    [Fact]
     public async Task Publisher_keeps_no_scratch_of_a_large_batch_on_a_master_and_on_a_child_once_a_single_write_has_followed()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);

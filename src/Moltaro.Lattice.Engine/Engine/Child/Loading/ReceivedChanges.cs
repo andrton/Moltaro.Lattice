@@ -60,8 +60,8 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // same state. The keys its effects name, prepared or skipped, are one set of (table, key) by the comparison
 // of the entity type (Entities.PublicationKeys), as the keys of a batch are on the master, so the check costs
 // one look into the set for each effect. The list of the prepared changes and that set serve every
-// transaction; after one that named more keys than KeptRoom both are let go, so a child does not keep the
-// room of the largest transaction it applied.
+// transaction; after one that named more keys than ChangePublisher.KeptRoom both are let go, so a child does
+// not keep the room of the largest transaction it applied.
 //
 // Publication. A transaction at sequence s is published in the three steps of every publication: each
 // change makes its stores before the position, the position of the child becomes s once, then each change
@@ -104,13 +104,6 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
-    // The most keys a transaction may name for the child to keep the room it took, its list of prepared
-    // changes and its set of named keys, for the next transaction: a change of 96 bytes and an entry of the set
-    // of 56 with its bucket a key, and at this count a list of 1,024 changes and a set grown to 1,931 entries,
-    // so about 210 KiB at most kept between transactions. Up to it an ordinary stream uses the same two again
-    // and allocates nothing for them; after a larger transaction both are let go (StartNext).
-    private const int KeptRoom = 1024;
-
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -637,11 +630,13 @@ internal sealed class ReceivedChanges
 
     // Under the lock of the writes, once a transaction or a root of the load is published or given back: the
     // list of the prepared changes and the set of the named keys are emptied for the next one, or let go after
-    // one that named more keys than KeptRoom, so that the next starts with new ones (see the class, "Each key
-    // once"). Every prepared change names its key, so the set counts the room of both.
+    // one that named more keys than ChangePublisher.KeptRoom, so that the next starts with new ones (see the
+    // class, "Each key once"). Every prepared change names its key, so the set counts the room of both: at that
+    // count a list of 1,024 changes of 96 bytes and a set grown to 1,931 entries of 56 bytes with their buckets,
+    // about 210 KiB at most kept between transactions.
     private void StartNext()
     {
-        if (_keys.Count > KeptRoom)
+        if (_keys.Count > ChangePublisher.KeptRoom)
         {
             _prepared = [];
             _keys = new PublicationKeys(0);
