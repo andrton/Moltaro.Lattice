@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Positions;
 using Moltaro.Lattice.Engine.Protection;
@@ -111,16 +112,20 @@ internal sealed class ChangePublisher
             return ReservationEnum.Reserved;
         }
 
-        return TryReserveWithIndexes(changes, checksUnique, out taken);
+        return TryReserveWithIndexes(ref MemoryMarshal.GetReference(changes), changes.Length, checksUnique, out taken);
     }
 
     // The decision, the check and the reservation of the changes of one publication, in three steps in one
     // hold (TryReserve): every change decided first, so that each is decided once and a value is checked on
     // the state they all leave; then the check, before any index reserves a node, so that changes refused
     // for a value take nothing from a pool and cost their encoded roots and the free of them; then the
-    // reservation of each index, once, and of each entity.
-    private ReservationEnum TryReserveWithIndexes(Span<PreparedChange> changes, bool checksUnique, out TakenValue taken)
+    // reservation of each index, once, and of each entity. The changes come as their first and their count,
+    // in registers, so that the call from TryReserve, inlined into the preparation, copies no span to the
+    // stack (JIT listing at full optimization).
+    private ReservationEnum TryReserveWithIndexes(ref PreparedChange first, int count, bool checksUnique, out TakenValue taken)
     {
+        var changes = MemoryMarshal.CreateSpan(ref first, count);
+
         foreach (ref var change in changes)
         {
             Decide(ref change);
@@ -175,7 +180,9 @@ internal sealed class ChangePublisher
     // What the change does to each index of its entity type, recorded with it: an insert inserts into every
     // index and a delete removes from every one; a replace is decided for each index from its two roots
     // (Indexes.SecondaryIndex.ChangeOf), read once for all of them, since a reader finds and checks the block
-    // of its root when it is made (Storage.Roots.RootReader).
+    // of its root when it is made (Storage.Roots.RootReader). Inlined, so that an insert and a delete make no
+    // call for it; a replace reads its roots in a method of its own (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Decide(ref PreparedChange change)
     {
         var indexes = change.Table.Indexes;
@@ -185,18 +192,25 @@ internal sealed class ChangePublisher
             return;
         }
 
-        if (change.Kind != ChangeKindEnum.Replace)
+        if (change.Kind == ChangeKindEnum.Replace)
         {
-            var every = change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
-
-            for (var index = 0; index < indexes.Length; index++)
-            {
-                Record(ref change, index, every);
-            }
+            DecideReplace(ref change);
 
             return;
         }
 
+        var every = change.Kind == ChangeKindEnum.Insert ? IndexChangeEnum.Insert : IndexChangeEnum.Remove;
+
+        for (var index = 0; index < indexes.Length; index++)
+        {
+            Record(ref change, index, every);
+        }
+    }
+
+    // The decision of a replace (Decide), for each index from the two roots.
+    private void DecideReplace(ref PreparedChange change)
+    {
+        var indexes = change.Table.Indexes;
         var layout = change.Table.Layout!;
         var old = new RootReader(_arena, layout, change.Replaced);
         var current = new RootReader(_arena, layout, change.Root);
@@ -230,26 +244,39 @@ internal sealed class ChangePublisher
     // publisher's to know: that one of them claims or frees a value is the caller's to find
     // (Writes.WriteCoordinator; ClaimsSameKey, Frees). One change, a single write, takes a path of its own:
     // one descent for each index in which it sets a value and nothing else, since it frees no value it claims
-    // and cannot claim one twice, so that it needs no scratch and no sort.
+    // and cannot claim one twice, so that it needs no scratch and no sort. Inlined, so that a single change
+    // that can set no value of a unique index, a delete or one of an entity type without a unique index,
+    // makes no call for the check (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool FindTaken(Span<PreparedChange> changes, out TakenValue taken)
+    {
+        if (changes.Length == 1 && (!changes[0].Table.HasUniqueIndex || changes[0].Kind == ChangeKindEnum.Delete))
+        {
+            taken = default;
+
+            return false;
+        }
+
+        return FindTakenChecked(changes, out taken);
+    }
+
+    // The check of FindTaken for changes that may set a value of a unique index: several, or one that is not a
+    // delete, of an entity type with a unique index.
+    private bool FindTakenChecked(Span<PreparedChange> changes, out TakenValue taken)
     {
         if (changes.Length == 1)
         {
             ref var change = ref changes[0];
+            var indexes = change.Table.Indexes;
+            var current = new RootReader(_arena, change.Table.Layout!, change.Root);
 
-            if (change.Table.HasUniqueIndex && change.Kind != ChangeKindEnum.Delete)
+            for (var index = 0; index < indexes.Length; index++)
             {
-                var indexes = change.Table.Indexes;
-                var current = new RootReader(_arena, change.Table.Layout!, change.Root);
-
-                for (var index = 0; index < indexes.Length; index++)
+                if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
                 {
-                    if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
-                    {
-                        taken = new TakenValue(0, index, owner);
+                    taken = new TakenValue(0, index, owner);
 
-                        return true;
-                    }
+                    return true;
                 }
             }
 
@@ -349,7 +376,9 @@ internal sealed class ChangePublisher
     }
 
     // The entity types of the changes, each once, in the order of its first change, in the scratch of the
-    // publisher; one change gives its own without a scan.
+    // publisher; one change gives its own without a scan. Inlined, so that a single write makes no call for
+    // it; the scan of several is a method of its own (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ReadOnlySpan<EntityTable> TablesOf(ReadOnlySpan<PreparedChange> changes)
     {
         if (changes.Length == 1)
@@ -357,6 +386,12 @@ internal sealed class ChangePublisher
             return new ReadOnlySpan<EntityTable>(in changes[0].Table);
         }
 
+        return TablesOfSeveral(changes);
+    }
+
+    // The entity types of several changes (TablesOf).
+    private ReadOnlySpan<EntityTable> TablesOfSeveral(ReadOnlySpan<PreparedChange> changes)
+    {
         var count = 0;
 
         foreach (ref readonly var change in changes)
@@ -372,7 +407,9 @@ internal sealed class ChangePublisher
     }
 
     // The inserts and the removes the changes of the entity type of the table take in its index at the
-    // place given, together (Indexes.SecondaryIndex.CountsOf).
+    // place given, together (Indexes.SecondaryIndex.CountsOf). Inlined, so that the reservation, the top-up
+    // and the release make no call for it (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (int Inserts, int Removes) CountsOf(ReadOnlySpan<PreparedChange> changes, EntityTable table, int index)
     {
         var (inserts, removes) = (0, 0);
@@ -447,6 +484,9 @@ internal sealed class ChangePublisher
 
     // Records with the change what it does to the index at the place given, as the change is decided and
     // before any index reserves for it, so that the check and the reservation read it (PreparedChange.BitOf).
+    // Inlined, so that the decision of an insert and of a delete makes no call for it: the ahead-of-time
+    // compiler for ARM64 leaves it a call otherwise (listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void Record(ref PreparedChange change, int index, IndexChangeEnum decided)
     {
         var bit = PreparedChange.BitOf(index);
