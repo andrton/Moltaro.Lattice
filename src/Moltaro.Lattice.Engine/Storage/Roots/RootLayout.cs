@@ -261,6 +261,42 @@ internal sealed class RootLayout
         return ref _fields[ordinal];
     }
 
+    // The structure of the root after its header: its null bitmap, its fixed-width fields and its
+    // descriptors, the fields of its owned values flattened into it (StructureLayout).
+    internal StructureLayout Structure =>
+        throw new NotSupportedException($"The structure of a root of {EntityType.Name} is not compiled as a StructureLayout yet.");
+
+    // Where the field at the end of the path stands in the root block and how it is stored. The path is that
+    // of LatticeIndexPart.Path: from a field of the entity type through owned values down to the field, one
+    // element for a field of the entity type itself, which StoredFieldOf(LatticeField) gives. An owned value
+    // on the path is flattened into the root (StructureLayout), so a field inside it has its offset in the
+    // root block and, beneath a nullable owned value, a null bit of its own; the path of an owned value
+    // itself gives its presence bit (StoredTypeEnum.Owned). Resolved once, by the layout of an index; an empty
+    // path, a first step that is not a field of the entity type and a step that is not a field of the owned
+    // type of the step before it are refused with ArgumentException.
+    internal ref readonly StoredField StoredFieldOf(IReadOnlyList<LatticeField> path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (path.Count == 0)
+        {
+            throw new ArgumentException($"A path into {EntityType.Name} has at least one field.", nameof(path));
+        }
+
+        if (path.Count == 1)
+        {
+            return ref StoredFieldOf(path[0]);
+        }
+
+        throw new NotSupportedException($"A field inside an owned value of {EntityType.Name} has no place in a root yet.");
+    }
+
+    // The layout of the record of an element of a List, whose stored field of StoredTypeEnum.List this layout
+    // gave: its stride, whether it holds descriptors, how many records a chunk holds and the bound of the List
+    // (StructureLayout). A field of another type is refused with ArgumentException.
+    internal StructureLayout ElementOf(in StoredField list) =>
+        throw new NotSupportedException($"The List {EntityType.Name}.{list.Field.Name} has no layout of its elements yet.");
+
     // The payload of a root block written with this layout, after checking that the block is one:
     // a valid block of the arena, of kind Root, with the layout version of this layout. Each refusal
     // is ArgumentException. RootReader and RootStorage.Free recognize a root by the same checks.
