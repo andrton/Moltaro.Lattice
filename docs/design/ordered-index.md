@@ -478,7 +478,8 @@ preparation that touches the index tops up what it took, instead of every write 
 whole need from the arena and giving the rest back after its publication. The reserve is
 taken by the first preparation that touches the index, not at the open. While writes wait,
 the pool holds at most the larger of their bound, the lesser above, and the reserve; with
-nothing waiting, at most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
+nothing waiting, at most the reserve, and the close frees it with the arena. A Debug build
+asserts that limit after every change, with the lesser bound. Its nodes are prepared blocks,
 counted in the prepared bytes, which are therefore above zero once a write of an indexed
 type has returned, and against the memory limit, like any other bytes. The places in the
 retired list follow the need alone: places held for no write would keep the retired list

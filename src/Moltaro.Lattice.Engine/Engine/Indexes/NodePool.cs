@@ -12,34 +12,21 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // of the arena that no reader can reach, and the places in the retired list for the nodes the publications
 // retire. docs/design/ordered-index.md, "The reservation" and "The standing reserve", says why it is enough.
 //
-// What it holds. While changes wait — inserts and removes reserved and not published or withdrawn — it
-// holds at least the lesser of two bounds of what their publications can take, each true by itself:
-// - their need at the tree as it is now (Need), which a publication never leaves above what is left;
-// - what the bound by levels (Bounds) of the changes reserved since the base leaves after the nodes taken
-//   since then, kept by a ledger, because that bound is amortised over a sequence of publications and
-//   cannot be computed again at the tree after each of them.
-// The base is the tree as it was when nothing waited, and it moves to the tree as it is whenever nothing
-// waits or the bound of the changes waiting, from the tree as it is, is no more than what the ledger leaves.
-// The same holds for the places. Once a preparation has touched the index it keeps the standing reserve as
-// well, the need of one change of key, which a top-up refills and a withdrawal or a refusal gives back. A
-// Debug build asserts after every change that it holds the lesser bound of the changes waiting, and no more
-// than the larger of that and the reserve (AssertReserved).
+// What it guarantees. While changes wait, inserts and removes reserved and not published or withdrawn, it
+// holds, nodes and places alike, at least the lesser of two bounds of what their publications can take,
+// each true by itself: their need at the tree as it is (Need), and what their bound by levels (Bounds) from
+// the base of a ledger leaves after what was taken and used since the base. The bound by levels counts the
+// splits each level can make from the progress of its nodes, which the pool keeps from what the tree reports
+// of every node it publishes and replaces (Added, Removed). Once a preparation has touched the index it also
+// keeps the standing reserve. A publication takes its nodes from the pool and allocates nothing; a
+// reservation that is refused, or meets an OutOfMemoryException, leaves the pool as it was. A Debug build
+// asserts after every change that the pool holds the lesser bound and no more than the larger of it and the
+// reserve (AssertReserved).
 //
-// The bound by levels (Bounds). A node splits only when it may not fit the widest of its items, and a node a
-// publication makes — a half of a split, a leaf of one entry, a new root — takes some inserts of the widest
-// item first, the credit c of its kind (the constructor). The progress of a node is the part of its credit
-// its bytes show, the last leaf's counted toward twice the credit, since a full last leaf that an entry after
-// its end leaves as it is may still split; the progress of a level rises by at most one at an insert that
-// does not split there, falls by c at a split, and at the leaves rises by at most 2 c at a remove. So a level
-// that gets k inserts, the entries at the leaves and above them the separators the splits below send up,
-// splits at most min(k, (P + k) / (c + 1)) times, P its progress at the base with the last leaf's second
-// credit and 2 c for each remove at the leaves; an insert that splits s levels takes 2 s + 1 nodes, a remove
-// two. The tree tells the pool of each node it publishes and replaces (Added, Removed), and the ledger keeps
-// the progress of the levels at its base.
-//
-// The reserved nodes are linked through their own payload, the address of the next one in its first bytes,
-// so that the pool takes no managed room for them. The tree gives its height and the room of its root to
-// every member that needs them; only the publishing thread calls it, under the lock of the writes.
+// What protects its state. Only the publishing thread calls it, under the lock of the writes, and the tree
+// gives its height and the room of its root to every member that needs them. The reserved nodes are linked
+// through their own payload, the address of the next one in its first bytes, so that the pool takes no
+// managed room for them.
 internal sealed class NodePool
 {
     private readonly IndexLayout _layout;
@@ -50,7 +37,7 @@ internal sealed class NodePool
 
     // The bytes a node holds, as IndexNode.UsedBytes counts them, the same for a leaf and an inner node: the
     // payload after the header. The widest entry of a leaf with its offset, and the widest separator of an inner
-    // node with its offset and the child after it; and the credits of the two kinds (see the class).
+    // node with its offset and the child after it; and the credits of the two kinds (the constructor).
     private readonly int _capacity;
 
     private readonly int _leafWidest;
@@ -75,7 +62,8 @@ internal sealed class NodePool
     private int _places;
 
     // The progress of each level of the tree, the leaves at 0: the sum of what its nodes have made of their
-    // credits (see the class), for as many levels as the tree can have while the changes reserved wait.
+    // credits (docs/design/ordered-index.md, "The reservation"), for as many levels as the tree can have while
+    // the changes reserved wait (MostLevels).
     private long[] _progress = [];
 
     // The progress of each level of the tree at the base of the ledger, as many levels as _progress holds. A
@@ -118,7 +106,7 @@ internal sealed class NodePool
     // The inserts reserved and not published or withdrawn, from which the tree sizes the path of its writer.
     public int Inserts => _inserts;
 
-    // The credits of a leaf and of an inner node of this index (see the class).
+    // The credits of a leaf and of an inner node of this index (the constructor).
     public int LeafCredit => _leafCredit;
 
     public int InnerCredit => _innerCredit;
@@ -253,8 +241,8 @@ internal sealed class NodePool
 
     // In a publication: a node of the level given, whose entries or separators take the bytes given with their
     // offsets and children (IndexNode.UsedBytes), is in the tree from now on, written whole, or is replaced and
-    // leaves it; the progress of its level follows (see the class). Inlined, as the progress is, so that a
-    // publication makes no call for it (JIT listing at full optimization).
+    // leaves it; the progress of its level follows (docs/design/ordered-index.md, "The reservation"). Inlined,
+    // as the progress is, so that a publication makes no call for it (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Added(int level, int usedBytes) => ProgressAt(level) += ProgressOf(level, usedBytes);
 
@@ -343,17 +331,19 @@ internal sealed class NodePool
     // growth bounds the levels as well, but grows with the inserts.
     public static int MostLevels(int height, int inserts) => Math.Max(height, 1) + 1 + BitOperations.Log2((uint)inserts);
 
-    // The bounds by levels (see the class) of the inserts and the removes given from a tree whose levels have
-    // the progress given, the leaves first, one for each level of its height, and whose leaves and inner nodes
-    // have the credits given: the most nodes they take, p + 2 (s0 + s1 + ...) + 2 q, and the most places they
-    // use: an insert retires the nodes it splits and the one it copies, p + s0 + s1 + ..., and a remove at
-    // most the nodes of its path and the neighbour of a merge, at a height of at most one more than the levels
-    // that split, or the height of the tree if more. A level above the tree has no progress, and the credit of
-    // an inner node is 1 at least, since it holds four of its widest separators, so the splits at least halve
-    // from one such level to the next and the loop ends. Linear in the changes or better, and monotone in
-    // them, so that the ledger can charge the changes reserved since its base together. Inlined, so that a
-    // single write, whose reservation and publication count it, makes no call for it (JIT listing at full
-    // optimization).
+    // The bounds by levels (docs/design/ordered-index.md, "The reservation") of the inserts and the removes
+    // given from a tree whose levels have the progress given, the leaves first, one for each level of its
+    // height, and whose leaves and inner nodes have the credits given. A level of credit c that gets k inserts
+    // splits at most min(k, (P + k) / (c + 1)) times, P its progress, at the leaves with the second credit of
+    // the last leaf and 2 c for each remove. The most nodes they take are p + 2 (s0 + s1 + ...) + 2 q, and the
+    // most places they use: an insert retires the nodes it splits and the one it copies, p + s0 + s1 + ...,
+    // and a remove at most the nodes of its path and the neighbour of a merge, at a height of at most one more
+    // than the levels that split, or the height of the tree if more. A level above the tree has no progress,
+    // and the credit of an inner node is 1 at least, since it holds four of its widest separators, so the
+    // splits at least halve from one such level to the next and the loop ends. Linear in the changes or
+    // better, and monotone in them, so that the ledger can charge the changes reserved since its base
+    // together. Inlined, so that a single write, whose reservation and publication count it, makes no call
+    // for it (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static (long Nodes, long Places) Bounds(ReadOnlySpan<long> progress, int leafCredit, int innerCredit, long inserts, long removes)
     {
@@ -383,8 +373,9 @@ internal sealed class NodePool
         return (inserts + (2 * splits) + (2 * removes), inserts + splits + (removes * (reach + 1L)));
     }
 
-    // The progress of a node of the level and the used bytes given (see the class): the part of the credit of
-    // its kind its bytes show it has made.
+    // The progress of a node of the level and the used bytes given (docs/design/ordered-index.md, "The
+    // reservation"): the part of the credit of its kind its bytes show it has made, c - min(c, the inserts of
+    // the widest item it takes before it may not fit one more).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private long ProgressOf(int level, int usedBytes)
     {
@@ -402,8 +393,9 @@ internal sealed class NodePool
 
     // Whether the base of the ledger moves to the tree as it is (MoveBase): when nothing waits, or when the
     // bounds of the changes waiting, counted from the tree as it is, are no more than what the ledger leaves
-    // (see the class). With nothing published since the base the tree is the base and the changes charged are
-    // those waiting, so it stays: every publication takes a node or retires one.
+    // (docs/design/ordered-index.md, "The reservation"). With nothing published since the base the tree is
+    // the base and the changes charged are those waiting, so it stays: every publication takes a node or
+    // retires one.
     private bool BaseMoves(int height)
     {
         if (_ledger.Taken == 0 && _ledger.Used == 0)
