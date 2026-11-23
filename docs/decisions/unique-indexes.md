@@ -52,9 +52,13 @@ of proposed keys is bounded by operation/group admission limits.
 4. Commit effects/results and publish them as an ordinary root or WriteBatch is published, with no
    member visible in its new state before all of them are (amended on 22 and 23 November 2026, the owner's answers to
    Q57 of the open questions and on the Acceptance of S17).
-   Readers cannot observe an intermediate duplicate during whole-batch publication; the
-   order in which old keys are removed and final entries are installed is the engine's to
-   choose (amended on 22 November 2026, the owner's answer to Q56 of the open questions).
+   A search by the full key of a unique index never returns two owners, and no reader sees a
+   member of a batch in its new state before all of the batch is visible; a range search that
+   runs across the publication of an exchange may return one entity as it was before and
+   another as after, and so two holders of one value in one answer, as scans may combine
+   (amended on 22 and 23 November 2026, the owner's answers to Q56 and Q57 of the open
+   questions and on the Acceptance of S17). The order in which old keys are removed and final
+   entries are installed is the engine's to choose.
    Unexpected publication
    failure follows the accepted instance-stop/reopen contract.
 
