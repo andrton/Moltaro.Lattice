@@ -28,7 +28,7 @@ internal sealed class PackedOwnedValues : PackedElements
         for (var index = 0; index < records.Length / Stride; index++)
         {
             // A record holds no descriptor, so its holder takes nothing of an arena.
-            var holder = new ValueHolder(null!, default, 0, default, records.Slice(index * Stride, Stride), origin: 0, address: default, inlineEnd: Stride);
+            var holder = new ValueHolder(null!, null!, default, records.Slice(index * Stride, Stride), origin: 0, address: default, inlineEnd: Stride);
 
             NestedValues.StartRecord(ref holder, _element, at: 0);
 

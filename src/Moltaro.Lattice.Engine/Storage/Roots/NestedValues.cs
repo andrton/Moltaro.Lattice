@@ -83,14 +83,14 @@ internal static class NestedValues
                 break;
 
             case StoredTypeEnum.String:
-                PlaceText(ref holder, place, at + place.Offset, (string)value);
+                holder.PlaceText(place, at + place.Offset, (string)value);
                 break;
 
             case StoredTypeEnum.Binary:
                 var bytes = (byte[])value;
                 var source = ValueSource.Bytes(bytes);
 
-                PlaceBytes(ref holder, place, at + place.Offset, bytes.Length, ref source);
+                holder.PlaceBytes(place, at + place.Offset, bytes.Length, ref source);
                 break;
 
             case StoredTypeEnum.List:
@@ -196,88 +196,6 @@ internal static class NestedValues
     // Whether the records of a List of kind Records lie in chunks under a directory rather than in one block.
     public static bool LiesInChunks(in ValueDescriptor records, StructureLayout element) => records.Length > element.RecordsPerChunk;
 
-    // Places a text of the place, its descriptor at the offset given, as RootWriter.SetString places one.
-    private static void PlaceText(ref ValueHolder holder, in StoredField place, int offset, string text)
-    {
-        // A code unit takes one byte at least in either encoding (RootWriter.SetString).
-        if (text.Length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(place);
-        }
-
-        if (!WellFormedText.IsWellFormed(text))
-        {
-            throw new LatticeException(LatticeErrorEnum.ValidationFailed, $"The text for {place.Field.Name} is not well-formed: it has a surrogate without its pair.");
-        }
-
-        var length = StoredText.EncodedLength(text, holder.Encoding);
-
-        if (!place.LiesInTextEntry(length))
-        {
-            var source = ValueSource.Text(text, holder.Encoding);
-
-            PlaceBytes(ref holder, place, offset, length, ref source);
-
-            return;
-        }
-
-        if (length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(place);
-        }
-
-        if (holder.Refused)
-        {
-            return;
-        }
-
-        if (holder.Arena.Texts.TryAcquire(text, holder.Encoding, length, holder.At(offset, ValueBlocks.DescriptorSize), out var newBytes))
-        {
-            holder.SlotBytes += newBytes;
-        }
-        else
-        {
-            holder.Refused = true;
-        }
-    }
-
-    // Places a value of length bytes, which the source hands out, its descriptor at the offset given: inline
-    // when it is short enough and the block has room, else in blocks of its own.
-    private static void PlaceBytes<TSource>(ref ValueHolder holder, in StoredField place, int offset, int length, ref TSource source)
-        where TSource : IValueSource, allows ref struct
-    {
-        if (length > ValueBlocks.MostValueBytes)
-        {
-            throw AboveTheBound(place);
-        }
-
-        if (holder.Refused)
-        {
-            return;
-        }
-
-        var descriptor = holder.At(offset, ValueBlocks.DescriptorSize);
-
-        if (length <= ValueBlocks.InlineLimit && holder.InlineEnd + length <= holder.End)
-        {
-            source.Fill(holder.At(holder.InlineEnd, length));
-            ValueBlocks.Write(descriptor, new ValueDescriptor { Kind = DescriptorKindEnum.Inline, Length = (uint)length, Location = (ulong)holder.InlineEnd });
-            holder.InlineEnd += length;
-
-            return;
-        }
-
-        if (!ValueBlocks.TryStore(holder.Arena, holder.Root, holder.LayoutVersion, length, ref source, descriptor))
-        {
-            holder.Refused = true;
-
-            return;
-        }
-
-        holder.SlotBytes += ValueBlocks.SlotBytesOf(length);
-        AdoptIfPlaced(ref holder, ValueBlocks.Read(descriptor), offset);
-    }
-
     // Places a List of the place, its descriptor at the offset given, in the form its element has.
     private static void PlaceList(ref ValueHolder holder, in StoredField place, StructureLayout element, int offset, object list)
     {
@@ -318,7 +236,7 @@ internal static class NestedValues
         {
             var source = new PackedSource(packed, list, record.AsSpan(0, packed.Stride));
 
-            PlaceBytes(ref holder, place, offset, length, ref source);
+            holder.PlaceBytes(place, offset, length, ref source);
         }
         finally
         {
@@ -391,7 +309,7 @@ internal static class NestedValues
 
         if (count <= perChunk)
         {
-            if (!ValueBlocks.TryAllocate(holder.Arena, BlockLength(element, list, 0, count, holder.Encoding), BlockKindEnum.Value, holder.Root, holder.LayoutVersion, parent, (uint)offset, out var block))
+            if (!ValueBlocks.TryAllocate(holder.Arena, BlockLength(element, list, 0, count, holder.Encoding), BlockKindEnum.Value, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out var block))
             {
                 return false;
             }
@@ -405,7 +323,7 @@ internal static class NestedValues
 
         var chunks = (count + perChunk - 1) / perChunk;
 
-        if (!ValueBlocks.TryAllocate(holder.Arena, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Root, holder.LayoutVersion, parent, (uint)offset, out var directory))
+        if (!ValueBlocks.TryAllocate(holder.Arena, chunks * ValueBlocks.DescriptorSize, BlockKindEnum.ChunkDirectory, holder.Root, holder.Layout.LayoutVersion, parent, (uint)offset, out var directory))
         {
             return false;
         }
@@ -424,7 +342,7 @@ internal static class NestedValues
                 var first = chunk * perChunk;
                 var length = BlockLength(element, list, first, Math.Min(perChunk, count - first), holder.Encoding);
 
-                if (!ValueBlocks.TryAllocate(holder.Arena, length, BlockKindEnum.Chunk, holder.Root, holder.LayoutVersion, directory, (uint)(BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize)), out var block))
+                if (!ValueBlocks.TryAllocate(holder.Arena, length, BlockKindEnum.Chunk, holder.Root, holder.Layout.LayoutVersion, directory, (uint)(BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize)), out var block))
                 {
                     ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
 
@@ -481,7 +399,7 @@ internal static class NestedValues
     // records; what the values take out of line counts in the holder of the List.
     private static bool TryFillBlock(ref ValueHolder holder, StructureLayout element, IList list, ArenaAddress block, int first, int count)
     {
-        var records = new ValueHolder(holder.Arena, holder.Root, holder.LayoutVersion, holder.Encoding, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
+        var records = new ValueHolder(holder.Arena, holder.Layout, holder.Root, holder.Arena.Payload(block), BlockHeader.Size, block, BlockHeader.Size + (count * element.Size));
 
         for (var record = 0; record < count && !records.Refused; record++)
         {
@@ -641,16 +559,6 @@ internal static class NestedValues
 
     // Names the block of the holder as the parent of the blocks of a value placed out of line, when the block
     // exists; the writer of a root names the root block when it completes the root.
-    private static void AdoptIfPlaced(ref ValueHolder holder, in ValueDescriptor descriptor, int offset)
-    {
-        if (!holder.Address.IsNull)
-        {
-            ValueBlocks.Adopt(holder.Arena, descriptor, holder.Address, offset);
-        }
-    }
-
-    private static LatticeException AboveTheBound(in StoredField place) =>
-        new(LatticeErrorEnum.ValidationFailed, $"A value of {place.Field.Name} takes more than the {ValueBlocks.MostValueBytes} bytes one value may take.");
 
     private static LatticeException AboveTheBound(in StoredField place, int count, StructureLayout element) =>
         new(LatticeErrorEnum.ValidationFailed, $"The List {place.Field.Name} holds {count} elements, more than the {element.MostElements} one List of its elements may hold.");

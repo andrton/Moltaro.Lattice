@@ -24,7 +24,8 @@ internal sealed class ExportedValues
     public long Length { get; private set; }
 
     // Keeps the value of the descriptor at the index, length bytes that the source fills.
-    public void Store(int index, int length, ref ValueSource source)
+    public void Store<TSource>(int index, int length, ref TSource source)
+        where TSource : IValueSource, allows ref struct
     {
         var pieces = new List<byte[]>((length + ValueBlocks.ChunkPayload - 1) / ValueBlocks.ChunkPayload);
 
