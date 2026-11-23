@@ -877,16 +877,16 @@ internal sealed class EntityTable
     // of a root entry"), and copies a live root. False, with the sequence of its delete, for a deleted
     // root.
     //
-    // Why the triple is never torn. Every load here has acquire semantics and every store of the
-    // writer release semantics (ChangePublisher), so a load that reads what a store wrote sees
-    // everything stored before that store, by the writes before it as well, which the lock of the
-    // writes orders. Suppose both loads of the stamp give S.
-    // - A state or a root older than those S was stored with: they were stored before S, and the
-    //   first load read S, so the loads after it read S's or later ones.
-    // - A state or a root of a write after S's: that write stored MutationInProgress before it, and the
-    //   load that read it is an acquire, so the second load of the stamp reads MutationInProgress or
-    //   the stamp of a later write, never S again: every write stores a sequence greater than the
-    //   entry's.
+    // Why the triple, and the member read with the state, is never torn. Every load here has acquire
+    // semantics and every store of the writer release semantics (ChangePublisher), so a load that reads
+    // what a store wrote sees everything stored before that store, by the writes before it as well,
+    // which the lock of the writes orders. Suppose both loads of the stamp give S.
+    // - A state, a member or a root older than those S was stored with: they were stored before S, and
+    //   the first load read S, so the loads after it read S's or later ones.
+    // - A state, a member or a root of a write after S's: that write stored MutationInProgress before
+    //   it, and the load that read it is an acquire, so the second load of the stamp reads
+    //   MutationInProgress or the stamp of a later write, never S again: every write stores a sequence
+    //   greater than the entry's.
     // The sequence of the database is read between the two loads of the stamp, right after the first, for the
     // position of the answer (arena-protocol.md, "The position of an answer"), and no stamp above it is
     // taken (TakeEntry). The token of an asynchronous read ends a wait for the position of a publication.

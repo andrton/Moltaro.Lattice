@@ -740,7 +740,7 @@ internal sealed class ChangePublisher
         // entry is the write's sequence, with no mark before it. The capture of a load reaches it by its
         // slot (Children.Capture), and takes more of it only once it loads the state Live with acquire
         // semantics, so that state is stored last, with release semantics: a capture that sees it sees
-        // the root and the sequence of this lifetime, never those of an earlier one of the slot
+        // the root, the sequence and the member of this lifetime, never those of an earlier one of the slot
         // (EntityTable.TryTakeLive). x64 keeps stores in their order and
         // hides the difference; hardware that orders stores weakly does not.
         ref var entry = ref _roots.Entry(handle);
@@ -756,8 +756,9 @@ internal sealed class ChangePublisher
 
     // The stores of a replace before the position (see the class), each with release semantics: the mark
     // first; the release of the root's store keeps the mark before the root, as the release fence after the
-    // source's swap keeps it before the data; then the stamp, whose release keeps the root before it, so a
-    // read that loads it sees the new root, and which a read takes only once the position is published.
+    // source's swap keeps it before the data; then the member, kept after the mark the same way; then the
+    // stamp, whose release keeps the root and the member before it, so a read that loads it sees both new,
+    // and which a read takes only once the position is published.
     private void StoreReplace(RootLayout layout, RootHandle handle, ArenaAddress root, uint member, ulong sequence)
     {
         RootStorage.Publish(_arena, layout, root);
@@ -766,7 +767,14 @@ internal sealed class ChangePublisher
 
         entry.ReleaseLastMutation(EntityTable.MutationInProgress);
         entry.ReleaseRoot(root);
-        entry.Member = member;
+
+        // The member is part of the revision, in the word of the state, which a read loads between its two
+        // loads of the stamp (EntityTable.TakeEntry). It is stored after the mark, by a release: a read that
+        // loads the new member then loads the mark or the new stamp at its second load and takes the entry
+        // again. A plain store, or one before the mark, may become visible before the mark on hardware that
+        // orders stores weakly, and a read could pair the old stamp and the old root with the new member, a
+        // revision no state had (docs/design/arena-protocol.md, "The stamp of a root entry").
+        entry.ReleaseMember(member);
         entry.ReleaseLastMutation(sequence);
     }
 
@@ -785,7 +793,8 @@ internal sealed class ChangePublisher
 
     // The stores of a delete before the position: the mark, then the state where a replace has the root,
     // then the stamp, which a read takes only once the position is published. The entry keeps the address
-    // of its root, which is retired, not freed.
+    // of its root, which is retired, not freed, and the member of its last state: no read takes a revision
+    // of a deleted state, and the next lifetime of the slot stores its own member before it is Live.
     private void StoreDelete(RootHandle handle, ulong sequence)
     {
         ref var entry = ref _roots.Entry(handle);

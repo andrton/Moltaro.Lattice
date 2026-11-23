@@ -129,14 +129,29 @@ A read by key and the capture of a load take the state, the root and the sequenc
 last mutation of a root entry as one state, without a lock, while the publishing thread
 changes the entry. The stamp of the entry is the sequence of its last mutation, and one
 value, 0, which no published write has, is no stamp but the mark of a write in progress. A
-write stores the mark, then the new state or root, then its own sequence as the new stamp,
-each store with release semantics, and the position of the database only after every entity
-of its publication is stored. A read loads the stamp with acquire semantics, then the position
-of the database, and backs off while it finds the mark or a stamp above that position, which
-is a publication whose position is not published yet; it loads the state and the root with
-acquire semantics, and loads the stamp again: the same stamp both times is one state, another
-one means that a write came between, and the read takes the entry again. The reader's half is in
-`Engine/Entities/EntityTable.cs`, the writer's in `Engine/Entities/ChangePublisher.cs`.
+write stores the mark, then the new state, or the new root and the number of its member, then
+its own sequence as the new stamp, each store with release semantics, and the position of the
+database only after every entity of its publication is stored. A read loads the stamp with
+acquire semantics, then the position of the database, and backs off while it finds the mark or
+a stamp above that position, which is a publication whose position is not published yet; it
+loads the state and the root with acquire semantics, and loads the stamp again: the same stamp
+both times is one state, another one means that a write came between, and the read takes the
+entry again. The reader's half is in `Engine/Entities/EntityTable.cs`, the writer's in
+`Engine/Entities/ChangePublisher.cs`.
+
+The number of the member of a write batch is part of the revision of a state. It shares one
+aligned word with the state, and a read loads the two by one load, between its two loads of
+the stamp, so a read by key loads nothing more for it. A replace stores it after the mark and
+before its stamp, by a store with release semantics, as it stores the root: a read that loads
+the new member then finds the mark or the new stamp at its second load of the stamp, and takes
+the entry again. A plain store, or one before the mark, could become visible before the mark
+on hardware that orders stores weakly, which x64 does not show, and a read could pair the old
+stamp and the old root with the new member: a revision that no state had. An insert stores the
+member, as it stores the root and the stamp, before the state Live and before its position: the
+capture of a load takes the entry only once it loads Live, a read by key only once the index
+maps the key to it, and a search only once the position covers the stamp, each by an acquire
+of a store made after the member. A delete stores no member, since no read takes the revision
+of a deleted state, and the next lifetime of the slot stores its own.
 
 The protocol is that of `SeqLock` of crossbeam (`crossbeam-utils/src/atomic/seq_lock.rs`) and
 of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
