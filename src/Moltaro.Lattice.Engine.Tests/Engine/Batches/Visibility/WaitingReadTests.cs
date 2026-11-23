@@ -151,7 +151,12 @@ public sealed class WaitingReadTests
 
         var byKey = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(items.GetAsync(1L, new LatticeSession())));
         var search = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(items.Index("ByTag").FindAsync(IndexKey.Equal("new"), new LatticeFindOptions())));
-        var close = OwnThread.Run(() => nodes.Reader.DisposeAsync().AsTask().GetAwaiter().GetResult());
+
+        // The close begins at the call, which returns its task without waiting; it does not end while the reads
+        // wait for the publication held.
+        var close = nodes.Reader.DisposeAsync().AsTask();
+
+        Assert.False(close.IsCompleted, "The close ended while reads waited for the position of a batch.");
 
         held.Release();
 
