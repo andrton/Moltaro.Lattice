@@ -8070,7 +8070,8 @@ publication, and B2, the commit of a batch on a master.
     into a MemoryOnly type with one Int64 index, none unique, by the JIT listing of a Release
     driver over the public API with tiered PGO off, on the workstation, on the branches an
     accepted insert takes, from the call of `TryReserveWithIndexes` to the end of the trim
-    after the publication (from the call of `Room` in `OrderedTree.AfterPublication` on). The
+    after the publication (from the call of `Room` in `OrderedTree.AfterPublication` on, or,
+    up to b9a9074, from its tail jump to `OrderedTree.Trim`). The
     methods of `ChangePublisher`, `SecondaryIndex`, `OrderedTree` and `NodePool` are followed
     into what they call; a call out of them, to `PrimaryKeys`, `PrimaryIndex`, `Arena` or
     `RetiredMemory`, counts once and is not followed; a tail jump to a method counts as a
@@ -8145,6 +8146,20 @@ into `NodePool.MostLevels`, and a publication no longer calls the switch of the 
 places.
 Listings taken on the ARM64 machine will replace them as evidence. The figure of the change
 is owed to the start of the machine.
+
+- Coordinated by the seventh coordinator of the epic, with one implementer and one narrow
+  reviewer, no breaker, as a refactoring is. No behavior and no assertion changed; every suite
+  passes at the head, 3,201 tests, 3,064 passing and 137 skipped, in Debug and in Release.
+- Review: three rounds. Round 1 found 3 P3 (passing the changes by their first and count bought
+  a store on Windows x64 alone; the reason given for keeping the taken value out of line was
+  not what the listing shows; a call of `HashOf` added and not counted) and 3 P4; round 2 found
+  2 P3 (two inlinings that only the cross-built ARM64 listing asked for, removed; the rule of
+  the counts stated narrower than it was applied) and 2 P4; round 3 found 2 P4 of wording.
+  The hardest part to follow, by the reviewer: three methods named for one check,
+  `FindTaken`, `FindTakenChecked` and the `FindTaken` of four parameters.
+- The listings of every point were taken again with the engine of each driver checked against
+  its build, since the earlier drivers could have resolved another build's engine; every
+  count was the same, and two causes were withdrawn (above).
 
 #### S18 · Owned values, Lists and references
 
