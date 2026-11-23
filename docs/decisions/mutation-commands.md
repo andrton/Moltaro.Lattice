@@ -608,9 +608,12 @@ document representation need not become more expensive.
 ### Write-mode boundaries and remaining work
 
 Each ordinary mutation publishes its root and affected indexes coherently. Explicit
-WriteBatch publishes the complete group so that a reader sees all of it or none of it,
-and no answer carries its position before all of it is visible (amended on 22 November
-2026, the owner's answer to Q57 of the open questions). Durable completion requires
+WriteBatch publishes the complete group so that no member is visible in its new state
+before all of it is, and a read that begins once its node has reached the position of the
+group sees all of it; a search or a scan that runs across the publication may combine
+states from before and after it, as the decision on the document model says (amended on
+22 and 23 November 2026, the owner's answers to Q57 of the open questions and on the
+Acceptance of S17). Durable completion requires
 committed journal state and native publication; MemoryOnly requires local atomic
 publication without promising recovery. No root gate spans I/O.
 Unknown commit outcomes do not authorize blindly repeating any of these commands:
@@ -1538,7 +1541,7 @@ normalization step before journal/replay or final publication.
 
 | Effect | A — accepted | B — not selected |
 | --- | --- | --- |
-| Ordinary reads | Existing read path and atomic publication, which a reader sees whole or not at all (amended on 22 November 2026, the owner's answer to Q57 of the open questions) | Same visibility guarantees; intermediate batch states remain private |
+| Ordinary reads | Existing read path and atomic publication: no member visible before all of the group is (amended on 22 and 23 November 2026, the owner's answers to Q57 of the open questions and on the Acceptance of S17) | Same visibility guarantees; intermediate batch states remain private |
 | Write preparation | Check unique identities; prepare one root mutation per target | Interpret dependencies and validate intermediate states; final-effect coalescing may add work |
 | Memory | Bounded identity-validation metadata plus existing prepared mutations | Also account for staged state and intermediate payloads; the exact peak depends on implementation |
 | Implementation | Simpler revision checks, reservation planning and per-root publication plans | More command combinations, outcome rules and replay-equivalence checks |
