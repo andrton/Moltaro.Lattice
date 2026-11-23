@@ -435,7 +435,7 @@ documentation before this document is removed.
 | S16 | Reads by key and the exact search against 57be01b | reads by key at 1 and 8 readers 0.96 to 1.08, the gauge 0.97 to 1.06; the exact search on one thread 0.96 to 0.99, the gauge 0.96 to 1.01; Int64 737 k, text of 8 bytes 443 k (target 450 k, missed as before), of 100 bytes 269 k | rented-arm64-1 | 22 November 2026 |
 | S17 | How long ordinary reads are held by the publication of a batch of 1, 32, 1,000 and 10,000 entities, readers of its members on the master, the start of part 2 | none over 100 µs for 1 and 32; up to the commit for 1,000 (1.8 ms, the longest read 2.1 to 2.6 ms); for 10,000 at most 2.1 to 3.2 ms against a commit of 17.7 ms; readers of other entities are not held | rented-arm64-1 | 23 November 2026 |
 | S17 | The pool of a waiting batch against what its publication takes, batch-writes, the bound by levels, batches of 1, 32, 1,000 and 10,000; the check on the final state | random keys 4.67, 1.07, 1.28, 1.05; ascending keys 14.00, 3.06, 3.06, 1.38; the fixture's users 6.57, 3.69, 2.85, 1.85, 58.7 MiB at 10,000 where the linear bound of part 1 held 341.8 MiB; the check 1.75 to 1.80 µs a member for one unique index, 5.2 to 5.45 µs for three | rented-arm64-1 | 23 November 2026 |
-| S17 | Writes at the close, unique-writes, index-writes, write-callers and following-children, nine trees rotating, against b9a9074 (`main` before S17) and the gauge of f6d9cf3 | the sum of S17 on index-writes 0.916 to 0.953 on 7 of 24 lines (K2); the write path no fall and no gain on index-writes; following-children 0.953 to 1.014, none called; the users inserted and deleted by name, one caller, the head 0.990 of 57be01b, none called (K1 closed); single writes 657 to 680 k a second; the upkeep of one index 1,404 ns against 1,298 | rented-arm64-1 | 23 November 2026 |
+| S17 | Writes at the close, unique-writes, index-writes, write-callers and following-children, nine trees rotating, against b9a9074 (`main` before S17) and the gauge of f6d9cf3 | the sum of S17, the head (cb70b9f) against b9a9074, on index-writes 0.910 to 0.981 on 8 of 24 lines and on unique-writes 0.933 to 0.958 on 5 of 17 with one gain of 1.082 (K2); to the write path (f6d9cf3) 0.916 to 0.954 on 7 index-writes lines; the write path no fall and no gain on index-writes; following-children 0.953 to 1.014, none called; the users inserted and deleted by name, one caller, the head 0.990 of 57be01b, none called (K1 closed); at the head single writes 652 to 696 k a second and the upkeep of one index 1,396 ns, against 1,298 at b9a9074 | rented-arm64-1 | 23 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -8159,8 +8159,10 @@ is in the record of the start before the close of S17: it removed calls and boug
 this method can see. In stage L of that start the indexed driver ended twice with SIGSEGV
 after its listing was complete; the core shows the main thread past `Main`, in the exit of
 the process, and a thread of the JIT writing its disassembly through a `FILE` already closed.
-It reproduced once in 48 runs, and in none of 300 with the dump of the runtime enabled nor of
-4 in Debug: a fault of the disassembly at exit, not of the engine.
+It reproduced once in 48 runs. With the dump of the runtime enabled none failed: 51 runs whose
+output is kept (24 with the crash report on, 27 of the diagnostic driver in Release) and 4 in
+Debug, and 270 more whose only kept output is the count of a loop. It is a fault of the
+disassembly at exit, not of the engine.
 
 - Coordinated by the seventh coordinator of the epic, with one implementer and one narrow
   reviewer, no breaker, as a refactoring is. No behavior and no assertion changed; every suite
@@ -8222,8 +8224,9 @@ coordinator of the epic. With it S17 is closed whole.
   - Round 1, at 468fffd: no P1. 2 P2: Q58 in two phases through a child, and a batch of no-ops
     through a child, had no test; both were added. 2 P3: the cost sentence understated the
     master's memory, and comments cited the brief and the internal contract. 5 P4, of which
-    taken: a test of the guard of the count (a body of 20 bytes that announced 1,000,000
-    members allocated 181.8 MB without the guard, 73 KB with it), and a member number beyond
+    taken: a test of the guard of the count (a body of 21 bytes that announced 1,000,000
+    members allocated 181.8 MB without the guard, 73 KB with it, as measured; the test in the
+    repository sends one of 20 bytes), and a member number beyond
     the batch refused for any error. Recorded only: about 90 ns more a transaction for clearing
     the kept set after a large one, owed with `following-children`. Not taken: the arguments
     of `Admit` shared by a single write and a batch, since a separate path would duplicate
@@ -8290,9 +8293,10 @@ coordinator of the epic. With it S17 is closed whole.
      holds the encoded members, and the master prepares a batch by the path of a forwarded
      write, so the encoding runs outside the lock of the writes, at the cost of a managed copy
      of every root until the outcome of the batch (the record of part 2, B2).
-  9. The standing reserve keeps its definition, the ledger governs only the writes that wait,
-     and a withdrawal gives back the reserve as well, as `ordered-index.md` says (the planner;
-     the record of part 1, the three tests changed).
+  9. Decided by the planner: the standing reserve keeps its definition, the ledger governs
+     only the writes that wait, a withdrawal gives back the reserve as well, as
+     `ordered-index.md` says, and `UncountableNeedTests` keeps its boundary from `Need` (the
+     record of part 1, the three tests changed).
   10. The bound of the places retired is p(2h + 3) + q(h + 2 + log2 p), the sketch of the study
       not holding (the planner; the record of part 1).
 
@@ -8320,16 +8324,20 @@ planner decided on it as follows.
   | Part 1, p1 against base | `unique-writes`, 7 of 17 lines; `index-writes`, 5 of 24 | 0.933 to 0.972; 0.958 to 0.974 | In K2 of [the refactoring backlog](refactoring.md) |
   | Part 2, p2 against p1 | `index-writes`, 1 of 24: no index, one caller that replaces changing every key | 0.965 | Not at the head: p3 against base 1.001 |
   | The bound by levels, bnd against p2 | `index-writes`, 4 lines with 3 and 6 indexes | 0.945 to 0.978 | What it bought: a waiting batch of 10,000 holds 58.7 MiB where it held 341.8 MiB; the largest batch accepted under 1 GiB, cited from the probe on the workstation, 202,109 against 292,326 that fit. In K2 |
-  | The sum, wp against base | `index-writes`, 7 lines | 0.916 to 0.953 | In K2 |
+  | The sum of S17, p3 against base | `index-writes`, 8 of 24 lines; `unique-writes`, 5 of 17, and one gain | 0.910 to 0.981; 0.933 to 0.958, the gain 1.082 (an insert refused as `DuplicateKey`) | In K2 |
+  | To the write path, wp against base | `index-writes`, 7 of 24 lines; `unique-writes`, 2 of 17, and one gain | 0.916 to 0.954; 0.937 and 0.966, the gain 1.099 | In K2 |
   | The write path, wp against bnd | `index-writes`, none; `unique-writes`, 2 gains | 0.978 to 1.067; 1.019 and 1.025 | It removed calls and bought nothing this method can see |
   | Part 3, p3 against wp | `unique-writes`, one line: three indexes, none unique, a replace that keeps every key | 0.953 [0.980 0.930 0.962], the gauge 0.996 to 1.004 | Not explained by its listing: on that path the code of part 3 is smaller but for the guarded test of the scratch in `PublishPositionAndAfter` (two loads and a compare), `ClassSet<T>.Save` 392 bytes where it was 531, by the x64 listing of a driver of that line; the spread of its three rounds is wide, and no cause is claimed. It joins K2 and is run again in the next start, with the machine's listings of `ClassSet<T>.Save` and `PublishPositionAndAfter` at f6d9cf3 and at the head |
+  | Part 3, p3 against wp | `index-writes`, one gain: 3 indexes, one caller that replaces changing every key | 1.021 | A gain, no fall |
   | Part 3, p3 against wp | `following-children`, 20 lines | 0.953 to 1.014 | None called |
 
-- *Gates and targets met at the head:* G3 and G6 stay far off, single writes about 657 to 680 k
-  a second, replacing with one caller; the upkeep of one index takes 1,404 ns at wp against
-  1,298 at base, about 1.17 to 1.28 times the bare tree by the ratio of S16, under the bound of
-  1.5; a replace that keeps every key runs, against the type without an index, at 0.923, 0.959
-  and 0.910 with 1, 3 and 6 indexes (base 0.919, 0.945 and 0.899).
+- *Gates and targets met at the head,* p3 (cb70b9f): G3 and G6 stay far off, single writes
+  about 652 to 696 k a second, replacing with one caller (wp 657 to 680 k); the upkeep of one
+  index, a replace that changes the key of one index less the same replace without an index,
+  takes 1,396 ns (wp 1,404, base 1,298), about 1.16 to 1.27 times the bare tree by the ratio
+  of S16, under the bound of 1.5; a replace that keeps every key runs, against the type without
+  an index, at 0.946, 0.975 and 0.928 with 1, 3 and 6 indexes (wp 0.923, 0.959 and 0.910; base
+  0.919, 0.945 and 0.899).
 - *The pool,* `batch-writes`: what the pool holds while a batch waits, against what its
   publication takes, for batches of 1, 32, 1,000 and 10,000: random keys 4.67, 1.07, 1.28 and
   1.05; ascending keys 14.00, 3.06, 3.06 and 1.38; the fixture's users, three indexes together,
@@ -8337,7 +8345,7 @@ planner decided on it as follows.
   1.75 to 1.80 µs for one unique index and 5.2 to 5.45 µs for three.
 - *K1 is closed,* by its own rule. This start, with the trees rotated, the fixture's users
   inserted and deleted by name with one caller: k16 against k0 0.988, base 0.992, wp 0.994 and
-  p3 0.990, the gauge 0.980 to 1.020, none called. The start of part 2 had 0.962, with the
+  p3 0.990, the gauge 0.980 to 1.021, none called. The start of part 2 had 0.962, with the
   trees adjacent in one order; that figure did not reproduce. The steps of S16 were not
   separated, because the listings count them and K1 closes on the head against 57be01b.
 - *Part 2's growing insert stays owed:* no series of this plan grew the primary index, since
