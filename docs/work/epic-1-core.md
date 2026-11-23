@@ -8401,7 +8401,15 @@ child stores received bytes through its own allocation.
   loads such entities and applies their replacement. An index over a field inside
   an owned value finds the entity by that field; when the owned value is absent the
   component is null, the entity is still found by a search for null, and a unique index
-  does not compare it. An ownership audit after churn
+  does not compare it. A value written by name, the value of a field of a record or of an
+  owned value, is accepted by the allowlist of a search key (Q55) and held as the .NET type
+  of the field: a value of that type; an integer of another width that fits; any
+  integer for a Decimal; an integer that a Float32 or a Float64 holds exactly; a Float32
+  for a Float64; a Float64 for a Float32 when it converts back to itself, with NaN, an
+  infinity and the sign of zero kept. The elements, keys and values of a collection are
+  taken only as declared, and a primary key keeps its rule. A String or a Binary value
+  above its bound is refused at every depth, with its place named. An ownership audit
+  after churn
   finds every block owned by exactly one live entity. Nothing a caller changes after a
   write returned — in the record or the object, in its collections, its owned values or
   its byte arrays — changes what was written, and two reads of one entity share nothing
@@ -8430,7 +8438,7 @@ floating-point field and back, a floating-point value or a Decimal for an intege
 42.0 included, an integer a Float32 does not hold exactly, a Float64 that does not convert
 back) refused with the message of J2; an Enum field refuses an integer its enum type does
 not declare, as today. If this needs a sentence of the Acceptance of S18, the coordinator
-of S18 asks the owner for it.
+of S18 asks the owner for it. The owner added that sentence on 23 November 2026, in the coordinator's session.
 
 **Added by the planner on 22 November 2026, from the architect's review after S16.** The
 sprint also makes the time limit of a read testable without the clock of the machine:
