@@ -119,9 +119,10 @@ internal struct IndexSearch
     // read limits keep before it would read it.
     //
     // Not inlined. Inlined into the step of a search (EntityTable.Step) with the look of the read limits inside
-    // it, it took the room the JIT gives to inlining there, and the look into the keys a lazy Find returned
-    // (ReturnedKeys.Contains), made for every entity it meets, became a call, in the JIT listing of a Release
-    // build. Called, it is the one call a round of the step makes.
+    // it, it takes the room the JIT gives to inlining there, and the look into the keys a lazy Find returned
+    // (ReturnedKeys.Contains), made for every entity it meets, becomes a call. In the JIT listing of a Release
+    // build of the step over RecordCopy, inlined: 5,372 bytes and a call of Contains; called: 4,953 bytes with
+    // Contains inline, and this one call for a round of the step.
     [MethodImpl(MethodImplOptions.NoInlining)]
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {

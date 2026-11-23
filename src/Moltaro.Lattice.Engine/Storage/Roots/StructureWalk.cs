@@ -22,10 +22,11 @@ internal static class StructureWalk
     // owns at every depth, children first (IStructureVisitor). The root is recognized as RootReader recognizes
     // it, and refused with ArgumentException in the same cases, before anything is visited.
     //
-    // Not inlined. Inlined, the walk brought its loop and its locals into every caller of the operations of a
-    // root (RootStorage), the publication of every write among them, and grew the frames their prologs clear
-    // on every call: the frame of ChangePublisher.Install went from 32 to 232 bytes and its code from 136 to
-    // 1,680 bytes in the JIT listing of a Release build. Called, it costs them the one call they made before.
+    // Not inlined. Inlined, the walk brings its loop and its locals into every caller of the operations of a
+    // root (RootStorage), the publication of every write among them, and grows the frames their prologs clear
+    // on every call. In the JIT listing of a Release build, inlined: ChangePublisher.Install 1,680 bytes with a
+    // frame of 232; called: Install 175 bytes with a frame of 40, and Walk over Publishing 1,204 bytes with a
+    // frame of 136, which Install calls once for the root it publishes.
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static void Walk<TVisitor>(Arena arena, RootLayout layout, ArenaAddress root, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
@@ -71,7 +72,7 @@ internal static class StructureWalk
     // The descriptors of one structure, which lies at the offset at of the block whose bytes are given from
     // the offset origin of the block on. They close the structure one after another (StructureLayout), so a
     // descriptor is found by its index, and the layout of an element is looked up only for a List of kind
-    // Records: a root without one reads no table of its layout here, as the walk of the scalar form did.
+    // Records: a root without one reads no table of its layout here.
     private static void WalkStructure<TVisitor>(Arena arena, StructureLayout structure, ReadOnlySpan<byte> bytes, int origin, int at, ArenaAddress holder, ref TVisitor visitor)
         where TVisitor : struct, IStructureVisitor
     {

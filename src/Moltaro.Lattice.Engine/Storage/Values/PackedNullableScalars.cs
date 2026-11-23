@@ -3,16 +3,26 @@ using System.Runtime.InteropServices;
 namespace Moltaro.Lattice.Storage.Values;
 
 // The packed elements of a List of a nullable scalar, an Enum or a Reference by an integer or a Guid included
-// (PackedElements): a record holds List<TValue?>, and the record of an element is a bitmap of one byte, its
-// lowest bit set while the element is null, then the value at the width of its type, zero for a null.
+// (PackedElements): a record holds List<TValue?>, and the record of an element is its null bitmap, the bit of
+// the element set while the element is null, then the value at the width of its type, zero for a null, where
+// the layout of the record places them (Roots.StructureLayout).
 internal sealed class PackedNullableScalars<TValue> : PackedElements
     where TValue : struct
 {
-    private const int ValueOffset = 1;
+    // The byte of the bitmap that holds the null bit of the element, and the bit in it.
+    private readonly int _nullByte;
 
-    public PackedNullableScalars(int stride)
+    private readonly byte _nullMask;
+
+    // Where the value begins in the record, after the bitmap.
+    private readonly int _valueOffset;
+
+    public PackedNullableScalars(int stride, int nullByte, byte nullMask, int valueOffset)
         : base(stride)
     {
+        _nullByte = nullByte;
+        _nullMask = nullMask;
+        _valueOffset = valueOffset;
     }
 
     public override int Count(object list) => ((List<TValue?>)list).Count;
@@ -27,13 +37,13 @@ internal sealed class PackedNullableScalars<TValue> : PackedElements
 
             if (elements[index] is { } value)
             {
-                record[0] = 0;
-                StoredScalars.WriteValue(record[ValueOffset..], value);
+                record[.._valueOffset].Clear();
+                StoredScalars.WriteValue(record[_valueOffset..], value);
             }
             else
             {
                 record.Clear();
-                record[0] = 1;
+                record[_nullByte] = _nullMask;
             }
         }
     }
@@ -48,7 +58,7 @@ internal sealed class PackedNullableScalars<TValue> : PackedElements
         {
             var record = records.Slice(offset, Stride);
 
-            elements.Add((record[0] & 1) != 0 ? null : StoredScalars.ReadValue<TValue>(record[ValueOffset..]));
+            elements.Add((record[_nullByte] & _nullMask) != 0 ? null : StoredScalars.ReadValue<TValue>(record[_valueOffset..]));
         }
     }
 }

@@ -17,8 +17,8 @@ internal sealed class EntityTables
         HoldsNestedValues = _stored.Values.Any(table => table.Layout!.Structure.HoldsNestedValues);
     }
 
-    // Whether the engine stores an entity type that holds an owned value, a List or a Reference, which a child
-    // does not receive yet: a master refuses every child then (Children.ChildConnection).
+    // Whether the engine stores an entity type that holds an owned value, a List or a Reference, for which a
+    // master refuses every child (Children.ChildConnection).
     public bool HoldsNestedValues { get; }
 
     // Every table, in the order of the entity types of the schema.

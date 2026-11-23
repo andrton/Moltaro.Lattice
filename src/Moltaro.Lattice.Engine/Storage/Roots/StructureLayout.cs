@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -159,8 +162,8 @@ internal sealed class StructureLayout
     public ref readonly StoredField Place(int position) => ref _places[position];
 
     // The table of the places itself, for the layout of a root, which finds a field of its entity type in it
-    // by one index (RootLayout); nothing writes it.
-    public StoredField[] SharedPlaces => _places;
+    // by one index (RootLayout).
+    public ImmutableArray<StoredField> SharedPlaces => ImmutableCollectionsMarshal.AsImmutableArray(_places);
 
     // The declaration of what the place at the position holds.
     public LatticeValueDeclaration DeclarationOf(int position) => _declarations[position];
@@ -358,18 +361,46 @@ internal sealed class StructureLayout
             ownedOrList);
     }
 
-    // How the elements of a packed List of the element declared become bytes: by their .NET type, which is
-    // known only here, when the schema is compiled, so that no write and no read makes a generic type.
-    private PackedElements PackedFor(LatticeValueDeclaration element)
+    // How the elements of a packed List of the element declared become bytes: by the .NET type a record holds
+    // for the element, chosen here once, when the schema is compiled, so that no write and no read chooses it.
+    private PackedElements PackedFor(LatticeValueDeclaration element) => element.ScalarType switch
     {
-        if (element.Type == LatticeFieldTypeEnum.Owned)
+        LatticeFieldTypeEnum.Owned => new PackedOwnedValues(this),
+        LatticeFieldTypeEnum.Boolean => ScalarsOf<bool>(element),
+        LatticeFieldTypeEnum.Int8 => ScalarsOf<sbyte>(element),
+        LatticeFieldTypeEnum.UInt8 => ScalarsOf<byte>(element),
+        LatticeFieldTypeEnum.Int16 => ScalarsOf<short>(element),
+        LatticeFieldTypeEnum.UInt16 => ScalarsOf<ushort>(element),
+        LatticeFieldTypeEnum.Int32 => ScalarsOf<int>(element),
+        LatticeFieldTypeEnum.UInt32 => ScalarsOf<uint>(element),
+        LatticeFieldTypeEnum.Int64 => ScalarsOf<long>(element),
+        LatticeFieldTypeEnum.UInt64 => ScalarsOf<ulong>(element),
+        LatticeFieldTypeEnum.Float32 => ScalarsOf<float>(element),
+        LatticeFieldTypeEnum.Float64 => ScalarsOf<double>(element),
+        LatticeFieldTypeEnum.Decimal => ScalarsOf<decimal>(element),
+        LatticeFieldTypeEnum.Guid => ScalarsOf<Guid>(element),
+        LatticeFieldTypeEnum.DateTimeOffset => ScalarsOf<DateTimeOffset>(element),
+        LatticeFieldTypeEnum.DateOnly => ScalarsOf<DateOnly>(element),
+        LatticeFieldTypeEnum.TimeOnly => ScalarsOf<TimeOnly>(element),
+        LatticeFieldTypeEnum.TimeSpan => ScalarsOf<TimeSpan>(element),
+        _ => throw new UnreachableException($"An element of {element.Type} holds a descriptor, and its List lies as records."),
+    };
+
+    // The packed elements of a scalar element, of the type a record holds for it: the value alone, or, for a
+    // nullable element, its null bit and the value at the place this layout gives it.
+    private PackedElements ScalarsOf<TValue>(LatticeValueDeclaration element)
+        where TValue : struct
+    {
+        Debug.Assert(typeof(TValue) == element.ValueType, "A record holds the element as the type its declaration names.");
+
+        if (!element.IsNullable)
         {
-            return new PackedOwnedValues(this);
+            return new PackedScalars<TValue>(Size);
         }
 
-        var form = element.IsNullable ? typeof(PackedNullableScalars<>) : typeof(PackedScalars<>);
+        ref readonly var place = ref Place(0);
 
-        return (PackedElements)Activator.CreateInstance(form.MakeGenericType(element.ValueType), Size)!;
+        return new PackedNullableScalars<TValue>(Size, Start + (place.NullBit / 8), (byte)(1 << (place.NullBit % 8)), place.Offset);
     }
 
     private static bool IsDescriptor(StoredTypeEnum type) => type is StoredTypeEnum.String or StoredTypeEnum.Binary or StoredTypeEnum.List;

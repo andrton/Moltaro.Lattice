@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -12,7 +13,7 @@ namespace Moltaro.Lattice.Storage.Roots;
 // sum of the header and the structure. An offset inside a root block, that of a field, of a descriptor and of
 // an inline value, is counted from the start of the block, the header included. A value of more than one byte
 // is stored in the byte order of the machine, as the block header and the descriptors are: native memory is
-// never a durable or a wire form, and the byte order of those forms belongs to their sprints.
+// never a durable or a wire form, and each of those forms states its own byte order.
 //
 // A fixed-width field takes the width of its type in the scalar catalog (Q03.1, Q03.4.1): a small integer is
 // not widened, a Boolean is one byte, 0 or 1, an Enum field has the width of the underlying type of its enum
@@ -60,8 +61,9 @@ internal sealed class RootLayout
     // Every field by LatticeField.Ordinal, its position in the entity type: one array index finds it, without
     // a lookup by name or by identity. It is the table of the places of the structure, whose first positions
     // are the fields of the entity type (StructureLayout), held here as well so that a field is found by one
-    // load and one index, as before owned values were stored (JIT listing at full optimization).
-    private readonly StoredField[] _fields;
+    // load and one index rather than through the structure, a load more for every value a root writes or
+    // reads (JIT listing at full optimization).
+    private readonly ImmutableArray<StoredField> _fields;
 
     // One bit for every field that is not nullable, by LatticeField.Ordinal: what Complete requires.
     private readonly byte[] _requiredFields;
@@ -198,12 +200,12 @@ internal sealed class RootLayout
 
         var ordinal = field.Ordinal;
 
-        if ((uint)ordinal >= (uint)FieldCount || !ReferenceEquals(_fields[ordinal].Field, field))
+        if ((uint)ordinal >= (uint)FieldCount || !ReferenceEquals(_fields.ItemRef(ordinal).Field, field))
         {
             throw new ArgumentException($"The field {field.Name} is not a field of the entity type {EntityType.Name}.", nameof(field));
         }
 
-        return ref _fields[ordinal];
+        return ref _fields.ItemRef(ordinal);
     }
 
     // The structure of the root after its header: its null bitmap, its fixed-width fields and its

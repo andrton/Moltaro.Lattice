@@ -22,18 +22,15 @@ namespace Moltaro.Lattice.Storage.Roots;
 // Writing. A structure starts with every bit of its bitmap set (StartRecord; the writer of a root starts its
 // image so), and writing a value clears its bit: of a nullable owned value its presence bit, and of every
 // field beneath it the bit it has. A value given as null leaves its bit set and its bytes zero. A String, a
-// Binary and a packed List of at most ValueBlocks.InlineLimit bytes lie inline in the block that holds their
-// descriptor, after its fixed part or its records, when it has room, which a block of records always has,
-// since it is made for the values inline of its records; a larger one lies in blocks of its own, whose parent
-// is that block. A List of records lies in one block of records or a directory of them, never inline. Text is
-// placed as RootLayout says for a field, in an entry of the text table when its place says so. The values are
-// those the validation of the core took and checked (Access.Values.RecordValues); text that is not well-formed
-// and a value above the bound of one value or of one List are refused with ValidationFailed as the guard of
-// the stored form, as the members of the writer of a root refuse them, and the writer is then abandoned. Once
-// the arena refused a block, the writing takes nothing more and the write is refused for its memory; a List
-// frees what it took before the refusal, so that a descriptor always names a whole value or nothing, and the
-// writer of the root frees the rest. An OutOfMemoryException of the native allocator passes through a List
-// after it has freed what it took.
+// Binary and a packed List are placed by the one placement of ValueHolder, in the block that holds their
+// descriptor or out of it. A List of records lies in one block of records or a directory of them, never
+// inline. The values are those the validation of the core took and checked (Access.Values.RecordValues); a
+// List above its bound is refused with ValidationFailed as the guard of the stored form, as ValueHolder
+// refuses a value above its bound, and the writer is then abandoned. Once the arena refused a block, the
+// writing takes nothing more and the write is refused for its memory; a List frees what it took before the
+// refusal, so that a descriptor always names a whole value or nothing, and the writer of the root frees the
+// rest. An OutOfMemoryException of the native allocator passes through a List after it has freed what it
+// took.
 //
 // Reading copies every value into memory of the caller, a new object for each, so that two reads share
 // nothing; an element of a packed List is read without a box (Values.PackedElements). The caller holds the
