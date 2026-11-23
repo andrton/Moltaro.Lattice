@@ -7,12 +7,12 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 // While a child loads, the roots it places carry the sequence of their last mutation on the master as their
 // stamp, which is above the position of the child: its position is none during the load, the start of the
 // capture once the load has ended, and each transaction of the catch-up after that, up to its readiness
-// position R. A read that does not accept a stamp above the position would wait there (the brief of Epic 1,
-// sprint S17, "Before the code of point 2"). No read runs on a child before it is Ready: every operation of
-// the instance refuses with Unavailable (NotReady), and the load and the catch-up take what they need of a
-// root entry under the lock of the writes, never by its stamp. Once Ready the child is at R, and no root has
-// a stamp above R. So the load never waits for a read, and the child, Ready, serves every entity the master
-// wrote during its load at once, with the revision it has on the master.
+// position R. A read that does not accept a stamp above the position would wait there. No read runs on a
+// child before it is Ready: every operation of the instance refuses with Unavailable (NotReady), and the load
+// and the catch-up take what they need of a root entry under the lock of the writes, never by its stamp. Once
+// Ready the child is at R, and no root has a stamp above R. So the load never waits for a read, and the
+// child, Ready, serves every entity the master wrote during its load at once, with the revision it has on the
+// master.
 //
 // The interleaving is made, not waited for: the child is held in the middle of its load (HeldLoad), and the
 // master writes in that gap, a replace of a piece copied and of one not copied yet, and an insert, so that

@@ -81,6 +81,7 @@ public interface ILatticeWriteBatch
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the entity violates the schema.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert<TEntity>(TEntity entity)
         where TEntity : class;
@@ -93,6 +94,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Insert(LatticeRecord record);
 
@@ -104,6 +106,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity)
         where TEntity : class;
@@ -120,6 +123,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace<TEntity>(TEntity entity, LatticeRevision expectedRevision)
         where TEntity : class;
@@ -132,6 +136,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record);
 
@@ -147,6 +152,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Replace(LatticeRecord record, LatticeRevision expectedRevision);
 
@@ -161,6 +167,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/> or
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>, as for <see cref="Insert{TEntity}"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert<TEntity>(TEntity entity)
         where TEntity : class;
@@ -175,6 +182,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.ValidationFailed"/>: the record violates the schema.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Upsert(LatticeRecord record);
 
@@ -192,6 +200,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key)
         where TEntity : class;
@@ -211,6 +220,7 @@ public interface ILatticeWriteBatch
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the class cannot be bound to an entity
     /// type of the schema, as for <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TEntity>(object key, LatticeRevision expectedRevision)
         where TEntity : class;
@@ -229,6 +239,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key)
         where TKey : notnull;
@@ -248,6 +259,7 @@ public interface ILatticeWriteBatch
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.BindingFailed"/>: the schema has no such entity type.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The batch has already been submitted.</exception>
     /// <exception cref="ObjectDisposedException">The database of the batch is closed.</exception>
     void Delete<TKey>(string entityName, TKey key, LatticeRevision expectedRevision)
         where TKey : notnull;
@@ -257,8 +269,18 @@ public interface ILatticeWriteBatch
     /// when it was submitted through a child, that child has applied it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A batch is submitted once. After this call it accepts no more operations and cannot
     /// be submitted again, whatever the outcome; build a new batch instead.
+    /// </para>
+    /// <para>
+    /// A batch refused for its operations names one of them, in two phases: first each operation
+    /// is checked against the state before the batch, in the order they were added, and the first
+    /// that fails a condition of its own is named; when none does, the operation with the lowest
+    /// number that would give a value of a unique index a second owner on the state the batch
+    /// would leave, with the index declared first when it does so in several. A refusal for memory
+    /// names no operation.
+    /// </para>
     /// </remarks>
     /// <param name="cancellationToken">Cancels the batch while it has not started executing.</param>
     /// <returns>

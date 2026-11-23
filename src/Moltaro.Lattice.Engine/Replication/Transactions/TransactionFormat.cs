@@ -11,9 +11,10 @@ namespace Moltaro.Lattice.Replication.Transactions;
 // A transaction is its sequence (UInt64), the length of its effects (UInt64), and its effects, one after
 // another until that length:
 // - Write: its kind (EffectKindEnum, one byte), the length of its root (UInt64) and the root as a load
-//   sends it — type id (UInt32), last mutation sequence (UInt64), then what Load.BlockExport writes:
-//   layout version, root payload, values out of line, in the byte order the Hello has checked. The last
-//   mutation of the root is the sequence of its transaction.
+//   sends it — type id (UInt32), last mutation sequence (UInt64), the number of its member of a write
+//   batch, 0 for a single write (UInt32) (Load.RootEnvelope), then what Load.BlockExport writes: layout
+//   version, root payload, values out of line, in the byte order the Hello has checked. The last mutation
+//   of the root is the sequence of its transaction.
 // - Delete: its kind, the type id of the entity (UInt32), then the key, in the form of the entity type
 //   of the key (Engine.Entities.PrimaryKeys.WriteKey).
 // - Unchanged: its kind and nothing more.
@@ -44,6 +45,23 @@ internal static class TransactionFormat
         BinaryPrimitives.WriteUInt64LittleEndian(bytes, sequence);
         BinaryPrimitives.WriteUInt64LittleEndian(bytes[sizeof(ulong)..], (ulong)effectsLength);
     }
+
+    // The envelope of a Write, WriteEnvelopeSize bytes: its kind and the length of its root.
+    public static void WriteEnvelopeOfWrite(Span<byte> bytes, long rootLength)
+    {
+        bytes[0] = (byte)EffectKindEnum.Write;
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[1..], (ulong)rootLength);
+    }
+
+    // The envelope of a Delete, DeleteEnvelopeSize bytes: its kind and the type id of the entity.
+    public static void WriteEnvelopeOfDelete(Span<byte> bytes, uint typeId)
+    {
+        bytes[0] = (byte)EffectKindEnum.Delete;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[1..], typeId);
+    }
+
+    // An Unchanged, UnchangedSize bytes: its kind.
+    public static void WriteUnchanged(Span<byte> bytes) => bytes[0] = (byte)EffectKindEnum.Unchanged;
 
     // Reads the envelope of the next effect from the effects of the transaction of the sequence and returns
     // its kind: for a Write the root, whose type id and last mutation are read, with the effects advanced

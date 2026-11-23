@@ -80,11 +80,10 @@ internal sealed class RootTable
         // uint.MaxValue was retired and is never taken, so the generation cannot wrap.
         var generation = entry.Generation + 1;
 
-        // Field by field, each an aligned word written whole, and not as one assignment of the struct,
-        // which the compiler may copy in pieces of its choosing: the capture of a load reads the state of
-        // any slot while this runs (Engine.Children.Capture) and has to find it Free or Prepared, never a
-        // torn value (brief of Epic 1, sprint S11, the planner's decision after the study, point 10). The
-        // state first; neither it nor the other fields are Live, which is the only state the capture
+        // Field by field, each an aligned word written whole, and not as one assignment of the struct, which
+        // the compiler may copy in pieces of its choosing: the capture of a load reads the state of any slot
+        // while this runs (Engine.Children.Capture) and has to find it Free or Prepared, never a torn value.
+        // The state first; neither it nor the other fields are Live, which is the only state the capture
         // takes more of.
         entry.State = RootStateEnum.Prepared;
         entry.Root = default;
@@ -169,9 +168,9 @@ internal sealed class RootTable
     public int Count => _counts.Count;
 
     // The slots below this one were given out at least once; every slot that holds a lifetime is
-    // below it. For the capture of a load on a master, which walks the slots below it (the planner's
-    // block of 17 November 2026, point 3), taken under the lock of the writes as the fence of the
-    // capture: every root live at the start of the capture lies below it.
+    // below it. For the capture of a load on a master, which walks the slots below it, taken under the
+    // lock of the writes as the fence of the capture: every root live at the start of the capture lies
+    // below it.
     public int SlotExtent => _nextUnusedSlot;
 
     // How many pages the table has. Times EntriesPerPage, this is the number of its slots.

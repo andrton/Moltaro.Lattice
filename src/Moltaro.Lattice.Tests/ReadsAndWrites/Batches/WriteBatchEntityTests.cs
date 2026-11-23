@@ -1,7 +1,7 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // A write batch takes one operation per entity, and it tells entities apart as the schema reads the
-// key, not as the caller spelled it (the planner's answer to Q45; the remarks of ILatticeWriteBatch):
+// key, not as the caller spelled it (the remarks of ILatticeWriteBatch, "Building"):
 // two operations address one entity when they name the same entity type and their keys are equal
 // after the key is brought to the declared key type and compared under the comparison the schema
 // declares for the key field. A second operation for one entity is an ArgumentException when it is

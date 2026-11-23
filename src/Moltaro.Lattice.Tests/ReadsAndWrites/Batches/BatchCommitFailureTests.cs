@@ -1,12 +1,11 @@
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // How CommitAsync reports a failure, by the rule of every asynchronous member (AGENTS.md, "Shape of the
-// public API"; brief of Epic 1, sprint S14, part 2, acceptance (c)): what the caller can know from its own
-// arguments is thrown at the call — a batch submitted a second time, or with no operation —, and everything
-// the database decides comes through the task: the refusal of a member, the close of the database, a
-// token cancelled before the batch is executed, a session of another history, a member of an entity type
-// the engine does not store yet. A failing member refuses
-// the whole batch and carries its number (the remarks of ILatticeWriteBatch, "Executing").
+// public API"): what the caller can know from its own arguments is thrown at the call — a batch submitted a
+// second time, or with no operation —, and everything the database decides comes through the task: the
+// refusal of a member, the close of the database, a token cancelled before the batch is executed, a session
+// of another history, a member of an entity type the engine does not store yet. A failing member refuses the
+// whole batch and carries its number (the remarks of ILatticeWriteBatch, "Executing").
 public sealed class BatchCommitFailureTests
 {
     [Fact]

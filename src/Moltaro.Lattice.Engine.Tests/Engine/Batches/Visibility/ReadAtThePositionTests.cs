@@ -6,14 +6,14 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 
-// A read that begins at or after the position of a batch sees every member of it in its state after the batch,
-// by key, by a search, by a walk of a range and by an enumeration, on the master that publishes it and on a
-// child that applies it, and the position of its answer is at that position or later (the brief of Epic 1,
-// sprint S17, point 2; docs/design/write-path.md, "How a publication is made"). The publication of the batch of
-// BatchSchema is held right after its position (HeldPublication), while the old entries of the members are
-// still in the indexes and their old roots not retired: the members replaced out of the tag "old" and group 1
-// and the members deleted from the tag "doomed" are still named there, and a read passes over them by their
-// roots. The reads begin there, once the node's position is at the position of the batch.
+// A read that begins at or after the position of a batch sees every member of it in its state after the
+// batch, by key, by a search, by a walk of a range and by an enumeration, on the master that publishes it and
+// on a child that applies it, and the position of its answer is at that position or later
+// (docs/design/write-path.md, "How a publication is made"). The publication of the batch of BatchSchema is
+// held right after its position (HeldPublication), while the old entries of the members are still in the
+// indexes and their old roots not retired: the members replaced out of the tag "old" and group 1 and the
+// members deleted from the tag "doomed" are still named there, and a read passes over them by their roots.
+// The reads begin there, once the node's position is at the position of the batch.
 public sealed class ReadAtThePositionTests
 {
     public static IEnumerable<TheoryDataRow<string>> Nodes => [new("master"), new("child")];

@@ -3,12 +3,12 @@ using Moltaro.Lattice.TestSupport.Positions;
 namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // The identities of a write batch are claimed together, so batches that share entities never wait for each
-// other in a cycle, and the writes of one entity keep the order of their calls whether they are single
-// writes or members of a batch (docs/design/write-path.md, "What an application can rely on"; the brief of
-// Epic 1, sprint S17, point 4). Two callers commit batches of the same two entities in opposite orders, many
-// times at once: every commit completes, each at a position of its own, and the two entities end with the
-// state of the same batch, the one at the latest position. A single write, a batch and a single write of one
-// entity, called one after another without awaiting, are executed in that order.
+// other in a cycle, and the writes of one entity keep the order of their calls whether they are single writes
+// or members of a batch (docs/design/write-path.md, "What an application can rely on"). Two callers commit
+// batches of the same two entities in opposite orders, many times at once: every commit completes, each at a
+// position of its own, and the two entities end with the state of the same batch, the one at the latest
+// position. A single write, a batch and a single write of one entity, called one after another without
+// awaiting, are executed in that order.
 public sealed class BatchOrderTests
 {
     private const int Rounds = 200;

@@ -160,8 +160,9 @@ foreach (var record in settings.Enumerate())
 Both ways work on the same data and follow the same rules.
 
 **Finding by index.** An entity type
-declares its secondary indexes in the schema, each with a name and the fields it covers,
-in order:
+declares its secondary indexes in the schema, each with a name and the ids of the fields it
+covers, in order; here `ByEmail` covers the field `Email`, id 5, of a user, and
+`BySectionAndName` the fields `Section` and `Name`, ids 2 and 3, of a setting:
 
 ```json
 "Indexes": [
@@ -199,7 +200,8 @@ var page = await bySectionAndName.FindAsync(
 
 **Unique indexes.** Several entities can have the same indexed values unless the index says
 otherwise; an index over several fields compares them together, so the same login may
-belong to one account in each tenant:
+belong to one account in each tenant, here with the fields `Email`, `Tenant` and `Login`,
+ids 5, 6 and 7, of an account:
 
 ```json
 "Indexes": [

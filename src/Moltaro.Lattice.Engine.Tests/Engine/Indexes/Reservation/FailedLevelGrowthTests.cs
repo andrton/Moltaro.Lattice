@@ -7,15 +7,14 @@ using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation.LevelBoundP
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
-// A reservation that meets an OutOfMemoryException of the managed heap takes nothing, as one the arena
-// cannot hold takes nothing (docs/design/ordered-index.md, "The reservation"), also when the heap fails while
-// the pool grows the arrays in which it keeps the progress of the levels of the tree, after some of them were
-// allocated: the pool is left as it was, and every later reservation and publication works from it. The pool
-// reads those arrays without a check of their bounds, so that one left shorter than another would be read and
-// written past its end once the tree grows beyond it. The failure is the fault point of the pool, in place of
-// the last allocation of that growth (NodePool.ArmLevelsFault). With the one array of the base, an order of
-// the growth that assigns each array as soon as it is allocated is caught by the Debug assertion of the
-// levels in the pool; the Release run of this test does not show it.
+// A reservation whose growth of the arrays of the progress of the levels meets an OutOfMemoryException of
+// the managed heap after some of its allocations, at the fault point of the pool in place of the last one
+// (NodePool.ArmLevelsFault), takes nothing and leaves the pool as it was, so that every later reservation and
+// publication works from it (docs/design/ordered-index.md, "The reservation"). The two arrays, of the tree
+// and of the base, have to stay of one length, since the pool reads and writes them without a check of their
+// bounds and would go past the end of a shorter one once the tree grows beyond it. A growth that assigned
+// each array as soon as it was allocated would leave them of two lengths, which only the Debug assertion of
+// the levels in the pool catches; the Release run of this test does not show it.
 //
 // The index is ByNumber of Counted (IndexSchema), whose roots lie in an arena of their own, so that its arena
 // holds its nodes alone (LevelBoundParts). A first insert makes a tree of one leaf, for which the pool counts

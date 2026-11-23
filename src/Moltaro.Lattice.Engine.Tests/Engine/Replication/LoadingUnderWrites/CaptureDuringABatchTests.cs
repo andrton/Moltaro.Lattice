@@ -5,14 +5,14 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.LoadingUnderWrites;
 
-// A capture for a new child that copies roots while the master publishes a write batch holds all of the
-// batch or none of it once the child is Ready (the brief of Epic 1, sprint S17, "Before the code of point
-// 2"). The capture copies a root at a time without the lock of the writes, and a copy that meets a member
-// whose stamp is above the position waits for the position, outside every lock and on the task of the
-// connection, never on the publishing thread; a copy may therefore hold some members in their state before
-// the batch and others in their state after it, but the capture started before the publication, so the
-// transaction of the batch is in the tail of the child, which applies it whole after the load: the child is
-// Ready at a position at or after the batch and holds every member as the master does, with its revision.
+// A capture for a new child that copies roots while the master publishes a write batch holds all of the batch
+// or none of it once the child is Ready. The capture copies a root at a time without the lock of the writes,
+// and a copy that meets a member whose stamp is above the position waits for the position, outside every lock
+// and on the task of the connection, never on the publishing thread; a copy may therefore hold some members
+// in their state before the batch and others in their state after it, but the capture started before the
+// publication, so the transaction of the batch is in the tail of the child, which applies it whole after the
+// load: the child is Ready at a position at or after the batch and holds every member as the master does,
+// with its revision.
 //
 // The child is held in the middle of its load (HeldLoad), with the small pieces copied and the last ones not
 // yet. The master commits a batch that replaces a copied piece and one not copied yet, deletes one not copied
