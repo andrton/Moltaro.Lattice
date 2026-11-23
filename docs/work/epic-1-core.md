@@ -8071,6 +8071,39 @@ publication, and B2, the commit of a batch on a master.
 - *The effort trial:* the implementers ran at Opus 5.5 xhigh, a critical sprint; two of them
   stopped short of their context, and fresh implementers continued.
 
+**The record of the tighter bound of the reservation** (S17, closed on 23 November 2026, a
+pull request of its own after part 2). The start of part 2 measured the linear bound of part
+1 at 9 to 11 times what a publication takes, and a probe on the workstation showed what that
+does: under a budget of 1 GiB the largest batch of the fixture's users accepted was 28,925
+where about 292,000 would fit, ten times fewer at every budget. That is the case of point 5,
+"a batch that fits is refused for its bound", so the planner took the tighter bound into this
+sprint with a target: the largest batch accepted within three times of the largest that fits.
+
+- The bound by levels: nodes p + 2 Σ s_j + 2q, places p + Σ s_j + q(H + 1), with
+  s_j = min(k, floor((P + k) / (c + 1))) for each level, P the progress of a level at the base
+  kept from what the tree writes and replaces, c the credit of a kind of node from its rule of
+  a split, and the last leaf with a double credit; the proof is in `ordered-index.md`, "The
+  reservation". A read pays nothing for it.
+- Figures, on the workstation: the pools of a waiting batch over its gross take 2.84 at 1,000
+  users, 1.85 at 10,000 and 1.51 at 100,000, against 10.7; the largest batch accepted 1.45
+  times fewer than the largest that fits under 1 GiB (202,109 against 292,326, measured) and
+  1.43 under the default budget (computed); a waiting batch of 10,000 holds 58.8 MiB of pools,
+  against 341.8 MiB.
+- Tests: a randomized test of the bound by levels committed before the bound; constructed cases
+  that make each term of the bound tight, after the randomized test caught only two of six
+  weakened variants. Every variant that can be killed is killed; the remove term has slack the
+  proof does not need, recorded and not tightened. Two expected figures followed the new bound
+  by the independent sum, on the coordinator's decision: the managed room of a reservation,
+  1,604 and 10,700 nodes where 4,500 and 30,000 were.
+- Review: three rounds. Round 1 found one P2, an OutOfMemoryException in the growth of the
+  arrays of the levels that left them of unequal length, read without bounds checks in
+  Release; the arrays are now allocated before they are assigned, with a fault point and a
+  test. The breaker drove 126 cases, 300 seeds in tight mode and 9 seeds through the database
+  in Debug, and nothing failed; 16 seeds reached the bound exactly.
+- Owed: its write lines (`index-writes`, `write-callers`, `batch-writes` with the pools against
+  the take) to the next start of the machine, with the variant for the fall of part 1, which
+  changes the same path, and part 3.
+
 #### S18 · Owned values, Lists and references
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
