@@ -227,8 +227,11 @@ batch.Delete<User>(3);
 LatticeWriteResult result = await batch.CommitAsync();
 ```
 
-The master executes the whole batch at one position or refuses it as a whole; no reader,
-on any node, sees a part of it. A batch takes one operation per entity, and its size is
+The master executes the whole batch at one position or refuses it as a whole. No reader,
+on any node, sees an entity of the batch changed before that position, and a read that
+begins at that position or later sees all of it; a search or an enumeration that runs while
+the batch is published is no snapshot and may return some of its entities as they were
+before and others as after. A batch takes one operation per entity, and its size is
 limited only by what the master can hold. It is not a transaction the application works inside: it cannot read, and it holds
 no lock while it is built.
 
