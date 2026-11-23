@@ -182,21 +182,24 @@ internal sealed class OrderedTree
     // native allocator or of the managed heap leaves nothing taken either.
     public bool TryReserve(int inserts, int removes)
     {
-        var room = Room();
-
-        if (!_pool.TryReserve(inserts, removes, _height, room))
+        if (!_pool.TryReserve(inserts, removes))
         {
             return false;
         }
 
-        try
+        var levels = NodePool.MostLevels(_height, _pool.Inserts);
+
+        if (_path.Length < levels)
         {
-            GrowPath(NodePool.MostLevels(_height, _pool.Inserts));
-        }
-        catch
-        {
-            _pool.Release(inserts, removes, _height, room);
-            throw;
+            try
+            {
+                GrowPath(levels);
+            }
+            catch
+            {
+                _pool.Release(inserts, removes);
+                throw;
+            }
         }
 
         return true;
@@ -204,16 +207,16 @@ internal sealed class OrderedTree
 
     // For the writer, in the hold that prepares changes, once every index of them has what they need
     // (TryReserve): tops the pool up to the standing reserve, as far as the arena gives (NodePool.TopUp).
-    public void TopUp() => _pool.TopUp(_height, Room());
+    public void TopUp() => _pool.TopUp();
 
     // For the writer: gives back what TryReserve took for changes withdrawn before their publication, the
     // standing reserve with it (NodePool.Release).
-    public void Release(int inserts, int removes) => _pool.Release(inserts, removes, _height, Room());
+    public void Release(int inserts, int removes) => _pool.Release(inserts, removes);
 
     // For the writer, before a write is refused for memory: gives back to the arena every node of the pool
     // above the bound of the changes prepared and not published, the standing reserve with them
     // (NodePool.GiveBackReserve).
-    public void GiveBackReserve() => _pool.GiveBackReserve(_height, Room());
+    public void GiveBackReserve() => _pool.GiveBackReserve();
 
     // For the writer, in a publication: adds the entry, which the tree does not hold, by copies of the
     // nodes it changes from the reservation, each published by one store, and retires what they replace;
@@ -383,7 +386,7 @@ internal sealed class OrderedTree
 
     // For the tests of the engine: the bounds by levels the pool counts for the inserts and the removes given
     // from the tree as it is, the nodes they take and the places they use (NodePool.Bounds).
-    public (long Nodes, long Places) BoundsOf(int inserts, int removes) => _pool.BoundsAt(_height, inserts, removes);
+    public (long Nodes, long Places) BoundsOf(int inserts, int removes) => _pool.BoundsAt(inserts, removes);
 
     // For the tests of the engine: the credits of a leaf and of an inner node of the index (NodePool).
     public (int Leaf, int Inner) Credits => (_pool.LeafCredit, _pool.InnerCredit);
@@ -434,16 +437,13 @@ internal sealed class OrderedTree
     // OutOfMemoryException leaves them as they were, of one length, and a later reservation grows them all.
     private void GrowPath(int levels)
     {
-        if (_path.Length < levels)
-        {
-            var path = new ArenaAddress[levels];
-            var slots = new int[levels];
-            var replaced = new ArenaAddress[levels + 1];
+        var path = new ArenaAddress[levels];
+        var slots = new int[levels];
+        var replaced = new ArenaAddress[levels + 1];
 
-            _path = path;
-            _slots = slots;
-            _replaced = replaced;
-        }
+        _path = path;
+        _slots = slots;
+        _replaced = replaced;
     }
 
     // The inserts the root takes before it can split: a node with fewer than LeastSeparators separators,
