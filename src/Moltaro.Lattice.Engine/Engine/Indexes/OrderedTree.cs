@@ -388,6 +388,10 @@ internal sealed class OrderedTree
     // For the tests of the engine: the credits of a leaf and of an inner node of the index (NodePool).
     public (int Leaf, int Inner) Credits => (_pool.LeafCredit, _pool.InnerCredit);
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the arrays of
+    // the levels of the pool fails in place of its last allocation (NodePool.ArmLevelsFault).
+    public void ArmLevelsFault() => _pool.ArmLevelsFault();
+
     // For the tests of the engine (EngineDatabase.IndexNodes): every live node, in the order of a walk
     // from the root, a node before its children and the children of an inner node in their order, with
     // its level and a copy of each of its entries or separators. Under the lock of the writes.
@@ -426,14 +430,19 @@ internal sealed class OrderedTree
 
     // Room in the writer's path for the most levels the tree can have while the writes reserved wait, and
     // for the nodes one publication replaces, at most one more than the levels: a remove that merges two
-    // leaves replaces both and their parent.
+    // leaves replaces both and their parent. Every array is allocated before any is assigned, so that an
+    // OutOfMemoryException leaves them as they were, of one length, and a later reservation grows them all.
     private void GrowPath(int levels)
     {
         if (_path.Length < levels)
         {
-            _path = new ArenaAddress[levels];
-            _slots = new int[levels];
-            _replaced = new ArenaAddress[levels + 1];
+            var path = new ArenaAddress[levels];
+            var slots = new int[levels];
+            var replaced = new ArenaAddress[levels + 1];
+
+            _path = path;
+            _slots = slots;
+            _replaced = replaced;
         }
     }
 

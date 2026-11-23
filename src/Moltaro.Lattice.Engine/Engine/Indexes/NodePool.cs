@@ -88,6 +88,10 @@ internal sealed class NodePool
     // The ledger (see the class); a value, so that a reservation that is not made puts it back as it was.
     private Ledger _ledger;
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): whether the next growth of the
+    // arrays of the levels fails in place of its last allocation (ArmLevelsFault).
+    private bool _levelsFault;
+
     public NodePool(IndexLayout layout, Arena arena, RetiredMemory retired)
     {
         _layout = layout;
@@ -282,6 +286,12 @@ internal sealed class NodePool
         Trim(height, room, keepsReserve: true);
     }
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the arrays of the
+    // levels, in a reservation, throws OutOfMemoryException in place of its last allocation, once, after the
+    // others were made, as the managed heap can. A growth when no test armed it loads one field more, and
+    // nothing else reads it.
+    public void ArmLevelsFault() => _levelsFault = true;
+
     // The bounds by levels of the inserts and the removes given from the tree as it is, of the height given:
     // the nodes they take and the places they use, in any order of their publications (see the class).
     public (long Nodes, long Places) BoundsAt(int height, long inserts, long removes) =>
@@ -455,12 +465,30 @@ internal sealed class NodePool
     }
 
     // Room for the progress of the levels given, in the array of the tree as it is and in those of the base,
-    // each with what it holds.
+    // each with what it holds. Every array is allocated before any is assigned, so that an
+    // OutOfMemoryException of the managed heap leaves them as they were, of one length: the members that read
+    // them check no bound (ProgressAt, Levels).
     private void GrowLevels(int levels)
     {
-        Array.Resize(ref _progress, levels);
-        Array.Resize(ref _baseOne, levels);
-        Array.Resize(ref _baseTwo, levels);
+        var progress = new long[levels];
+        var baseOne = new long[levels];
+
+        // A test of the engine may fail the last allocation (ArmLevelsFault).
+        if (_levelsFault)
+        {
+            _levelsFault = false;
+
+            throw new OutOfMemoryException("The test failed the growth of the levels of the pool.");
+        }
+
+        var baseTwo = new long[levels];
+
+        _progress.CopyTo(progress, 0);
+        _baseOne.CopyTo(baseOne, 0);
+        _baseTwo.CopyTo(baseTwo, 0);
+        _progress = progress;
+        _baseOne = baseOne;
+        _baseTwo = baseTwo;
     }
 
     // Gives back what a reservation that is not made took: its nodes to the arena, in the reverse of their
