@@ -58,16 +58,17 @@ internal sealed class IndexedItems : IDisposable
     public static string KeyIndex(int field) => $"ByKey{field}";
 
     // Opens a database of the schema of so many key indexes, unique when unique is true, or the titled one,
-    // under the memory limit of a read given or none, and inserts the items through the class, one after
-    // the other on this thread.
-    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false, long? readMemoryLimit = null, bool unique = false)
+    // under the memory limit of a read given or none, with the inputs of the engine given (exception X3) or
+    // none, and inserts the items through the class, one after the other on this thread.
+    public static IndexedItems Load(int indexes, IReadOnlyList<Item> items, bool titled = false, long? readMemoryLimit = null, bool unique = false, EngineTestInputs? inputs = null)
     {
-        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
+        var options = new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = SchemaOf(indexes, titled, unique),
             ReadMemoryLimit = readMemoryLimit,
-        });
+        };
+        var database = inputs is null ? (EngineDatabase)LatticeDatabase.Create(options) : EngineDatabase.Create(options, inputs);
 
         database.OpenAsync().AsTask().GetAwaiter().GetResult();
 

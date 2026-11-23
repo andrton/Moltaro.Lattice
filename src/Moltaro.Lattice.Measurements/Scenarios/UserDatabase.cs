@@ -54,8 +54,9 @@ internal sealed class UserDatabase : IDisposable
     // children at the address given or at none, and inserts the users by name; with Region in Dictionary
     // storage when dictionaryRegion is true; without the three indexes of User when withoutIndexes is
     // true, the same users of a type that declares none; with the Unique marks of the scalar form when
-    // unique is true, so that ByLogin of User is unique.
-    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false, bool unique = false)
+    // unique is true, so that ByLogin of User is unique; with the inputs of the engine given (exception X3)
+    // or none.
+    public static UserDatabase Load(long? readMemoryLimit = null, TimeSpan? readTimeLimit = null, Uri? listenUri = null, bool dictionaryRegion = false, bool withoutIndexes = false, bool unique = false, EngineTestInputs? inputs = null)
     {
         var scalar = LatticeSchema.Compile(WithUserClass(ReferenceFixture.ScalarSchemaJson(unique)));
         var records = ReferenceFixture.Generate(scalar).ToList();
@@ -66,14 +67,15 @@ internal sealed class UserDatabase : IDisposable
         var copies = dictionaryRegion || withoutIndexes;
         var users = records.Where(record => record.EntityType.Name == "User").Select(user => copies ? CopyInto(schema, user) : user).ToList();
 
-        var database = (EngineDatabase)LatticeDatabase.Create(new LatticeDatabaseOptions
+        var options = new LatticeDatabaseOptions
         {
             PersistenceMode = LatticePersistenceModeEnum.MemoryOnly,
             Schema = schema,
             ReadMemoryLimit = readMemoryLimit,
             ReadTimeLimit = readTimeLimit,
             ListenUri = listenUri,
-        });
+        };
+        var database = inputs is null ? (EngineDatabase)LatticeDatabase.Create(options) : EngineDatabase.Create(options, inputs);
 
         database.OpenAsync().AsTask().GetAwaiter().GetResult();
 
@@ -118,6 +120,9 @@ internal sealed class UserDatabase : IDisposable
 
     // The counters of the engine, for a scenario that reports what the write coordinator formed.
     public EngineCounters Counters => _database.Counters;
+
+    // The instance, for a scenario that commits write batches and holds a read (batch-writes).
+    public EngineDatabase Database => _database;
 
     // The position the database has published.
     public LatticePosition Position => _database.Position;
