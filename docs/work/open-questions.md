@@ -89,6 +89,15 @@ in the meantime.
 | **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
 | **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
 
+### Q60. Which comparer do the `Dictionary` and the `HashSet` have that a read gives an entity class?
+
+| | |
+| --- | --- |
+| **Found** | 23 November 2026, the review of the contract of stage 5, part 1 of Epic 1 |
+| **Question** | For a record the remarks of `LatticeValueDeclaration.ValueType` state that a Map or a Set read back has the comparer of the schema. For a class, the table of `ILatticeDatabase.Set<TEntity>` names only `Dictionary<K, V>` and `HashSet<T>`. With a key compared without case, a copy built with the default comparer finds by lookup what the database does not, or misses what it finds |
+| **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
+| **Decides** | The planner, in the study of S19, before its contract step |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
