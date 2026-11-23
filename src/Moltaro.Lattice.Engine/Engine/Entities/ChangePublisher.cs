@@ -728,10 +728,24 @@ internal sealed class ChangePublisher
     }
 
     // The switch of the tests at a place of a publication, on the publishing thread under the lock of the
-    // writes; an exception of the action fails the publication there.
+    // writes; an exception of the action fails the publication there. The test of the field is inlined, so
+    // that a publication no test armed makes no call for the switch at any of its places: the ahead-of-time
+    // compiler for ARM64 leaves the whole a call at each place otherwise (listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void OfferPublicationSwitch(PublicationPointEnum point)
     {
-        if (_publicationSwitch is not null && _switchPoint == point)
+        if (_publicationSwitch is not null)
+        {
+            RunPublicationSwitch(point);
+        }
+    }
+
+    // The switch a test armed (OfferPublicationSwitch), run once, at the place it was armed for. Never
+    // inlined: only a test reaches it, and inlined at the four places it grows the publication.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void RunPublicationSwitch(PublicationPointEnum point)
+    {
+        if (_switchPoint == point)
         {
             Interlocked.Exchange(ref _publicationSwitch, null)?.Invoke();
         }
