@@ -7926,8 +7926,8 @@ guarantees; the record of part 2 lists them, each with its old and its new asser
 stricter reading was measured as rule B before the decision, and its figures are in the record.
 
 **The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
-by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
-at the close of the last part): part 1 is point 1 of the brief with the reservation of
+by the planner after its internal contract (a working document, removed at the close of
+part 3; what it decided is listed in the record of part 3): part 1 is point 1 of the brief with the reservation of
 point 5 and the check of a child's transaction on the state it leaves; part 2 is points 2
 to 4 with the revision of a member; part 3 is points 6 and 7. Each part is reviewed,
 broken and merged on its own; the Acceptance is not reworded, and part 1 closes no
@@ -8260,6 +8260,46 @@ coordinator of the epic. With it S17 is closed whole.
   - The write path after S17, a refactoring, its implementer and its narrow reviewer at Opus
     5.5 high: three rounds of review, with 3 P3 in the first, 2 P3 in the second and nothing
     above P4 in the third.
+
+- *What the internal contract of S17 decided,* the working document of the sprint, removed at
+  the close of this part, beyond the records above:
+  1. The revision of a member: the number of the member in its batch, from 1 for a batch of two
+     or more and 0 for a single write and a batch of one, kept in the reserved word of the root
+     entry and folded into the revision, the same on every node (the planner, 22 November 2026;
+     the record of part 2, B2).
+  2. A batch in which no member changes anything takes a position of its own (the owner,
+     "Changed by the owner on 22 November 2026" above).
+  3. The two tests of the contract stage that asserted `NotSupportedException` for the commit of
+     a batch went with the commit that made a batch execute, and "every test of
+     `WriteBatchTests`" in the Acceptance reads as every other test.
+  4. A step of a search whose take waited for a position goes on and is not walked again (the
+     owner's form C, "Changed by the owner on 23 November 2026" above; the record of part 2,
+     B1).
+  5. A search or an enumeration of several steps that runs across a publication may return some
+     members as they were before it and others as after; none is in its new state before the
+     position, and a read that begins at or after it sees every member (the same).
+  6. The barrier that `mutation-commands.md` and `unique-indexes.md` named was corrected out of
+     both with the read side of part 2, as `document-model.md` was for Q57.
+  7. A read that waits for a position ends when the position is published, when the instance
+     faults or when its token is cancelled (`arena-protocol.md`, the write batch extension).
+  8. A member is encoded at its `Add`: the core's `WriteBatch` takes the engine's encoder and
+     holds the encoded members, and the master prepares a batch by the path of a forwarded
+     write, so the encoding runs outside the lock of the writes, at the cost of a managed copy
+     of every root until the outcome of the batch (the record of part 2, B2).
+  9. The standing reserve keeps its definition, the ledger governs only the writes that wait,
+     and a withdrawal gives back the reserve as well, as `ordered-index.md` says (the planner;
+     the record of part 1, the three tests changed).
+  10. The bound of the places retired is p(2h + 3) + q(h + 2 + log2 p), the sketch of the study
+      not holding (the planner; the record of part 1).
+
+  The parts were proposed there and taken: point 1 with the reservation of point 5 and the
+  check of a child's transaction on the state it leaves; points 2 to 4 with the revision of a
+  member, which the coordinator split into the read side and the commit on a master; points 6
+  and 7 (the records of parts 1 and 2). Two traces of the same document found that no read runs
+  on a child before it is Ready, though its roots carry stamps above its position through the
+  load (`StampsAboveThePositionTests`), and that what the master copies for a loading child
+  during a publication leaves the child, at Ready, with all of a batch or none of it
+  (`CaptureDuringABatchTests`).
 
 **The record of the start of the machine before the close of S17** (23 November 2026, a
 rented ARM64 machine, 16 cores). It ran from 14:58 to 17:05 UTC: 108 timed runs, each with
