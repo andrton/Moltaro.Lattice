@@ -618,9 +618,9 @@ internal sealed class EntityTable
                         // entry the step meets is taken by its stamp, whatever its state, as a read takes it:
                         // the entry of an insert whose root is not installed yet as well, whose stamp is the
                         // mark until it is, so the take waits for the position of its publication. The step
-                        // goes on from there and does not walk again: an entity it passed in its state before
-                        // the publication stays passed, so a step, as separate reads may, can hold some
-                        // entities of a publication as they were before it and others as after
+                        // goes on from there: an entity it passed in its state before the publication stays
+                        // passed, so a step, as separate reads may, can hold some entities of a publication
+                        // as they were before it and others as after
                         // (docs/design/ordered-index.md, "How a range is walked").
                         ref var rootEntry = ref _roots.EntryOfSlot(identity.Slot);
                         TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out _, out var at);
