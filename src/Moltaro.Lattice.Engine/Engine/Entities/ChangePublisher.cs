@@ -255,42 +255,47 @@ internal sealed class ChangePublisher
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool FindTaken(Span<PreparedChange> changes, out TakenValue taken)
     {
-        if (changes.Length == 1 && (!changes[0].Table.HasUniqueIndex || changes[0].Kind == ChangeKindEnum.Delete))
+        if (changes.Length != 1)
+        {
+            return FindTakenOfSeveral(changes, out taken);
+        }
+
+        if (!changes[0].Table.HasUniqueIndex || changes[0].Kind == ChangeKindEnum.Delete)
         {
             taken = default;
 
             return false;
         }
 
-        return FindTakenChecked(changes, out taken);
+        return FindTakenOfOne(changes[0], out taken);
     }
 
-    // Reached only for one change that may set a value of a unique index, or for several changes: the check
-    // of FindTaken, for one change by its own descents, for several by each unique index of their entity
-    // types (the FindTaken of one index).
-    private bool FindTakenChecked(Span<PreparedChange> changes, out TakenValue taken)
+    // The check of FindTaken for one change that may set a value of a unique index: one descent for each
+    // unique index in which it sets a value.
+    private bool FindTakenOfOne(in PreparedChange change, out TakenValue taken)
     {
-        if (changes.Length == 1)
+        var indexes = change.Table.Indexes;
+        var current = new RootReader(_arena, change.Table.Layout!, change.Root);
+
+        for (var index = 0; index < indexes.Length; index++)
         {
-            ref var change = ref changes[0];
-            var indexes = change.Table.Indexes;
-            var current = new RootReader(_arena, change.Table.Layout!, change.Root);
-
-            for (var index = 0; index < indexes.Length; index++)
+            if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
             {
-                if (indexes[index].IsUnique && SetsValue(change, index) && indexes[index].TryFindOwner(current, out var owner))
-                {
-                    taken = new TakenValue(0, index, owner);
+                taken = new TakenValue(0, index, owner);
 
-                    return true;
-                }
+                return true;
             }
-
-            taken = default;
-
-            return false;
         }
 
+        taken = default;
+
+        return false;
+    }
+
+    // The check of FindTaken for several changes: each unique index of their entity types
+    // (FindTakenInIndex).
+    private bool FindTakenOfSeveral(Span<PreparedChange> changes, out TakenValue taken)
+    {
         var found = new TakenValue(int.MaxValue, 0, default);
 
         foreach (var table in TablesOf(changes))
@@ -304,7 +309,7 @@ internal sealed class ChangePublisher
             {
                 if (table.Indexes[index].IsUnique)
                 {
-                    FindTaken(changes, table, index, ref found);
+                    FindTakenInIndex(changes, table, index, ref found);
                 }
             }
         }
@@ -319,7 +324,7 @@ internal sealed class ChangePublisher
     // against each other, sorted by the order of the index, equal values next to each other. A conflict of a
     // change before the one found replaces it; one of the same change does not, so that of the indexes of one
     // change the one declared first stays.
-    private void FindTaken(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
+    private void FindTakenInIndex(Span<PreparedChange> changes, EntityTable table, int index, ref TakenValue found)
     {
         var unique = table.Indexes[index];
         var layout = table.Layout!;
