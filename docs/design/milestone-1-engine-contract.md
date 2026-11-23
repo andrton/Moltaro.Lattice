@@ -89,9 +89,11 @@ a node of 64 KiB holds four of its widest entries, each String part counted as a
 [ordered index](ordered-index.md#nodes-in-the-arena)). Numeric widths come from the
 schema; do not widen all small integer fields to Int64.
 
-Store small owned values <=64 bytes in the packed root tail when the root still
-fits its block: the descriptor's Inline kind stores root-relative offset/capacity
-and logical length. An index entry never points into a root: it holds a copy of a key
+An owned value takes no block and no descriptor of its own: its fields are flattened into
+the fixed part of the entity or of the record that holds it, behind a presence bit when it is
+nullable. Small strings, binaries and packed Lists <=64 bytes lie in the packed root tail when
+the root still fits its block: the descriptor's Inline kind stores the root-relative offset and
+the logical length. An index entry never points into a root: it holds a copy of a key
 of 64 bytes or less and references the text entry of a longer one ("Index preparation
 and traversal"), so a root that moves repairs no index. A partial update that outgrows
 inline capacity prepares an external block; the old inline span becomes counted root
@@ -118,11 +120,15 @@ not a second public object key or a durable revision.
 
 ## Collections and strings
 
-List stores its count and an ordered chunk directory. Fixed-width elements are
-packed by schema stride; complex elements contain owned descriptors. Indexing uses
-chunk arithmetic/directory lookup; insert/remove may prepare and shift the affected
-suffix. Never reorder elements to improve storage. Temporary work remains subject
-to the memory budget of the instance.
+A List has one of two forms, fixed by the schema. Elements that hold no descriptor are
+packed by their stride and stored as the bytes of a Binary value: the descriptor's length is
+those bytes, and the List lies inline, in one block or in chunks under a directory. Elements
+that hold descriptors are records, each a structure with room inline for its values: the
+descriptor's length is the count of the elements, and the records lie in one block when they
+fit one chunk, else in chunks under a directory, every chunk but the last holding the same
+number of whole records. Indexing uses chunk arithmetic/directory lookup; insert/remove may
+prepare and shift the affected suffix. Never reorder elements to improve storage. Temporary
+work remains subject to the memory budget of the instance.
 
 Map/Set use packed entries and linear lookup up to 8 elements initially. Larger
 values add a power-of-two open-addressed bucket directory, linear probing, cached
