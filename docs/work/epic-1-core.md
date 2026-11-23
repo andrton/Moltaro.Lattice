@@ -8564,9 +8564,9 @@ during catch-up is recorded and must be resolved by a delete before R.
   in their order against the state it finds and publishes them together with their index
   changes, or nothing; fields not named keep their values. `CommandChanged` says whether the
   command at that place, in the order the commands were added and counted from 0, changed
-  the entity; it is valid once the update has completed, alone or in a batch, and before
-  that, or for a number that is not a command of the update, it is the caller's mistake
-  (`InvalidOperationException`, `ArgumentOutOfRangeException`); it allocates nothing beyond
+  the entity; it is valid once the commit, of the update or of its batch, has returned a
+  result; before that, or after the commit threw, it is `InvalidOperationException`, and for
+  a number that is not a command of the update `ArgumentOutOfRangeException`; it allocates nothing beyond
   what the update holds. A Set member added that was present, and a Map key or a Set member
   removed that was absent, did not change the entity; every other command that was
   executed did. `MapSet` always counts as a change: the value it replaces is not compared
@@ -8722,7 +8722,8 @@ with that decision of the owner as its reason, and is entered with the code of t
   `[LatticeView(typeof(User))] public readonly ref partial struct UserView;` and
   `users.TryView("ada", static (UserView user) => user.Age, out var age)`. A generated
   property has the type of the property of the class for a fixed-width scalar, an Enum and
-  a Reference; a String and a Binary are a `LatticeValueView`; an owned value is the
+  a Reference whose key is fixed-width; a String, a Binary and a Reference whose key is
+  text are a `LatticeValueView`; an owned value is the
   generated view of its class; a List, a Map and a Set are the views of S21. The rules and
   the errors of S21 hold, and `BindingFailed` is reported when a view does not agree with
   the entity type of the database. When the schema is given to the build as a file, the
