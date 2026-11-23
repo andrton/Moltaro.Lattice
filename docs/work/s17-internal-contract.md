@@ -475,7 +475,7 @@ through the publisher of part 2, and a forwarded batch is published as a batch o
   `_prepared` and `_skipped`; a key `TryAdd` refuses is named twice (`NamedTwice`, as today), and `_skipped`
   becomes the count `SkippedStates` takes. Held by `KeyNamedOnceTests`, unchanged.
 - The room of a large transaction is not kept (the planner's answer to question 3): once a transaction that
-  named more keys than `ReceivedChanges.KeptRoom`, 1,024, is published or given back, the list of the prepared
+  named more keys than `KeptRoom`, 1,024 (a constant of `ChangePublisher` since), is published or given back, the list of the prepared
   changes and the set of the keys are let go, and the next transaction starts with new ones; up to that size
   both are cleared and used again, so an ordinary stream allocates nothing more. The constant says what it
   measures: the keys of one transaction whose room, about 160 bytes a key (a change of 96, an entry of 56 and
@@ -617,6 +617,9 @@ that returns to its ordinary size after a transaction above a threshold.
 - `ReceivedChanges.NameOnce` names a key in the set; `StartNext` empties both structures, or lets them go above
   `KeptRoom`.
 - The sample of a master and its child commits a batch through the child.
+- The scratch of the publisher (`ChangePublisher._claims`, `_freed`), found in review to keep the room of the
+  largest batch on every node, follows the same rule: a publication lets it go above `KeptRoom`, which became
+  one constant of `ChangePublisher` that `ReceivedChanges` uses as well (`PublisherScratchTests`).
 - Figures of the probe (Release, the workstation; the probe and its output in the folder of measurements of the
   part, outside the repository), batches of the fixture's users through a child, a request of 172 bytes a user:
   the managed bytes of the process over its start while the master holds the publication before the position,

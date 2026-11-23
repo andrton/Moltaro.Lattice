@@ -34,11 +34,11 @@ namespace Moltaro.Lattice.Engine.Entities;
 // the stores made stay, and the caller faults the database. A test of the engine fails the publication of
 // a write of a master between its two calls (Writes.WriteExecutor).
 //
-// It holds no state of its own but the scratch of a reservation of several changes, which a reservation
-// fills and the next one writes over, and which a publication lets go when it is larger than KeptRoom. What it changes — the arena, the table of root entries, the primary
-// and the secondary indexes of the tables of the database, the position clock and the retired list — has
-// one changing thread at a time, the holder of the lock of the writes, and every member runs under that
-// lock.
+// It holds no state of its own but the scratch of a reservation of several changes, which a reservation fills
+// and the next one writes over, and which a publication lets go when it is larger than KeptRoom. What it
+// changes — the arena, the table of root entries, the primary and the secondary indexes of the tables of the
+// database, the position clock and the retired list — has one changing thread at a time, the holder of the
+// lock of the writes, and every member runs under that lock.
 //
 // The stores of the stamp of a root entry in the publication of a replace and of a delete are adapted from
 // crossbeam (https://github.com/crossbeam-rs/crossbeam), the type SeqLock of
