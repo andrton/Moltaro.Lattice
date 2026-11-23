@@ -53,8 +53,15 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // is read from the checked bytes before anything is taken for it (Replication.Load.BlockImport), so a
 // skipped state takes nothing of the arena, the root table, the index or the retired list; for a String
 // key its text is decoded into a string first, the one allocation a skipped state makes beside a growth of
-// the list that remembers the keys a transaction names. A replaced root is placed for the lifetime of the
-// entity it replaces.
+// the set of the keys a transaction names. A replaced root is placed for the lifetime of the entity it
+// replaces.
+//
+// Each key once. A transaction names each key once: two changes of one key would be prepared against the
+// same state. The keys its effects name, prepared or skipped, are one set of (table, key) by the comparison
+// of the entity type (Entities.PublicationKeys), as the keys of a batch are on the master, so the check costs
+// one look into the set for each effect. The list of the prepared changes and that set serve every
+// transaction; after one that named more keys than KeptRoom both are let go, so a child does not keep the
+// room of the largest transaction it applied.
 //
 // Publication. A transaction at sequence s is published in the three steps of every publication: each
 // change makes its stores before the position, the position of the child becomes s once, then each change
@@ -97,6 +104,13 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 // yet and ends the following of one that is (Following.Follower).
 internal sealed class ReceivedChanges
 {
+    // The most keys a transaction may name for the child to keep the room it took, its list of prepared
+    // changes and its set of named keys, for the next transaction: about 160 bytes a key, a change of 96 bytes
+    // and an entry of the set of 56 with its bucket, so at most some 160 KiB kept between transactions. Up to
+    // it an ordinary stream uses the same two again and allocates nothing for them; after a larger
+    // transaction both are let go (StartNext).
+    private const int KeptRoom = 1024;
+
     private readonly Arena _arena;
 
     private readonly RootTable _roots;
@@ -123,11 +137,13 @@ internal sealed class ReceivedChanges
 
     // The changes prepared and not published yet, in the order they were received: not reserved while the
     // effects of their transaction are prepared, and reserved together once every one is (TryReserve).
-    private readonly List<PreparedChange> _prepared = [];
+    private List<PreparedChange> _prepared = [];
 
-    // The keys of the states the rule skipped since the last Publish: a skipped state names its key as
-    // much as a prepared change does (ThrowIfNamed).
-    private readonly List<(EntityTable Table, EntityKey Key)> _skipped = [];
+    // The keys the effects named since the last Publish, prepared or skipped (see the class, "Each key once").
+    private PublicationKeys _keys = new(0);
+
+    // The states the rule skipped since the last Publish.
+    private int _skipped;
 
     // The states of keys published, and those the rule skipped, since the instance opened, counted when
     // their transaction or root is published: a Delete of a key the child does not hold counts as
@@ -447,7 +463,7 @@ internal sealed class ReceivedChanges
         {
             received = _import.Check(ref rest, layout);
             key = KeyOf(table, received);
-            ThrowIfNamed(table, key);
+            NameOnce(table, key);
         }
         catch
         {
@@ -459,7 +475,7 @@ internal sealed class ReceivedChanges
 
         if (held && _roots.Entry(handle).LastMutationSequence >= lastMutation)
         {
-            _skipped.Add((table, key));
+            _skipped++;
 
             return true;
         }
@@ -514,7 +530,7 @@ internal sealed class ReceivedChanges
     {
         try
         {
-            ThrowIfNamed(table, key);
+            NameOnce(table, key);
         }
         catch
         {
@@ -524,7 +540,7 @@ internal sealed class ReceivedChanges
 
         if (!table.TryFind(key, out var handle, out var replaced) || _roots.Entry(handle).LastMutationSequence >= sequence)
         {
-            _skipped.Add((table, key));
+            _skipped++;
 
             return true;
         }
@@ -594,9 +610,8 @@ internal sealed class ReceivedChanges
         }
 
         AppliedStates += _prepared.Count;
-        SkippedStates += _skipped.Count;
-        _skipped.Clear();
-        _prepared.Clear();
+        SkippedStates += _skipped;
+        StartNext();
         _retired.AfterWrite();
     }
 
@@ -617,8 +632,27 @@ internal sealed class ReceivedChanges
             ReleaseHandle(change.Kind == ChangeKindEnum.Insert, change.Handle);
         }
 
-        _skipped.Clear();
-        _prepared.Clear();
+        StartNext();
+    }
+
+    // Under the lock of the writes, once a transaction or a root of the load is published or given back: the
+    // list of the prepared changes and the set of the named keys are emptied for the next one, or let go after
+    // one that named more keys than KeptRoom, so that the next starts with new ones (see the class, "Each key
+    // once"). Every prepared change names its key, so the set counts the room of both.
+    private void StartNext()
+    {
+        if (_keys.Count > KeptRoom)
+        {
+            _prepared = [];
+            _keys = new PublicationKeys(0);
+        }
+        else
+        {
+            _prepared.Clear();
+            _keys.Clear();
+        }
+
+        _skipped = 0;
     }
 
     // The key of a checked root, read where the root holds it and hashed under the seed of this instance.
@@ -634,25 +668,14 @@ internal sealed class ReceivedChanges
         return table.Keys.StoredKey(fixedPart);
     }
 
-    // A transaction names each key once: two changes of one key in one transaction would be prepared
-    // against the same state. An effect the rule skips names its key as well, so a key named again after
-    // it is refused too.
-    private void ThrowIfNamed(EntityTable table, in EntityKey key)
+    // The effect names its key (see the class, "Each key once"), whether the rule then prepares or skips its
+    // state, so a key named again after a skipped state is refused too. ValidationFailed for a key an earlier
+    // effect of the transaction named.
+    private void NameOnce(EntityTable table, in EntityKey key)
     {
-        foreach (var change in _prepared)
+        if (!_keys.TryAdd(table, key))
         {
-            if (ReferenceEquals(change.Table, table) && table.Keys.KeysEqual(change.Key, key))
-            {
-                throw NamedTwice(table, key);
-            }
-        }
-
-        foreach (var (skippedTable, skippedKey) in _skipped)
-        {
-            if (ReferenceEquals(skippedTable, table) && table.Keys.KeysEqual(skippedKey, key))
-            {
-                throw NamedTwice(table, key);
-            }
+            throw NamedTwice(table, key);
         }
     }
 

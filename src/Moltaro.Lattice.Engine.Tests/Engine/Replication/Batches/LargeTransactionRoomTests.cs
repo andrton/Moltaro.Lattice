@@ -18,7 +18,7 @@ public sealed class LargeTransactionRoomTests
 {
     private const int Effects = 100_000;
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Child_keeps_no_room_of_a_large_transaction_once_it_has_applied_the_next()
     {
         await using var master = await ReplicationNodes.OpenMasterAsync(PieceSchema.Schema);
