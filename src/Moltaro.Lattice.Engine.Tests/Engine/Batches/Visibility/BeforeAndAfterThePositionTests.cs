@@ -33,7 +33,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 // A search that runs across the publication, in one step or in several, may return some members as they
 // were before it and others as after, as separate reads may (decision on the document model): it states only
 // that no member is in its new state before s.
-public sealed class WholeOrNoneTests
+public sealed class BeforeAndAfterThePositionTests
 {
     public static IEnumerable<TheoryDataRow<string, string>> Cases =>
         from node in new[] { "master", "child" }

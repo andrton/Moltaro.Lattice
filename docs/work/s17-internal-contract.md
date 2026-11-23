@@ -215,8 +215,8 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    entry of an earlier member whose root is still old, then waits at a later stored member, and after
    the position returns the later and not the earlier, in one step. Proposed: a step whose take of an
    entry waited for the position walks again from where the step began; only steps that meet a member
-   pay. Held by `WholeOrNoneTests` at `AfterFirstChange` (the replace of 2 is the first change, the
-   replace of 1 lies before it in every index). *Decided by the owner on 23 November 2026* (form C, in
+   pay. Held by `BeforeAndAfterThePositionTests` at `AfterFirstChange` (the replace of 2 is the first
+   change, the replace of 1 lies before it in every index). *Decided by the owner on 23 November 2026* (form C, in
    B1 below): one step is not promised to be of one position; a step whose take waited goes on, and the
    walk again that B1 built is removed.
 5. **What an enumeration and a search of several steps owe.** Separate reads may combine states from
@@ -322,7 +322,7 @@ second walk after a take that waited, is gone in form C (below).
   и удаление старых папок."; the reading of the Acceptance he changed that day, which the document of the
   epic records). The engine owes five points, and a test holds each:
   1. no member of a batch is visible in its new state before its position on that node, by key, by a
-     search and by an enumeration, on a master and on a child: `WholeOrNoneTests`,
+     search and by an enumeration, on a master and on a child: `BeforeAndAfterThePositionTests`,
      `ChildPublicationTests`, `MergedTransactionPrefixTests`;
   2. a read that begins at or after the position sees every member: `ReadAtThePositionTests`, which
      reads while the old entries of the members are still in the indexes, and the searches the restated
@@ -330,8 +330,8 @@ second walk after a take that waited, is gone in form C (below).
   3. the position of an answer is never below a stamp it holds: the same tests, in which the only stamps
      above the position before the batch are those of its members, so a member in its new state at a
      position before the batch would fail them;
-  4. a read by key is exact: the reads by key of `WholeOrNoneTests` and `ChildPublicationTests`, whose
-     state follows their position;
+  4. a read by key is exact: the reads by key of `BeforeAndAfterThePositionTests` and
+     `ChildPublicationTests`, whose state follows their position;
   5. no read is left waiting after a fault, a close or a cancellation: `WaitingReadTests` and
      `ChildPublicationTests`, the close added by form C.
 
@@ -365,8 +365,8 @@ second walk after a take that waited, is gone in form C (below).
   (7 calls, 407 bytes) and `TrySearch` (2 calls, 214 bytes) are unchanged. The allocation tests of a read
   and of a search pass with their assertions as they were.
 - **The tests restated on the owner's word**, in a commit of their own after form C, by the restatement list
-  of B1: `WholeOrNoneTests`, `ChildPublicationTests` and `MergedTransactionPrefixTests`, each renamed to
-  what it now states. A search that runs across the publication finds no member before s, and at s or
+  of B1: `WholeOrNoneTests` (renamed `BeforeAndAfterThePositionTests` since), `ChildPublicationTests`
+  and `MergedTransactionPrefixTests`, each renamed to what it now states. A search that runs across the publication finds no member before s, and at s or
   later some of the members in their order and in their state after it (`BatchSchema.ExpectNoMemberBeforeThePosition`),
   in place of none or all; the same searches begun after the publication find every member. Before that
   commit, form C fails them as expected: `WholeOrNoneTests` at `AfterNewEntries` ("[11, 12]") and at
