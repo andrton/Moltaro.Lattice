@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 // the protection of reads and outside every lock (exception X6, the wait of a read for a step of a
 // publication), and only such a read waits; how each wait ends (the brief of Epic 1, sprint S17, the tests
 // of point 2):
-// - when the publication goes on, the read returns the state after the batch, at its position or later;
+// - when the publication goes on, the read returns the state after the batch, at its position or later, a
+//   search whose one wait is in the step that ends its walk as well;
 // - when the publication fails, a read that waits gives up with Unavailable, as the instance is Faulted,
 //   and the commit of the batch ends in IndeterminateOutcome;
 // - an asynchronous read ends with its token, OperationCanceledException, while the publication is still
@@ -49,6 +50,34 @@ public sealed class WaitingReadTests
 
         Assert.Equal(After(1), StateOf(answer.Entity));
         Assert.True(PositionSequence.Of(answer.Position) >= s);
+        await commit.WaitAsync(Bound);
+    }
+
+    [Theory]
+    [MemberData(nameof(Nodes))]
+    public async Task Search_whose_one_wait_is_in_the_step_that_ends_its_walk_returns_the_state_after_the_batch_at_its_position_or_later(string node)
+    {
+        await using var nodes = await BatchNodes.OpenAsync(node);
+        var items = nodes.Reader.Set<Item>();
+        var s = nodes.NextSequence;
+
+        using var held = HeldPublication.Arm(nodes.Reader, PublicationPointEnum.BeforePosition);
+        var commit = OwnThread.Run(() => OwnThread.Wait(Members(nodes.Master).CommitAsync(nodes.Session)));
+
+        await held.ReachedAsync();
+
+        // The login of item 1, which no other item holds: the one entry of the walk is the member's, whose root
+        // the step waits for, and the step that takes it sees the end of the walk.
+        var search = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(items.Index("ByLogin").FindAsync(IndexKey.Equal("login 1"), new LatticeFindOptions())));
+
+        Assert.False(search.IsCompleted, "A search of a member returned while the position of its batch was not published.");
+
+        held.Release();
+
+        var answer = await search.WaitAsync(Bound);
+
+        Assert.Equal(After(1), StateOf(Assert.Single(answer.Items)));
+        Assert.True(PositionSequence.Of(answer.Position) >= s, $"The search holds item 1 in its state after the batch at {PositionSequence.Of(answer.Position)}, before {s}.");
         await commit.WaitAsync(Bound);
     }
 
