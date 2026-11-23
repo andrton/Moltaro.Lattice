@@ -569,8 +569,13 @@ encoded, which the master checks as a child checks a root of a load, and execute
 batch is one request, which the master checks member by member and executes as one write.
 A forwarded batch of B bytes is held as about B bytes of managed memory on the child from
 its commit to the reply, 2B while its request is written from the encoded members, and on
-the master as B bytes of managed memory outside the memory budget from its first frame to
-its outcome, with B in the arena and B in the tail of the children. A large batch holds
+the master, outside the memory budget, as B for the request from its first frame to the
+outcome of the batch, B in the tail of the children and about 450 bytes a member of
+records — the member, its entry in the set of entities, the text of a String key, its
+change, its entity type and some five places of the retired list — beside B in the arena;
+measured with 100,000 users of the fixture, 96.9 MB were held at B = 17.2 MB, about 5.6B,
+and afterwards each child keeps B in the buffer of its stream (V1 of
+[the refactoring backlog](../work/refactoring.md)). A large batch holds
 back the later requests of its child until its last frame is sent, the child's
 acknowledgments passing between its frames, and the master reads no frame of that child
 while it checks the batch and prepares and publishes it. The reply of a forwarded write, a
