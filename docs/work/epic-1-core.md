@@ -8123,12 +8123,14 @@ sprint with a target: the largest batch accepted within three times of the large
 **The write path after S17** (23 November 2026, a branch of its own after the tighter bound).
 The variant for the fall of part 1 is applied on 0ab2dcc, and the switch of the publication
 is tested inline. By the rule of the three write findings, an insert into one Int64 index
-makes 25 + 2n calls where it made 33 + 3n at 0ab2dcc. Two of them are above the variant on
-ed81c76 (23 + 2n): the calls of `NodePool.LeftAfterMove`, which the tighter bound added where
-the inlined `MoveBase` was. The hash of the key, `PrimaryKeys.HashOf`, is a call again, as it
-was before part 1. `TryPrepareTwice` keeps the decision on a taken value out of line: 548
-bytes where it had 882, and 14 branches fewer, in a method every write runs on x64. The
-listings of ARM64, cross-built by NativeAOT (ilc) for linux-arm64 against a win-x64 CoreLib,
+makes 24 + 2n calls where it made 33 + 3n at 0ab2dcc. Against the variant on ed81c76
+(23 + 2n) it makes the two calls of `NodePool.LeftAfterMove`, which the tighter bound added
+where the inlined `MoveBase` was, and not the call of `PrimaryKeys.HashOf`, which the variant
+made and which x64 inlines here. The changes of the reservation stay a span: passing their
+first and their count instead saved a store only under the calling convention of Windows x64,
+and it made `HashOf` a call. `TryPrepareTwice` keeps the decision on a taken value out of
+line: 548 bytes where it had 882, and 14 branches fewer, in a method every write runs on x64.
+The listings of ARM64, cross-built by NativeAOT (ilc) for linux-arm64 against a win-x64 CoreLib,
 are not evidence of what an ARM64 process runs: by them an insert makes 30 + 2n calls where
 it made 40 + 3n, and a publication no longer calls the switch of the tests at four places.
 Listings taken on the ARM64 machine will replace them as evidence. The figure of the change
