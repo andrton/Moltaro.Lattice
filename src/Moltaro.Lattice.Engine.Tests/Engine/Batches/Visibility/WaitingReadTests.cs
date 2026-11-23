@@ -14,7 +14,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 // - when the publication fails, a read that waits gives up with Unavailable, as the instance is Faulted,
 //   and the commit of the batch ends in IndeterminateOutcome;
 // - an asynchronous read ends with its token, OperationCanceledException, while the publication is still
-//   held, and the database goes on afterwards.
+//   held, and the database goes on afterwards;
+// - when the node closes while the read waits, the close waits for the read and the read for the
+//   publication, which waits for nothing: once it goes on the read ends, with the state after the batch at
+//   its position or later, or with ObjectDisposedException for a step after the close, and the close ends.
 // The publication of the batch of BatchSchema is held after the stores of every member and before the
 // position (HeldPublication), on the master that publishes it or on a child that applies it; the read
 // switch tells that the read has found the root of its member.
@@ -102,6 +105,59 @@ public sealed class WaitingReadTests
         await nodes.Reader.WaitForPositionAsync(nodes.Session).AsTask().WaitAsync(Bound);
 
         Assert.Equal(After(1), StateOf(items.Get(1L)));
+    }
+
+    [Theory]
+    [MemberData(nameof(Nodes))]
+    public async Task Read_that_waits_for_the_position_of_a_batch_while_its_database_closes_ends_and_the_close_ends(string node)
+    {
+        await using var nodes = await BatchNodes.OpenAsync(node);
+        var items = nodes.Reader.Set<Item>();
+        var s = nodes.NextSequence;
+
+        using var held = HeldPublication.Arm(nodes.Reader, PublicationPointEnum.BeforePosition);
+        var commit = OwnThread.Run(() => OwnThread.Wait(Members(nodes.Master).CommitAsync(nodes.Session)));
+
+        await held.ReachedAsync();
+
+        var byKey = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(items.GetAsync(1L, new LatticeSession())));
+        var search = await StartAtTheRootAsync(nodes.Reader, () => OwnThread.Wait(items.Index("ByTag").FindAsync(IndexKey.Equal("new"), new LatticeFindOptions())));
+        var close = OwnThread.Run(() => nodes.Reader.DisposeAsync().AsTask().GetAwaiter().GetResult());
+
+        held.Release();
+
+        await close.WaitAsync(Bound);
+        await commit.ContinueWith(_ => { }, TaskScheduler.Default).WaitAsync(Bound);
+
+        var answer = await Ended(byKey);
+        var found = await Ended(search);
+
+        if (answer is { } read)
+        {
+            Assert.Equal(After(1), StateOf(read.Entity));
+            Assert.True(PositionSequence.Of(read.Position) >= s);
+        }
+
+        if (found is { } result)
+        {
+            Assert.All(result.Items, item => Assert.Equal(After(item.Id), StateOf(item)));
+            Assert.True(PositionSequence.Of(result.Position) >= s);
+        }
+    }
+
+    // The outcome of a read that ended within the bound: what it returned, or null when it ended with
+    // ObjectDisposedException, as a read after the close does.
+    private static async Task<T?> Ended<T>(Task<T> read)
+        where T : struct
+    {
+        try
+        {
+            return await read.WaitAsync(Bound);
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
     }
 
     // Starts the read on a thread of its own and returns once it has found the root of its member inside
