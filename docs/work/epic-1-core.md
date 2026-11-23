@@ -1296,6 +1296,7 @@ Why this order:
 | S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
+| S17R | Refactoring after S17 | Full | Done on 23 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
@@ -8359,6 +8360,32 @@ planner decided on it as follows.
   and the whole suite once (3,215 tests, none failed).
 
 ### Stage 5. The full type model and access
+
+**The record of S17R** (closed on 23 November 2026; its entries are W1 to W5 of the
+[refactoring backlog](refactoring.md), the architect's review after S17). It was
+coordinated by the eighth coordinator of the epic, who stays for the sprints of the night
+by the owner's word in the planner's session, not replaced at this boundary. The
+implementer and the narrow reviewer ran at Opus 5.5 high. Five commits, one entry each, W5
+the commit of comments and documents; no assertion changed and no test was removed, which
+the coordinator and the reviewer checked line by line. The JIT listings of the callers each
+entry names, a Release driver over the public API with tiered PGO off, its engine compared
+with the tree's build, are kept outside the repository: W1 makes three calls fewer on an
+insert and on a delete into an Int64 index (`TopUpIndexes` 4 → 3, `OrderedTree.TryReserve`
+5 → 4, `NodePool.TopUp` 4 → 3, `Trim` 5 → 4), while `NodePool.AfterPublication` is no
+longer inlined into the tree's (one call more a publication) and `LeftAfterMove` grows from
+680 to 895 bytes with no call; W3 takes the frame of the single path from 168 to 96 bytes;
+W2 leaves the path that succeeds as it was and makes fewer calls in the preparations of a
+child; W4 leaves the writers of the delivery identical. The review took one round: no P1,
+no P2, 2 P3 (two comments that cited what no longer said it) and P4s, of which one sentence
+at the root of `OrderedTree` was taken; the fix, comments only, was read by the
+coordinator. The hardest part to follow, by the reviewer: that the height and the room the
+pool keeps are never stale, which holds because every store to the root and the height of
+the tree sits in `Insert`, `Remove` or `Rewrite`, each ending in `AfterPublication`; a
+comment there now says so. Every suite at the head: 3,215 tests, 3,086 passing and 129
+skipped, in Debug and in Release. No start of the machine: the figures are owed to the
+start of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to 3 and
+`following-children`; if `index-writes` falls, the first remedy to try is to inline
+`NodePool.AfterPublication` again.
 
 #### S18 · Owned values, Lists and references
 
