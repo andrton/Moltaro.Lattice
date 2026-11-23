@@ -382,7 +382,8 @@ internal static class NestedValues
     // Allocates the blocks of a List of records, prepared and cleared: one block of kind Value up to
     // RecordsPerChunk records, else a directory and its chunks, every chunk but the last of RecordsPerChunk
     // records. The descriptor takes the address of the block or the directory. False when the arena refused
-    // one, with nothing of them left allocated.
+    // one, with nothing of them left allocated; an OutOfMemoryException of the native allocator passes on
+    // with nothing of them left allocated either, as ValueBlocks.TryStore leaves a value in chunks.
     private static bool TryAllocateRecords(ref ValueHolder holder, StructureLayout element, IList list, ref ValueDescriptor descriptor, ArenaAddress parent, int offset)
     {
         var perChunk = element.RecordsPerChunk;
@@ -412,27 +413,38 @@ internal static class NestedValues
         // The entries start zero, so that the free of a directory whose chunks are not all allocated frees
         // those that are.
         var entries = holder.Arena.Payload(directory);
+        var slotBytes = (long)Arena.BlockSizeFor(chunks * ValueBlocks.DescriptorSize);
 
         entries.Clear();
 
-        for (var chunk = 0; chunk < chunks; chunk++)
+        try
         {
-            var first = chunk * perChunk;
-            var length = BlockLength(element, list, first, Math.Min(perChunk, count - first), holder.Encoding);
-
-            if (!ValueBlocks.TryAllocate(holder.Arena, length, BlockKindEnum.Chunk, holder.Root, holder.LayoutVersion, directory, (uint)(BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize)), out var block))
+            for (var chunk = 0; chunk < chunks; chunk++)
             {
-                ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
+                var first = chunk * perChunk;
+                var length = BlockLength(element, list, first, Math.Min(perChunk, count - first), holder.Encoding);
 
-                return false;
+                if (!ValueBlocks.TryAllocate(holder.Arena, length, BlockKindEnum.Chunk, holder.Root, holder.LayoutVersion, directory, (uint)(BlockHeader.Size + (chunk * ValueBlocks.DescriptorSize)), out var block))
+                {
+                    ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
+
+                    return false;
+                }
+
+                holder.Arena.Payload(block).Clear();
+                slotBytes += Arena.BlockSizeFor(length);
+                ValueBlocks.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
             }
+        }
+        catch (OutOfMemoryException)
+        {
+            // The chunks allocated so far and the directory go before the failure passes on.
+            ValueBlocks.FreeBlocks(holder.Arena, directory, chunks: true);
 
-            holder.Arena.Payload(block).Clear();
-            holder.SlotBytes += Arena.BlockSizeFor(length);
-            ValueBlocks.Write(entries[(chunk * ValueBlocks.DescriptorSize)..], new ValueDescriptor { Kind = DescriptorKindEnum.Block, Length = (uint)length, Location = block.Value });
+            throw;
         }
 
-        holder.SlotBytes += Arena.BlockSizeFor(chunks * ValueBlocks.DescriptorSize);
+        holder.SlotBytes += slotBytes;
         descriptor.Location = directory.Value;
 
         return true;
