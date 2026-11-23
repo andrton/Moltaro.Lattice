@@ -1281,7 +1281,7 @@ Why this order:
 | S16 | Unique indexes | Full | Done on 22 November 2026 |
 | S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
-| S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Not started |
+| S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
 | S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Not started |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
@@ -7973,6 +7973,104 @@ sentence of it whole. It was coordinated by the sixth coordinator of the epic.
 - The effort trial: the implementer ran at Opus 5.5 xhigh, a critical sprint; step 1 took
   about 57 minutes, part 1 about 50, and the fixes of the three rounds about 37.
 
+**The record of S17, part 2** (closed on 23 November 2026). It was coordinated by the sixth
+coordinator of the epic, under the owner's departure from the rule of a coordinator a
+sprint (the [development process](process.md), "New sessions at a sprint boundary"). It is
+two halves reviewed one after the other on one branch: B1, the read side under a
+publication, and B2, the commit of a batch on a master.
+
+- *What it closes of the Acceptance:* every test of `WriteBatchTests` but the batch through a
+  child, and the two tests of `UniqueIndexTests` that commit a batch, pass with their
+  assertions unchanged, except the assertion the owner changed on 22 November and the
+  restatements of 23 November named below; the sample of unique indexes runs to the end;
+  all identities of a batch are claimed together and overlapping batches do not deadlock;
+  exchanges of unique values and a delete that frees a value; a failing member refuses the
+  batch and reports its number; a batch of 10,000 small entities and one larger than an
+  internal group; `CommitAsync` by the rule of every asynchronous member; a batch the budget
+  cannot hold is refused with `WriteRejected` and `Memory`; two members share the position
+  and their revisions do not satisfy a condition on each other; an internal group never
+  splits a batch; a transaction is exposed whole in the owner's reading of 23 November, on a
+  master and on a child that applies it. Left to part 3: the batch through a child, and "a
+  child never acknowledges a part" for a forwarded batch.
+- *B1.* The publication stores every member with its final stamp, an insert included, and
+  publishes the position last; a read does not accept a stamp above the position. The first
+  form added a second walk of a step that waited; its review and its breaker found that a
+  step still combined states across a publication (two P1; the soak of the breaker failed 6
+  of 20 cases without a switch). A study, the experiments of rules A, B, D and D' (not
+  merged, their branches kept), and the owner's question followed. Rule D could not see a
+  member a step passes with no take; rule B, a counter checked at every descent, held the
+  stricter reading at a cost of 4.5 times on a page at Offset 10,000 beside 1,000 batches a
+  second and no end at 10,000, and still made one step whole, not an answer. The owner chose
+  form C; the second walk, `waited` and the stand of `WalkProgress` went, and the tests that
+  demanded a whole answer from a search across a publication were restated on his word
+  (7e6baf1). The fix was given to a fresh implementer after a reviewed fix came back, as the
+  process asks.
+- *B2.* A member is encoded at its `Add`; one pending write holds a batch; the wait for a
+  holder of a value became the wait for an earlier write that shares an entity; unique
+  values are judged on the final state in two phases (Q58); the member's number is part of
+  its revision, in the reserved word of the root entry. Review: three rounds, and one more
+  for a P1. Round 2 found a retention (P2): a write that waited kept its inputs after its
+  outcome, so a kept task of `CommitAsync` kept every root; a retry in its test had hidden
+  it. Round 2 of B1 found, outside B1, a P1 on hardware that orders stores weakly: a replace
+  stored the member plainly after the root, so a reader on ARM64 could take a revision no
+  state had. x64 keeps stores in order and hides this class of defect; from now on the
+  rented ARM64 machine and the `arm64` job of CI, which sets `LATTICE_ORDERING_STRESS`, are
+  part of the bar for any change of the order of stores.
+- *Tests of step 1 changed:* the owner's change of 22 November (a batch of no-ops takes a
+  position of its own, 73dee74); the restatements to form C on his word of 23 November
+  (7e6baf1, each old and new assertion in its message); on the coordinator's decision, a
+  test whose batch shared an entity with a held write (af6af57), and the test of two
+  violated indexes read across members (c830179, red until 37185d6 made the fix).
+- *Breakers:* of B1, form C: 32 soak runs, 64 held cases, 24 cases of a fault, a close or a
+  cancellation, and the walk at most once, with nothing failed; of B2: 31 probes, one
+  failure, the failing member across entity types, which completed Q58.
+- *The start of the machine, in two halves* (a rented ARM64 machine, 16 cores): the write
+  half while the read side waited for the owner's answer, the read half after its review.
+  The write half died at its start, because three commits of S16 lived only on its deleted
+  branch; they came in a bundle. A watcher that matched its own command line reported it
+  running, and the machine stood idle for about 1 h 35 min. Lessons: a start that builds
+  commits outside `main` brings them in a bundle; a remote run counts as running only with
+  its built trees and a first result file with its time.
+  - Reads: no line falls. The new take of an entry costs nothing visible, the head over part
+    1 at 1.025 with one reader and 1.026 with eight. The targets of S14, part 2 are met at
+    the head: Int64 717 k against 700 k, a text of 8 bytes 457 k against 450 k, of 100 bytes
+    282 k against 200 k. L2 costs no read.
+  - The hold of a publication, readers of members on the master: none over 100 us for
+    batches of 1 and 32; up to the commit for 1,000 (1.8 ms, the longest read 2.1 to 2.6 ms);
+    for 10,000 at most 2.1 to 3.2 ms against a commit of 17.7 ms. Readers of other entities
+    are not held.
+  - ARM64 correctness: the ordering lane passed 20 of 20 on the head; the old order of the
+    member's store failed it 3 of 3 there, the stamp half of the revision differing, which
+    x64 cannot show; the soak of form C passed 5 of 5 (9.6 M observations); the revisions
+    passed 10 of 10.
+  - Batches, before the tighter bound of the pool: the pool held 9 to 11 times what a
+    publication takes; the final-state check costs about 2 us a member for each unique
+    index; the first single write beside an unpublished batch of 10,000 takes about 15 ms,
+    the claims being sorted on the first question (carried to S28).
+- *Three write findings, side by side* (ratios of medians, every round beyond the gauge):
+  - S16 as a whole: the fixture's users, an insert and a delete by name with one caller, at
+    0.962 of 57be01b; no step of S16 separates from the gauge (K1 of `refactoring.md`).
+  - Part 1, on writes that reserve in a secondary index: 2 to 6.5 % (one Int64 index,
+    inserts and deletes, 0.974 with one caller and 0.941 with eight; `unique-writes` 0.953 to
+    0.969). By listing, a write now makes 27 + 3n calls where it made 15 + n in the
+    reservation, the top-up and the trim, n being the nodes refilled: `Decide`, `FindTaken`,
+    `TablesOf` and `CountsOf` with full prologs, the ledger's `MoveBase` and `Targets`, a
+    read of the payload for each node of the pool, and the cold decision on a taken value
+    inlined into `TryPrepareTwice`. The workstation gave no direction. Owed: the variant that
+    brings the calls back to 16 + 2n, on the branch of the tighter bound, to the next start.
+  - Part 2, on an insert that grows the primary index: 2 to 4 %. By listing, tens of
+    nanoseconds (the switch of the publication tested four times, the member's store, the
+    checks of a batch in `WriteCoordinator.Start`), short of the measured fall; owed to the
+    next start, with the K1 trees rotated.
+  - The write gates and targets of the epic stay met at the head: G3 and G6 are far off
+    (about 770 k writes a second); the upkeep of one index is estimated at 1.13 to 1.23 times
+    the bare tree against the bound of 1.5; a replace that keeps every key runs at 0.94 of the
+    type without an index, as the owner accepted.
+- *Every suite at the head:* 3,189 tests, 3,052 passing, 137 skipped (the ordering lane), in
+  Debug and in Release.
+- *The effort trial:* the implementers ran at Opus 5.5 xhigh, a critical sprint; two of them
+  stopped short of their context, and fresh implementers continued.
+
 #### S18 · Owned values, Lists and references
 
 **Added by the planner on 18 November 2026: Epic 1 does not build this, and does not
@@ -8425,6 +8523,12 @@ change of the stored form and belongs to what a migration converts.
 prepared and not yet published; its bound is a requirement of S17.
 
 #### S28 · Durable commit
+
+**Carried from S17, part 2:** a prepared, unpublished batch sorts its claims of unique values
+on the first question a later write asks, which costs that write about 15 ms beside a batch
+of 10,000 members (the start of S17). In MemoryOnly nobody waits there; with a durable step
+a single write pays it while a batch is in its persistence step. Sort at the preparation, or
+not at all until asked, decided with the figure of this sprint.
 
 **Carried from S14, a question and not a decision:** whether a search may see inside a
 group of writes being published.
