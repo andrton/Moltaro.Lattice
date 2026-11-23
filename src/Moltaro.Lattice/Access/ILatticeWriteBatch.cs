@@ -10,7 +10,8 @@ namespace Moltaro.Lattice.Access;
 /// <b>What a batch guarantees.</b> The master executes all operations of a batch as one
 /// change at one position, or none of them, and a child applies it as a whole. No reader, on
 /// the master or on a child, sees an entity of the batch in its new state before that
-/// position, and a read that begins at that position or later sees all of the batch. A search
+/// position on that node, and a read that begins once its node has reached that position, as
+/// a read with the session of the commit does, sees all of the batch. A search
 /// or an enumeration that runs while the batch is published is no snapshot: it may return
 /// some entities of the batch as they were before it and others as after, as separate reads
 /// may. The operations may address different entity types of the same database.

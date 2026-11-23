@@ -5,8 +5,9 @@ namespace Moltaro.Lattice.Samples.Writes;
 
 // Several writes that have to succeed or fail together are submitted as one write batch.
 // The master executes the whole batch at one position, or nothing of it; no reader sees an
-// entity of it changed before that position, and a read that begins there or later sees all
-// of it. A batch may address different entity types, with classes and with records.
+// entity of it changed before that position on its node, and a read that begins once its node
+// has reached that position, as a read with the session of the commit does, sees all of it. A
+// batch may address different entity types, with classes and with records.
 internal static class WriteBatchSample
 {
     public static async Task RunAsync(LatticeSchema schema)

@@ -242,10 +242,10 @@ then gives up with `Unavailable` instead of waiting for a position that will nev
   between them.
 - **A write is whole.** Readers see the state before a write or after it, never a
   mixture. So do they each member of a batch, on the master and on a child: no answer
-  carries the position of the batch before all of it is visible, and a read that begins at
-  or after that position sees all of it. A search or an enumeration that runs while the
-  batch is published may return some members as they were before it and others as after,
-  as separate reads may.
+  carries the position of the batch before all of it is visible, and a read that begins
+  once its node has reached that position sees all of it. A search or an enumeration that
+  runs while the batch is published may return some members as they were before it and
+  others as after, as separate reads may.
 - **Cancellation is honest.** Before a write is handed to the persistence step, cancelling
   it withdraws it: it did not run and left nothing behind. After that, the call returns
   what really happened.
