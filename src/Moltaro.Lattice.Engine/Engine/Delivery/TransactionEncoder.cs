@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Moltaro.Lattice.Engine.Entities;
 using Moltaro.Lattice.Replication.Load;
 using Moltaro.Lattice.Replication.Transactions;
@@ -64,8 +63,7 @@ internal static class TransactionEncoder
             TransactionFormat.WriteHeader(bytes, sequence, effects);
         }
 
-        envelope[0] = (byte)EffectKindEnum.Write;
-        BinaryPrimitives.WriteUInt64LittleEndian(envelope[1..], (ulong)RootLength(change, arena));
+        TransactionFormat.WriteEnvelopeOfWrite(envelope, RootLength(change, arena));
         RootEnvelope.Write(envelope[TransactionFormat.WriteEnvelopeSize..], (uint)change.Table.EntityType.Id, sequence, change.Member);
         tail.Advance(start);
 
@@ -86,8 +84,7 @@ internal static class TransactionEncoder
             TransactionFormat.WriteHeader(bytes, sequence, effects);
         }
 
-        effect[0] = (byte)EffectKindEnum.Delete;
-        BinaryPrimitives.WriteUInt32LittleEndian(effect[1..], (uint)change.Table.EntityType.Id);
+        TransactionFormat.WriteEnvelopeOfDelete(effect, (uint)change.Table.EntityType.Id);
         tail.Advance(start);
         change.Table.Keys.WriteKey(change.Key, tail);
     }
@@ -106,7 +103,7 @@ internal static class TransactionEncoder
         var bytes = tail.GetSpan(Length);
 
         TransactionFormat.WriteHeader(bytes, sequence, TransactionFormat.UnchangedSize);
-        bytes[TransactionFormat.HeaderSize] = (byte)EffectKindEnum.Unchanged;
+        TransactionFormat.WriteUnchanged(bytes[TransactionFormat.HeaderSize..]);
         tail.Advance(Length);
     }
 }

@@ -45,6 +45,23 @@ internal static class TransactionFormat
         BinaryPrimitives.WriteUInt64LittleEndian(bytes[sizeof(ulong)..], (ulong)effectsLength);
     }
 
+    // The envelope of a Write, WriteEnvelopeSize bytes: its kind and the length of its root.
+    public static void WriteEnvelopeOfWrite(Span<byte> bytes, long rootLength)
+    {
+        bytes[0] = (byte)EffectKindEnum.Write;
+        BinaryPrimitives.WriteUInt64LittleEndian(bytes[1..], (ulong)rootLength);
+    }
+
+    // The envelope of a Delete, DeleteEnvelopeSize bytes: its kind and the type id of the entity.
+    public static void WriteEnvelopeOfDelete(Span<byte> bytes, uint typeId)
+    {
+        bytes[0] = (byte)EffectKindEnum.Delete;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes[1..], typeId);
+    }
+
+    // An Unchanged, UnchangedSize bytes: its kind.
+    public static void WriteUnchanged(Span<byte> bytes) => bytes[0] = (byte)EffectKindEnum.Unchanged;
+
     // Reads the envelope of the next effect from the effects of the transaction of the sequence and returns
     // its kind: for a Write the root, whose type id and last mutation are read, with the effects advanced
     // past it; for a Delete its type id, with the effects left at its key; for an Unchanged nothing more.
