@@ -22,20 +22,38 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
     private readonly EntityBinding<TEntity> _binding;
 
-    // Null for an entity type the engine does not store: nothing of it is ever read.
+    // Null for an entity type the engine does not store, nothing of which is ever read, and for one that
+    // holds an owned value or a List, which a read through a class does not make yet (Copier).
     private readonly ClassCopier<TEntity>? _copier;
 
     public ClassSet(SetOperations operations, EntityBinding<TEntity> binding)
     {
         _operations = operations;
         _binding = binding;
-        _copier = operations.Table.Layout is { } layout ? new ClassCopier<TEntity>(binding, layout) : null;
+        _copier = operations.Table.Layout is { Structure.HoldsOwnedValuesOrLists: false } layout ? new ClassCopier<TEntity>(binding, layout) : null;
+    }
+
+    // The copier of a read: the one of the set, null for an entity type the engine does not store, whose read
+    // finds nothing. A read of an entity type that holds an owned value or a List is refused before it
+    // starts: building such an object from its root is not implemented yet.
+    private ClassCopier<TEntity> Copier => _copier ?? NoCopier();
+
+    // The copier of a set that has none: null for an entity type the engine does not store, the refusal for
+    // one whose objects a read does not make yet.
+    private ClassCopier<TEntity> NoCopier()
+    {
+        if (_operations.Table.Layout is null)
+        {
+            return null!;
+        }
+
+        throw new NotSupportedException($"A read of {_binding.EntityType.Name} through a class is not implemented yet: it holds owned values or Lists. Read it by name.");
     }
 
     public LatticeEntityType EntityType => _binding.EntityType;
 
     public ILatticeIndex<TEntity> Index(string indexName) =>
-        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(_copier!));
+        SetIndex<ClassCopy<TEntity>, TEntity>.Resolve(_operations, indexName, new ClassCopy<TEntity>(Copier));
 
     public TEntity? Get<TKey>(TKey key)
         where TKey : notnull =>
@@ -50,7 +68,7 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         var entityKey = KeyArgument.Of(_operations.Table, key);
 
-        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(_copier!), out revision, out _);
+        entity = _operations.TryRead<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(Copier), out revision, out _);
 
         return entity is not null;
     }
@@ -60,17 +78,17 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(_copier!), session, cancellationToken);
+        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(Copier), session, cancellationToken);
     }
 
     public IEnumerable<TEntity> Enumerate() =>
-        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!));
+        _operations.Enumerate<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(Copier));
 
     public IAsyncEnumerable<TEntity> EnumerateAsync(LatticeSession session, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(_copier!), session, cancellationToken);
+        return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(Copier), session, cancellationToken);
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>

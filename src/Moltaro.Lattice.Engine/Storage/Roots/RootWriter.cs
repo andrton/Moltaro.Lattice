@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -9,7 +10,10 @@ namespace Moltaro.Lattice.Storage.Roots;
 
 // Writes one root: collects the values of its fields, validates them and allocates in the arena
 // what they need, placed as its RootLayout says. A root is written and read field by field, so
-// that neither a class nor a record has to box its values. The blocks are the private blocks of a
+// that neither a class nor a record has to box its scalar values; an owned value and a List are
+// set whole, each with the tree beneath it (SetOwned, SetList), placed by NestedValues: the fields
+// of an owned value in the fixed part of its holder, the records of a List inline, in one block or
+// in chunks. The blocks are the private blocks of a
 // write that is not published yet (arena protocol, "Read and mutation paths").
 //
 // Every block the writer allocates belongs to the root that the handle root names: its header
@@ -66,8 +70,8 @@ namespace Moltaro.Lattice.Storage.Roots;
 // block or its chunks, because the span it comes in lives only for that call. A value is stored
 // whole or not at all (ValueBlocks.TryStore), so a descriptor in the image names a whole value or
 // nothing, and everything the writer holds is reachable from the image, where Complete or Abandon
-// frees it. Once the arena refused a block, the writer allocates nothing more: Complete refuses the
-// entity anyway.
+// frees it; the blocks of a List's records name, in their turn, what the records hold. Once the arena
+// refused a block, the writer allocates nothing more: Complete refuses the entity anyway.
 //
 // As a ref struct it lives on the stack of the method that writes the root: it cannot be kept on
 // the heap or across an await. It is passed by reference and never copied: a copy would share the
@@ -373,6 +377,21 @@ internal ref struct RootWriter
         PlaceValue(stored, length, ref source);
     }
 
+    // Sets an owned value of the entity, of the owned type of the field, as a record holds it: its fields,
+    // flattened into the root (StructureLayout), each placed as a field of its type is, at every depth, those
+    // of its own owned values and Lists included (NestedValues). A field of the owned value without a value is
+    // null; the validation of the core has checked that it may be. Text that is not well-formed, and a value or
+    // a List above its bound, at any depth, is refused with ValidationFailed as by SetString, and an
+    // OutOfMemoryException of the native allocator passes through; then what the owned value placed before
+    // is the writer's, so a caller abandons the writer, which frees it. Not for a root for a forwarded write,
+    // which does not carry nested values yet: NotSupportedException.
+    public void SetOwned(LatticeField field, LatticeOwnedValue value) => SetNested(field, StoredTypeEnum.Owned, nameof(SetOwned), value);
+
+    // Sets a List of the entity, the List<T> a record holds for it, placed in the form of its element: as the
+    // bytes of a Binary value when its elements hold no descriptor, as records otherwise, whatever their depth
+    // (NestedValues). An element given as null is null. The refusals are those of SetOwned.
+    public void SetList(LatticeField field, object value) => SetNested(field, StoredTypeEnum.List, nameof(SetList), value);
+
     // Sets the value of a Binary field: the bytes as they are, in their order, placed by their
     // length as RootLayout says. More than the 268,173,376 bytes of one value is refused with
     // LatticeException, ValidationFailed, with the field named, at the call: nothing is allocated
@@ -443,7 +462,8 @@ internal ref struct RootWriter
         _arena.Header(root).LayoutVersion = _layout.LayoutVersion;
         Image[BlockHeader.Size.._rootBytes].CopyTo(_arena.Payload(root));
 
-        // The value blocks and the directories were allocated before their parent existed.
+        // The value blocks, the directories and the blocks of records the root block holds the descriptors of
+        // were allocated before their parent existed.
         var descriptors = new RootDescriptors(_layout, Image[BlockHeader.Size..]);
 
         while (descriptors.MoveNext())
@@ -504,6 +524,30 @@ internal ref struct RootWriter
 
         FreeValues();
         End(WriterStateEnum.Abandoned);
+    }
+
+    // An owned value or a List of the entity, written into the image of the root by NestedValues, with what it
+    // takes counted here.
+    private void SetNested(LatticeField field, StoredTypeEnum type, string member, object value)
+    {
+        ref readonly var stored = ref Take(field, type, member);
+
+        if (_exported is not null)
+        {
+            throw new NotSupportedException($"The field {Name(field)} is {field.Declaration.Type}, which a root for a forwarded write does not carry yet.");
+        }
+
+        var holder = new ValueHolder(_arena, _root, _layout.LayoutVersion, _layout.StringEncoding, Image, origin: 0, address: default, _rootBytes)
+        {
+            Refused = _refusedByArena,
+        };
+
+        NestedValues.Write(ref holder, _layout.Structure, 0, field.Ordinal, value);
+
+        _rootBytes = holder.InlineEnd;
+        SlotBytes += holder.SlotBytes;
+        _refusedByArena = holder.Refused;
+        MarkSet(stored, isNull: false);
     }
 
     // Every field that is not nullable was set; ValidationFailed for the first one that was not, with
@@ -681,10 +725,7 @@ internal ref struct RootWriter
             return;
         }
 
-        foreach (var descriptor in new RootDescriptors(_layout, Image[BlockHeader.Size..]))
-        {
-            RootStorage.FreeValue(_arena, descriptor);
-        }
+        RootStorage.FreeImage(_arena, _layout, Image);
 
         SlotBytes = 0;
     }

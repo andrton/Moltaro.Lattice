@@ -32,7 +32,7 @@ public sealed class SchemaRuleTests
         { "Cells", 4_094, false },
     };
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [MemberData(nameof(FixedParts))]
     public async Task Entity_whose_fixed_part_with_its_owned_values_fills_one_block_opens_and_one_byte_more_does_not(string name, int decimals, int bytes, bool nullable)
     {
@@ -52,7 +52,7 @@ public sealed class SchemaRuleTests
         await ExpectNotOpenedAsync(OwnedFieldSchema(name, decimals, bytes + 1, nullable), name);
     }
 
-    [Theory(Skip = SkipReason.NestedValues)]
+    [Theory]
     [MemberData(nameof(Records))]
     public async Task List_whose_element_record_fills_one_chunk_opens_and_one_field_more_does_not(string name, int decimals, bool withText)
     {

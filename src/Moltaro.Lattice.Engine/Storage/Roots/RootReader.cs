@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
 
@@ -73,33 +74,41 @@ internal readonly ref struct RootReader
     // Everything stored for the entity of the root, by the stored lengths: the bytes of the root block, its
     // header, its fixed part and its inline values, and the encoded bytes of every value kept outside it, in a
     // block of its own, in chunks with the 16 bytes its directory holds for each chunk, or in the entry of the
-    // text table a Dictionary text lies in, which every root that refers to it counts. What a search counts of
-    // an entity it holds in its answer (LatticeDatabaseOptions.ReadMemoryLimit): a measure from the lengths
-    // the descriptors of the root hold, read in one pass over them, not an account of the slots of the
+    // text table a Dictionary text lies in, which every root that refers to it counts; for a List of records,
+    // the payload of each block of its records, with the 16 bytes its directory holds for each chunk, and what
+    // its records hold outside them, at every depth. What a search counts of an entity it holds in its answer
+    // (LatticeDatabaseOptions.ReadMemoryLimit): a measure from the lengths the descriptors hold and the blocks
+    // of records report, read in one walk over the root (StructureWalk), not an account of the slots of the
     // arena. Not for a reader of a copy.
     public long EntityBytes()
     {
-        var bytes = (long)BlockHeader.Size + _payload.Length;
+        var counting = new Counting();
 
-        for (var index = 0; index < _layout.DescriptorCount; index++)
-        {
-            var place = _layout.DescriptorOffset - BlockHeader.Size + (index * ValueBlocks.DescriptorSize);
-            var descriptor = ValueBlocks.Read(_payload.Slice(place, ValueBlocks.DescriptorSize));
+        StructureWalk.WalkPayload(ArenaOfValues(), _layout, _payload, ref counting);
 
-            if (!ValueBlocks.LiesOutOfLine(descriptor))
-            {
-                continue;
-            }
+        return BlockHeader.Size + _payload.Length + counting.Bytes;
+    }
 
-            bytes += descriptor.Length;
+    // The value of an owned field, as a new LatticeOwnedValue of its owned type that holds every value
+    // beneath it, as a record holds it (NestedValues).
+    public LatticeOwnedValue GetOwned(LatticeField field)
+    {
+        ref readonly var stored = ref _layout.StoredFieldOf(field);
 
-            if (ValueBlocks.LiesInChunks(descriptor))
-            {
-                bytes += (long)ValueBlocks.ChunkCount((int)descriptor.Length) * ValueBlocks.DescriptorSize;
-            }
-        }
+        CheckType(field, stored, StoredTypeEnum.Owned, nameof(GetOwned));
 
-        return bytes;
+        return (LatticeOwnedValue)NestedValues.Read(ArenaOfValues(), _layout.Structure, NotNullPayload(stored), BlockHeader.Size, 0, field.Ordinal, _layout.StringEncoding)!;
+    }
+
+    // The value of a List field, as a new List of the form a record holds, with every element at every depth
+    // (NestedValues); the elements of a List whose elements hold no descriptor are read without a box.
+    public object GetList(LatticeField field)
+    {
+        ref readonly var stored = ref _layout.StoredFieldOf(field);
+
+        CheckType(field, stored, StoredTypeEnum.List, nameof(GetList));
+
+        return NestedValues.ReadList(ArenaOfValues(), _layout.ElementOf(stored), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
     }
 
     // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
@@ -248,6 +257,27 @@ internal readonly ref struct RootReader
     private ValueDescriptor Descriptor(LatticeField field, StoredTypeEnum type, string member) =>
         ValueBlocks.Read(Value(field, type, member));
 
+    // A field of the stored type, for a member that serves it.
+    private void CheckType(LatticeField field, in StoredField stored, StoredTypeEnum type, string member)
+    {
+        if (stored.Type != type)
+        {
+            throw new ArgumentException($"{member} does not serve the field {Name(field)}, which is {field.Declaration.Type}.", nameof(field));
+        }
+    }
+
+    // The payload of the root, after checking that the value of the field, which may be an owned value with
+    // no bytes of its own, is not null.
+    private ReadOnlySpan<byte> NotNullPayload(in StoredField stored)
+    {
+        if (HoldsNull(stored))
+        {
+            throw new InvalidOperationException($"The field {Name(stored.Field)} is null; ask IsNull first.");
+        }
+
+        return _payload;
+    }
+
     private ReadOnlySpan<byte> NotNull(in StoredField stored)
     {
         if (HoldsNull(stored))
@@ -259,4 +289,47 @@ internal readonly ref struct RootReader
     }
 
     private string Name(LatticeField field) => $"{_layout.EntityType.Name}.{field.Name}";
+
+    // What EntityBytes counts of the descriptors of a root, at every depth.
+    private struct Counting : IStructureVisitor
+    {
+        public long Bytes { get; private set; }
+
+        public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            switch (descriptor.Kind)
+            {
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked or DescriptorKindEnum.Text:
+                    Bytes += descriptor.Length;
+
+                    if (ValueBlocks.LiesInChunks(descriptor))
+                    {
+                        Bytes += (long)ValueBlocks.ChunkCount((int)descriptor.Length) * ValueBlocks.DescriptorSize;
+                    }
+
+                    break;
+
+                case DescriptorKindEnum.Records when descriptor.Location != 0:
+                    var address = ValueBlocks.AddressOf(descriptor);
+
+                    if (!NestedValues.LiesInChunks(descriptor, element!))
+                    {
+                        Bytes += arena.Header(address).PayloadLength;
+
+                        break;
+                    }
+
+                    var entries = arena.Payload(address);
+
+                    Bytes += entries.Length;
+
+                    for (var entry = 0; entry < entries.Length; entry += ValueBlocks.DescriptorSize)
+                    {
+                        Bytes += ValueBlocks.Read(entries[entry..]).Length;
+                    }
+
+                    break;
+            }
+        }
+    }
 }

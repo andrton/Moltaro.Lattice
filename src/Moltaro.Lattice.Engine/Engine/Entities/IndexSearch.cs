@@ -117,6 +117,12 @@ internal struct IndexSearch
     // failure the search kept and the time limit. On a failure of a limit it lets go of what the search
     // remembers: a search that failed returns nothing more, and every later step fails at the failure the
     // read limits keep before it would read it.
+    //
+    // Not inlined. Inlined into the step of a search (EntityTable.Step) with the look of the read limits inside
+    // it, it took the room the JIT gives to inlining there, and the look into the keys a lazy Find returned
+    // (ReturnedKeys.Contains), made for every entity it meets, became a call, in the JIT listing of a Release
+    // build. Called, it is the one call a round of the step makes.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public void CheckRound(long started, CancellationToken cancellationToken, string entityName, string? indexName)
     {
         if (Limits.FailureOfRound(started, cancellationToken, entityName, indexName) is { } failure)

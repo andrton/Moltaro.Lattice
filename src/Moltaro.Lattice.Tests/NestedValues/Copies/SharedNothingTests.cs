@@ -10,7 +10,7 @@ namespace Moltaro.Lattice.Tests.NestedValues.Copies;
 // By name and through the class, with NestedSchema.Full, which holds a value at every depth.
 public sealed class SharedNothingTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Two_reads_of_one_entity_by_name_share_nothing_at_any_depth()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

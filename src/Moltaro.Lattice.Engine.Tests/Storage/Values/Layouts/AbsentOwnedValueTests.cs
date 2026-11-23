@@ -30,7 +30,7 @@ public sealed class AbsentOwnedValueTests
             { 'Id': 2, 'Name': 'Point', 'Fields': [ { 'Id': 1, 'Name': 'Lat', 'Type': 'Float64' }, { 'Id': 2, 'Name': 'Lon', 'Type': 'Float64' } ] }
             """);
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Absent_owned_value_keeps_its_width_with_every_bit_beneath_it_set_and_every_byte_zero()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);
@@ -56,7 +56,7 @@ public sealed class AbsentOwnedValueTests
         Assert.Equal(DescriptorKindEnum.Inline, ValueBlocks.Read(payload.AsSpan(98 - 32)).Kind);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Owned_value_absent_inside_a_present_one_keeps_its_width_and_the_present_one_has_its_bits_clear()
     {
         await using var database = await EngineMaster.OpenAsync(Schema);

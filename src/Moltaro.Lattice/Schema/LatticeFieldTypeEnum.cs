@@ -94,18 +94,21 @@ public enum LatticeFieldTypeEnum : byte
     /// <summary>
     /// An owned value: a value of an owned type declared in the schema, see
     /// <see cref="LatticeValueDeclaration.OwnedType"/>, with fields of its own. It has no key
-    /// and is never shared: it belongs to the one entity that holds it, and once owned values
-    /// are stored it is written and read with that entity, as the remarks say. At every
-    /// position a record holds it as a <c>LatticeOwnedValue</c>,
+    /// and is never shared: it belongs to the one entity that holds it, and it is written and
+    /// read with that entity. At every position a record holds it as a <c>LatticeOwnedValue</c>,
     /// see <see cref="LatticeValueDeclaration.ValueType"/>, and a bound class as an object of
     /// the class that its owned type names, see <see cref="ILatticeDatabase.Set{TEntity}"/>.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares Owned values, and is compiled, saved and
-    /// loaded with them, and records and bound classes hold them, but storing them is not
-    /// implemented. Until then no write of an entity type that has an Owned field is carried
-    /// out: after the checks every write makes of its arguments and of the entity against the
-    /// schema, it throws <see cref="NotSupportedException"/>.
+    /// <b>Not implemented yet</b> for every use. An entity with owned values, Lists and
+    /// references is stored and read back by name, on a master, at every depth. Not yet: a read
+    /// through a class of an entity type that holds an owned value or a List, at any depth, which
+    /// throws <see cref="NotSupportedException"/> before it reads; a write batch with such an
+    /// entity, whose commit throws <see cref="NotSupportedException"/>; an index over a field
+    /// inside an owned value, which keeps its entity type from being stored, so that every write of
+    /// it throws <see cref="NotSupportedException"/> after the checks of its arguments and of the
+    /// entity; and a child of a master that stores such an entity type, whose open throws
+    /// <see cref="NotSupportedException"/>.
     /// </remarks>
     Owned = 21,
 
@@ -116,11 +119,8 @@ public enum LatticeFieldTypeEnum : byte
     /// another collection included.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares Lists, and is compiled, saved and loaded
-    /// with them, and records and bound classes hold them, but storing them is not
-    /// implemented. Until then no write of an entity type that has a List field is carried
-    /// out: after the checks every write makes of its arguments and of the entity against the
-    /// schema, it throws <see cref="NotSupportedException"/>.
+    /// <b>Not implemented yet</b> for every use: a List is stored and read back by name, and the
+    /// rest is not built yet, as the remarks of <see cref="Owned"/> say.
     /// </remarks>
     List = 22,
 
@@ -161,11 +161,10 @@ public enum LatticeFieldTypeEnum : byte
     /// deleting the target does not change the reference.
     /// </summary>
     /// <remarks>
-    /// <b>Not implemented yet.</b> A schema declares references, and is compiled, saved and
-    /// loaded with them, and records and bound classes hold them, but storing them is not
-    /// implemented. Until then no write of an entity type that has a Reference field is
-    /// carried out: after the checks every write makes of its arguments and of the entity
-    /// against the schema, it throws <see cref="NotSupportedException"/>.
+    /// <b>Not implemented yet</b> for every use: a reference is stored and read back by name, and
+    /// through a class when its entity type holds no owned value and no List; a write batch and a
+    /// child are not built yet for an entity type that holds one, as the remarks of
+    /// <see cref="Owned"/> say.
     /// </remarks>
     Reference = 25,
 }

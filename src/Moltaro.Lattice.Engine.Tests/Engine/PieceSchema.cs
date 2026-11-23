@@ -9,7 +9,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine;
 // and Count, an Int32. By the formula of the brief of S05 ("The fixed part") its fixed part is the
 // 32 bytes of the header, a null bitmap of one byte for the two nullable fields, the 8 bytes of Id,
 // one descriptor of 16 bytes for each of the three String and Binary fields and the 4 bytes of
-// Count: 93 bytes. Holder has the key Id and a List field: the engine cannot store it yet.
+// Count: 93 bytes. Holder has the key Id and a Map field: the engine cannot store it yet.
 internal static class PieceSchema
 {
     public const int FixedSize = 32 + 1 + 8 + (3 * 16) + 4;
@@ -30,7 +30,7 @@ internal static class PieceSchema
             },
             {
               "Id": 2, "Name": "Holder",
-              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "List", "Element": { "Type": "String" } } ],
+              "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "Lines", "Type": "Map", "Key": { "Type": "String" }, "Value": { "Type": "String" } } ],
               "PrimaryKey": [1]
             }
           ]

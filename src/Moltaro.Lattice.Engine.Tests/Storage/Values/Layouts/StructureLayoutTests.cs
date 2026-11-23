@@ -30,7 +30,7 @@ public sealed class StructureLayoutTests
           { 'Id': 4, 'Name': 'Geo', 'Type': 'Owned', 'OwnedType': 'Point', 'Nullable': true } ] }
         """;
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void Owned_values_are_flattened_into_the_root_in_the_order_of_the_paths_with_a_bit_for_every_field_beneath_a_nullable_one()
     {
         // Item: Id; Home, a nullable Address; Count, an Int16; Work, an Address that is not nullable.
@@ -63,7 +63,7 @@ public sealed class StructureLayoutTests
         ExpectField(layout, item, "Work.Geo.Lon", StoredTypeEnum.Float64, offset: 76, width: 8, nullBit: 10);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void A_reference_is_a_field_of_the_type_of_its_targets_key()
     {
         // Item: Id; Parent, a nullable reference to Item, whose key is an Int64; Owner, to Named, whose key is a
@@ -82,7 +82,7 @@ public sealed class StructureLayoutTests
         ExpectField(layout, item, "Small", StoredTypeEnum.UnsignedInteger, offset: 65, width: 2, nullBit: StoredField.NoNullBit);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void A_List_is_one_descriptor_and_the_record_of_its_element_is_the_structure_of_the_element()
     {
         var layout = LayoutOf(
@@ -122,7 +122,7 @@ public sealed class StructureLayoutTests
         ExpectElement(layout, item, "Owners", size: 16, descriptors: 1, recordsPerChunk: 818, mostElements: 4_094 * 818);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public void The_descriptors_of_a_root_with_owned_values_and_Lists_are_one_run_after_its_fixed_fields()
     {
         // Item: Id; Home, a nullable Address; Tags, a List of String. The fixed fields: Id, Home.Zip,

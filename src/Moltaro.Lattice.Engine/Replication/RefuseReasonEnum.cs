@@ -19,4 +19,8 @@ internal enum RefuseReasonEnum : ushort
 
     // The peer is not a child.
     Role = 5,
+
+    // The master stores entities that a child does not receive yet: entities of a type that holds an owned
+    // value, a List or a Reference. The child fails its open with NotSupportedException.
+    NestedValues = 6,
 }

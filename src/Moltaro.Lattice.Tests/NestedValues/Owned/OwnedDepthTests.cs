@@ -27,7 +27,7 @@ public sealed class OwnedDepthTests
         Assert.Equal(LatticeErrorEnum.InvalidSchema, exception.Error);
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Owned_value_is_read_back_present_down_to_every_depth_and_absent_below_it()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);
@@ -44,7 +44,7 @@ public sealed class OwnedDepthTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Absent_owned_value_replaced_by_a_present_one_and_back_is_read_back_each_time_at_every_depth()
     {
         await using var database = await TestDatabases.OpenMasterAsync(Schema);

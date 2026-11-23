@@ -146,6 +146,10 @@ public interface ILatticeDatabase : IAsyncDisposable, IDisposable
     /// and its waits for the data of the load included.
     /// </param>
     /// <exception cref="InvalidOperationException">The database has already been opened.</exception>
+    /// <exception cref="NotSupportedException">
+    /// A child whose master stores an entity type that holds an owned value, a List or a reference:
+    /// a child does not receive such entities yet, and the instance is closed.
+    /// </exception>
     /// <exception cref="LatticeException">
     /// <see cref="LatticeErrorEnum.InvalidConfiguration"/>: a master could not listen at its
     /// <see cref="LatticeDatabaseOptions.ListenUri"/>, because the address is already in use for

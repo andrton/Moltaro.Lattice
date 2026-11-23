@@ -3,22 +3,25 @@ using Moltaro.Lattice.Storage.Values;
 namespace Moltaro.Lattice.Storage.Roots;
 
 // Operations on one whole root in the arena, by the layout it was written with, and on one descriptor of a
-// root. What a descriptor holds outside the root block is decided here by its kind, and only here: a Block
-// or a Chunked descriptor names blocks the root owns (Values.ValueBlocks), a Text descriptor holds one
-// reference to an entry of the text table (Text.TextTable), and an Inline or a Null descriptor holds
-// nothing outside the block. An operation of a root walks its descriptors (RootDescriptors) and applies
-// the operation of one descriptor to each.
+// root. What a descriptor holds outside the block that holds it is decided here by its kind, and only here:
+// a Block or a Chunked descriptor names blocks the root owns (Values.ValueBlocks), a Records descriptor names
+// the block or the directory of the records of a List, which the root owns as well, a Text descriptor holds
+// one reference to an entry of the text table (Text.TextTable), and an Inline or a Null descriptor holds
+// nothing outside the block. An operation of a root walks every descriptor it owns at every depth, those of
+// the records of its Lists included, children first (StructureWalk), and applies the operation of one
+// descriptor to each.
 internal static class RootStorage
 {
     // Frees a root written with the layout: the root block and every block it owns, the value
-    // blocks, chunk directories and chunks that RootLayout places, and the reference each Text
-    // descriptor holds to the entry of its Dictionary text, which belongs to the text table and not to
+    // blocks, chunk directories, chunks and blocks of records that RootLayout places, and the reference each
+    // Text descriptor holds to the entry of its Dictionary text, which belongs to the text table and not to
     // the root (FreeValue). It does not touch the table of root entries; releasing the entry of the root
     // is a separate step (RootTable.Release).
     //
     // The root is recognized as RootReader recognizes it, and refused with ArgumentException in the
     // same cases, before anything is freed. Its descriptors are the only way to what it owns, so
-    // every owned block is freed first and the root block, which holds them, last.
+    // every owned block is freed first, the blocks a block of records names before that block, and the root
+    // block, which holds them, last.
     //
     // The caller frees a root only when no reader can reach its blocks any more
     // (docs/design/arena-protocol.md, "Deferred reclamation"). A retired root is freed in the same
@@ -27,13 +30,9 @@ internal static class RootStorage
     // is (Text.TextTable).
     public static void Free(Arena arena, RootLayout layout, ArenaAddress root)
     {
-        ArgumentNullException.ThrowIfNull(layout);
+        var freeing = new Freeing();
 
-        foreach (var descriptor in new RootDescriptors(layout, layout.RootPayload(arena, root)))
-        {
-            FreeValue(arena, descriptor);
-        }
-
+        StructureWalk.Walk(arena, layout, root, ref freeing);
         arena.Free(root);
     }
 
@@ -44,13 +43,9 @@ internal static class RootStorage
     // recognized as Free recognizes it, and refused in the same cases before anything is published.
     public static void Publish(Arena arena, RootLayout layout, ArenaAddress root)
     {
-        ArgumentNullException.ThrowIfNull(layout);
+        var publishing = new Publishing();
 
-        foreach (var descriptor in new RootDescriptors(layout, layout.RootPayload(arena, root)))
-        {
-            PublishValue(arena, descriptor);
-        }
-
+        StructureWalk.Walk(arena, layout, root, ref publishing);
         arena.Publish(root);
     }
 
@@ -67,81 +62,121 @@ internal static class RootStorage
     // look.
     public static long Retire(Arena arena, RootLayout layout, ArenaAddress root)
     {
-        ArgumentNullException.ThrowIfNull(layout);
+        var retiring = new Retiring();
 
-        var textBytes = 0L;
-
-        foreach (var descriptor in new RootDescriptors(layout, layout.RootPayload(arena, root)))
-        {
-            textBytes += RetireValue(arena, descriptor);
-        }
-
+        StructureWalk.Walk(arena, layout, root, ref retiring);
         arena.Retire(root);
 
-        return textBytes;
+        return retiring.TextBytes;
     }
 
-    // Frees what one descriptor of a block holds outside it: the blocks of a value the block owns, or the
-    // one reference a Text descriptor holds to its entry, which the text table releases: a block holds
-    // its references until it is freed (Text.TextTable). The one place where a reference goes: the
-    // free of a root here, and of the values of a root that was not completed (RootWriter,
-    // Replication.Load.BlockImport).
-    public static void FreeValue(Arena arena, in ValueDescriptor descriptor)
+    // Frees what one descriptor of a root holds outside the block that holds it: the blocks of a value the
+    // root owns, or the one reference a Text descriptor holds to its entry, which the text table releases: a
+    // block holds its references until it is freed (Text.TextTable). For a List of kind Records, whose element
+    // has the layout given, everything its records own first, then its blocks. The one place where a
+    // reference goes: the free of a root here, of the values of a root that was not completed (RootWriter,
+    // Replication.Load.BlockImport), and of a List a writer did not complete (NestedValues).
+    public static void FreeValue(Arena arena, in ValueDescriptor descriptor, StructureLayout? element)
     {
-        switch (descriptor.Kind)
-        {
-            case DescriptorKindEnum.Text:
-                arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
-                break;
+        var freeing = new Freeing();
 
-            case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
-                ValueBlocks.Free(arena, descriptor);
-                break;
-        }
+        StructureWalk.WalkValue(arena, descriptor, element, default, 0, ref freeing);
     }
 
-    // Publishes what one descriptor of a root holds outside its block: the blocks of a value the root
-    // owns, or the entry of a Text descriptor, which the text table publishes while it is still prepared.
-    private static void PublishValue(Arena arena, in ValueDescriptor descriptor)
+    // Frees everything the descriptors of the image of a root that a writer did not complete name, at every
+    // depth (RootWriter): the image stands for a root block that was never allocated.
+    public static void FreeImage(Arena arena, RootLayout layout, Span<byte> image)
     {
-        switch (descriptor.Kind)
-        {
-            case DescriptorKindEnum.Text:
-                arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
-                break;
+        var freeing = new Freeing();
 
-            case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
-                ValueBlocks.Publish(arena, descriptor);
-                break;
-        }
+        StructureWalk.WalkImage(arena, layout, image, ref freeing);
     }
 
-    // Retires what one descriptor of a published root holds outside its block: the blocks of a value the
-    // root owns. The entry of a Text descriptor is not retired; the bytes of the slots it takes are
-    // returned instead, for the count of Retire; 0 for every other descriptor.
-    private static long RetireValue(Arena arena, in ValueDescriptor descriptor)
-    {
-        switch (descriptor.Kind)
-        {
-            case DescriptorKindEnum.Text:
-                return ValueBlocks.SlotBytesOf((int)descriptor.Length);
+    // Frees what one descriptor of a root that is no List of kind Records holds outside its block, as
+    // FreeValue does (Replication.Load.BlockImport, which receives no such List).
+    public static void FreeValue(Arena arena, in ValueDescriptor descriptor) => FreeValue(arena, descriptor, null);
 
-            case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
-                ValueBlocks.Retire(arena, descriptor);
-                break;
-        }
-
-        return 0;
-    }
-
-    // Names the root block as the parent of the blocks of the value one descriptor names, with the offset
-    // of the descriptor in the root block. The blocks of a Text descriptor belong to their entry, which no
-    // root block is the parent of.
+    // Names the block that holds a descriptor as the parent of the blocks of the value the descriptor names,
+    // with the offset of the descriptor in that block: the root block, when a writer completes the root. The
+    // blocks of a Text descriptor belong to their entry, which no root block is the parent of; an empty List of
+    // kind Records names no block.
     public static void AdoptValue(Arena arena, in ValueDescriptor descriptor, ArenaAddress root, int descriptorOffset)
     {
-        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked)
+        if (descriptor.Kind is DescriptorKindEnum.Block or DescriptorKindEnum.Chunked || (descriptor.Kind == DescriptorKindEnum.Records && descriptor.Location != 0))
         {
             ValueBlocks.Adopt(arena, descriptor, root, descriptorOffset);
+        }
+    }
+
+    // Frees what each descriptor holds outside its block (FreeValue).
+    private struct Freeing : IStructureVisitor
+    {
+        public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            switch (descriptor.Kind)
+            {
+                case DescriptorKindEnum.Text:
+                    arena.Texts.Release(ValueBlocks.AddressOf(descriptor));
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    ValueBlocks.Free(arena, descriptor);
+                    break;
+
+                case DescriptorKindEnum.Records when descriptor.Location != 0:
+                    ValueBlocks.FreeBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+            }
+        }
+    }
+
+    // Publishes what each descriptor of a root holds outside its block: the blocks of a value or of records
+    // the root owns, or the entry of a Text descriptor, which the text table publishes while it is still
+    // prepared.
+    private struct Publishing : IStructureVisitor
+    {
+        public readonly void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            switch (descriptor.Kind)
+            {
+                case DescriptorKindEnum.Text:
+                    arena.Texts.Publish(ValueBlocks.AddressOf(descriptor));
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    ValueBlocks.Publish(arena, descriptor);
+                    break;
+
+                case DescriptorKindEnum.Records when descriptor.Location != 0:
+                    ValueBlocks.PublishBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+            }
+        }
+    }
+
+    // Retires what each descriptor of a published root holds outside its block: the blocks of a value or of
+    // records the root owns. The entry of a Text descriptor is not retired; the bytes of the slots it takes
+    // are counted instead, for Retire.
+    private struct Retiring : IStructureVisitor
+    {
+        public long TextBytes { get; private set; }
+
+        public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
+        {
+            switch (descriptor.Kind)
+            {
+                case DescriptorKindEnum.Text:
+                    TextBytes += ValueBlocks.SlotBytesOf((int)descriptor.Length);
+                    break;
+
+                case DescriptorKindEnum.Block or DescriptorKindEnum.Chunked:
+                    ValueBlocks.Retire(arena, descriptor);
+                    break;
+
+                case DescriptorKindEnum.Records when descriptor.Location != 0:
+                    ValueBlocks.RetireBlocks(arena, ValueBlocks.AddressOf(descriptor), NestedValues.LiesInChunks(descriptor, element!));
+                    break;
+            }
         }
     }
 }

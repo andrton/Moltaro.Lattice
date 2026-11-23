@@ -185,7 +185,8 @@ internal sealed class EntityTable
         }
         catch (NotSupportedException exception)
         {
-            // A field the root layout cannot store yet: an owned value, a collection, a reference.
+            // What the root layout cannot store yet: a Map or a Set, or an index over a field inside an owned
+            // value.
             refusal = $"{exception.Message} The engine does not store the entity type {entityType.Name} yet, so it cannot be written.";
         }
 

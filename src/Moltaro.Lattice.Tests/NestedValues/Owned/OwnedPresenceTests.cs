@@ -79,7 +79,7 @@ public sealed class OwnedPresenceTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Owned_value_that_is_not_nullable_is_required_and_read_back_with_its_values()
     {
         await using var database = await NestedSchema.OpenMasterAsync();

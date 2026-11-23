@@ -11,7 +11,7 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 // TreeSchema, each replaced by every other shape.
 public sealed class TreeReplacementTests
 {
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Complete_write_replaces_the_whole_tree_and_frees_everything_the_old_one_owned()
     {
         for (var from = 0; from < TreeSchema.Shapes; from++)
@@ -26,7 +26,7 @@ public sealed class TreeReplacementTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Delete_of_a_tree_frees_every_block_it_owned_and_every_text_entry_only_it_named()
     {
         await using var database = await EngineMaster.OpenAsync(TreeSchema.Schema);

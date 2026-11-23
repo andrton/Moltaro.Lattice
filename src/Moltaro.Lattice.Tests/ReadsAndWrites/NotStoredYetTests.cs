@@ -2,8 +2,8 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites;
 
 // What the engine cannot store yet, and what it does with such an entity type. It stores every key type
 // of the catalog, a String compared with either comparison, an Enum field, both encodings, Dictionary
-// storage and unique indexes; it refuses an entity type with an owned value, a List, a Map, a Set or a
-// reference. Every write of such an entity type, an insert, a replace, an upsert and a delete, with or
+// storage, unique indexes, owned values, Lists and references; it refuses an entity type with a Map or a
+// Set. Every write of such an entity type, an insert, a replace, an upsert and a delete, with or
 // without a revision, is refused with NotSupportedException at the write, after the checks of its
 // arguments and the validation of the entity, in the order of Q25. A read of it by key finds nothing
 // and an enumeration of it is empty. Binding a class to it and selecting one of its indexes work.
@@ -14,19 +14,12 @@ public sealed class NotStoredYetTests
 {
     private static readonly Dictionary<string, Case> Cases = new Case[]
     {
-        Case.WithValue<Stamp>(
-            "Owned field",
-            value: "'Type': 'Owned', 'OwnedType': 'Stamp'",
-            recordValue: schema => new LatticeOwnedValue(OwnedStamp(schema)) { ["Text"] = "a" },
-            classValue: () => new Stamp { Text = "a" }),
-        Case.WithValue<List<string>>("List field", value: "'Type': 'List', 'Element': { 'Type': 'String' }", recordValue: _ => new[] { "a" }, classValue: () => ["a"]),
         Case.WithValue<Dictionary<string, int>>(
             "Map field",
             value: "'Type': 'Map', 'Key': { 'Type': 'String' }, 'Value': { 'Type': 'Int32' }",
             recordValue: _ => new Dictionary<string, int> { ["a"] = 1 },
             classValue: () => new() { ["a"] = 1 }),
         Case.WithValue<HashSet<int>>("Set field", value: "'Type': 'Set', 'Element': { 'Type': 'Int32' }", recordValue: _ => new[] { 1 }, classValue: () => [1]),
-        Case.WithValue<long>("Reference field", value: "'Type': 'Reference', 'EntityType': 'Item'", recordValue: _ => 2L, classValue: () => 2L),
     }.ToDictionary(@case => @case.Name);
 
     public static TheoryData<string> CaseNames => [.. Cases.Keys];
@@ -118,12 +111,6 @@ public sealed class NotStoredYetTests
         () => items.DeleteAsync(key, default(LatticeRevision), new LatticeSession()),
     ];
 
-    private static LatticeOwnedType OwnedStamp(LatticeSchema schema)
-    {
-        Assert.True(schema.TryGetOwnedType("Stamp", out var stamp));
-        return stamp;
-    }
-
     // One case: its schema, a key of its key type, and what makes a complete record and a
     // complete object of Item.
     private sealed record Case(string Name, LatticeSchema Schema, object Key, Func<LatticeSchema, object> RecordValue, ItemClass Class)
@@ -147,9 +134,6 @@ public sealed class NotStoredYetTests
         {
             var json = $$"""
                 {
-                  "OwnedTypes": [
-                    { "Id": 1, "Name": "Stamp", "ClrType": "{{typeof(Stamp).FullName}}", "Fields": [ { "Id": 1, "Name": "Text", "Type": "String" } ] }
-                  ],
                   "EntityTypes": [
                     {
                       "Id": 1, "Name": "Item", "ClrType": "{{typeof(Item<TKey, TValue>).FullName}}",
@@ -253,11 +237,5 @@ public sealed class NotStoredYetTests
         public string Text { get; set; } = "";
 
         public TValue Value { get; set; } = default!;
-    }
-
-    // The class of the owned type Stamp.
-    private sealed class Stamp
-    {
-        public string Text { get; set; } = "";
     }
 }

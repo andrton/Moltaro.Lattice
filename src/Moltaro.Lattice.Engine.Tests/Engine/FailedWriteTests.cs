@@ -65,7 +65,7 @@ public sealed class FailedWriteTests
         await ExpectNothingLeftAsync(LatticeErrorEnum.RevisionConflict, () => pieces.ReplaceAsync(PieceSchema.Of(404, name: 70_000), stale));
 
         // Refused as not stored yet, and by the check of its arguments.
-        var holder = new LatticeRecord(holders.EntityType) { ["Id"] = 1L, ["Lines"] = new[] { new string('l', 70_000) } };
+        var holder = new LatticeRecord(holders.EntityType) { ["Id"] = 1L, ["Lines"] = new Dictionary<string, string> { ["line"] = new string('l', 70_000) } };
         await Assert.ThrowsAsync<NotSupportedException>(async () => await holders.InsertAsync(holder));
         ExpectAsBefore();
         await Assert.ThrowsAsync<ArgumentException>(async () => await pieces.DeleteAsync("one"));

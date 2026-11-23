@@ -101,8 +101,10 @@ byte location escapes a gate.
 
 Other variable values <=4 KiB payload initially use one suitable block. Larger values
 use blocks with at most 65,504 payload bytes and a bounded directory of chunk
-descriptors. A chunk boundary is not a semantic string/collection boundary. Decoders
-carry Unicode/element state across chunks. Only affected chunks are prepared for
+descriptors. A chunk boundary is not a semantic string/collection boundary: a character, or
+the record of an element of a List whose elements hold no descriptor, may continue in the next
+chunk, and decoders carry it across; the record of an element that holds descriptors lies
+whole in one block, since a descriptor is never split. Only affected chunks are prepared for
 partial changes; full Save prepares a complete replacement without automatic diff.
 
 Use segmented managed arrays of 4,096 root entries. Initial logical entry fields:

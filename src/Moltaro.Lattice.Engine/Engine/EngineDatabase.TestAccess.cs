@@ -188,8 +188,30 @@ internal sealed partial class EngineDatabase
     public void ForEachLiveRoot(Action<Arena, RootLayout, RootHandle, ArenaAddress> action)
     {
         ArgumentNullException.ThrowIfNull(action);
+        ThrowIfNotReady();
+        _barrier.Enter();
 
-        throw new NotSupportedException("The live roots of a database are not given to a test yet.");
+        try
+        {
+            var parts = Part(_parts);
+
+            lock (parts.Writes)
+            {
+                for (var slot = 0u; slot < (uint)parts.Roots.SlotExtent; slot++)
+                {
+                    ref var entry = ref parts.Roots.EntryOfSlot(slot);
+
+                    if (entry.State == RootStateEnum.Live)
+                    {
+                        action(parts.Arena, parts.Tables.Stored(entry.TypeId).Layout!, new RootHandle(entry.Generation, slot), entry.Root);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _barrier.Exit();
+        }
     }
 
     // Frees every retired thing no read in progress can reach — an old root with its blocks, a replaced table

@@ -18,10 +18,12 @@ through an index by its full key, by its leading fields and a range on the next,
 order of the index or its reverse and in pages, each entity at most once. A child loads
 the whole database from its master over TCP while the master keeps writing, builds its
 own indexes, then follows its changes, and forwards its own writes to the master. A
-unique index gives a value to one entity only, whichever node submits the write. A
-schema can already declare more than the engine stores: an entity type with an owned
-value, a List, a Map, a Set or a reference compiles, but cannot be written yet. A write
-batch is executed by the master, also one committed through a child. PostgreSQL persistence
+unique index gives a value to one entity only, whichever node submits the write. An entity
+may hold owned values, Lists and references at every depth, which a master stores and reads
+back by name; reading owned values and Lists through a class, writing any of them in a batch
+and loading them on a child are not built yet. A schema can already declare more than the engine stores: an entity
+type with a Map or a Set compiles, but cannot be written yet. A write batch is executed by the
+master, also one committed through a child. PostgreSQL persistence
 is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
@@ -412,9 +414,10 @@ path, from simple to complex.
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
 In the contract but not implemented yet: Durable persistence, a child that connects again after it lost its master,
-and storing what a schema can declare beyond scalar and enum fields:
-owned values, Lists, Maps, Sets and references, which a schema declares, a record and
-a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
+storing Maps and Sets, which a schema declares, a record and a class hold, and no write stores
+yet; a read through a class of an entity type with owned values or Lists; and, for owned values,
+Lists and references, a write batch, an index over a field inside an owned value and a child, as
+the remarks of `LatticeFieldTypeEnum.Owned` say. Not in the contract yet: partial updates, safe retry
 of a write, schema migration and replication status. A query language is not planned for
 the first version.
 

@@ -31,6 +31,11 @@ internal struct AuditVisitor : IStructureVisitor
     // The bytes of the slots of the blocks this visitor reached, the root block not included.
     public long SlotBytes { get; private set; }
 
+    // The bytes of the payloads of those blocks, and of the texts the Text descriptors name with the 16 bytes
+    // the directory of a text in chunks holds for each chunk: what RootReader.EntityBytes counts beside the
+    // root block.
+    public long StoredBytes { get; private set; }
+
     public void Visit(Arena arena, in ValueDescriptor descriptor, ArenaAddress holder, int offset, StructureLayout? element)
     {
         var address = ValueBlocks.AddressOf(descriptor);
@@ -62,6 +67,7 @@ internal struct AuditVisitor : IStructureVisitor
 
                 Assert.Equal(text.Length, descriptor.Length);
                 _texts[address.Value] = (text.Length, text.References + 1);
+                StoredBytes += descriptor.Length + (ValueBlocks.LiesInChunks(descriptor) ? (long)ValueBlocks.ChunkCount((int)descriptor.Length) * ValueBlocks.DescriptorSize : 0);
                 break;
 
             default:
@@ -143,5 +149,6 @@ internal struct AuditVisitor : IStructureVisitor
         }
 
         SlotBytes += Arena.BlockSizeFor((int)header.PayloadLength);
+        StoredBytes += header.PayloadLength;
     }
 }
