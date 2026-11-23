@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Moltaro.Lattice.Engine.Protection;
 using Moltaro.Lattice.Storage;
@@ -11,27 +12,21 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // of the arena that no reader can reach, and the places in the retired list for the nodes the publications
 // retire. docs/design/ordered-index.md, "The reservation" and "The standing reserve", says why it is enough.
 //
-// What it holds. While changes wait — inserts and removes reserved and not published or withdrawn — it
-// holds at least the lesser of two bounds of what their publications can take, each true by itself:
-// - their need at the tree as it is now (Need), which a publication never leaves above what is left;
-// - what the linear bound (Bound) of the changes reserved since the base leaves after the nodes taken
-//   since then, kept by a ledger, because that bound is amortised over a sequence of publications and
-//   cannot be computed again at the tree after each of them.
-// The base is the tree as it was when nothing waited, and it moves to the tree as it is whenever nothing
-// waits or the linear bound of the changes waiting, from the tree as it is, is no more than what the ledger
-// leaves.
-// The same holds for the places, with PlacesBound in the place of Bound. Once a preparation has touched the
-// index it keeps the standing reserve as well, the need of one change of key, which a top-up refills and a
-// withdrawal or a refusal gives back. A Debug build asserts after every change that it holds the lesser
-// bound of the changes waiting, and no more than the larger of that and the reserve (AssertReserved).
+// What it guarantees. While changes wait, inserts and removes reserved and not published or withdrawn, it
+// holds, nodes and places alike, at least the lesser of two bounds of what their publications can take,
+// each true by itself: their need at the tree as it is (Need), and what their bound by levels (Bounds) from
+// the base of a ledger leaves after what was taken and used since the base. The bound by levels counts the
+// splits each level can make from the progress of its nodes, which the pool keeps from what the tree reports
+// of every node it publishes and replaces (Added, Removed). Once a preparation has touched the index it also
+// keeps the standing reserve. A publication takes its nodes from the pool and allocates nothing; a
+// reservation that is refused, or meets an OutOfMemoryException, leaves the pool as it was. A Debug build
+// asserts after every change that the pool holds the lesser bound and no more than the larger of it and the
+// reserve (AssertReserved).
 //
-// The reserved nodes are linked through their own payload, the address of the next one in its first bytes,
-// so that the pool takes no managed room for them: what a reservation takes is the arena's alone, a
-// reservation the arena refuses leaves nothing behind, and a pool that once held many nodes keeps no managed
-// room for them.
-//
-// The tree gives its height and the room of its root to every member that needs them; only the publishing
-// thread calls it, under the lock of the writes.
+// What protects its state. Only the publishing thread calls it, under the lock of the writes, and the tree
+// gives its height and the room of its root to every member that needs them. The reserved nodes are linked
+// through their own payload, the address of the next one in its first bytes, so that the pool takes no
+// managed room for them.
 internal sealed class NodePool
 {
     private readonly IndexLayout _layout;
@@ -39,6 +34,19 @@ internal sealed class NodePool
     private readonly Arena _arena;
 
     private readonly RetiredMemory _retired;
+
+    // The bytes a node holds, as IndexNode.UsedBytes counts them, the same for a leaf and an inner node: the
+    // payload after the header. The widest entry of a leaf with its offset, and the widest separator of an inner
+    // node with its offset and the child after it; and the credits of the two kinds (the constructor).
+    private readonly int _capacity;
+
+    private readonly int _leafWidest;
+
+    private readonly int _innerWidest;
+
+    private readonly int _leafCredit;
+
+    private readonly int _innerCredit;
 
     // The first reserved node, null when none is, and how many there are.
     private ArenaAddress _head;
@@ -53,21 +61,59 @@ internal sealed class NodePool
 
     private int _places;
 
+    // The progress of each level of the tree, the leaves at 0: the sum of what its nodes have made of their
+    // credits (docs/design/ordered-index.md, "The reservation"), for as many levels as the tree can have while
+    // the changes reserved wait (MostLevels).
+    private long[] _progress = [];
+
+    // The progress of each level of the tree at the base of the ledger, as many levels as _progress holds. A
+    // reservation moves the base only once nothing of it can fail, so that one that is not made leaves the
+    // base as it was (TryReserve).
+    private long[] _baseProgress = [];
+
     // The ledger (see the class); a value, so that a reservation that is not made puts it back as it was.
     private Ledger _ledger;
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): whether the next growth of the
+    // arrays of the levels fails in place of its last allocation (ArmLevelsFault).
+    private bool _levelsFault;
 
     public NodePool(IndexLayout layout, Arena arena, RetiredMemory retired)
     {
         _layout = layout;
         _arena = arena;
         _retired = retired;
+
+        var offset = layout.HasText ? IndexLayout.OffsetBytes : 0;
+
+        _capacity = layout.PayloadBytes - NodeHeader.Size;
+        _leafWidest = layout.WidestEntryBytes + offset;
+        _innerWidest = _leafWidest + IndexLayout.ChildBytes;
+
+        // The credits. A leaf that splits in the middle of its bytes leaves halves of at most half of them,
+        // rounded up, and one widest entry less a byte, since the first half stops before the entry that would
+        // pass the middle; a new leaf may hold one entry and be the last leaf, which counts twice. An inner node
+        // leaves halves of at most half the bytes of its separators, beside its first child, since the separator
+        // in the middle goes up; a new root holds one separator, fewer bytes than a half. The credit of an inner
+        // node is 1 at least, since it holds four of its widest separators.
+        var leafHalf = ((_capacity + _leafWidest + 1) / 2) + _leafWidest - 1;
+        var innerHalf = ((_capacity - IndexLayout.ChildBytes + _innerWidest) / 2) + IndexLayout.ChildBytes;
+
+        _leafCredit = Math.Min(InsertsBeforeFull(leafHalf, _leafWidest), InsertsBeforeFull(_leafWidest, _leafWidest) / 2);
+        _innerCredit = InsertsBeforeFull(innerHalf, _innerWidest);
     }
 
     // The inserts reserved and not published or withdrawn, from which the tree sizes the path of its writer.
     public int Inserts => _inserts;
 
+    // The credits of a leaf and of an inner node of this index (the constructor).
+    public int LeafCredit => _leafCredit;
+
+    public int InnerCredit => _innerCredit;
+
     // In the hold that prepares changes: reserves the nodes and the places that the inserts and the removes
-    // given can take beside those waiting, the lesser bound of them all (see the class). True when it is made;
+    // given can take beside those waiting, the lesser bound of them all (see the class), and the room in
+    // managed memory for the progress of the levels the tree can reach while they wait. True when it is made;
     // false, with nothing taken and the pool as it was, when the arena cannot hold the nodes, or a bound of
     // them cannot be counted as an Int32. An OutOfMemoryException of the native allocator or of the managed
     // heap leaves nothing taken either.
@@ -79,9 +125,10 @@ internal sealed class NodePool
         _removes += removes;
         _ledger.ChargedInserts += inserts;
         _ledger.ChargedRemoves += removes;
-        MoveBase(height);
 
-        var (nodes, places) = Targets(height, room);
+        // When the base moves, what the ledger leaves from there is the bounds of the changes waiting from
+        // the tree as it is; the move itself waits until nothing of the reservation can fail.
+        var (nodes, places) = Targets(height, room, LeftAfterMove(height, out var moves));
         var taken = 0;
 
         try
@@ -95,10 +142,24 @@ internal sealed class NodePool
 
                 if (_count >= nodes)
                 {
+                    // The levels first: an OutOfMemoryException of their arrays leaves no place reserved.
+                    var levels = MostLevels(height, _inserts);
+
+                    if (_progress.Length < levels)
+                    {
+                        GrowLevels(levels);
+                    }
+
                     if (places > _places)
                     {
                         _retired.Reserve((int)places - _places);
                         _places = (int)places;
+                    }
+
+                    // Nothing fails from here: the move allocates nothing.
+                    if (moves)
+                    {
+                        MoveBase(height);
                     }
 
                     AssertReserved(height, room);
@@ -177,6 +238,16 @@ internal sealed class NodePool
         return node;
     }
 
+    // In a publication: a node of the level given, whose entries or separators take the bytes given with their
+    // offsets and children (IndexNode.UsedBytes), is in the tree from now on, written whole, or is replaced and
+    // leaves it; the progress of its level follows (docs/design/ordered-index.md, "The reservation"). Inlined,
+    // as the progress is, so that a publication makes no call for it (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Added(int level, int usedBytes) => ProgressAt(level) += ProgressOf(level, usedBytes);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Removed(int level, int usedBytes) => ProgressAt(level) -= ProgressOf(level, usedBytes);
+
     // In a publication: an insert or a rewrite of an entry, which was reserved as an insert.
     public void TakeInsert()
     {
@@ -208,6 +279,17 @@ internal sealed class NodePool
         Trim(height, room, keepsReserve: true);
     }
 
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the arrays of the
+    // levels, in a reservation, throws OutOfMemoryException in place of its last allocation, once, after the
+    // others were made, as the managed heap can. A growth when no test armed it loads one field more, and
+    // nothing else reads it.
+    public void ArmLevelsFault() => _levelsFault = true;
+
+    // The bounds by levels of the inserts and the removes given from the tree as it is, of the height given:
+    // the nodes they take and the places they use, in any order of their publications (see the class).
+    public (long Nodes, long Places) BoundsAt(int height, long inserts, long removes) =>
+        Bounds(Levels(_progress, height), _leafCredit, _innerCredit, inserts, removes);
+
     // The most nodes the inserts and the removes given, waiting, can take from a tree of the height given whose
     // root has the room given, and the most places in the retired list they can use: the k-th insert counts
     // 2 H + 1 at the height H = h + Growth(k - 1) it can find, and every remove H + 1 at the height
@@ -237,50 +319,192 @@ internal sealed class NodePool
     // The rule of growth: the most levels the inserts given can add to a tree whose root has the room given,
     // the first after the room of the root, and each further one after LeastSeparators more, since the root a
     // growth makes holds one separator and one insert adds at most one separator to any node.
-    public static int Growth(int inserts, int room, int leastSeparators) =>
+    private static int Growth(int inserts, int room, int leastSeparators) =>
         inserts <= room ? 0 : 1 + ((inserts - 1 - room) / leastSeparators);
 
-    // The most nodes the inserts and the removes given can take from a tree whose height was the one given
-    // when nothing waited on it, over every order of their publications (docs/design/ordered-index.md, "The
-    // reservation"): an insert that splits s levels takes 2 s + 1 nodes, at most h splits at the levels the
-    // tree had, and the splits at all the levels above them together fewer than the inserts; a remove takes
-    // at most two, a merged leaf and the copy of its parent. Linear in the changes, so that a ledger of it can
-    // be charged change by change.
-    public static long Bound(int height, long inserts, long removes) =>
-        (inserts * ((2L * height) + 3)) + (2 * removes);
+    // The most levels a tree of the height given can have while the inserts given wait, published in any
+    // order and among any removes: one more than the levels that can split by their bound (Bounds), since only
+    // a split of the root adds a level. Every level of the tree may split, and the leaves of an empty tree;
+    // above them a level has no progress and makes at most half the splits of the level below, since the
+    // credit of an inner node is 1 at least, so p inserts split at most floor(log2 p) levels more. The rule of
+    // growth bounds the levels as well, but grows with the inserts.
+    public static int MostLevels(int height, int inserts) => Math.Max(height, 1) + 1 + BitOperations.Log2((uint)inserts);
 
-    // The most places in the retired list the same publications can use: an insert retires no more nodes than
-    // it takes, each a node it copied; a remove at most the nodes on its path and the neighbour of a merge, at
-    // a height the inserts raise by at most 1 + log2 p levels. Not linear in the inserts, so the ledger charges
-    // it for the changes reserved since the base together, never change by change.
-    public static long PlacesBound(int height, long inserts, long removes) =>
-        (inserts * ((2L * height) + 3)) + (removes * (height + 2L + BitOperations.Log2((ulong)Math.Max(inserts, 1))));
+    // The bounds by levels (docs/design/ordered-index.md, "The reservation") of the inserts and the removes
+    // given from a tree whose levels have the progress given, the leaves first, one for each level of its
+    // height, and whose leaves and inner nodes have the credits given. A level of credit c that gets k inserts
+    // splits at most min(k, (P + k) / (c + 1)) times, P its progress, at the leaves with the second credit of
+    // the last leaf and 2 c for each remove. The most nodes they take are p + 2 (s0 + s1 + ...) + 2 q, and the
+    // most places they use: an insert retires the nodes it splits and the one it copies, p + s0 + s1 + ...,
+    // and a remove at most the nodes of its path and the neighbour of a merge, at a height of at most one more
+    // than the levels that split, or the height of the tree if more. A level above the tree has no progress,
+    // and the credit of an inner node is 1 at least, since it holds four of its widest separators, so the
+    // splits at least halve from one such level to the next and the loop ends. Linear in the changes or
+    // better, and monotone in them, so that the ledger can charge the changes reserved since its base
+    // together. Inlined, so that a single write, whose reservation and publication count it, makes no call
+    // for it (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long Nodes, long Places) Bounds(ReadOnlySpan<long> progress, int leafCredit, int innerCredit, long inserts, long removes)
+    {
+        var height = progress.Length;
+        var splits = 0L;
+        var splitting = 0;
+        var arriving = inserts;
+
+        for (var level = 0; arriving > 0; level++)
+        {
+            // The progress of the level, none above the tree; tested unsigned, so that the read checks no bound.
+            var credit = level == 0 ? leafCredit : innerCredit;
+            var made = (uint)level < (uint)progress.Length ? progress[level] : 0;
+
+            if (level == 0)
+            {
+                made += leafCredit + (2L * leafCredit * removes);
+            }
+
+            arriving = Math.Min(arriving, (made + arriving) / (credit + 1));
+            splits += arriving;
+            splitting += arriving > 0 ? 1 : 0;
+        }
+
+        var reach = inserts == 0 ? height : Math.Max(height, splitting + 1);
+
+        return (inserts + (2 * splits) + (2 * removes), inserts + splits + (removes * (reach + 1L)));
+    }
+
+    // The progress of a node of the level and the used bytes given (docs/design/ordered-index.md, "The
+    // reservation"): the part of the credit of its kind its bytes show it has made, c - min(c, the inserts of
+    // the widest item it takes before it may not fit one more).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private long ProgressOf(int level, int usedBytes)
+    {
+        var credit = level == 0 ? _leafCredit : _innerCredit;
+
+        return credit - Math.Min(credit, InsertsBeforeFull(usedBytes, level == 0 ? _leafWidest : _innerWidest));
+    }
+
+    // The inserts of the widest item given a node of the used bytes given, which it holds, takes before it may
+    // not fit one more.
+    private int InsertsBeforeFull(int usedBytes, int widest) => (_capacity - usedBytes) / widest;
 
     // The standing reserve at the tree as it is now: the need of one change of key, an insert and a remove.
     private long StandingReserve(int height, int room) => Need(height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
-    // The base of the ledger moves to the tree as it is, with the changes waiting charged and nothing taken or
-    // used, when nothing waits or when the linear bounds of the changes waiting, counted from the tree as it
-    // is, are no more than what the ledger leaves (see the class). With nothing waiting it always moves, so a
-    // reservation made when nothing waits charges its changes to a base at the tree as it is.
+    // What the ledger leaves once its base has moved to the tree as it is, if it moves, and whether it moves
+    // (MoveBase): when nothing waits, or when the bounds of the changes waiting, counted from the tree as it
+    // is, are no more than what the ledger leaves (docs/design/ordered-index.md, "The reservation"). After a
+    // move the ledger leaves those bounds, which is what Left counts from the moved base; otherwise it leaves
+    // what Left counts now. With nothing published since the base the tree is the base and the changes charged
+    // are those waiting, so it stays: every publication takes a node or retires one. Moves nothing itself, so
+    // that a reservation moves the base only after its last step that can fail.
+    private (long Nodes, long Places) LeftAfterMove(int height, out bool moves)
+    {
+        moves = _ledger.Taken != 0 || _ledger.Used != 0;
+
+        if (moves && _inserts == 0 && _removes == 0)
+        {
+            return (0, 0);
+        }
+
+        var left = Left();
+
+        if (moves)
+        {
+            var bounds = BoundsAt(height, _inserts, _removes);
+
+            moves = bounds.Nodes <= left.Nodes && bounds.Places <= left.Places;
+
+            if (moves)
+            {
+                return bounds;
+            }
+        }
+
+        return left;
+    }
+
+    // The base of the ledger moves to the tree as it is: the progress of its levels is copied into the base,
+    // the changes waiting are charged, and nothing is taken or used since. Allocates nothing, and fails in
+    // nothing. Inlined, so that a publication, after which the base moves, makes no call for it beside
+    // LeftAfterMove (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void MoveBase(int height)
     {
-        var nothingWaits = _inserts == 0 && _removes == 0;
-        var leavesLess = Bound(height, _inserts, _removes) <= _ledger.NodesLeft && PlacesBound(height, _inserts, _removes) <= _ledger.PlacesLeft;
+        var from = Levels(_progress, height);
+        var to = Levels(_baseProgress, height);
 
-        if (nothingWaits || leavesLess)
+        // Both hold the levels of the height; each length is tested, so that the copy checks no bound.
+        for (var level = 0; (uint)level < (uint)from.Length && (uint)level < (uint)to.Length; level++)
         {
-            _ledger = new Ledger { BaseHeight = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
+            to[level] = from[level];
         }
+
+        _ledger = new Ledger { Height = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
+    }
+
+    // What the bounds of the changes charged since the base leave, counted from the tree at the base, after
+    // what was taken and used since then. Inlined, as Bounds is (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private (long Nodes, long Places) Left()
+    {
+        var progress = Levels(_baseProgress, _ledger.Height);
+        var (nodes, places) = Bounds(progress, _leafCredit, _innerCredit, _ledger.ChargedInserts, _ledger.ChargedRemoves);
+
+        return (nodes - _ledger.Taken, places - _ledger.Used);
+    }
+
+    // The progress of the level given, in the array of the tree as it is, which TryReserve sized for every
+    // level the tree can reach while the changes reserved wait, and the progress of the levels of a tree of
+    // the height given, in an array that holds them. Made without a check of the bounds, so that a single
+    // write makes no call for it (JIT listing at full optimization: the throw of the check is a call of its
+    // own), as PreparedWrite.Changes is; a Debug build asserts the bounds.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ref long ProgressAt(int level)
+    {
+        Debug.Assert((uint)level < (uint)_progress.Length, $"The index {_layout.Index.Name} has a node at the level {level}, beyond the {_progress.Length} levels its pool counts.");
+
+        return ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_progress), level);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Span<long> Levels(long[] progress, int height)
+    {
+        Debug.Assert((uint)height <= (uint)progress.Length, $"A tree of {height} levels beyond the {progress.Length} its pool counts.");
+
+        return MemoryMarshal.CreateSpan(ref MemoryMarshal.GetArrayDataReference(progress), height);
     }
 
     // What the pool holds at least for the changes waiting, nodes and places: the lesser of their need at the
-    // tree and what the ledger leaves (see the class).
-    private (long Nodes, long Places) Targets(int height, int room)
+    // tree and what the ledger leaves, given (see the class).
+    private (long Nodes, long Places) Targets(int height, int room, (long Nodes, long Places) left)
     {
         var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
 
-        return (Math.Min(need, _ledger.NodesLeft), Math.Min(need, _ledger.PlacesLeft));
+        return (Math.Min(need, left.Nodes), Math.Min(need, left.Places));
+    }
+
+    // Room for the progress of the levels given, in the array of the tree as it is and in that of the base,
+    // each with what it holds. Both arrays are allocated before either is assigned, so that an
+    // OutOfMemoryException of the managed heap leaves them as they were, of one length: the members that read
+    // them check no bound (ProgressAt, Levels).
+    private void GrowLevels(int levels)
+    {
+        var progress = new long[levels];
+
+        // A test of the engine may fail the last allocation (ArmLevelsFault).
+        if (_levelsFault)
+        {
+            _levelsFault = false;
+
+            throw new OutOfMemoryException("The test failed the growth of the levels of the pool.");
+        }
+
+        var baseProgress = new long[levels];
+
+        _progress.CopyTo(progress, 0);
+        _baseProgress.CopyTo(baseProgress, 0);
+        _progress = progress;
+        _baseProgress = baseProgress;
     }
 
     // Gives back what a reservation that is not made took: its nodes to the arena, in the reverse of their
@@ -302,9 +526,14 @@ internal sealed class NodePool
     // to the retired list. With nothing waiting the base moves to the tree as it is.
     private void Trim(int height, int room, bool keepsReserve)
     {
-        MoveBase(height);
+        var left = LeftAfterMove(height, out var moves);
 
-        var (nodes, places) = Targets(height, room);
+        if (moves)
+        {
+            MoveBase(height);
+        }
+
+        var (nodes, places) = Targets(height, room, left);
         var kept = keepsReserve ? Math.Max(nodes, StandingReserve(height, room)) : nodes;
 
         while (_count > kept)
@@ -369,20 +598,22 @@ internal sealed class NodePool
     [Conditional("DEBUG")]
     private void AssertReserved(int height, int room)
     {
-        var (nodes, places) = Targets(height, room);
+        var (nodesLeft, placesLeft) = Left();
+        var (nodes, places) = Targets(height, room, (nodesLeft, placesLeft));
         var most = Math.Max(nodes, StandingReserve(height, room));
 
-        Debug.Assert(_ledger.NodesLeft >= 0 && _ledger.PlacesLeft >= 0, $"The publications of the index {_layout.Index.Name} took {_ledger.Taken} nodes and used {_ledger.Used} places since the base, beyond the linear bounds of what was charged.");
+        Debug.Assert(nodesLeft >= 0 && placesLeft >= 0, $"The publications of the index {_layout.Index.Name} took {_ledger.Taken} nodes and used {_ledger.Used} places since the base, beyond the bounds of what was charged.");
         Debug.Assert(_count >= nodes, $"The index {_layout.Index.Name} holds {_count} nodes for changes that can take {nodes}.");
         Debug.Assert(_count <= most, $"The index {_layout.Index.Name} holds {_count} nodes, above the larger of the bound of the changes waiting, {nodes}, and the standing reserve.");
         Debug.Assert(_places >= places, $"The index {_layout.Index.Name} holds {_places} places in the retired list for changes that can use {places}.");
     }
 
-    // The ledger: the height of the tree at the base, the inserts and the removes reserved since then and not
-    // withdrawn, and the nodes taken and the places used since then.
+    // The ledger: the height of the tree at the base, whose levels have the progress _baseProgress holds, the
+    // inserts and the removes reserved since then and not withdrawn, and the nodes taken and the places used
+    // since then.
     private struct Ledger
     {
-        public int BaseHeight;
+        public int Height;
 
         public long ChargedInserts;
 
@@ -391,10 +622,5 @@ internal sealed class NodePool
         public long Taken;
 
         public long Used;
-
-        // What the linear bounds of the changes charged leave after what was taken and used.
-        public readonly long NodesLeft => Bound(BaseHeight, ChargedInserts, ChargedRemoves) - Taken;
-
-        public readonly long PlacesLeft => PlacesBound(BaseHeight, ChargedInserts, ChargedRemoves) - Used;
     }
 }

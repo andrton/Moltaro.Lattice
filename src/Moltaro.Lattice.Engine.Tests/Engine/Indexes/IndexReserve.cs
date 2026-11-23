@@ -1,3 +1,5 @@
+using System.Text;
+using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
@@ -11,8 +13,10 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes;
 // (IndexContents): its height, and the room of its root, the inserts the root takes before it can split —
 // none for an empty tree, otherwise the separators an inner node holds before it is full less the items of
 // the root, at least none. While writes wait, a pool keeps the lesser bound of what they can take, the
-// lesser of their need at the tree and their linear bound (ReservationNeed.Of, ReservationNeed.NodesBound),
-// and gives back what is above it when another write is withdrawn.
+// lesser of their need at the tree and their bound by levels (ReservationNeed.Of, ReservationNeed.NodesBound),
+// and gives back what is above it when another write is withdrawn. The bound by levels counts the bytes of
+// the nodes, which the test member does not show; they are counted from the keys it shows, by the layout of
+// an entry (NodesOf).
 internal static class IndexReserve
 {
     // The bytes of the reserves of the indexes of the entity type.
@@ -51,7 +55,7 @@ internal static class IndexReserve
             var tree = IndexContents.Of(database, entityType, index.Name);
             var need = ReservationNeed.Of(tree.Height, RoomOf(tree, layout.LeastSeparators), layout.LeastSeparators, inserts, removes);
 
-            bytes += Math.Min(need, ReservationNeed.NodesBound(tree.Height, inserts, removes)) * layout.NodeBytes;
+            bytes += Math.Min(need, ReservationNeed.NodesBound(layout, NodesOf(tree, layout), inserts, removes)) * layout.NodeBytes;
         }
 
         return bytes;
@@ -71,5 +75,40 @@ internal static class IndexReserve
         var items = tree.Height == 1 ? tree.LeafCounts[0] : tree.RootSeparators.Count;
 
         return Math.Max(0, leastSeparators - items);
+    }
+
+    // Every node of the tree, its level and its bytes as a split counts them (ReservationNeed.NodesOf), from
+    // the keys of its items: an entry is its identity, its null bitmap and its parts, a fixed part at its
+    // width, a text a head and a copy of up to TextCopyLimit bytes in the encoding of the database, or a
+    // reference to a longer one; in an index with a text part each item has an offset, and in an inner node
+    // each separator a child after it (IndexLayout).
+    private static List<(int Level, int Bytes)> NodesOf(IndexContents tree, IndexLayout layout)
+    {
+        var offset = layout.HasText ? IndexLayout.OffsetBytes : 0;
+
+        return [.. tree.NodeKeys.Select(node => (node.Level, node.Keys.Sum(key => EntryBytes(layout, key) + offset + (node.Level == 0 ? 0 : IndexLayout.ChildBytes))))];
+    }
+
+    private static int EntryBytes(IndexLayout layout, object?[] key)
+    {
+        var bytes = IndexLayout.IdentityBytes + layout.NullBitmapBytes;
+
+        for (var place = 0; place < key.Length; place++)
+        {
+            var width = layout.Parts[place].Width;
+
+            if (width > 0)
+            {
+                bytes += width;
+                continue;
+            }
+
+            var text = key[place] as string ?? "";
+            var length = layout.Encoding == LatticeStringEncodingEnum.Utf8 ? Encoding.UTF8.GetByteCount(text) : 2 * text.Length;
+
+            bytes += length <= IndexLayout.TextCopyLimit ? 1 + length : IndexLayout.SharedTextBytes;
+        }
+
+        return bytes;
     }
 }

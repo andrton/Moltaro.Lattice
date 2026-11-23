@@ -378,39 +378,90 @@ enough:
   the need.
 
 The need grows with the square of the inserts waiting, since each insert is counted at
-the height the inserts before it can reach. A second bound is linear: from a tree of
-height *h*, *p* inserts and *q* removes, published in any order, take at most
+the height the inserts before it can reach. A second bound, by levels, grows no faster
+than the inserts and counts how full the tree is: from a tree with nothing waiting, *p*
+inserts and *q* removes, published in any order, take at most
 
-> *Bound* = *p* · (2*h* + 3) + 2*q*
+> *Bound* = *p* + 2 (*s*₀ + *s*₁ + …) + 2*q*
 
 nodes and retire at most
 
-> *PlacesBound* = *p* · (2*h* + 3) + *q* · (*h* + 2 + ⌊log2 *p*⌋)
+> *PlacesBound* = *p* + (*s*₀ + *s*₁ + …) + *q* · (*H* + 1)
 
-(`NodePool.Bound`, `NodePool.PlacesBound`; a randomized test of the engine holds both
-against what publications take and retire, for random, ascending and merging keys,
-through splits of the root, growth of the height and removes that merge). An insert that
-splits *s* levels takes 2*s* + 1 nodes; at most *h* of its splits are at levels the tree
-had, and the splits of all the inserts at the levels above those are fewer than the
-inserts. A remove takes at most two nodes, a merged leaf and the copy of its parent,
-since every other node of its path changes only one child address, in place. An insert
-retires no more nodes than it takes; a remove at most the nodes of its path and the
-neighbour of a merge, at a height the inserts raise by at most 1 + ⌊log2 *p*⌋ levels.
+where *s*ⱼ is the most splits level *j* can make, the leaves at level 0, and *H* is one
+more than the levels that can split, or the height of the tree if more (`NodePool.Bounds`;
+a randomized test of the engine holds both against what publications take and retire, for
+an Int64 index and indexes of one, two and three text parts, random, ascending and spread
+keys, the widest entries put into the fullest leaf, and removes that merge and empty the
+tree, through splits of the root and growth of the height). An insert that splits *s*
+levels takes 2*s* + 1 nodes and retires at most *s* + 1. A remove takes at most two nodes,
+a merged leaf and the copy of its parent, since every other node of its path changes only
+one child address, in place; it retires at most the nodes of its path and the neighbour
+of a merge, and only a split of the root makes the tree higher.
+
+How often a level splits depends on how full its nodes are. Let *C* be the bytes a node
+of the level holds and *w* its widest item: an entry with its offset in a leaf, a
+separator with its offset and the child after it in an inner node, the first child aside.
+A node of *b* bytes fits any item while *b* + *w* ≤ *C*, so it splits only within *w* of
+*C*, and it takes ⌊(*C* − *b*) / *w*⌋ inserts of the widest item before it may. A node a
+publication makes takes a number of them first, the *credit* *c* of its kind:
+
+- A leaf splits in the middle of its bytes, and each half holds at most half of them,
+  rounded up, and one widest entry less a byte, since the first half stops before the
+  entry that would pass the middle; a new leaf holds one entry. The credit of a leaf is
+  the lesser of the inserts a half takes and half of those a leaf of one entry takes.
+- An inner node splits around its middle separator, which goes up, so each half holds
+  at most half its bytes; a new root holds one separator. The credit of an inner node is
+  the inserts a half takes, 1 at least, since an inner node holds four of its widest
+  separators.
+
+The *progress* of a node is what it has made of its credit, *c* − min(*c*, ⌊(*C* − *b*) /
+*w*⌋), and the progress *P* of a level the sum over its nodes; the last leaf counts its
+progress toward twice the credit, since an entry after its end leaves a full last leaf as
+it is and starts a new one, and the full leaf may split later. An insert that does not
+split a node raises its progress by at most one. A split takes *c* away: the node had all
+of its credit and its halves start with none, or the new last leaf with at most *c* of
+its two; an entry after the end of the full last leaf takes the second credit and leaves
+the first to the leaf, no longer last. A remove lowers what it copies, and at the leaves
+raises the progress by at most 2*c*: a leaf it empties may make another the last leaf,
+which gains its second credit, and a merged leaf, of at most three quarters of a node,
+starts with at most its credit, or both as the last leaf. So a level that gets *k*
+inserts — the *p* entries at the leaves, and above them the separators the splits below
+send up — makes at most
+
+> *s* = min(*k*, ⌊(*P* + *k*) / (*c* + 1)⌋)
+
+splits, with *P* the progress of the level at the base, and at the leaves the second
+credit of the last leaf and 2*c* for each remove added to it; it sends as many separators
+up. A level above the tree has no progress, so from there the splits at least halve from
+one level to the next, and the sum ends. The bound is linear in the changes or better.
+
+The pool keeps the progress of every level: the tree tells it of each node it writes into
+the tree and of each node it replaces, and the pool adds or takes away the progress of
+the node, one division of its bytes, in the hold that publishes. A read pays nothing. It
+keeps room for every level the tree can reach while the changes reserved wait, and the
+path of the writer as many: one more than the levels that can split, since only a split of
+the root adds a level, which are at most the levels of the tree, the leaves of an empty
+tree among them, and ⌊log₂ *p*⌋ above them, where each level splits at most half as often
+as the one below.
 
 That bound holds for a sequence of publications from the tree as it was when the sequence
 began, not again at the tree after each of them, so the pool keeps a ledger
-(`Indexes.NodePool`): the height of the tree at its base, the inserts and removes
-reserved since then and not withdrawn, and the nodes taken and the places used since
-then. The base is the tree as it is whenever nothing waits, and it moves to the tree as it
-is when the bound of the changes waiting, counted from there, is no more than what the
-ledger leaves. The pool holds the lesser of the need at the tree as it is and what the
-ledger leaves of the bound, nodes and places alike: each is enough by itself, a
-publication lowers what the ledger leaves by exactly what it takes, and it leaves the need
-of the rest no larger than what is left. For one insert the need is the lesser, 2*h* + 1
-against 2*h* + 3; for one remove at a height of 2 or more the bound is, 2 nodes against
-*h* + 1. A Debug build asserts after every preparation, publication and withdrawal that
-the pool and the places hold at least the lesser bound of the writes still waiting, and
-that the ledger never takes more than it was charged.
+(`Indexes.NodePool`): the tree at its base, its height and the progress of its levels,
+the inserts and removes reserved since then and not withdrawn, and the nodes taken and
+the places used since then. The base is the tree as it is whenever nothing waits, and it
+moves to the tree as it is when the bound of the changes waiting, counted from there, is
+no more than what the ledger leaves; with nothing published since the base, the tree is
+the base. The pool holds the lesser of the need at the tree as it is and what the ledger
+leaves of the bound, nodes and places alike: each is enough by itself, a publication
+lowers what the ledger leaves by exactly what it takes, and it leaves the need of the
+rest no larger than what is left. For one insert into a tree of height *h* of 1 or more
+the bound is at most the need, 2*h* + 1, and less when a level above the leaves has less
+progress than its credit; for one remove at a height of 2 or more the bound is the lesser,
+2 nodes against *h* + 1.
+A Debug build asserts after every preparation, publication and withdrawal that the pool
+and the places hold at least the lesser bound of the writes still waiting, and that the
+ledger never takes more than it was charged.
 
 The reserved nodes are linked through their own payload, each holding the address of the
 next in its first bytes, so the pool takes no managed room for them: a reservation the
@@ -427,7 +478,8 @@ preparation that touches the index tops up what it took, instead of every write 
 whole need from the arena and giving the rest back after its publication. The reserve is
 taken by the first preparation that touches the index, not at the open. While writes wait,
 the pool holds at most the larger of their bound, the lesser above, and the reserve; with
-nothing waiting, at most the reserve, and the close frees it with the arena. Its nodes are prepared blocks,
+nothing waiting, at most the reserve, and the close frees it with the arena. A Debug build
+asserts that limit after every change, with the lesser bound. Its nodes are prepared blocks,
 counted in the prepared bytes, which are therefore above zero once a write of an indexed
 type has returned, and against the memory limit, like any other bytes. The places in the
 retired list follow the need alone: places held for no write would keep the retired list
@@ -462,10 +514,14 @@ What it costs when many changes wait: the *k*-th insert is counted at the height
 inserts before it can reach, so the need grows with the square of the inserts prepared
 and not published, divided by *I*. By the formula, 600 inserts waiting on an index of one
 Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, about
-13 MiB; their linear bound is 600 · 9 = 5,400 nodes, about 5.3 MiB, and the pool holds
-the lesser. No mode built today lets more than one write wait: the persistence step of
-MemoryOnly completes in the hold that prepares the write, and a child prepares one root of
-its load, or one transaction of its stream, at a time. A transaction of many changes
+13 MiB, and the pool holds the lesser of that and their bound by levels. For the users of
+the reference fixture, 100,000 loaded in the order of their keys, whose indexes by login
+and by email have full leaves and the one by region and login leaves half full, a batch
+of new users waits with 9.3 nodes of 1 KiB a user in the pools of the three indexes at
+1,000 users, 6.0 at 10,000, 58.8 MiB in all, and 4.9 at 100,000, while its publication
+takes 3.3, gross. No mode built today lets more than one write wait: the persistence step
+of MemoryOnly completes in the hold that prepares the write, and a child prepares one root
+of its load, or one transaction of its stream, at a time. A transaction of many changes
 reserves for all of them at once, each index once for their inserts and removes together,
 and so does a write batch, prepared whole before its publication.
 

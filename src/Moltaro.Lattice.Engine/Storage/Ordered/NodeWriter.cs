@@ -97,6 +97,12 @@ internal ref struct NodeWriter
         _children++;
     }
 
+    // The level of the node, and the bytes its entries or separators take with their offsets and the
+    // children of an inner node, as IndexNode.UsedBytes reads them once the node is complete.
+    public readonly int Level => _level;
+
+    public readonly int UsedBytes => _next - NodeHeader.Size;
+
     // Writes the header, once every entry and child is written; the node is then ready to be published.
     // InvalidOperationException when fewer entries or children were written than the count promised.
     public readonly void Complete()

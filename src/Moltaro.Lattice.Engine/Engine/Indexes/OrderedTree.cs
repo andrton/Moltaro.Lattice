@@ -22,7 +22,8 @@ namespace Moltaro.Lattice.Engine.Indexes;
 // allocated (Storage.Ordered.NodeStorage; ordered-index.md, "Text references"). Nothing grows inside a
 // publication: the nodes and the places a publication takes were reserved before it, in the pool of the
 // index (NodePool), which also keeps the standing reserve and is never the reason of a refusal
-// (ordered-index.md, "The reservation", "The standing reserve").
+// (ordered-index.md, "The reservation", "The standing reserve"). The tree tells the pool of every node it
+// publishes and every node it replaces, from which the pool bounds what the changes waiting can take.
 //
 // What it holds: the address of its root, a leaf or an inner node, null for an empty tree, which the
 // writer stores with release semantics and a reader loads with acquire semantics; its height; the pool
@@ -190,7 +191,7 @@ internal sealed class OrderedTree
 
         try
         {
-            GrowPath(_height + NodePool.Growth(_pool.Inserts, room, _layout.LeastSeparators));
+            GrowPath(NodePool.MostLevels(_height, _pool.Inserts));
         }
         catch
         {
@@ -285,7 +286,7 @@ internal sealed class OrderedTree
         if (leaf.Count == 1)
         {
             // A leaf left empty goes away from its parent; a tree left without entries has no node.
-            Replaced(leafAddress);
+            Replaced(leafAddress, leaf);
 
             if (level == 0)
             {
@@ -380,6 +381,17 @@ internal sealed class OrderedTree
         return false;
     }
 
+    // For the tests of the engine: the bounds by levels the pool counts for the inserts and the removes given
+    // from the tree as it is, the nodes they take and the places they use (NodePool.Bounds).
+    public (long Nodes, long Places) BoundsOf(int inserts, int removes) => _pool.BoundsAt(_height, inserts, removes);
+
+    // For the tests of the engine: the credits of a leaf and of an inner node of the index (NodePool).
+    public (int Leaf, int Inner) Credits => (_pool.LeafCredit, _pool.InnerCredit);
+
+    // For the tests of the engine (exception X3, docs/work/exceptions.md): the next growth of the arrays of
+    // the levels of the pool fails in place of its last allocation (NodePool.ArmLevelsFault).
+    public void ArmLevelsFault() => _pool.ArmLevelsFault();
+
     // For the tests of the engine (EngineDatabase.IndexNodes): every live node, in the order of a walk
     // from the root, a node before its children and the children of an inner node in their order, with
     // its level and a copy of each of its entries or separators. Under the lock of the writes.
@@ -418,14 +430,19 @@ internal sealed class OrderedTree
 
     // Room in the writer's path for the most levels the tree can have while the writes reserved wait, and
     // for the nodes one publication replaces, at most one more than the levels: a remove that merges two
-    // leaves replaces both and their parent.
+    // leaves replaces both and their parent. Every array is allocated before any is assigned, so that an
+    // OutOfMemoryException leaves them as they were, of one length, and a later reservation grows them all.
     private void GrowPath(int levels)
     {
         if (_path.Length < levels)
         {
-            _path = new ArenaAddress[levels];
-            _slots = new int[levels];
-            _replaced = new ArenaAddress[levels + 1];
+            var path = new ArenaAddress[levels];
+            var slots = new int[levels];
+            var replaced = new ArenaAddress[levels + 1];
+
+            _path = path;
+            _slots = slots;
+            _replaced = replaced;
         }
     }
 
@@ -510,7 +527,7 @@ internal sealed class OrderedTree
     // middle of its bytes into two leaves, the first entry of the second the separator between them.
     private void PlaceLeaf(int level, ArenaAddress leafAddress, scoped in EditedLeaf edited)
     {
-        Replaced(leafAddress);
+        Replaced(leafAddress, edited.Leaf);
 
         if (Fits(edited))
         {
@@ -570,23 +587,16 @@ internal sealed class OrderedTree
     {
         if (level < 0)
         {
-            var root = TakeNode(out var payload);
-            var writer = new NodeWriter(_layout, payload, _height, 1);
-
-            writer.AddChild(left);
-            writer.AddChild(right);
-            writer.Add(separator);
-            Complete(ref writer, root);
-            StoreRoot(root);
-            _height++;
+            GrowRoot(left, right, separator);
 
             return;
         }
 
         var parentAddress = _path[level];
-        var grown = new GrownInner(NodeAt(parentAddress), _slots[level], separator, left, right);
+        var parent = NodeAt(parentAddress);
+        var grown = new GrownInner(parent, _slots[level], separator, left, right);
 
-        Replaced(parentAddress);
+        Replaced(parentAddress, parent);
 
         if (InnerBytesOf(grown, 0, grown.Count) <= _layout.PayloadBytes - NodeHeader.Size - IndexLayout.ChildBytes)
         {
@@ -600,6 +610,24 @@ internal sealed class OrderedTree
         var newRight = WriteInner(grown, middle + 1, grown.Count);
 
         InsertIntoParent(level - 1, newLeft, newRight, grown.SeparatorAt(middle));
+    }
+
+    // The root was split into left and right, divided by the separator: a new root above them takes the two,
+    // and the tree is a level higher. Not inlined, so that InsertIntoParent, which every split of a leaf runs,
+    // inlines the walk of the separators of the parent and the store of its copy instead, and only the rare
+    // split of the root makes this call (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void GrowRoot(ArenaAddress left, ArenaAddress right, ReadOnlySpan<byte> separator)
+    {
+        var root = TakeNode(out var payload);
+        var writer = new NodeWriter(_layout, payload, _height, 1);
+
+        writer.AddChild(left);
+        writer.AddChild(right);
+        writer.Add(separator);
+        Complete(ref writer, root);
+        StoreRoot(root);
+        _height++;
     }
 
     // The bytes the separators from first to end of an inner node take with their offsets and the child
@@ -694,8 +722,8 @@ internal sealed class OrderedTree
         }
 
         Complete(ref writer, merged);
-        Replaced(leafAddress);
-        Replaced(neighbourAddress);
+        Replaced(leafAddress, edited.Leaf);
+        Replaced(neighbourAddress, neighbour);
 
         // The second of the two children goes away, and the merged node takes the place of the first.
         WithoutChild(level - 1, Math.Max(slot, neighbourSlot), merged);
@@ -709,15 +737,16 @@ internal sealed class OrderedTree
     private void RemoveChild(int level)
     {
         var parentAddress = _path[level];
+        var parent = NodeAt(parentAddress);
 
-        if (NodeAt(parentAddress).Count > 0)
+        if (parent.Count > 0)
         {
             WithoutChild(level, _slots[level], merged: default);
 
             return;
         }
 
-        Replaced(parentAddress);
+        Replaced(parentAddress, parent);
 
         if (level == 0)
         {
@@ -744,7 +773,7 @@ internal sealed class OrderedTree
         var beside = gone > 0 ? gone - 1 : 1;
         var kept = merged.IsNull ? parent.ChildAt(beside) : merged;
 
-        Replaced(parentAddress);
+        Replaced(parentAddress, parent);
 
         if (parent.Count == 1 && level == 0)
         {
@@ -795,17 +824,27 @@ internal sealed class OrderedTree
         }
     }
 
-    private void Replaced(ArenaAddress node) => _replaced[_replacedCount++] = node;
+    // The node of the tree at the address given, which the caller has read, is replaced by the publication:
+    // it leaves the tree, as the pool counts its levels (NodePool.Removed), and is retired after the store.
+    private void Replaced(ArenaAddress address, scoped in IndexNode node)
+    {
+        _pool.Removed(node.Level, node.UsedBytes);
+        _replaced[_replacedCount++] = address;
+    }
 
     // A node of the reservation, live from now on, with its payload, which the caller writes whole; nothing
     // reaches it before the store that publishes it.
     private ArenaAddress TakeNode(out Span<byte> payload) => _pool.Take(out payload);
 
-    // Writes the header of a node the writer has filled, and takes the references of its shared keys.
+    // Writes the header of a node the writer has filled, and takes the references of its shared keys; the
+    // node is in the tree from now on, as the pool counts its levels (NodePool.Added). Inlined, so that writing
+    // a node makes no call for it but those two (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Complete(ref NodeWriter writer, ArenaAddress node)
     {
         writer.Complete();
         NodeStorage.TakeReferences(_arena, _layout, node);
+        _pool.Added(writer.Level, writer.UsedBytes);
     }
 
     // The text entries the shared keys of an entry to be added reference are published before the node
@@ -925,6 +964,9 @@ internal sealed class OrderedTree
         }
 
         public int Count => _leaf.Count + _change;
+
+        // The leaf the change is made to.
+        public IndexNode Leaf => _leaf;
 
         public ReadOnlySpan<byte> At(int place) => _change switch
         {

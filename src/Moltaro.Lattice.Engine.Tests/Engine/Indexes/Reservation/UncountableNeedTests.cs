@@ -12,9 +12,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // the writes that wait grows with the square of the inserts among them (NodePool.Need), so enough inserts
 // need more nodes than it counts; the count is the boundary, taken from the need of an empty tree, whose
 // height and room are none: the largest count of inserts whose need the pool counts, and one more, whose
-// need it does not. The pool reserves the lesser of the need and the linear bound of the inserts,
-// NodePool.Bound, three nodes an insert at that tree, which it counts; so the one more is refused because
-// those nodes do not fit the memory limit of two segments beside the slots in use (NodePool.Fits), before
+// need it does not. The pool reserves the lesser of the need and the bound by levels of the inserts,
+// NodePool.Bounds, a little more than one node an insert at that tree, which it counts; so the one more is
+// refused because those nodes do not fit the memory limit of two segments beside the slots in use (NodePool.Fits), before
 // the pool takes any: the arena's counters, the prepared nodes of the pool among them, are as before, and no
 // write is left waiting on the tree. Only the one more is reserved: the largest is a reservation the test
 // does not need to make. The test works the parts as the writer does (ContradictionTests): an arena with a
