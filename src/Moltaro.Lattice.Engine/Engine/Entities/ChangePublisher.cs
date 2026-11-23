@@ -232,10 +232,11 @@ internal sealed class ChangePublisher
     }
 
     // Under the lock of the writes, for changes decided (Decide): whether a value of a unique index, a key
-    // with no null part, would have two owners on the state the changes leave, and which
-    // (docs/decisions/unique-indexes.md, "Observable contract"). The prepared and unpublished changes of
-    // other publications are not in the published tree, so they are not the publisher's to know: that one of
-    // them claims or frees a value is the caller's to find (Writes.WriteCoordinator; ClaimsSameKey, Frees).
+    // with no null part, would have two owners on the state the changes leave
+    // (docs/decisions/unique-indexes.md, "Observable contract"), and which. The prepared and unpublished
+    // changes of other publications are not in the published tree, so they are not the publisher's to know:
+    // that one of them claims or frees a value is the caller's to find (Writes.WriteCoordinator;
+    // ClaimsSameKey, Frees).
     // One change, a single write, takes a path of its own (FindTakenOfOne): one descent for each index in
     // which it sets a value and nothing else, since it frees no value it claims and cannot claim one twice,
     // so that it needs no scratch and no sort; several changes take FindTakenOfSeveral. Inlined, so that a
@@ -287,8 +288,9 @@ internal sealed class ChangePublisher
     // and of two changes that set one value, the later conflicts, since the earlier alone would have been
     // accepted. Of all the conflicts, in whatever entity types and indexes, the change that comes first among
     // the changes is found, and for a change that conflicts in several indexes the index declared first in
-    // its entity type, so that what is reported depends neither on the order of the entity types nor on the
-    // order in which the check meets the conflicts. Every unique index is checked whether or not a conflict
+    // its entity type (docs/decisions/mutation-commands.md, "Atomic batch save with Upsert semantics"), so
+    // that what is reported depends neither on the order of the entity types nor on the order in which the
+    // check meets the conflicts. Every unique index is checked whether or not a conflict
     // was found before it, so a check that finds none does no more than one that stops at the first. What
     // the earliest conflict found so far cuts, for every change at or after it, is the lookup of the
     // published owner of its value and the comparison with the value next to it in the order of the index;

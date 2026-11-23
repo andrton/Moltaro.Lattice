@@ -46,8 +46,7 @@ internal static class RecordValues
     // The values of a record as a write takes them: copied and checked again at every depth. The value
     // of every field of the entity is checked against the bound of one value first, so that a value
     // above it is refused before it is copied. A String or Binary value inside a collection or an owned
-    // value is not: no entity type with such a field is stored yet, and whether the bound holds for it
-    // is not decided.
+    // value is not checked yet; no entity type with such a field is stored yet.
     //
     // A Binary value of a field of the entity is taken as the record holds it, after the same check
     // that it is a byte[] and nothing else: the engine copies it once, into its own memory, while the

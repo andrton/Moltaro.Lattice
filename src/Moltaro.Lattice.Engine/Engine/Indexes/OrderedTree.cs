@@ -45,7 +45,9 @@ internal sealed class OrderedTree
     // reserve, with the places in the retired list for what they retire.
     private readonly NodePool _pool;
 
-    // The address of the root as its number, 0 for an empty tree (see the class).
+    // The address of the root as its number, 0 for an empty tree (see the class), and the height. Every
+    // store to either is made inside Insert, Remove or Rewrite, each of which ends in AfterPublication,
+    // which keeps the height and the room of the root the pool holds current (NodePool).
     private ulong _root;
 
     private int _height;
@@ -435,6 +437,7 @@ internal sealed class OrderedTree
     // for the nodes one publication replaces, at most one more than the levels: a remove that merges two
     // leaves replaces both and their parent. Every array is allocated before any is assigned, so that an
     // OutOfMemoryException leaves them as they were, of one length, and a later reservation grows them all.
+    // Called only when the path is shorter than the levels given (TryReserve).
     private void GrowPath(int levels)
     {
         var path = new ArenaAddress[levels];
