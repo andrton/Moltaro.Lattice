@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using Moltaro.Lattice.Engine.Indexes;
 using Moltaro.Lattice.Engine.Protection;
@@ -7,6 +6,7 @@ using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage;
 using Moltaro.Lattice.Storage.Ordered;
 using Moltaro.Lattice.Storage.Roots;
+using static Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation.LevelBoundParts;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 
@@ -30,18 +30,15 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // at the start if more. These bounds are the tests' own, ReservationNeed.NodesBound and
 // ReservationNeed.PlacesBound, counted from the nodes of the tree at the start.
 //
-// What a publication takes and retires is read from the arena of the index, not from the pool: each node it
-// takes is a prepared block made live, which stays live or is retired by a later publication, and nothing
-// is drained meanwhile, so the live and retired bytes of the arena grow by the nodes taken, and its retired
-// bytes by the nodes retired. The roots of the entries lie in an arena of their own, so that an entry can
-// be made at any moment without changing what is counted. The test works the parts themselves, as
-// TreeShapeTests does: the arena, the retired list and one index, of a fixed part of 16 bytes, of one text
-// part or of two, whose credits are 29, 5 and 2 at a leaf, or of three, whose leaf has none, with texts of
-// one width or of several. Each case builds a tree of the size it gives, change by change, and from there
-// publishes its changes one at a time, checking both bounds after each: random keys; ascending keys, which
-// append leaves; keys spread among the full leaves of ascending ones, which split leaves the most at first;
-// the widest entries put each into the fullest leaf, which keep splitting leaves; and removes that merge
-// leaves and empty the tree; through splits of the root and the growth of the height by several levels.
+// What a publication takes and retires is read from the arena of the index, not from the pool
+// (LevelBoundParts.TakenSince). The test works the parts themselves, as TreeShapeTests does: the arena, the
+// retired list and one index, of a fixed part of 16 bytes, of one text part or of two, whose credits are 29,
+// 5 and 2 at a leaf, or of three, whose leaf has none, with texts of one width or of several. Each case
+// builds a tree of the size it gives, change by change, and from there publishes its changes one at a time,
+// checking both bounds after each: random keys; ascending keys, which append leaves; keys spread among the
+// full leaves of ascending ones, which split leaves the most at first; the widest entries put each into the
+// fullest leaf, which keep splitting leaves; and removes that merge leaves and empty the tree; through splits
+// of the root and the growth of the height by several levels.
 //
 // Beside them: the bounds the pool counts, from the progress of the levels it keeps as the tree publishes and
 // replaces nodes, are those the test counts from the nodes; a reservation withdrawn with nothing else waiting
@@ -51,17 +48,6 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // places of the retired list and of the segments of the arena, which the case warms up.
 public sealed class LevelBoundTests
 {
-    // An entity type of two texts, with an index of the first and one of both: the credits of their leaves
-    // are 5 and 2, as those of the users of the reference fixture by login and by region and login.
-    private static LatticeSchema Schema { get; } = IndexSchema.With("Utf8", """
-        {
-          "Id": 30, "Name": "Paired",
-          "Fields": [ { "Id": 1, "Name": "Id", "Type": "Int64" }, { "Id": 2, "Name": "First", "Type": "String" }, { "Id": 3, "Name": "Second", "Type": "String" } ],
-          "PrimaryKey": [1],
-          "Indexes": [ { "Id": 1, "Name": "ByFirst", "Fields": [2] }, { "Id": 2, "Name": "ByPair", "Fields": [2, 3] } ]
-        },
-        """);
-
     // The entity type and its index, the pattern of the keys and of the removes, the seed, the entries of the
     // tree built first, the inserts and the removes counted, the widths of the texts of the entries built
     // first and of those inserted, and what the changes do to the height of the tree, which the case asserts
@@ -81,7 +67,7 @@ public sealed class LevelBoundTests
     [MemberData(nameof(Cases))]
     public void Publications_from_a_tree_with_nothing_waiting_take_and_retire_no_more_nodes_than_the_bounds_by_levels(string entityType, string indexName, string pattern, int seed, int baseEntries, int inserts, int removes, string baseWidth, string insertWidth, string shape)
     {
-        var schema = entityType == "Paired" ? Schema : IndexSchema.Utf8;
+        var schema = entityType == "Paired" ? Paired : IndexSchema.Utf8;
         using var item = new RootArena(schema, entityType);
         using var roots = new RootArena(schema, entityType);
         var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
@@ -113,8 +99,6 @@ public sealed class LevelBoundTests
             held.Sort((first, second) => first.Number.CompareTo(second.Number));
         }
 
-        var nodeLive = BlockHeader.Size + index.Layout.PayloadBytes;
-        var nodeSlot = index.Layout.NodeBytes;
         var before = item.Arena.Counters;
         var (inserted, removed) = (0, 0);
         var (lowest, highest) = (height, height);
@@ -152,18 +136,10 @@ public sealed class LevelBoundTests
             lowest = Math.Min(lowest, index.Tree.Height);
             highest = Math.Max(highest, index.Tree.Height);
 
-            var counters = item.Arena.Counters;
-            var liveGrowth = counters.LiveBytes - before.LiveBytes;
-            var retiredGrowth = counters.RetiredBytes - before.RetiredBytes;
-
-            Assert.True(retiredGrowth % nodeSlot == 0, $"{retiredGrowth} retired bytes are not whole nodes.");
-
-            var retiredNodes = retiredGrowth / nodeSlot;
-            var taken = (liveGrowth + (retiredNodes * nodeLive)) / nodeLive;
+            var (taken, retiredNodes) = TakenSince(item.Arena, index.Layout, before);
             var nodesBound = ReservationNeed.NodesBound(index.Layout, start, inserted, removed);
             var placesBound = ReservationNeed.PlacesBound(index.Layout, start, inserted, removed);
 
-            Assert.True((liveGrowth + (retiredNodes * nodeLive)) % nodeLive == 0, $"{liveGrowth} live bytes and {retiredNodes} retired nodes are not whole nodes.");
             Assert.True(taken <= nodesBound, $"{indexName}, {pattern}, seed {seed}: {inserted} inserts and {removed} removes from height {height} took {taken} nodes, above {nodesBound}.");
             Assert.True(retiredNodes <= placesBound, $"{indexName}, {pattern}, seed {seed}: {inserted} inserts and {removed} removes from height {height} retired {retiredNodes} nodes, above {placesBound}.");
         }
@@ -195,7 +171,7 @@ public sealed class LevelBoundTests
     [InlineData("Tripled", "ByAll", 0, 1)]
     public void Bounds_of_the_pool_are_the_bounds_by_levels_of_the_tree_it_keeps_through_inserts_and_removes(string entityType, string indexName, int leafCredit, int innerCredit)
     {
-        var schema = entityType == "Paired" ? Schema : IndexSchema.Utf8;
+        var schema = entityType == "Paired" ? Paired : IndexSchema.Utf8;
         using var item = new RootArena(schema, entityType);
         using var roots = new RootArena(schema, entityType);
         var retired = new RetiredMemory(new ReadEpochs(new object()), item.Arena, new RootTable());
@@ -368,10 +344,6 @@ public sealed class LevelBoundTests
         _ => random.Next(10, IndexSchema.TextCopyLimit + 1),
     };
 
-    // A key that orders by the number given, as wide as given: the number in ten digits and as many x after.
-    private static string KeyOf(long number, int width) =>
-        number.ToString("D10", CultureInfo.InvariantCulture).PadRight(width, 'x');
-
     // For the index ByFirst: the widest key that follows the first entry of the fullest leaf, so that the
     // entry of it lies in that leaf, or at the start of the next one. A leaf that may not fit the widest
     // entry comes first, then the one under the parent that holds the most bytes, then the one that holds
@@ -404,29 +376,5 @@ public sealed class LevelBoundTests
         var text = Encoding.UTF8.GetString(first.Slice(1, first[0]));
 
         return text.PadRight(IndexSchema.TextCopyLimit, 'y');
-    }
-
-    // The entry of a new root of the entity type under the identity given, whose key orders by the key
-    // given: the number of the key in Number for Counted, the key itself in the first text, and texts of
-    // their own in the others.
-    private static byte[] EntryOf(RootArena roots, SecondaryIndex index, RootHandle identity, string key, Random random)
-    {
-        var writer = roots.Writer();
-
-        writer.SetInteger(roots.Field("Id"), identity.Slot);
-
-        foreach (var field in roots.EntityType.Fields.Where(field => field.Name != "Id"))
-        {
-            if (field.Name == "Number")
-            {
-                writer.SetInteger(field, long.Parse(key.AsSpan(0, 10), CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                writer.SetString(field, field.Name == "First" ? key : KeyOf(random.Next(100_000), key.Length));
-            }
-        }
-
-        return IndexEntries.EntryOf(roots, index.Layout, roots.Publish(writer.Complete()), identity);
     }
 }
