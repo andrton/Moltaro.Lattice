@@ -474,6 +474,15 @@ through the publisher of part 2, and a forwarded batch is published as a batch o
 - `Child/Loading/ReceivedChanges`: a `PublicationKeys` replaces the scans of `ThrowIfNamed` over
   `_prepared` and `_skipped`; a key `TryAdd` refuses is named twice (`NamedTwice`, as today), and `_skipped`
   becomes the count `SkippedStates` takes. Held by `KeyNamedOnceTests`, unchanged.
+- The room of a large transaction is not kept (the planner's answer to question 3): once a transaction that
+  named more keys than `ReceivedChanges.KeptRoom`, 1,024, is published or given back, the list of the prepared
+  changes and the set of the keys are let go, and the next transaction starts with new ones; up to that size
+  both are cleared and used again, so an ordinary stream allocates nothing more. The constant says what it
+  measures: the keys of one transaction whose room, about 160 bytes a key (a change of 96, an entry of 56 and
+  a bucket), a child keeps between transactions. Held by
+  `LargeTransactionRoomTests.Child_keeps_no_room_of_a_large_transaction_once_it_has_applied_the_next`: no array
+  that held the 100,000 changes or keys of a transaction, found while its publication is held, is alive after
+  the next transaction of one effect and a full collection.
 
 **Point 7, the body of a batch request** (wire format 5, little-endian; `ForwardPayload.BatchRequest`):
 
@@ -589,3 +598,9 @@ child (the rest); the documents: the remarks of `ILatticeWriteBatch` (the `NotSu
    machine beside the write lines already owed.
 8. **No line of the measurement program for a forwarded batch.** Recommended: none; the bytes come from the probe,
    and what a batch holds back is its send and its commit, which part 2 measured.
+
+*Answered by the planner on 23 November 2026:* 1, 2, 5, 6, 7 and 8 as recommended. 3 otherwise: neither
+structure keeps the room of a large transaction (point 6 above), and the item carried from the fixes after S13
+("both lists keep the capacity of the largest transaction") is closed by it. 4: nothing is built; an entry of
+`refactoring.md` with its place in S33, the bounded delivery of R30, the simple form to try first being a buffer
+that returns to its ordinary size after a transaction above a threshold.
