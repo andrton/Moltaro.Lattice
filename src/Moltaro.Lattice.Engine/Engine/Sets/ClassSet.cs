@@ -22,33 +22,34 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
 
     private readonly EntityBinding<TEntity> _binding;
 
-    // Null for an entity type the engine does not store, nothing of which is ever read, and for one that
-    // holds an owned value or a List, which a read through a class does not make yet (Copier).
+    // Null for an entity type the engine does not store, nothing of which is ever read, and for one whose
+    // reads are refused (RefusesReads).
     private readonly ClassCopier<TEntity>? _copier;
 
     public ClassSet(SetOperations operations, EntityBinding<TEntity> binding)
     {
         _operations = operations;
         _binding = binding;
-        _copier = operations.Table.Layout is { Structure.HoldsOwnedValuesOrLists: false } layout ? new ClassCopier<TEntity>(binding, layout) : null;
+        RefusesReads = operations.Table.Layout is { Structure.HoldsOwnedValuesOrLists: true };
+        _copier = operations.Table.Layout is { } layout && !RefusesReads ? new ClassCopier<TEntity>(binding, layout) : null;
     }
 
+    // Whether every read through the class is refused before it reads: building an object of an entity type
+    // that holds an owned value or a List from its root is not implemented yet. A synchronous read and Index
+    // throw the refusal at the call; an asynchronous read reports it through its task or its enumeration,
+    // since it throws at the call only what its arguments show.
+    private bool RefusesReads { get; }
+
     // The copier of a read: the one of the set, null for an entity type the engine does not store, whose read
-    // finds nothing. A read of an entity type that holds an owned value or a List is refused before it
-    // starts: building such an object from its root is not implemented yet.
+    // finds nothing; the refusal of a read for one whose reads are refused.
     private ClassCopier<TEntity> Copier => _copier ?? NoCopier();
 
     // The copier of a set that has none: null for an entity type the engine does not store, the refusal for
-    // one whose objects a read does not make yet.
-    private ClassCopier<TEntity> NoCopier()
-    {
-        if (_operations.Table.Layout is null)
-        {
-            return null!;
-        }
+    // one whose reads are refused.
+    private ClassCopier<TEntity> NoCopier() => RefusesReads ? throw ReadRefusal() : null!;
 
-        throw new NotSupportedException($"A read of {_binding.EntityType.Name} through a class is not implemented yet: it holds owned values or Lists. Read it by name.");
-    }
+    private NotSupportedException ReadRefusal() =>
+        new($"A read of {_binding.EntityType.Name} through a class is not implemented yet: it holds owned values or Lists. Read it by name.");
 
     public LatticeEntityType EntityType => _binding.EntityType;
 
@@ -78,7 +79,14 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(session);
 
-        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(KeyArgument.Of(_operations.Table, key), new ClassCopy<TEntity>(Copier), session, cancellationToken);
+        var entityKey = KeyArgument.Of(_operations.Table, key);
+
+        if (RefusesReads)
+        {
+            return ValueTask.FromException<LatticeReadResult<TEntity>>(ReadRefusal());
+        }
+
+        return _operations.ReadAsync<ClassCopy<TEntity>, TEntity>(entityKey, new ClassCopy<TEntity>(Copier), session, cancellationToken);
     }
 
     public IEnumerable<TEntity> Enumerate() =>
@@ -88,7 +96,20 @@ internal sealed class ClassSet<TEntity> : ILatticeSet<TEntity>
     {
         ArgumentNullException.ThrowIfNull(session);
 
+        if (RefusesReads)
+        {
+            return Refused(ReadRefusal());
+        }
+
         return _operations.EnumerateAsync<ClassCopy<TEntity>, TEntity>(new ClassCopy<TEntity>(Copier), session, cancellationToken);
+    }
+
+    // An enumeration whose first step fails with the refusal: awaiting the failed task throws it.
+    private static async IAsyncEnumerable<TEntity> Refused(NotSupportedException refusal)
+    {
+        await Task.FromException(refusal).ConfigureAwait(false);
+
+        yield break;
     }
 
     public ValueTask<LatticeWriteResult> InsertAsync(TEntity entity, CancellationToken cancellationToken = default) =>

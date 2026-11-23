@@ -18,9 +18,11 @@ namespace Moltaro.Lattice.Access;
 /// </para>
 /// <para>
 /// <b>Not implemented yet.</b> A read of an entity type that holds an owned value or a List, at
-/// any depth, throws <see cref="NotSupportedException"/> before it reads: building such an
-/// object from what is stored is not built yet. Its entities are written through the class and
-/// read by name, see <see cref="ILatticeSet"/>.
+/// any depth, is refused with <see cref="NotSupportedException"/> before it reads: building such
+/// an object from what is stored is not built yet. A synchronous read and <see cref="Index"/>,
+/// which selects an index for such reads, throw it at the call; <see cref="GetAsync"/> and
+/// <see cref="EnumerateAsync"/> report it through the returned task or enumeration. Its entities
+/// are written through the class and read by name, see <see cref="ILatticeSet"/>.
 /// </para>
 /// <para>
 /// There are two kinds of reads. The synchronous ones, <see cref="Get"/>,
