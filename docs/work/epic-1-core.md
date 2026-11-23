@@ -8052,29 +8052,38 @@ publication, and B2, the commit of a batch on a master.
     0.962 of 57be01b; no step of S16 separates from the gauge (K1 of `refactoring.md`).
   - Part 1, on writes that reserve in a secondary index: 2 to 6.5 % (one Int64 index,
     inserts and deletes, 0.974 with one caller and 0.941 with eight; `unique-writes` 0.953 to
-    0.969). By listing, an insert now makes 33 + 3n calls where it made 20 + n in the
-    reservation of its index and its entity, the top-up and the trim, n being the nodes
-    refilled: `Decide`, `FindTaken`, `TablesOf` and `CountsOf` with full prologs, the pool's
-    own `TryReserve`, `TopUp`, `Trim` and `Fits`, the ledger's `MoveBase` and `Targets`, and
-    for each node of the pool the call of `TryAllocate` and a read of its payload. The
-    workstation gave no direction. Owed: the variant that brings the calls back to 23 + 2n,
-    on the branch of the tighter bound, to the next start.
+    0.969). By listing, an insert now makes 34 + 3n calls where it made 21 + n, by the rule
+    below, n being the nodes refilled. The 13 + 2n are, in the reservation, `Decide`,
+    `FindTaken`, `TablesOf`, `CountsOf` with its `ChangeAt`, the pool's `TryReserve`, the
+    ledger's `MoveBase` and `Targets`, and `Fits` with its read of the counters of the arena,
+    less the second count of the need (9); in the top-up `TablesOf` and `CountsOf` (2), the
+    pool's `TopUp` in the place of the tree's; in the trim the ledger's `MoveBase` and
+    `Targets` (2), the pool's `Trim` in the place of the tree's; and for each node of the pool
+    the call of `TryAllocate` and a read of its payload (2n). The hash of the key is inlined,
+    and its `Mix` is called in the place of `HashOf`. The workstation gave no direction.
+    Owed: the variant that brings the calls back to 23 + 2n, on the branch of the tighter
+    bound, to the next start.
   - Part 2, on an insert that grows the primary index: 2 to 4 %. By listing, tens of
     nanoseconds (the switch of the publication tested four times, the member's store),
     short of the measured fall; owed to the next start, with the K1 trees rotated.
-  - The rule of these counts: the calls a write executes, by the JIT listing of a Release
-    driver over the public API with tiered PGO off, on the workstation, for an insert of an
-    Int64 key into a MemoryOnly type with one Int64 index, none unique; from the reservation
-    of the index and of the entity to the top-up and the trim after the publication; the
-    branches a write that is accepted does not take are not counted.
+  - The rule of these counts, applied at every point: the calls of an insert of an Int64 key
+    into a MemoryOnly type with one Int64 index, none unique, by the JIT listing of a Release
+    driver over the public API with tiered PGO off, on the workstation, on the branches an
+    accepted insert takes, from the call of `TryReserveWithIndexes` to the end of the trim
+    after the publication (from the call of `Room` in `OrderedTree.AfterPublication` on). The
+    methods of `ChangePublisher`, `SecondaryIndex`, `OrderedTree` and `NodePool` are followed
+    into what they call; a call out of them, to `PrimaryKeys`, `PrimaryIndex`, `Arena` or
+    `RetiredMemory`, counts once and is not followed; a tail jump to a method counts as a
+    call. So the figures are not every call a write makes; what they show is the difference
+    between points.
   - These listings, and those of the variants, were first taken with drivers whose folder
     held the output of other builds, from which MSBuild can resolve the engine of another
     build, so they could have been of the base build. Taken again on 23 November 2026 with
     each driver built alone and its engine compared with the build's, at 57be01b, the steps
     of S16, 5d27900, b9a9074, ed81c76, 3e24ce4, 0ab2dcc and the variant, every count of a
-    method is the same. What changed: the counts of a write above include the reservation
-    of its entity and are of an insert (20 + n, 33 + 3n and 23 + 2n where they said 15 + n,
-    27 + 3n and 16 + 2n), and two causes are withdrawn: the cold decision on a taken value
+    method is the same. What changed: the counts of a write above follow the rule above,
+    include the reservation of its entity and are of an insert (21 + n, 34 + 3n and 23 + 2n
+    where they said 15 + n, 27 + 3n and 16 + 2n), and two causes are withdrawn: the cold decision on a taken value
     inlined into `TryPrepareTwice`, which sits on a branch an accepted write does not take,
     and the checks of a batch in `WriteCoordinator.Start`, which run only after a waiting
     write of the same entity is found.
@@ -8123,16 +8132,17 @@ sprint with a target: the largest batch accepted within three times of the large
 **The write path after S17** (23 November 2026, a branch of its own after the tighter bound).
 The variant for the fall of part 1 is applied on 0ab2dcc, and the switch of the publication
 is tested inline. By the rule of the three write findings, an insert into one Int64 index
-makes 24 + 2n calls where it made 33 + 3n at 0ab2dcc. Against the variant on ed81c76
+makes 25 + 2n calls where it made 34 + 3n at 0ab2dcc. Against the variant on ed81c76
 (23 + 2n) it makes the two calls of `NodePool.LeftAfterMove`, which the tighter bound added
-where the inlined `MoveBase` was, and not the call of `PrimaryKeys.HashOf`, which the variant
-made and which x64 inlines here. The changes of the reservation stay a span: passing their
+where the inlined `MoveBase` was. The changes of the reservation stay a span: passing their
 first and their count instead saved a store only under the calling convention of Windows x64,
-and it made `HashOf` a call. `TryPrepareTwice` keeps the decision on a taken value out of
+and it made `PrimaryKeys.HashOf` a call in front of its `Mix`. `TryPrepareTwice` keeps the decision on a taken value out of
 line: 548 bytes where it had 882, and 14 branches fewer, in a method every write runs on x64.
 The listings of ARM64, cross-built by NativeAOT (ilc) for linux-arm64 against a win-x64 CoreLib,
-are not evidence of what an ARM64 process runs: by them an insert makes 30 + 2n calls where
-it made 40 + 3n, and a publication no longer calls the switch of the tests at four places.
+are not evidence of what an ARM64 process runs: by them an insert makes 37 + 2n calls where
+it made 45 + 3n, four of them at both points calls of `Lzcnt` that the win-x64 CoreLib puts
+into `NodePool.MostLevels`, and a publication no longer calls the switch of the tests at four
+places.
 Listings taken on the ARM64 machine will replace them as evidence. The figure of the change
 is owed to the start of the machine.
 
