@@ -1076,8 +1076,7 @@ internal sealed class WriteCoordinator
     // write is refused (Violation). The operation is the place of the failing member of a batch, null for a
     // single write. Never inlined: it is cold, and inlined into the try of a preparation (TryPrepare) it puts
     // 334 bytes and 14 branches into TryPrepareTwice, which every write runs (JIT listing at full
-    // optimization, x64: 548 bytes where it was 882); the ARM64 listing of the NativeAOT cross-compiler kept
-    // it a call already.
+    // optimization, x64: 548 bytes where it was 882).
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void DecideTakenValue(PendingWrite write, in TakenValue taken, int? operation, ref Hold hold)
     {

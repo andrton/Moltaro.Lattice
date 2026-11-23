@@ -8322,7 +8322,7 @@ planner decided on it as follows.
   | The bound by levels, bnd against p2 | `index-writes`, 4 lines with 3 and 6 indexes | 0.945 to 0.978 | What it bought: a waiting batch of 10,000 holds 58.7 MiB where it held 341.8 MiB; the largest batch accepted under 1 GiB, cited from the probe on the workstation, 202,109 against 292,326 that fit. In K2 |
   | The sum, wp against base | `index-writes`, 7 lines | 0.916 to 0.953 | In K2 |
   | The write path, wp against bnd | `index-writes`, none; `unique-writes`, 2 gains | 0.978 to 1.067; 1.019 and 1.025 | It removed calls and bought nothing this method can see |
-  | Part 3, p3 against wp | `unique-writes`, one line: three indexes, none unique, a replace that keeps every key | 0.953 [0.980 0.930 0.962], the gauge 0.996 to 1.004 | `<P3-LINE>` |
+  | Part 3, p3 against wp | `unique-writes`, one line: three indexes, none unique, a replace that keeps every key | 0.953 [0.980 0.930 0.962], the gauge 0.996 to 1.004 | Not explained by its listing: on that path the code of part 3 is smaller but for the guarded test of the scratch in `PublishPositionAndAfter` (two loads and a compare), `ClassSet<T>.Save` 392 bytes where it was 531, by the x64 listing of a driver of that line; the spread of its three rounds is wide, and no cause is claimed. It joins K2 and is run again in the next start, with the machine's listings of `ClassSet<T>.Save` and `PublishPositionAndAfter` at f6d9cf3 and at the head |
   | Part 3, p3 against wp | `following-children`, 20 lines | 0.953 to 1.014 | None called |
 
 - *Gates and targets met at the head:* G3 and G6 stay far off, single writes about 657 to 680 k
