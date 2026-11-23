@@ -237,22 +237,6 @@ internal sealed class RootLayout
         return ref Structure.Place(position);
     }
 
-    // The layout of the record of an element of a List, whose stored field of StoredTypeEnum.List this layout
-    // gave: its stride, whether it holds descriptors, how many records a chunk holds and the bound of the List
-    // (StructureLayout). A field of another type is refused with ArgumentException.
-    internal StructureLayout ElementOf(in StoredField list)
-    {
-        for (var index = 0; index < DescriptorCount; index++)
-        {
-            if (Structure.DescriptorField(index).Offset == list.Offset && Structure.DescriptorElement(index) is { } element)
-            {
-                return element;
-            }
-        }
-
-        throw new ArgumentException($"The place {list.Field.Name} at {list.Offset} is not a List of the entity type {EntityType.Name}.", nameof(list));
-    }
-
     // The payload of a root block written with this layout, after checking that the block is one:
     // a valid block of the arena, of kind Root, with the layout version of this layout. Each refusal
     // is ArgumentException. RootReader and RootStorage.Free recognize a root by the same checks.

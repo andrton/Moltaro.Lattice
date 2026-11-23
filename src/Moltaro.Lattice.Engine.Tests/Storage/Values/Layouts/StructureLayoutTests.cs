@@ -196,7 +196,7 @@ public sealed class StructureLayoutTests
 
     private static void ExpectElement(RootLayout layout, LatticeEntityType item, string list, int size, int descriptors, int recordsPerChunk, int mostElements)
     {
-        var element = layout.ElementOf(layout.StoredFieldOf(PathOf(item, list)));
+        var element = layout.Structure.ElementOf(layout.Structure.PositionOf(PathOf(item, list)));
 
         Assert.Equal((size, descriptors, descriptors > 0, recordsPerChunk, mostElements), (element.Size, element.DescriptorCount, element.HoldsDescriptors, element.RecordsPerChunk, element.MostElements));
     }

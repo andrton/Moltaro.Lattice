@@ -108,7 +108,8 @@ internal readonly ref struct RootReader
 
         CheckType(field, stored, StoredTypeEnum.List, nameof(GetList));
 
-        return NestedValues.ReadList(ArenaOfValues(), _layout.ElementOf(stored), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
+        // A field of the entity has its ordinal as its position in the structure of the root (StructureLayout).
+        return NestedValues.ReadList(ArenaOfValues(), _layout.Structure.ElementOf(field.Ordinal), ValueBlocks.Read(NotNull(stored)), _payload, _layout.StringEncoding);
     }
 
     // The bytes of the fixed part of a root block of the layout after its header: what CopyFixedPart
