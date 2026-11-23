@@ -480,9 +480,6 @@ internal sealed class ChangePublisher
 
     // Records with the change what it does to the index at the place given, as the change is decided and
     // before any index reserves for it, so that the check and the reservation read it (PreparedChange.BitOf).
-    // Inlined, so that the decision of an insert and of a delete makes no call for it: the evidence is the
-    // ARM64 listing of the NativeAOT cross-compiler, which leaves it a call otherwise; x64 inlines it anyway.
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void Record(ref PreparedChange change, int index, IndexChangeEnum decided)
     {
         var bit = PreparedChange.BitOf(index);
@@ -724,10 +721,10 @@ internal sealed class ChangePublisher
     }
 
     // The switch of the tests at a place of a publication, on the publishing thread under the lock of the
-    // writes; an exception of the action fails the publication there. The test of the field is inlined, so
-    // that a publication no test armed makes no call for the switch at any of its places: the evidence is the
-    // ARM64 listing of the NativeAOT cross-compiler, which leaves the whole a call at each place otherwise;
-    // x64 inlined the test already.
+    // writes; an exception of the action fails the publication there. The test of the field is inlined and
+    // the run of an armed switch is not, so that a publication no test armed carries only the tests (JIT
+    // listing at full optimization, x64: PublishBeforePosition 684 bytes where it was 726 with the whole
+    // inlined, PublishPositionAndAfter 1,054 where it was 1,067).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void OfferPublicationSwitch(PublicationPointEnum point)
     {
