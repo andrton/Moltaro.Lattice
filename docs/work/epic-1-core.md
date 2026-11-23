@@ -7907,6 +7907,19 @@ in `WriteBatchTests.Deleting_an_absent_key_in_a_batch_is_not_a_failure` the asse
 its position equals the position of the write before it becomes that its position is later.
 The implementer of part 2 makes the change, citing these words.
 
+**Changed by the owner on 23 November 2026, in the coordinator's session** ("Утверждаю. И пункт
+1, и удаление старых папок.": I approve, point 1 and the deletion of the old folders), the
+reading of the sentence of the Acceptance "A transaction with several effects is exposed whole
+or not at all, by key, by a search and by an enumeration". No read returns a member of a batch
+in its new state before every member is visible on that node; a read that starts at or after
+the position of the batch sees all of it; a search or an enumeration that runs across the
+publication may return some members as they were before it and others as after, as separate
+reads may (`docs/decisions/document-model.md`, `docs/decisions/database-scope.md`). An answer of
+several steps reports the latest position of its steps. The tests of step 1 and the probes that
+demanded a whole answer from a search running across a publication are restated to these
+guarantees; the record of part 2 lists them, each with its old and its new assertion. The
+stricter reading was measured as rule B before the decision, and its figures are in the record.
+
 **The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
 by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
 at the close of the last part): part 1 is point 1 of the brief with the reservation of
