@@ -69,7 +69,8 @@ and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Search through a declared secondary index
 by its full key, by its leading fields and with a range, in either direction and in pages
 with Offset and Limit, within the read limits, by class and by name, on a master and on a
-child (S15, part 1). Positions and sessions; a write through a
+child (S15, part 1). A write batch across entity types, committed on a master or through a
+child (S17). Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
 **How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
@@ -149,14 +150,17 @@ index gives a value one owner: the master refuses a write that would give it a s
 with `UniqueConstraintViolation` and the name of the index, and a write whose value another
 prepared write takes or frees waits for that write; a key with a null part is exempt; a
 child checks its unique indexes at the position it becomes ready at and stops on a
-violation it would have to apply.
+violation it would have to apply. From S17 a write batch is one write at one position: its
+changes are reserved and checked together on the state they leave, its members are stored
+before the position is published, so no read sees a member in its new state before every
+member is visible, and a child applies it through the same publisher and acknowledges only
+its position; a batch committed through a child reaches the master as one request.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
