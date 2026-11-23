@@ -128,8 +128,7 @@ internal sealed class NodePool
 
         // When the base moves, what the ledger leaves from there is the bounds of the changes waiting from
         // the tree as it is; the move itself waits until nothing of the reservation can fail.
-        var moves = BaseMoves(height);
-        var (nodes, places) = Targets(height, room, moves ? BoundsAt(height, _inserts, _removes) : Left());
+        var (nodes, places) = Targets(height, room, LeftAfterMove(height, out var moves));
         var taken = 0;
 
         try
@@ -391,33 +390,43 @@ internal sealed class NodePool
     // The standing reserve at the tree as it is now: the need of one change of key, an insert and a remove.
     private long StandingReserve(int height, int room) => Need(height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
-    // Whether the base of the ledger moves to the tree as it is (MoveBase): when nothing waits, or when the
-    // bounds of the changes waiting, counted from the tree as it is, are no more than what the ledger leaves
-    // (docs/design/ordered-index.md, "The reservation"). With nothing published since the base the tree is
-    // the base and the changes charged are those waiting, so it stays: every publication takes a node or
-    // retires one.
-    private bool BaseMoves(int height)
+    // What the ledger leaves once its base has moved to the tree as it is, if it moves, and whether it moves
+    // (MoveBase): when nothing waits, or when the bounds of the changes waiting, counted from the tree as it
+    // is, are no more than what the ledger leaves (docs/design/ordered-index.md, "The reservation"). After a
+    // move the ledger leaves those bounds, which is what Left counts from the moved base; otherwise it leaves
+    // what Left counts now. With nothing published since the base the tree is the base and the changes charged
+    // are those waiting, so it stays: every publication takes a node or retires one. Moves nothing itself, so
+    // that a reservation moves the base only after its last step that can fail.
+    private (long Nodes, long Places) LeftAfterMove(int height, out bool moves)
     {
-        if (_ledger.Taken == 0 && _ledger.Used == 0)
+        moves = _ledger.Taken != 0 || _ledger.Used != 0;
+
+        if (moves && _inserts == 0 && _removes == 0)
         {
-            return false;
+            return (0, 0);
         }
 
-        if (_inserts == 0 && _removes == 0)
+        var left = Left();
+
+        if (moves)
         {
-            return true;
+            var bounds = BoundsAt(height, _inserts, _removes);
+
+            moves = bounds.Nodes <= left.Nodes && bounds.Places <= left.Places;
+
+            if (moves)
+            {
+                return bounds;
+            }
         }
 
-        var (nodes, places) = BoundsAt(height, _inserts, _removes);
-        var (nodesLeft, placesLeft) = Left();
-
-        return nodes <= nodesLeft && places <= placesLeft;
+        return left;
     }
 
     // The base of the ledger moves to the tree as it is: the progress of its levels is copied into the base,
     // the changes waiting are charged, and nothing is taken or used since. Allocates nothing, and fails in
-    // nothing. Inlined, so that a publication, after which the base moves, makes no call for it beside the
-    // test of BaseMoves (JIT listing at full optimization).
+    // nothing. Inlined, so that a publication, after which the base moves, makes no call for it beside
+    // LeftAfterMove (JIT listing at full optimization).
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void MoveBase(int height)
     {
@@ -517,12 +526,14 @@ internal sealed class NodePool
     // to the retired list. With nothing waiting the base moves to the tree as it is.
     private void Trim(int height, int room, bool keepsReserve)
     {
-        if (BaseMoves(height))
+        var left = LeftAfterMove(height, out var moves);
+
+        if (moves)
         {
             MoveBase(height);
         }
 
-        var (nodes, places) = Targets(height, room, Left());
+        var (nodes, places) = Targets(height, room, left);
         var kept = keepsReserve ? Math.Max(nodes, StandingReserve(height, room)) : nodes;
 
         while (_count > kept)

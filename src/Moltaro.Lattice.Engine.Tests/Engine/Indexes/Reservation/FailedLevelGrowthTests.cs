@@ -13,7 +13,9 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Indexes.Reservation;
 // allocated: the pool is left as it was, and every later reservation and publication works from it. The pool
 // reads those arrays without a check of their bounds, so that one left shorter than another would be read and
 // written past its end once the tree grows beyond it. The failure is the fault point of the pool, in place of
-// the last allocation of that growth (NodePool.ArmLevelsFault).
+// the last allocation of that growth (NodePool.ArmLevelsFault). With the one array of the base, an order of
+// the growth that assigns each array as soon as it is allocated is caught by the Debug assertion of the
+// levels in the pool; the Release run of this test does not show it.
 //
 // The index is ByNumber of Counted (IndexSchema), whose roots lie in an arena of their own, so that its arena
 // holds its nodes alone (LevelBoundParts). A first insert makes a tree of one leaf, for which the pool counts
