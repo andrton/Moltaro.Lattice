@@ -98,6 +98,25 @@ in the meantime.
 | **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
 | **Decides** | The planner, in the study of S19, before its contract step |
 
+### Q62. Two rules of the schema language that the stored form of S18 brings
+
+| | |
+| --- | --- |
+| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
+| **Question** | An owned value is stored inside its holder, so the fixed part of an entity can outgrow one block through its owned types; and the record of an element of a List has to fit one chunk. Until now the contract stated a size rule only in a clause of `LatticeIndex`. May a schema be refused for either? |
+| **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a schema is compiled and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; a schema would need thousands of fixed fields to meet them |
+| **What the code does** | As the brief of S18 says |
+| **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
+
+### Q63. Does a List have a bound of its own?
+
+| | |
+| --- | --- |
+| **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
+| **Question** | The stored form of S18 gives a List one directory level, so a List holds at most 268,173,376 bytes of packed elements (33,521,672 Int64) or about 3.3 million elements that hold text. The contract states no bound for a List; O19 names only String and Binary, and O20 allows a limit only where the engine cannot work without one |
+| **Until answered** | Open, for the owner. The planner's recommendation: state the bound, as the bound of a String is stated; a second directory level is built when an application needs a larger List. Until he answers, S18 is built with the bound stated |
+| **Decides** | The owner |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
