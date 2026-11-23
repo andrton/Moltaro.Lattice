@@ -8456,7 +8456,8 @@ enum type does not declare, stay checks of the write and are reported as they ar
 so no assertion that exists changes. The bound of a String or a Binary value is the same
 number at every position. S18 checks and tests it for a field of an owned value and for an
 element of a List, at depth; S19 for a key, a value and a member of a Map and a Set. A
-value above it is refused as the write is refused today.
+value above it is refused as the write is refused today, and the refusal names the place
+of the value as the validation of a write names a place today.
 
 #### S19 · Maps and Sets
 
