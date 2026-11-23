@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Moltaro.Lattice.Access.Values;
 using Moltaro.Lattice.Schema;
 using Moltaro.Lattice.Storage.Values;
@@ -90,11 +89,6 @@ internal ref struct ValueHolder
     // apart on purpose: the decision on input validity (docs/decisions/strings.md, "Input validity and
     // preservation") asks to combine them where possible, and that is done when a measurement shows it is
     // worth the code.
-    //
-    // Inlined into its callers, so that RootWriter.SetString makes one call for a String, into PlaceBytes:
-    // called, it adds a call and a frame of 248 bytes to every String a root sets (JIT listing of a Release
-    // build).
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void PlaceText(in StoredField place, int offset, ReadOnlySpan<char> text)
     {
         // A code unit takes one byte at least in UTF-8 and two in UTF-16, so text of more code units than the
