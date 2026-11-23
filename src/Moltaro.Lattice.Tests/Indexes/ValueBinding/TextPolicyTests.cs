@@ -1,4 +1,4 @@
-using Moltaro.Lattice.TestSupport.Text;
+using Moltaro.Lattice.Tests.Indexes.Model;
 
 namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 
@@ -39,7 +39,7 @@ public sealed class TextPolicyTests
 
         foreach (var text in new[] { "a", "A", "AB", "É", "～", "\U00010000" })
         {
-            await BindingSearch.ExpectAsync(database, field, IndexKey.Equal(text), reverse: false, ValueOracle.Equal(stored, text, order), $"By{field} = \"{text}\"", order);
+            await BindingSearch.ExpectAsync(database, field, IndexKey.Equal(text), reverse: false, BindingSearch.Equal(stored, text, order), $"By{field} = \"{text}\"", order);
         }
 
         await BindingSearch.ExpectRangeAsync(database, field, stored, null, null, order);
@@ -94,9 +94,7 @@ public sealed class TextPolicyTests
         await BindingSearch.ExpectRangeAsync(database, field, stored, RangeEnd.Including("\U00010000"), RangeEnd.Excluding("～"), order);
     }
 
-    // The order of the oracle for the field: the code units, or without case the code units of the simple
+    // The order of the model for the field: the code units, or without case the code units of the simple
     // uppercase mapping.
-    private static IComparer<object> OrderOf(string field) => field == "Exact"
-        ? Comparer<object>.Create((left, right) => string.CompareOrdinal((string)left, (string)right))
-        : Comparer<object>.Create((left, right) => string.CompareOrdinal(CaseRule.ToUpper((string)left), CaseRule.ToUpper((string)right)));
+    private static IComparer<object> OrderOf(string field) => field == "Exact" ? IndexModel.Ordinal : IndexModel.WithoutCase;
 }

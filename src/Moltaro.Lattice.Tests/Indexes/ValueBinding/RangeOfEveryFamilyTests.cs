@@ -74,7 +74,7 @@ public sealed class RangeOfEveryFamilyTests
                 "Decimal",
                 IndexKey.All.Range(IndexBound.Exclusive(-2), IndexBound.Inclusive(3L)),
                 reverse,
-                ValueOracle.Range(decimals, RangeEnd.Excluding(-2m), RangeEnd.Including(3m), reverse),
+                BindingSearch.Range(decimals, RangeEnd.Excluding(-2m), RangeEnd.Including(3m), reverse),
                 "ByDecimal from an exclusive Int32 -2 to an inclusive Int64 3");
 
             await BindingSearch.ExpectAsync(
@@ -82,7 +82,7 @@ public sealed class RangeOfEveryFamilyTests
                 "Float64",
                 IndexKey.All.Range(IndexBound.Inclusive(0.5f), IndexBound.Exclusive(1.5f)),
                 reverse,
-                ValueOracle.Range(doubles, RangeEnd.Including(0.5), RangeEnd.Excluding(1.5), reverse),
+                BindingSearch.Range(doubles, RangeEnd.Including(0.5), RangeEnd.Excluding(1.5), reverse),
                 "ByFloat64 from an inclusive Float32 0.5 to an exclusive Float32 1.5");
         }
     }

@@ -1,6 +1,8 @@
+using Moltaro.Lattice.Tests.Indexes.Model;
+
 namespace Moltaro.Lattice.Tests.Indexes.Walk;
 
-// The order and the bounds of a walk, held against an oracle of values (WalkOracle), in a UTF-8 and in a
+// The order and the bounds of a walk, held against the model of the order (IndexModel), in a UTF-8 and in a
 // UTF-16 database (decision on index access; docs/decisions/queries.md, Q07.3.1 and Q07.3.6;
 // docs/design/ordered-index.md, "Entries and their order" and "How a range is walked"):
 // - over composite indexes of one to four parts, each of which can be null, so that a null stands in
@@ -29,16 +31,16 @@ public sealed class OrderAndBoundsTests
 
         foreach (var shape in WalkRows.Shapes())
         {
-            var expected = WalkOracle.Walk(WalkRows.All, shape);
+            var expected = shape.Answer(WalkRows.All);
             var index = rows.Index(shape.Index);
             var found = await index.FindAsync(shape.Key(), new LatticeFindOptions { Reverse = shape.Reverse });
 
-            WalkOracle.Expect(shape, expected, found.Items);
+            shape.Model.Expect(shape.ToString(), expected, [.. found.Items.Select(row => row.Entry())]);
             Assert.False(found.HasMore, $"{shape} has more, which only a search with a limit can have.");
 
             if (!shape.Reverse)
             {
-                WalkOracle.Expect(shape, expected, [.. index.Find(shape.Key())]);
+                shape.Model.Expect(shape.ToString(), expected, [.. index.Find(shape.Key()).Select(row => row.Entry())]);
             }
         }
     }

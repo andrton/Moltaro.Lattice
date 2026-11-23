@@ -26,7 +26,7 @@ public sealed class FloatingPointKeyTests
 
         foreach (var value in Specials(field))
         {
-            var expected = ValueOracle.Equal(stored, value);
+            var expected = BindingSearch.Equal(stored, value);
 
             Assert.NotEmpty(expected);
 
