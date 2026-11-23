@@ -1050,7 +1050,11 @@ internal sealed class WriteCoordinator
     // that entity has a prepared write that gives the value up, a delete or a key move, the write waits for
     // it; otherwise, also when that write keeps the value, or when two members of a batch claim it, the
     // write is refused (Violation). The operation is the place of the failing member of a batch, null for a
-    // single write.
+    // single write. Never inlined: it is cold, and inlined into the try of a preparation (TryPrepare) it puts
+    // 334 bytes and 14 branches into TryPrepareTwice, which every write runs (JIT listing at full
+    // optimization, x64: 548 bytes where it was 882); the ARM64 listing of the NativeAOT cross-compiler kept
+    // it a call already.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private void DecideTakenValue(PendingWrite write, in TakenValue taken, int? operation, ref Hold hold)
     {
         if (taken.Owner != default && HoldsPreparedMemory() && FindWriteThatFrees(taken.Index, taken.Owner) is { } holder)

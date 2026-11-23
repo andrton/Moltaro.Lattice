@@ -475,7 +475,9 @@ internal sealed class NodePool
     }
 
     // What the pool holds at least for the changes waiting, nodes and places: the lesser of their need at the
-    // tree and what the ledger leaves, given (see the class).
+    // tree and what the ledger leaves, given (see the class). Inlined, so that a reservation and a trim make no
+    // call for it beside the count of the need (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (long Nodes, long Places) Targets(int height, int room, (long Nodes, long Places) left)
     {
         var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
@@ -553,7 +555,9 @@ internal sealed class NodePool
     // Whether the nodes given may fit the arena: their slots no more than what the memory limit leaves beside
     // the slots in use. A reservation of more is refused before it takes anything, so that it obtains no
     // segment for nodes it would give back; one of less may still be refused by the arena, which then takes
-    // nothing either (TryAllocate, Undo).
+    // nothing either (TryAllocate, Undo). Inlined, so that a reservation makes no call for it beside the read
+    // of the counters of the arena (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool Fits(long nodes)
     {
         if (nodes <= 0)
@@ -567,7 +571,10 @@ internal sealed class NodePool
         return nodes * _layout.NodeBytes <= _arena.MemoryLimit - inUse;
     }
 
-    // Takes a prepared node from the arena into the pool; false when the arena refuses it.
+    // Takes a prepared node from the arena into the pool; false when the arena refuses it. Inlined into the
+    // loops of a reservation and of a top-up, so that a node refilled costs the calls of the arena and no call
+    // of its own (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool TryAllocate()
     {
         if (!_arena.TryAllocatePrepared(_layout.PayloadBytes, BlockKindEnum.IndexNode, default, out var node))
