@@ -8522,13 +8522,48 @@ during catch-up is recorded and must be resolved by a delete before R.
 
 - **Goal.** An application changes named fields and collection elements of one entity
   without submitting the whole entity.
-- **Contract.** One explicit update of one entity, by class and by name, alone or as a
-  member of a batch: assignments of scalar fields, replacement of a whole collection field,
-  and the accepted element commands — List
-  append, insert, replace and remove at a position; Map set and remove by key; Set add
-  and remove — with an optional expected revision and a session. Its result says
-  whether anything changed. The planner writes its types and members before the stage
-  begins; the shape needs no reflection per call.
+- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New, in
+  `Moltaro.Lattice.Access`:
+  `LatticeUpdate`, the commands for one entity in the order they were added: `EntityType`,
+  `Count`; `Assign<TValue>(string field, TValue value)`;
+  `ListAppend<TElement>(string field, TElement element)`,
+  `ListInsert<TElement>(string field, int position, TElement element)`,
+  `ListReplace<TElement>(string field, int position, TElement element)`,
+  `ListRemove(string field, int position)`;
+  `MapSet<TKey, TValue>(string field, TKey key, TValue value)`,
+  `MapRemove<TKey>(string field, TKey key)`; `SetAdd<TMember>(string field, TMember member)`,
+  `SetRemove<TMember>(string field, TMember member)`; and `CommitAsync` in the four forms a
+  write of a set has (the token; a session; an expected revision; both), each returning
+  `ValueTask<LatticeWriteResult>`.
+  `ILatticeSet` and `ILatticeSet<TEntity>`: `LatticeUpdate CreateUpdate<TKey>(TKey key) where
+  TKey : notnull`. `ILatticeWriteBatch`: `Update(LatticeUpdate update)` and
+  `Update(LatticeUpdate update, LatticeRevision expectedRevision)`.
+  `LatticeErrorEnum.UpdateTargetMissing`. `LatticeEntityType.GetField(string name)`, which
+  returns the field or throws `ArgumentException`, beside `TryGetField`.
+  A rule of the schema language: the name of a field holds no dot; a schema that declares
+  one is refused when it is built, with the place named.
+  What the members promise. Making an update contacts nothing and holds nothing: it is a
+  list in the caller's memory, as a write batch is. `field` is the name of a field of the
+  entity type or a path through owned values to a field inside them, its parts joined by a
+  dot (`"Home.City"`); it never passes through a collection and is never the key. `Assign`
+  sets a scalar, a Binary, an Enum or a Reference, the value bound by the allowlist of a
+  search key (Q55), and for a List, a Map or a Set it replaces the whole collection; an
+  owned value as a whole is not assigned. A value is copied when its command is added. A
+  position is judged when the update is executed. Refused at the add with
+  `ArgumentException`, the update left as it was: a field or a path the schema does not
+  have, a command the type of the field does not take, a value that does not bind, a scalar
+  assigned twice, an owned value as the target, the key. `CommitAsync` executes the commands
+  in their order against the state it finds and publishes them together with their index
+  changes, or nothing; fields not named keep their values. `Changed` is false only when
+  every command had nothing to do (a Map key or a Set member removed that was absent, a Set
+  member added that was present); such an update keeps the revision and has a position of
+  its own. It reports `NotFound` (no such entity), `RevisionConflict`,
+  `UpdateTargetMissing` (an owned value on the path is absent, the collection is null, a
+  position lies outside the List), `UniqueConstraintViolation`, and what every write
+  reports. An update committed twice, or added to a batch after it was committed, is the
+  caller's mistake, thrown at the call, as for a batch. By a class and by name the members
+  are the same; by a class a value has the form of the bound class.
+  The sample `PartialUpdateSample` and the tests of the contract stage use a string key.
 - **To read.** [Q13: field assignments, collection mutations, outcomes, target
   requirements, repeated scalar targets, numeric assignments](../decisions/mutation-commands.md);
   [revision semantics](../design/milestone-1-engine-contract.md#write-coordinator-and-revision-semantics);
@@ -8556,6 +8591,11 @@ during catch-up is recorded and must be resolved by a delete before R.
 - **Out of scope.** Arithmetic commands, change tracking, edits inside an element, key
   rename: all excluded by decision.
 
+**Decided by the planner on 23 November 2026, with the contract.** An update copies each
+value when its command is added. One `Changed` for the whole update. Refusals at the add are
+`ArgumentException`. `Admit` taking a third kind of input is the P4 of the review of S17
+joined here ([the refactoring backlog](refactoring.md), the architect's review after S17).
+
 **Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
 given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
 a box that the keys of an index use, and its `Bind`; it does not write a second holder.
@@ -8567,11 +8607,45 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **Goal.** Short synchronous code reads fields and collections of one entity directly
   from the arena, by the names of the schema, without a copy and without a way to misuse
   the memory.
-- **Contract.** A read that calls the application with a read-only view of one entity and
-  returns the application's result, the fields addressed through handles bound once from
-  the schema. A form that passes state, so that no closure is allocated. An asynchronous
-  form waits for the session first and then runs the same synchronous code. Text and
-  Binary are exposed as read-only spans that cannot leave the call.
+- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New, in
+  `Moltaro.Lattice.Access`, every view a `readonly ref struct`:
+  `LatticeRecordView` (`EntityType`, `Revision`, an indexer by the name of a field and an
+  indexer by `LatticeField`, both returning `LatticeValueView`); `LatticeOwnedView`
+  (`OwnedType`, the same two indexers); `LatticeValueView`, one type for a value of any
+  field (`Declaration`, `IsNull`, `Get<TValue>()`, `GetString()`, `ByteLength`, `PartCount`,
+  `GetPart(int part)`, and `Owned`, `List`, `Map`, `Set`); `LatticeListView` (`Count`, an
+  indexer by position, `foreach`); `LatticeMapView` (`Count`,
+  `TryGetValue<TKey>(TKey key, out LatticeValueView value)`, `foreach` over
+  `LatticeMapEntryView` with `Key`, `Value` and `Deconstruct`); `LatticeSetView` (`Count`,
+  `Contains<TMember>(TMember member)`, `foreach`).
+  `LatticeViewFunc<TView, TResult>` and `LatticeViewFunc<TView, TState, TResult>`, delegates
+  over a view (`where TView : allows ref struct`). `LatticeViewResult<TResult>` (`Found`,
+  `Result`, `Position`).
+  `ILatticeSet`: `bool TryView<TKey, TResult>(TKey key, LatticeViewFunc<LatticeRecordView,
+  TResult> viewer, [MaybeNullWhen(false)] out TResult result)`, the same with a state passed
+  to the viewer, and `ViewAsync` in both forms taking a session and returning
+  `ValueTask<LatticeViewResult<TResult>>`.
+  What the members promise. A view is one written state of one entity, read in place and
+  copied nowhere; it is valid only inside the viewer, and the compiler refuses to keep it,
+  return it or capture it. The indexer by name looks the field up in the schema at each
+  use; the indexer by `LatticeField` does not, and is the form for a path that is read
+  often. `LatticeValueView` is the same type for every field: what the field is, is known
+  from the schema and checked when the value is read, so `List` on a field that is not a
+  List, or `Get<TValue>` with a type that is not the field's, compiles and fails at run
+  time (`InvalidOperationException`, `InvalidCastException`), as a wrong cast of
+  `record[name]` does today. `Get<TValue>` reads a fixed-width scalar, the integer of an
+  Enum or the key of a Reference and allocates nothing. A String and a Binary are the
+  stored bytes, in the encoding of the schema, in one or more parts; `GetString` makes the
+  copy. A write of the same entity does not wait for a view: it is published at once, a
+  read by key then returns the new state, and the view goes on reading the state it began
+  with, whole, until the viewer returns. A viewer must be short and must not wait or call
+  the database: while it runs, memory that writes replaced is not freed, so a viewer that
+  does not return holds back writes once memory is short and holds back the close of the
+  database; nothing is built against that, and it is the application's to avoid. An absent
+  key is `false`, or `Found == false` with a position; `ViewAsync` waits for its session
+  first and then runs the same code.
+  The sample `ViewSample` and the tests use a string key and show the indexer by name
+  first.
 - **To read.** [Q06.2, Q06.3](../decisions/memory-and-access.md);
   [reader protection, borrowed reads](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction).
 - **Acceptance.** Scalars, nested values, Lists, Maps, Sets and references are readable
@@ -8587,6 +8661,15 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **Out of scope.** Typed views (S22). Writable views. Views that span entities or follow
   references.
 
+**Decided by the planner on 23 November 2026, with the contract.** The handle of a field
+is `LatticeField`; no new type. A value in chunks is read by parts, and no single span is
+promised. A call into the database from inside a viewer is not refused by the engine, since
+refusing it would need a guard on every public call. The stay of a view is an ordinary
+read's, so `ReadTimeLimit` and the protection slots are those of reads, and no option is
+added. Design C of the study, the pin of one entity, is not built: the owner, 23 November
+2026, "Не делать ничего. Ну, зависло, все зависло, все упадет. Это на откуп
+разработчика."; it can be added later without a change of the contract.
+
 #### S22 · Typed protected views
 
 **Track:** full · **Needs:** S21 · **Decisions:** O6 · **Owners:** E08, E05
@@ -8594,10 +8677,26 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 - **Goal.** The same protected read is available through the application's entity class:
   a view with a property for each field, written for the class when the application is
   built.
-- **Contract.** A typed view for an entity class and the read that passes it to the
-  application, with the same forms as the read by name. A new analyzer project with a
-  source generator that writes the view; it owns the Roslyn dependency at build time
-  only. Typed copies keep the accessors compiled once when a class is bound.
+- **Contract.** Approved by the owner as part 2 of stage 5 (23 November 2026). New:
+  `LatticeViewAttribute(Type entityClass)` for a `readonly ref partial struct`;
+  `ILatticeEntityView<TSelf, TEntity>` with the static members a generated view implements
+  (`FieldNames`, `Create`), implemented by generated code only; on `ILatticeSet<TEntity>` the
+  four members of S21 with a view type, `TView : ILatticeEntityView<TView, TEntity>, allows
+  ref struct`; and a source generator in an assembly of its own,
+  `Moltaro.Lattice.Generators`, which alone references the compiler. An application writes
+  `[LatticeView(typeof(User))] public readonly ref partial struct UserView;` and
+  `users.TryView("ada", static (UserView user) => user.Age, out var age)`. A generated
+  property has the type of the property of the class for a fixed-width scalar, an Enum and
+  a Reference; a String and a Binary are a `LatticeValueView`; an owned value is the
+  generated view of its class; a List, a Map and a Set are the views of S21. The rules and
+  the errors of S21 hold, and `BindingFailed` is reported when a view does not agree with
+  the entity type of the database. When the schema is given to the build as a file, the
+  generator reports a class or a view that does not match it when the application is
+  built; when it is not, the mismatch is found at the first use.
+  The exact static members of the interface are settled by the first step of the sprint
+  with a generator that runs, since the compile check held them only by hand-written code;
+  a change of them there is the implementer's finding, read by the planner, and not a new
+  approval.
 - **To read.** [Q06.2, Q06.3](../decisions/memory-and-access.md);
   [reader protection, borrowed reads](../design/milestone-1-engine-contract.md#reader-protection-publication-and-compaction);
   [schema identity](../design/milestone-1-engine-contract.md#schema-identity-migration-and-facade-integration).
@@ -8613,6 +8712,10 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
   Reported: read time through a typed view and through a view by name.
 - **Out of scope.** Generating typed copies or the binding of a class. Leaving the
   generator out is a decision of the owner about the scope, not of this sprint.
+
+**Decided by the planner on 23 November 2026, with the contract.** Typed views cover
+scalars and owned values; an element of a List of owned values has no typed view in this
+sprint.
 
 #### S23 · Compaction and shrink
 
