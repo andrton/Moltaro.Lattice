@@ -511,11 +511,11 @@ Int64 part, *I* = 40, of height 3 whose root has room for 20 need 13,170 nodes, 
 13 MiB, and the pool holds the lesser of that and their bound by levels. For the users of
 the reference fixture, 100,000 loaded in the order of their keys, whose indexes by login
 and by email have full leaves and the one by region and login leaves half full, a batch
-of new users waits with 9.5 nodes of 1 KiB a user in the pools of the three indexes at
-1,000 users, 6.2 at 10,000, 61.7 MB, and 4.9 at 100,000, while its publication takes 3.3,
-gross. No mode built today lets more than one write wait: the persistence step of
-MemoryOnly completes in the hold that prepares the write, and a child prepares one root of
-its load, or one transaction of its stream, at a time. A transaction of many changes
+of new users waits with 9.3 nodes of 1 KiB a user in the pools of the three indexes at
+1,000 users, 6.0 at 10,000, 58.8 MiB in all, and 4.9 at 100,000, while its publication
+takes 3.3, gross. No mode built today lets more than one write wait: the persistence step
+of MemoryOnly completes in the hold that prepares the write, and a child prepares one root
+of its load, or one transaction of its stream, at a time. A transaction of many changes
 reserves for all of them at once, each index once for their inserts and removes together,
 and so does a write batch, prepared whole before its publication.
 
