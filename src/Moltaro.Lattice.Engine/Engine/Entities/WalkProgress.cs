@@ -39,11 +39,6 @@ internal sealed class WalkProgress
 
     private int _stagedLength = -1;
 
-    // The length of the entry a round of the step stands at, in the room of the staged entry, -1 when no round
-    // stands: the entry the walk stands after stays as the step began, so that the step can walk again from
-    // there (DropStand).
-    private int _standLength = -1;
-
     private bool _keyStaged;
 
     private long _stagedHeld;
@@ -57,10 +52,6 @@ internal sealed class WalkProgress
     // The entry the walk stands after, in detached form with the identity the step gave it; empty before it
     // has committed one.
     public ReadOnlySpan<byte> Last => _last.AsSpan(0, _lastLength);
-
-    // Where the next round of the step walks from: the entry a round stands at, else the entry the walk stands
-    // after.
-    public ReadOnlySpan<byte> WalkFrom => _standLength >= 0 ? _staged.AsSpan(0, _standLength) : Last;
 
     // The bytes it holds for the walk, by the rule of the class: the returned keys and its two entries.
     public long Bytes => Returned.Bytes + _last.Length + _staged.Length;
@@ -104,37 +95,25 @@ internal sealed class WalkProgress
 
         var capacity = CapacityFor(length);
         var last = new byte[capacity];
-        var staged = new byte[capacity];
 
         Last.CopyTo(last);
-
-        if (_standLength >= 0)
-        {
-            _staged.AsSpan(0, _standLength).CopyTo(staged);
-        }
-
         _last = last;
-        _staged = staged;
+        _staged = new byte[capacity];
     }
 
     // The room where a step writes the entry it stands at, of the length given, which it has room for: when
-    // a round of a step ends before an entry, so that the next round goes on there (WalkFrom).
+    // a round of a step ends before an entry, so that the next round goes on there.
     public Span<byte> StandAt(int length)
     {
-        _standLength = length;
+        _lastLength = length;
 
-        return _staged.AsSpan(0, length);
+        return _last.AsSpan(0, length);
     }
 
-    // The step walks again from the entry the walk stands after, as it began, the place a round stood at
-    // dropped.
-    public void DropStand() => _standLength = -1;
-
     // The room where a step detaches the entry it is about to return, of the length given, which it has
-    // room for; the place a round of the step stood at, which that room held, is passed.
+    // room for.
     public Span<byte> StageEntry(int length)
     {
-        _standLength = -1;
         _stagedLength = length;
 
         return _staged.AsSpan(0, length);

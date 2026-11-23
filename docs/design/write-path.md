@@ -208,7 +208,7 @@ the preparation wrote included. A read does not take a stamp above the position 
 database, which it loads right after the stamp ([the arena
 protocol](arena-protocol.md#the-stamp-of-a-root-entry)), and the position is s − 1 until
 step 2, so a read never returns a state at a position at which the master did not have it,
-and it sees every entity of a publication in its new state or none:
+and never an entity of a publication in its new state before its position:
 
 - A read that finds an inserted key before step 2 finds the stamp s above the position
   and waits for it; one that misses it read s − 1 before its lookup.
@@ -219,6 +219,12 @@ and it sees every entity of a publication in its new state or none:
   is s; then it reads the new root, or the state Deleted at s, with the position s or
   later.
 - A read that misses a deleted key does so after step 3, at s or later.
+
+A read that begins at or after step 2 sees every entity of the publication in its new state,
+also while step 3 is still taking the old entries away: a search passes over an old entry by
+its root. A search or an enumeration that runs across the publication may return some of its
+entities as they were before it and others as after, as separate reads may
+([ordered index](ordered-index.md#how-a-range-is-walked)).
 
 A read waits only when it meets an entity of the publication, for as long as the
 publication takes in memory, which for a batch and for the transaction of a child grows with
@@ -235,8 +241,11 @@ then gives up with `Unavailable` instead of waiting for a position that will nev
   its place when that wait ends. Calls that race on different threads have no order
   between them.
 - **A write is whole.** Readers see the state before a write or after it, never a
-  mixture. So do they a batch, on the master and on a child: all of it or none, and no
-  answer carries its position before all of it is visible.
+  mixture. So do they each member of a batch, on the master and on a child: no answer
+  carries the position of the batch before all of it is visible, and a read that begins at
+  or after that position sees all of it. A search or an enumeration that runs while the
+  batch is published may return some members as they were before it and others as after,
+  as separate reads may.
 - **Cancellation is honest.** Before a write is handed to the persistence step, cancelling
   it withdraws it: it did not run and left nothing behind. After that, the call returns
   what really happened.

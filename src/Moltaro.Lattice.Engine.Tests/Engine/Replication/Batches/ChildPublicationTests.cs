@@ -151,7 +151,7 @@ public sealed class ChildPublicationTests
 
     // The walk of every group, lazy, has returned items before the transaction; it goes on while the
     // publication stands after the stores of its first member, a step of it waits there for the position and
-    // walks again from where it began, and no item is returned twice.
+    // goes on, and no item is returned twice.
     [Fact]
     public async Task Lazy_walk_that_returned_items_before_a_transaction_and_waits_in_it_returns_no_item_twice()
     {
