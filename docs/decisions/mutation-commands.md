@@ -515,7 +515,13 @@ complete-value semantics without automatic diff or implicit field merging.
 Adding an object to the batch does not commit it independently. Validate and
 prepare the whole bounded batch, then commit and publish it through the accepted
 WriteBatch transaction boundary. A definitive validation/admission/rollback failure
-commits none of its data changes. Existing unknown-outcome and post-commit recovery
+commits none of its data changes. Of a batch refused for its members, the one named is
+decided in two phases (added on 23 November 2026: Q58 of the open questions, read and
+accepted by the owner): first each member against the state before the batch, in the
+batch's order, and the first that fails a condition of its own is named; when none does,
+the lowest-numbered member that violates a unique value on the state the batch would
+leave, with the index declared first for a member that violates several. A refusal for
+memory names no member. Existing unknown-outcome and post-commit recovery
 rules still apply. This reuses the accepted journal/publication pipeline, rather
 than selecting a different PostgreSQL storage strategy.
 

@@ -49,9 +49,9 @@ its mistake; work that is mechanical, or that an independent check follows, runs
 | Architect's review, a study before a critical sprint, the planner | Fable |
 | An investigation of read scaling in which three or four rounds found no cause | Fable, xhigh |
 
-The rows at high effort are a trial that begins with S15, part 2 of Epic 1: the record of
-that sprint states the number of review rounds and of findings by severity beside those of
-S15, part 1, and the owner decides from that whether the rows stay. An agent that stops on
+The rows at high effort began as a trial with S15, part 2 of Epic 1; after S15 to S17 the
+owner kept them as the standing rule (the owner, 23 November 2026). No agent or session of
+an epic runs above xhigh, whatever its role. An agent that stops on
 a usage limit is not retried in a loop; the owner is told.
 
 ## New sessions at a sprint boundary
