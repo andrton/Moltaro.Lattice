@@ -105,10 +105,10 @@ namespace Moltaro.Lattice.Engine.Child.Loading;
 internal sealed class ReceivedChanges
 {
     // The most keys a transaction may name for the child to keep the room it took, its list of prepared
-    // changes and its set of named keys, for the next transaction: about 160 bytes a key, a change of 96 bytes
-    // and an entry of the set of 56 with its bucket, so at most some 160 KiB kept between transactions. Up to
-    // it an ordinary stream uses the same two again and allocates nothing for them; after a larger
-    // transaction both are let go (StartNext).
+    // changes and its set of named keys, for the next transaction: a change of 96 bytes and an entry of the set
+    // of 56 with its bucket a key, and at this count a list of 1,024 changes and a set grown to 1,931 entries,
+    // so about 210 KiB at most kept between transactions. Up to it an ordinary stream uses the same two again
+    // and allocates nothing for them; after a larger transaction both are let go (StartNext).
     private const int KeptRoom = 1024;
 
     private readonly Arena _arena;
