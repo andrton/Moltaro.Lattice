@@ -73,8 +73,8 @@
     <a href="milestone-1-engine-contract.md#write-coordinator-and-revision-semantics">milestone contract</a>.
     How reads are protected meanwhile: <a href="epoch-protection.html">epochs</a>.</p>
   <p class="status"><b>Status.</b> Decided on 17 November 2026 and built in Epic 1, sprint S09, part 2;
-    the write batch on a master in sprint S17, part 2. A batch through a child and persistence in
-    PostgreSQL are not built yet.</p>
+    the write batch on a master in sprint S17, part 2, and the batch a child forwards in part 3.
+    Persistence in PostgreSQL is not built yet.</p>
 
   <h2>The idea</h2>
   <blockquote>A write is prepared and published under one lock, one write at a time. Writes are

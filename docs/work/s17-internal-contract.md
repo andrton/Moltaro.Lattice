@@ -604,3 +604,23 @@ structure keeps the room of a large transaction (point 6 above), and the item ca
 ("both lists keep the capacity of the largest transaction") is closed by it. 4: nothing is built; an entry of
 `refactoring.md` with its place in S33, the bounded delivery of R30, the simple form to try first being a buffer
 that returns to its ordinary size after a transaction above a threshold.
+
+**As built** (the commits after `5b1d697`, the last of the tests written before the code). Beyond the names above:
+
+- `RequestReceiver` reads a member with the helpers of one write (`TableOf`, `RootOf`, `SessionOf`); the two
+  `Forward` of the coordinator share `SubmitForwarded`.
+- `Forwarder.WriteAsync` and `WriteBatchAsync` are no longer `async`: both check, bind and encode, then hand the
+  call to one `ForwardAsync` for the queue, the reply and the wait, and a refusal before anything is queued comes
+  through the task (`FromCanceled` for the token, `FromException` otherwise). So the values of one write, like the
+  members of a batch, are let go once the request is written, where the state machine of `WriteAsync` kept them
+  until the reply.
+- `ReceivedChanges.NameOnce` names a key in the set; `StartNext` empties both structures, or lets them go above
+  `KeptRoom`.
+- The sample of a master and its child commits a batch through the child.
+- Figures of the probe (Release, the workstation; the probe and its output in the folder of measurements of the
+  part, outside the repository), batches of the fixture's users through a child, a request of 172 bytes a user:
+  the managed bytes of the process over its start while the master holds the publication before the position,
+  1.10 MB for 1,000 users, 9.80 MB for 10,000 and 96.9 MB for 100,000, about 5.6 times the request; from the
+  release of the publication to the commit on the child 14 ms, 153 ms and 1,795 ms. In Debug the batch of 100,000
+  was not applied by the child within the SynchronizationTimeout of 10 seconds, and its commit ended in
+  SynchronizationTimeout, committed, as the contract says.

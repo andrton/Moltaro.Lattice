@@ -21,8 +21,8 @@ own indexes, then follows its changes, and forwards its own writes to the master
 unique index gives a value to one entity only, whichever node submits the write. A
 schema can already declare more than the engine stores: an entity type with an owned
 value, a List, a Map, a Set or a reference compiles, but cannot be written yet. A write
-batch is executed on a master; a batch through a child and PostgreSQL persistence are not
-implemented yet, and the contract may still change.
+batch is executed by the master, also one committed through a child. PostgreSQL persistence
+is not implemented yet, and the contract may still change.
 
 The [engine design reference](docs/design/README.md),
 [accepted decisions](docs/decisions/README.md) and
@@ -213,9 +213,7 @@ one succeeds; a write of a value that another write still in progress takes or g
 waits for it. A batch is checked on the state it leaves, so it may exchange two values, or
 delete an entity and give its value to another.
 
-**Writing several entities together.** *Executed on a master; a batch committed through a
-child is not implemented yet, and its `CommitAsync` fails with `NotSupportedException`.* One write is
-atomic for one entity. Writes that have to succeed or fail together are submitted as one
+**Writing several entities together.** One write is atomic for one entity. Writes that have to succeed or fail together are submitted as one
 write batch, which may address different entity types:
 
 ```csharp
@@ -227,7 +225,9 @@ batch.Delete<User>(3);
 LatticeWriteResult result = await batch.CommitAsync();
 ```
 
-The master executes the whole batch at one position or refuses it as a whole. No reader,
+The master executes the whole batch at one position or refuses it as a whole; a batch
+committed through a child reaches the master as one request and completes when that child
+has applied all of it. No reader,
 on any node, sees an entity of the batch changed before that position on that node, and a
 read that begins once its node has reached that position, as a read with the session of the
 commit does, sees all of it; a search or an enumeration that runs while the batch is
@@ -405,8 +405,7 @@ path, from simple to complex.
 | `Moltaro.Lattice.DependencyInjection` | `AddLattice` | Registration in a dependency injection container; a separate package |
 | `Moltaro.Lattice.AspNet.Identity` | `AddLatticeStores`, `LatticeIdentitySchema` | Storage for ASP.NET Core Identity; contract only, not published yet |
 
-In the contract but not implemented yet: executing a
-write batch through a child, Durable persistence, a child that connects again after it lost its master,
+In the contract but not implemented yet: Durable persistence, a child that connects again after it lost its master,
 and storing what a schema can declare beyond scalar and enum fields:
 owned values, Lists, Maps, Sets and references, which a schema declares, a record and
 a class hold, and no write stores yet. Not in the contract yet: partial updates, safe retry
@@ -420,7 +419,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities in memory, by primary key and through their secondary indexes, and commits a write batch on a master, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities in memory, by primary key and through their secondary indexes, and commits a write batch, on a master or forwarded by a child, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |

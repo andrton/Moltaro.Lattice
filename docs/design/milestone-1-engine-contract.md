@@ -341,7 +341,8 @@ another writer. A WriteBatch is prepared the same way, all of its entities in on
 member by member in their order, each placed from the root it was encoded to when the
 application added it, and its changes are reserved and checked together on the state they
 leave; which member fails is judged in two phases
-([write path](write-path.md#a-write-batch)). A batch through a child is not built yet.
+([write path](write-path.md#a-write-batch)). A batch through a child reaches the master as one
+request and is prepared there the same way, each member placed from the root the child sent.
 
 The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller
@@ -564,8 +565,16 @@ Child restart always starts empty. Missing same-history RAM tail or a new histor
 requires full reload; ordinary master restart preserves history but may lose the tail.
 
 A child forwards a write as a request on its one connection: the root it validated and
-encoded, which the master checks as a child checks a root of a load, and executes. The
-reply of a forwarded write, a refusal as a success, is recorded before the write leaves
+encoded, which the master checks as a child checks a root of a load, and executes. A write
+batch is one request, which the master checks member by member and executes as one write.
+A forwarded batch of B bytes is held as about B bytes of managed memory on the child from
+its commit to the reply, 2B while its request is written from the encoded members, and on
+the master as B bytes of managed memory outside the memory budget from its first frame to
+its outcome, with B in the arena and B in the tail of the children. A large batch holds
+back the later requests of its child until its last frame is sent, the child's
+acknowledgments passing between its frames, and the master reads no frame of that child
+while it checks the batch and prepares and publishes it. The reply of a forwarded write, a
+refusal as a success, is recorded before the write leaves
 the master's write path and reaches the child before the transaction of that write. A
 master that closes ends each connection in order: its recorded replies, what it holds
 for that child, one frame Closed, the end of its sending side; then it waits for the
