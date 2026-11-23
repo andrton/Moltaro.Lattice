@@ -80,7 +80,9 @@ Point 2:
   insert: root, stamp, Live, primary entry; a replace: mark, root, stamp; a delete: mark, Deleted,
   stamp). `PublishPositionAndAfter`: the position, then removals, old entries and retirement.
 - The search: an entry whose root entry is Free or Prepared is passed over before its stamp is
-  taken; a Deleted one is taken by its stamp. See question 4 for a step that waited.
+  taken; a Deleted one is taken by its stamp. See question 4 for a step that waited. As built (B1, form
+  C): no entry is passed over before its stamp is taken; the root entry of an insert not stored yet holds
+  the mark, and the take waits through it.
 - The capture (`Capture.TryCopy`) passes its token to `TakeEntry`.
 
 Point 3:
@@ -214,13 +216,18 @@ it through the token. Held by `CaptureDuringABatchTests` (skipped: it needs the 
    the position returns the later and not the earlier, in one step. Proposed: a step whose take of an
    entry waited for the position walks again from where the step began; only steps that meet a member
    pay. Held by `WholeOrNoneTests` at `AfterFirstChange` (the replace of 2 is the first change, the
-   replace of 1 lies before it in every index).
+   replace of 1 lies before it in every index). *Decided by the owner on 23 November 2026* (form C, in
+   B1 below): one step is not promised to be of one position; a step whose take waited goes on, and the
+   walk again that B1 built is removed.
 5. **What an enumeration and a search of several steps owe.** Separate reads may combine states from
    before and after the position (decision on the document model). The tests hold, for an enumeration,
    each member in its state after the batch once its session is at s or later and in its state before
    while the session is before s; a pass that began before s may miss a member inserted into a slot it
    had passed. For a search of the deleted members they hold only what one step can see. Is that the
-   reading of "seen whole by an enumeration and a search" in the Acceptance?
+   reading of "seen whole by an enumeration and a search" in the Acceptance? *Decided by the owner on 23
+   November 2026* (form C, in B1 below): a search or an enumeration that runs across the publication may
+   return some members as they were before it and others as after; no member is visible in its new state
+   before the position, and a read that begins at or after it sees every member.
 6. **The barrier in two other decision records.** `mutation-commands.md` ("publishes the complete group
    under its database barrier"; "atomic publication barrier" in the table of repeated roots) and
    `unique-indexes.md`, step 4 ("the ordinary root/WriteBatch barrier") still name it. Corrected with
@@ -308,28 +315,65 @@ batch.
 Part 2 is split by the coordinator into B1, point 2 proven on a child, and B2, the commit of a batch on a
 master with points 3 and 4 and the revision of a member; both are reviewed on one branch and merged
 together after the one start of the machine. B1 is `c3dfeed`, point 2 with TEXT B, TEXT 3 and the
-barrier sentences, and `312506c`, its tests on a child.
+barrier sentences, and `312506c`, its tests on a child. What B1 built for the wholeness of one step, a
+second walk after a take that waited, is gone in form C (below).
 
-- **The listing condition, as the planner read it.** A step that never waits makes the same calls and
-  the same loads of shared memory as before; at the take it adds one store (`waited = false`, in the
-  take), two argument setups (the token and `waited`) and one test of the byte `waited`, and it loses one
-  store (the stamp, no longer kept, since the position of the answer is the position the take read).
-  Step: 67 calls before and after, 4,889 against 5,018 bytes, frame 968 against 984. A read by key adds
-  no load: the take loads the stamp, the position, the state, the root and the stamp, five loads as
-  before, in another order (TakeEntry 130 against 235 bytes, TryRead 1,329 against 1,344, frame 136
-  against 168). Should the start of the machine show a fall in a read, the first variant tried is
-  `waited` returned by the take instead of written through a reference.
-- **Found against the brief.** The brief has a search pass over the entry of an insert whose root is not
-  installed yet. A step that passes such an entry can then meet a later member after the position is
-  published, take it without waiting, and return it while the insert it passed is visible at the same
-  position: a part. `MergedTransactionPrefixTests` found it in Release ("search: [1] at 1"). The root
-  entry of such an insert holds the mark, as `RootTable.Add` leaves it, until its publication stores
-  it, so the step waits for it as for any member, and walks again; no entry of a secondary index names a
-  root entry that is not installed outside a publication.
-- **Where the step walks again from.** From where it began, not from where its round began: a round of
-  the step may have stood at an entry after passing a member in its state before. `WalkProgress` keeps
-  the place a round stands at in the room of the staged entry, apart from the entry the walk stands after,
-  so that the step can drop it (`DropStand`).
+- **Form C, on the owner's word** (23 November 2026, in the coordinator's session: "Утверждаю. И пункт 1,
+  и удаление старых папок."; the reading of the Acceptance he changed that day, which the document of the
+  epic records). The engine owes five points, and a test holds each:
+  1. no member of a batch is visible in its new state before its position on that node, by key, by a
+     search and by an enumeration, on a master and on a child: `WholeOrNoneTests`,
+     `ChildPublicationTests`, `MergedTransactionPrefixTests`;
+  2. a read that begins at or after the position sees every member: `ReadAtThePositionTests`, which
+     reads while the old entries of the members are still in the indexes, and the searches the restated
+     tests add after the publication;
+  3. the position of an answer is never below a stamp it holds: the same tests, in which the only stamps
+     above the position before the batch are those of its members, so a member in its new state at a
+     position before the batch would fail them;
+  4. a read by key is exact: the reads by key of `WholeOrNoneTests` and `ChildPublicationTests`, whose
+     state follows their position;
+  5. no read is left waiting after a fault, a close or a cancellation: `WaitingReadTests` and
+     `ChildPublicationTests`, the close added by form C.
+
+  A search or an enumeration that runs across the publication may return some members as they were
+  before it and others as after, as separate reads may.
+- **What form C builds.** The publication in its order and the take that does not accept a stamp above
+  the position, as B1 built them; nothing else. `EntityTable.Step` goes on after a take that waited, as
+  at `a326551`: the second walk, the start of the step it went back to, `waited` of `TakeEntry`, and
+  `WalkProgress.WalkFrom`, `DropStand` and the place of a round kept apart from the entry the walk
+  stands after are removed, and `WalkProgress` is as at `a326551`. The finding P1-2 of the review of B1,
+  on what the second walk dropped, goes with it.
+- **The root entry of an insert at the mark** is kept, because it is not built: it is the state
+  `RootTable.Add` leaves until the publication stores the entry, as at `a326551`, and the take waits
+  through the mark that the stores of a replace and a delete need for the stamp. None of the five points
+  needs the wait for an insert: a step that passed over such an entry would show the insert as it was
+  before, which form C permits. But passing it over needs a load of the state before every take of a
+  step, which the wait does not: with it `Step` was measured at 4,908 bytes against 4,897, the calls the
+  same. So the brief's pass over an entry whose root is not installed is not built either.
+- **Found against the brief, by B1.** A step that passed over such an entry could then meet a later member
+  after the position and return it while the insert it passed was visible at the same position:
+  `MergedTransactionPrefixTests` found it in Release ("search: [1] at 1"). Form C permits that answer, and
+  the wait at the mark gives the same one when the walk held a leaf from before the entry was installed.
+- **The listings** (a Release driver over the public API, tiered PGO off, the driver of B2 kept outside the
+  repository; `a326551`, then `10f8403`, then form C). `Step`: 67 calls each; 4,889, 5,017 and 4,897
+  bytes; a frame of 968, 1,016 and 984. At its take it passes the token and the place of the member, the
+  member being B2's, stores no stamp, and tests nothing more. `TakeEntry`: 2, 3 and 3 calls; 130, 237 and
+  215 bytes; the same five loads of shared memory as at `a326551` (the stamp, the position, the state
+  with the member as one word, the root, the stamp), one comparison of the stamp with the position, the
+  member taken from the word, and the call that throws for the token out of the path. `TryCopy`: 8 calls
+  each; 357, 395 and 371 bytes. `TryRead`: 16 calls each; 1,329, 1,343 and 1,344 bytes. `StepWithoutWalk`
+  (7 calls, 407 bytes) and `TrySearch` (2 calls, 214 bytes) are unchanged. The allocation tests of a read
+  and of a search pass with their assertions as they were.
+- **The tests restated on the owner's word**, in a commit of their own after form C, by the restatement list
+  of B1: `WholeOrNoneTests`, `ChildPublicationTests` and `MergedTransactionPrefixTests`, each renamed to
+  what it now states. A search that runs across the publication finds no member before s, and at s or
+  later some of the members in their order and in their state after it (`BatchSchema.ExpectNoMemberBeforeThePosition`),
+  in place of none or all; the same searches begun after the publication find every member. Before that
+  commit, form C fails them as expected: `WholeOrNoneTests` at `AfterNewEntries` ("[11, 12]") and at
+  `AfterFirstChange` ("[2, 11, 12]"), on the master and on a child; `ChildPublicationTests` at the same two
+  places; `MergedTransactionPrefixTests` in its three runs ("search: [1] at 1", a step that held a leaf from
+  before the entry of B was installed). `SearchStepAcrossAPublicationTests` and the probes of the list are
+  not on this branch.
 - **One publisher.** A child applies its transactions through the publisher of the instance
   (`DatabaseParts.Publisher`), which holds the switch of the tests for a master and a child alike.
 

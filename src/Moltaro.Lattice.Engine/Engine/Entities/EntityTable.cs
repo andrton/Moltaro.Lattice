@@ -563,9 +563,6 @@ internal sealed class EntityTable
         sequence = 0;
         next = search.Place;
 
-        // Where the step began, to which it goes back when a take waited for the position of a publication.
-        var stepFrom = search.From;
-
         // The time of the step begins before the protection, whose slot it may wait for.
         var started = search.Limits.StartStep();
 
@@ -586,11 +583,8 @@ internal sealed class EntityTable
                 var keyBound = -1;
                 var entryLength = 0;
 
-                // Whether a take of the round waited for the position of a publication.
-                var waitedForPosition = false;
-
                 // The keys of the walk are written on the stack outside the protection, once for the round.
-                var after = !full && search.Progress is { } walked ? walked.WalkFrom : default;
+                var after = !full && search.Progress is { } walked ? walked.Last : default;
 
                 var walk = new IndexWalk(index, key, full, search.Reverse, search.From, after, scratch);
                 var protection = EnterProtection(ref search, cancellationToken);
@@ -623,24 +617,13 @@ internal sealed class EntityTable
                         // since the entries of a delete leave the tree before the entry is retired. Every
                         // entry the step meets is taken by its stamp, whatever its state, as a read takes it:
                         // the entry of an insert whose root is not installed yet as well, whose stamp is the
-                        // mark until it is, so the take waits for the position of its publication.
+                        // mark until it is, so the take waits for the position of its publication. The step
+                        // goes on from there and does not walk again: an entity it passed in its state before
+                        // the publication stays passed, so a step, as separate reads may, can hold some
+                        // entities of a publication as they were before it and others as after
+                        // (docs/design/ordered-index.md, "How a range is walked").
                         ref var rootEntry = ref _roots.EntryOfSlot(identity.Slot);
-
-                        TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out _, out var at, out var waited);
-
-                        // A take that waited for the position of a publication found its entity in the state
-                        // the publication left, while the entries the step passed before were seen before it:
-                        // a member of the same publication not stored yet among them, which the step passed
-                        // in its state before. The step walks again from where it began, so that one step
-                        // never holds a part of a publication (docs/design/ordered-index.md, "How a range is
-                        // walked").
-                        if (waited)
-                        {
-                            waitedForPosition = true;
-                            exhausted = false;
-
-                            break;
-                        }
+                        TakeEntry(ref rootEntry, _epochs, _clock, cancellationToken, out var state, out var root, out _, out var at);
 
                         if (state != RootStateEnum.Live)
                         {
@@ -760,19 +743,6 @@ internal sealed class EntityTable
                 finally
                 {
                     _epochs.Exit(protection);
-                }
-
-                // The next round walks again from where the step began: a search by a full key from the
-                // identity it stood at, any other from the entry it stands after, the place a round of the
-                // step stood at dropped. Every match the step passed over by Offset is remembered, so the walk
-                // counts none of them twice, and the next round looks at the state of the instance and at
-                // the token as every round does.
-                if (waitedForPosition)
-                {
-                    search.From = stepFrom;
-                    search.Progress?.DropStand();
-
-                    continue;
                 }
 
                 // The first entity of a lazy search by a full key, returned with its key, which is stored now
@@ -924,7 +894,7 @@ internal sealed class EntityTable
         where TCopy : struct, IRootCopy<TResult>
         where TResult : class
     {
-        var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var state, out var root, out var member, out var at, out _);
+        var stamp = TakeEntry(ref entry, _epochs, _clock, cancellationToken, out var state, out var root, out var member, out var at);
 
         if (state != RootStateEnum.Live)
         {
@@ -974,7 +944,7 @@ internal sealed class EntityTable
             return false;
         }
 
-        lastMutation = TakeEntry(ref entry, epochs, clock, cancellationToken, out var state, out root, out member, out _, out _);
+        lastMutation = TakeEntry(ref entry, epochs, clock, cancellationToken, out var state, out root, out member, out _);
 
         return state == RootStateEnum.Live;
     }
@@ -983,15 +953,14 @@ internal sealed class EntityTable
     // of the entry as one state, by the stamp of the entry (arena-protocol.md, "The stamp of a root
     // entry"), with the sequence of the database read right after the first load of the stamp, which is
     // the position of the answer; returns the stamp. A stamp above that sequence is a publication whose
-    // position is not published yet: the read does not take it, and waits as it waits at the mark, and
-    // waited says it did. The root entry of an insert whose root a publication has not stored yet holds
-    // the mark, as its preparation left it (Storage.Roots.RootTable.Add), so it is waited for as well. The
-    // token ends the wait, with OperationCanceledException.
-    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out RootStateEnum state, out ArenaAddress root, out uint member, out ulong at, out bool waited)
+    // position is not published yet: the read does not take it, and waits as it waits at the mark, so no
+    // entity of a publication is taken in its new state before its position and the position of an answer
+    // is never below the stamp it took. The root entry of an insert whose root a publication has not
+    // stored yet holds the mark, as its preparation left it (Storage.Roots.RootTable.Add), so it is waited
+    // for as well. The token ends the wait, with OperationCanceledException.
+    private static ulong TakeEntry(ref RootEntry entry, ReadEpochs epochs, PositionClock clock, CancellationToken cancellationToken, out RootStateEnum state, out ArenaAddress root, out uint member, out ulong at)
     {
         var backoff = default(SpinWait);
-
-        waited = false;
 
         while (true)
         {
@@ -1014,7 +983,6 @@ internal sealed class EntityTable
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                waited = true;
                 backoff.SpinOnce();
 
                 continue;

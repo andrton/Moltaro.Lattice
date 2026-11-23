@@ -493,8 +493,8 @@ between two steps only the key and the identity of the last entity it returned:
    insert enter the tree in the publication that stores its root entry after them, and
    those of a delete leave before its root entry is retired; a publication that fails
    between the two faults the database, and the wait then reports `Unavailable`. An entry
-   that is not live, a delete, is passed over. A step whose take waited walks again from
-   where it began ("How a range is walked", below).
+   that is not live, a delete, is passed over. A step whose take waited goes on from there
+   ("How a range is walked", below).
 3. It checks the root against the key; an entry whose root no longer has the key is
    passed over.
 4. It copies the root, remembers its identity and leaves the protection. The entity is
@@ -640,18 +640,21 @@ protection.
    `WalkProgress`, room for a key or for an entry, is counted against `ReadMemoryLimit` and
    made outside the protection, and the step reads its entry anew; a round that cannot write
    where it stands goes on from where the search stood, and what it remembered stays.
-8. **A take that waited.** A take that waited for the position of a publication found its
-   entity in the state the publication left, while the entries the step passed before were
-   seen before it, a member of the same publication among them in its state before. So the
-   step walks again from where it began: a search by a full key from the identity it stood
-   at, any other from the entry it stands after, the place a round of the step stood at
-   dropped (`WalkProgress` keeps that place apart from the entry it stands after). The new
-   round looks at the state of the instance and at the token, as every round does; what the
-   step passed over by Offset is remembered, so the walk counts none of it twice, and one
-   step never holds a part of a publication. A step that never waits pays one test of a
-   byte for it. Steps of one search may still combine states before and after a
-   publication, as separate reads may ([the document model](../decisions/document-model.md)).
-8. **Offset and Limit.** Offset is linear in the matches it passes over, which are
+8. **A take that waited.** A take that waited for the position of a publication finds its
+   entity in the state the publication left, and the step goes on from there. The entries
+   it passed before were seen before the position, a member of the same publication among
+   them perhaps, passed in its state before or skipped by Offset in it, and they stay
+   passed. So a search that runs across a publication, in one step or in several, may
+   return some of its members as they were before it and others as after, as separate reads
+   may ([the document model](../decisions/document-model.md), "Atomic WriteBatch within one
+   database"; [database scope](../decisions/database-scope.md)). What it never does is
+   return a member in its new state before the position: a take does not accept a stamp
+   above the position, and the position of an answer is the one its take read, so an
+   answer that holds a member in its new state is at the position of the publication or
+   later; an answer of several steps reports the latest position of its steps. A search
+   that begins at or after the position finds every member in its state after it. A step
+   pays nothing for this beyond its takes.
+9. **Offset and Limit.** Offset is linear in the matches it passes over, which are
    remembered and counted once; Limit ends the walk after its last entity, and one more look,
    which copies nothing, says whether a match follows.
 

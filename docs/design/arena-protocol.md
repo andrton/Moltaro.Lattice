@@ -405,18 +405,22 @@ base and whole committed journal batches. There is no second serving arena.
 
 The engine keeps the guarantee of that barrier without it (the decision on the document
 model, "Atomic WriteBatch within one database", amended on 22 November 2026, the owner's
-answer to Q57 of the open questions): a reader sees all of a publication of several entities
-or none of it, and no answer carries its position before all of it is visible. A publication
-at the sequence s installs the new entries of the secondary indexes of every member, then
+answer to Q57 of the open questions): no member of a publication of several entities is
+visible in its new state before its position, a read that begins at or after the position
+sees all of it, and no answer carries a position below a stamp it holds. A publication at
+the sequence s installs the new entries of the secondary indexes of every member, then
 stores every member with the stamp s, and only then publishes the position s ([the write
 path](write-path.md#how-a-publication-is-made)). A read that meets a member before the
 position finds the mark or the stamp s above the position and waits, inside the protection,
 until the position is published or the instance has faulted, or its token ends the wait;
-a read of an entity that is no member is never held, and nothing drains. A step of a search
-whose take waited walks again from where the step began, so that one step never holds a
-part ([the ordered index](ordered-index.md#how-a-range-is-walked)). A child applies a
-transaction of several effects by the same publisher. The commit of a batch on a master is
-not built yet.
+the position of its answer is the one it read once the wait ended, s or later. A read of an
+entity that is no member is never held, and nothing drains. A read by key is exact. A
+search or an enumeration that runs across the publication may return some members as they
+were before it and others as after, as separate reads and scans may (the same decision, and
+[database scope](../decisions/database-scope.md)): a step goes on after a take that waited,
+and what it passed before stays passed ([the ordered index](ordered-index.md#how-a-range-is-walked)).
+A master publishes the commit of a batch, and a child a transaction of several effects, by
+the same publisher.
 
 Controlled interleavings, pre-commit rollback, post-commit publication failures,
 same-token repeats and four abrupt application-exit/reopen cases passed. Publication
