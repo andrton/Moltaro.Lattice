@@ -59,7 +59,7 @@ internal static class Protocol
     // framing of roots and of the schema, the body of LoadEnd (Replication.Load), the transactions and
     // their effects (Replication.Transactions), and the writes a child forwards with their replies
     // (Replication.Forwarding). Another value is another format. 5 adds to 4 the number of the member of a
-    // write batch in the envelope of a root; 4 adds to 3 the identity of the unique index a refusal of a
+    // write batch in the envelope of a root and the write batch a child forwards; 4 adds to 3 the identity of the unique index a refusal of a
     // forwarded write names; 3 adds to 2 the writes a child forwards on the connection, with their replies;
     // 2 is the format whose LoadEnd carries S and R and whose stream follows the load.
     public const int WireFormat = 5;

@@ -17,9 +17,15 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // then the key, in the form of the key of a Delete of the stream (Engine.Entities.PrimaryKeys.WriteKey);
 // a Delete ends there. An insert, a replace and an upsert go on with the length of the root (UInt64) and
 // the root in the load format, as a Blocks frame carries it: type id (UInt32), last mutation sequence
-// (UInt64), which the child writes as 0 and the master stamps when it prepares the write, then what
-// Load.BlockExport writes. The key and the root are written and read by the engine with the entity type
-// they belong to; here are the parts around them.
+// (UInt64), which the child writes as 0 and the master stamps when it prepares the write, the member (UInt32),
+// which the child writes as 0 and the master gives each member of a batch, then what Load.BlockExport writes.
+// A root ends where its length says, and the body after its last part. The key and the root are written and
+// read by the engine with the entity type they belong to; here are the parts around them.
+//
+// A write batch, from the wire format 5: its kind (BatchKind, one byte), the minimum position as a request
+// carries it, the count of its members (UInt32, at least 1), then each member in its order: its kind, its type
+// id and its expected revision as a request carries them, its key, and for an insert, a replace or an upsert
+// the length of its root and the root; the body ends after the last member.
 //
 // A reply: 0 and a result — its position, history and sequence, and Changed (one byte, 0 or 1) — or 1 and
 // a refusal: its error (Int32, LatticeErrorEnum), its message (the length of its UTF-8, UInt32, and that
@@ -33,13 +39,39 @@ namespace Moltaro.Lattice.Replication.Forwarding;
 // of the engine makes, with ValidationFailed, before anything of it is used.
 internal static class ForwardEncoding
 {
+    // The kind of a write batch, the value after those of Access.WriteKindEnum.
+    public const byte BatchKind = 4;
+
+    // The fewest bytes a member of a batch takes: its kind, its type id, the mark of its revision and the
+    // length of an empty String key, the shortest key; a delete has no root. A count of members above what
+    // the rest of a body holds at this size is refused before anything is taken for the members, so that what
+    // the master takes for a batch grows with the bytes received, not with what a peer announces.
+    public const int SmallestMember = 1 + sizeof(uint) + 1 + sizeof(uint);
+
     // The most bytes of UTF-8 one character takes.
     private const int MostBytesOfACharacter = 4;
 
     // The part of a request before its key.
     public static void WriteRequestHead(IBufferWriter<byte> output, WriteKindEnum kind, uint typeId, LatticeRevision? expectedRevision, LatticePosition? minimumPosition)
     {
-        const int Most = 1 + sizeof(uint) + 1 + (2 * sizeof(ulong)) + 1 + (2 * sizeof(ulong));
+        WriteMemberHead(output, kind, typeId, expectedRevision);
+        WritePosition(output, minimumPosition);
+    }
+
+    // The head of a write batch, before its first member.
+    public static void WriteBatchHead(IBufferWriter<byte> output, LatticePosition? minimumPosition, int count)
+    {
+        output.GetSpan(1)[0] = BatchKind;
+        output.Advance(1);
+        WritePosition(output, minimumPosition);
+        BinaryPrimitives.WriteUInt32LittleEndian(output.GetSpan(sizeof(uint)), (uint)count);
+        output.Advance(sizeof(uint));
+    }
+
+    // The part of a member of a batch before its key: the part of a request before its minimum position.
+    public static void WriteMemberHead(IBufferWriter<byte> output, WriteKindEnum kind, uint typeId, LatticeRevision? expectedRevision)
+    {
+        const int Most = 1 + sizeof(uint) + 1 + (2 * sizeof(ulong));
 
         var span = output.GetSpan(Most);
         var at = 0;
@@ -60,12 +92,45 @@ internal static class ForwardEncoding
             span[at++] = 0;
         }
 
-        at += WritePosition(span[at..], minimumPosition);
         output.Advance(at);
     }
 
+    // Whether the body is that of a write batch, by its first byte.
+    public static bool IsBatch(in SequenceReader<byte> body) => body.TryPeek(out var kind) && kind == BatchKind;
+
     // The part of a request before its key; the reader stands at the key.
     public static ForwardedWrite ReadRequestHead(ref SequenceReader<byte> body)
+    {
+        var head = ReadMemberHead(ref body);
+
+        return head with { MinimumPosition = ReadPosition(ref body, "its minimum position") };
+    }
+
+    // The head of a write batch, which IsBatch found: its minimum position and the count of its members; the
+    // reader stands at its first member. A count of no member, or of more than the rest of the body can hold
+    // (SmallestMember), is not valid.
+    public static (LatticePosition? MinimumPosition, int Count) ReadBatchHead(ref SequenceReader<byte> body)
+    {
+        body.Advance(1);
+
+        var position = ReadPosition(ref body, "its minimum position");
+
+        if (!body.TryReadLittleEndian(out int count))
+        {
+            throw Truncated("the count of its members");
+        }
+
+        if (count < 1 || count > body.Remaining / SmallestMember)
+        {
+            throw Protocol.Invalid($"A forwarded write batch announces {(uint)count} members, and the {body.Remaining} bytes that follow hold from 1 to {body.Remaining / SmallestMember}.");
+        }
+
+        return (position, count);
+    }
+
+    // The part of a member of a batch before its key, as the part of a request before its minimum position;
+    // the reader stands at the key. A kind that is no write, a batch among them, is not valid.
+    public static ForwardedWrite ReadMemberHead(ref SequenceReader<byte> body)
     {
         if (!body.TryRead(out var kind) || kind > (byte)WriteKindEnum.Delete)
         {
@@ -96,9 +161,7 @@ internal static class ForwardEncoding
             }
         }
 
-        var position = ReadPosition(ref body, "its minimum position");
-
-        return new ForwardedWrite((WriteKindEnum)kind, (uint)typeId, revision, position);
+        return new ForwardedWrite((WriteKindEnum)kind, (uint)typeId, revision, MinimumPosition: null);
     }
 
     // The length of the root of an insert, a replace or an upsert, after its key.
@@ -108,9 +171,8 @@ internal static class ForwardEncoding
         output.Advance(sizeof(ulong));
     }
 
-    // The root of an insert, a replace or an upsert, after its key: what its length announces, which ends
-    // the body exactly. Whether the root itself is valid is the check of a received root
-    // (Load.BlockImport).
+    // The root of an insert, a replace or an upsert, after its key: what its length announces, with the
+    // reader after it. Whether the root itself is valid is the check of a received root (Load.BlockImport).
     public static ReadOnlySequence<byte> ReadRoot(ref SequenceReader<byte> body)
     {
         if (!body.TryReadLittleEndian(out long length))
@@ -118,24 +180,25 @@ internal static class ForwardEncoding
             throw Truncated("the length of its root");
         }
 
-        if ((ulong)length != (ulong)body.Remaining)
+        if ((ulong)length > (ulong)body.Remaining)
         {
             throw Protocol.Invalid($"A forwarded write announces a root of {(ulong)length} bytes, and {body.Remaining} follow.");
         }
 
-        var root = body.UnreadSequence;
+        var root = body.UnreadSequence.Slice(0, length);
 
-        body.Advance(body.Remaining);
+        body.Advance(length);
 
         return root;
     }
 
-    // A Delete ends with its key.
+    // A request ends after its last part: the key of a delete, the root of another write, the last member of
+    // a batch.
     public static void ExpectEnd(in SequenceReader<byte> body)
     {
         if (!body.End)
         {
-            throw Protocol.Invalid($"A forwarded delete goes on for {body.Remaining} bytes after its key.");
+            throw Protocol.Invalid($"A forwarded write goes on for {body.Remaining} bytes after its end.");
         }
     }
 
@@ -349,6 +412,10 @@ internal static class ForwardEncoding
 
         return 1 + sizeof(int);
     }
+
+    // An optional position: its mark, its history and its sequence.
+    private static void WritePosition(IBufferWriter<byte> output, LatticePosition? position) =>
+        output.Advance(WritePosition(output.GetSpan(1 + (2 * sizeof(ulong))), position));
 
     // An optional position: its mark, its history and its sequence; the bytes written.
     private static int WritePosition(Span<byte> span, LatticePosition? position)

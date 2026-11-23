@@ -4,10 +4,10 @@ using Moltaro.Lattice.Engine.Entities;
 
 namespace Moltaro.Lattice.Engine.Writes;
 
-// One operation of a write batch as the write path executes it (WriteCoordinator.SubmitBatchAsync): what it
-// does, to which entity, under which condition, and for an insert, a replace or an upsert the root of the
-// entity in the load format, after its envelope, which the write path places when it prepares the batch, as
-// it places the root of a forwarded write (WriteExecutor). Root is empty for a delete. The members of a
+// One operation of a write batch as the write path executes it (WriteCoordinator.SubmitBatchAsync, and
+// WriteCoordinator.Forward for a batch a child forwarded): what it does, to which entity, under which condition,
+// and for an insert, a replace or an upsert the root of the entity in the load format, after its envelope, which
+// the write path places when it prepares the batch, as it places the root of a forwarded write (WriteExecutor). Root is empty for a delete. The members of a
 // batch are in the order they were added.
 internal readonly record struct BatchMember(
     WriteKindEnum Kind,

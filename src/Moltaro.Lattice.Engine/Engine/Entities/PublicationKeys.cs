@@ -8,8 +8,9 @@ namespace Moltaro.Lattice.Engine.Entities;
 // case are one entity, and the same key in another entity type is another one
 // (docs/decisions/mutation-commands.md, "Repeated roots inside an explicit WriteBatch").
 // - The set of a batch: the write coordinator asks it whether another write shares an entity with the batch
-//   (Writes.PendingWrite.SharesEntityWith). It is made before the batch is admitted, outside every lock, and
-//   not changed afterwards, so any thread may read it.
+//   (Writes.PendingWrite.SharesEntityWith), and the receiver of a child's connection refuses a forwarded batch
+//   that names an entity twice by it (Children.RequestReceiver). It is made before the batch is admitted,
+//   outside every lock, and not changed afterwards, so any thread may read it.
 // - The set of a child: the keys the effects of the transaction being applied name, so that it names each
 //   once (Child.Loading.ReceivedChanges). Only the thread that applies uses it, under the lock of the writes of
 //   the child, and empties it for the next transaction (Clear).

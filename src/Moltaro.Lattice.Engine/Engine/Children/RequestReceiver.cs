@@ -6,6 +6,7 @@ using Moltaro.Lattice.Engine.Writes;
 using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Replication.Forwarding;
 using Moltaro.Lattice.Replication.Load;
+using Moltaro.Lattice.Schema;
 
 namespace Moltaro.Lattice.Engine.Children;
 
@@ -20,11 +21,14 @@ namespace Moltaro.Lattice.Engine.Children;
 // of write, no expected revision for an insert, an entity type the engine stores, a key of that type, and
 // for an insert, a replace or an upsert a root of its entity type and a last mutation of 0, which passes
 // the check a child makes of a root received in a load (Replication.Load.BlockImport.Check), and whose key
-// is the key of the request, the text of a String key code unit for code unit. That and the conditions of
-// the write path are everything the master checks again: the values of the root were validated by the
-// child, which is the same engine with the schema the handshake agreed, as a child trusts a master's in a
-// load (docs/decisions/replication-and-hosting.md, "Trust between the nodes of one database"). A request
-// that fails a check is a defect of the peer: nothing of it is executed, and the connection ends
+// is the key of the request, the text of a String key code unit for code unit. A write batch (ForwardEncoding,
+// from the wire format 5) is checked member by member in the same way, and as a whole: a count of members its
+// body can hold, no entity named by two members (Entities.PublicationKeys), nothing after its last member; it
+// is submitted as one write once every member has passed (Writes.WriteCoordinator, "A write batch"). That and
+// the conditions of the write path are everything the master checks again: the values of the root were
+// validated by the child, which is the same engine with the schema the handshake agreed, as a child trusts a
+// master's in a load (docs/decisions/replication-and-hosting.md, "Trust between the nodes of one database").
+// A request that fails a check is a defect of the peer: nothing of it is executed, and the connection ends
 // (ValidationFailed).
 //
 // The one answer without a check of the body: a request announced longer than the memory limit of the
@@ -44,7 +48,8 @@ namespace Moltaro.Lattice.Engine.Children;
 // path: a forwarded write the arena refused twice with nothing admitted before it to wait for is resolved
 // on the thread of its call, this task (Writes.WriteCoordinator, "The refusal", step 3), which waits there
 // without a token for the reads that hold retired memory; a read leaves within one step (exception X6).
-// Until then the Applied and the later requests of that child wait as well.
+// Until then the Applied and the later requests of that child wait as well. So they wait while a batch is
+// checked, every root of it on this task, and prepared and published in one hold of the lock of the writes.
 internal sealed class RequestReceiver
 {
     private readonly ForwardedWrites _writes;
@@ -102,30 +107,67 @@ internal sealed class RequestReceiver
     private void Submit(ulong correlationId, ReadOnlySequence<byte> body)
     {
         var reader = new SequenceReader<byte>(body);
+
+        if (ForwardEncoding.IsBatch(reader))
+        {
+            SubmitBatch(correlationId, ref reader);
+
+            return;
+        }
+
         var request = ForwardEncoding.ReadRequestHead(ref reader);
-
-        if (!_writes.Tables.TryGetStored(request.TypeId, out var table))
-        {
-            throw Protocol.Invalid($"A forwarded write names the entity type {request.TypeId}, which the master does not store.");
-        }
-
+        var table = TableOf(request.TypeId);
         var key = table.Keys.ReadKey(ref reader);
-        ReadOnlySequence<byte> root;
+        var root = RootOf(table, request, key, ref reader);
 
-        if (request.Kind == WriteKindEnum.Delete)
-        {
-            ForwardEncoding.ExpectEnd(reader);
-            root = ReadOnlySequence<byte>.Empty;
-        }
-        else
-        {
-            root = CheckRoot(table, request.TypeId, key, ForwardEncoding.ReadRoot(ref reader));
-        }
+        ForwardEncoding.ExpectEnd(reader);
 
-        var session = request.MinimumPosition is { } position ? new LatticeSession(position) : null;
-
-        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType), request.ExpectedRevision, session);
+        _writes.Coordinator.Forward(table, request.Kind, key, new ForwardedOrigin(_replies, correlationId, root, table.EntityType), request.ExpectedRevision, SessionOf(request.MinimumPosition));
     }
+
+    // Checks a write batch, every member and the batch as a whole, and submits it as one write (see the
+    // class). The members' roots are slices of the body of the request.
+    private void SubmitBatch(ulong correlationId, ref SequenceReader<byte> reader)
+    {
+        var (minimumPosition, count) = ForwardEncoding.ReadBatchHead(ref reader);
+        var members = new BatchMember[count];
+        var entityTypes = new LatticeEntityType[count];
+        var keys = new PublicationKeys(count);
+
+        for (var place = 0; place < count; place++)
+        {
+            var member = ForwardEncoding.ReadMemberHead(ref reader);
+            var table = TableOf(member.TypeId);
+            var key = table.Keys.ReadKey(ref reader);
+            var root = RootOf(table, member, key, ref reader);
+
+            if (!keys.TryAdd(table, key))
+            {
+                throw Protocol.Invalid($"A forwarded write batch names {table.EntityType.Name} '{key}' in two members.");
+            }
+
+            members[place] = new BatchMember(member.Kind, table, key, member.ExpectedRevision, root);
+            entityTypes[place] = table.EntityType;
+        }
+
+        ForwardEncoding.ExpectEnd(reader);
+
+        _writes.Coordinator.Forward(members, keys, new ForwardedOrigin(_replies, correlationId, entityTypes), SessionOf(minimumPosition));
+    }
+
+    // The table of an entity type the master stores.
+    private EntityTable TableOf(uint typeId) =>
+        _writes.Tables.TryGetStored(typeId, out var table)
+            ? table
+            : throw Protocol.Invalid($"A forwarded write names the entity type {typeId}, which the master does not store.");
+
+    // The root of the write after its key, checked; empty for a delete, which has none.
+    private ReadOnlySequence<byte> RootOf(EntityTable table, in ForwardedWrite write, in EntityKey key, ref SequenceReader<byte> reader) =>
+        write.Kind == WriteKindEnum.Delete ? ReadOnlySequence<byte>.Empty : CheckRoot(table, write.TypeId, key, ForwardEncoding.ReadRoot(ref reader));
+
+    // The session a forwarded write is ordered after, of the position the child gave; none when it gave none.
+    private static LatticeSession? SessionOf(LatticePosition? minimumPosition) =>
+        minimumPosition is { } position ? new LatticeSession(position) : null;
 
     // The root of an insert, a replace or an upsert, with its envelope: its type id is the one of the
     // request, its last mutation is 0, and the rest passes the check of a received root and holds the key

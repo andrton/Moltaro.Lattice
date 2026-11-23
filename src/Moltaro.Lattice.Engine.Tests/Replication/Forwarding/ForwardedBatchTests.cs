@@ -42,7 +42,7 @@ public sealed class ForwardedBatchTests
         new("a number beyond the members"),
     ];
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_request_in_its_shape_is_executed_whole_with_one_reply()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -68,7 +68,7 @@ public sealed class ForwardedBatchTests
     // an absent key, which the master submits after the batch and does not order behind it, publishes the next
     // one, and its reply tells that the master holds the batch, not executed; a direct write of the master then
     // reaches the position, and the batch runs.
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_request_waits_for_the_position_of_its_head_and_runs_once_direct_writes_reach_it()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -97,7 +97,7 @@ public sealed class ForwardedBatchTests
         Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.BatchThroughAChild)]
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Batch_request_that_is_not_valid_ends_the_connection_and_nothing_of_it_is_executed(string damage)
     {

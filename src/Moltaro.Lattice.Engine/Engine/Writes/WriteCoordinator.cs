@@ -163,9 +163,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 //
 // A write batch (docs/decisions/document-model.md, "Atomic WriteBatch within one database"). A batch is one
 // write: one record, one admission, one preparation, one place in a group, one position, several changes
-// (SubmitBatchAsync). Its members are prepared in their order by the path of a forwarded write, each root
-// placed from the bytes the batch of the core encoded when the member was added, and reserved and checked
-// together on the state they leave (WriteExecutor.TryPrepareBatch); a failing member refuses the whole
+// (SubmitBatchAsync; Forward for a batch a child forwarded). Its members are prepared in their order by the
+// path of a forwarded write, each root placed from the bytes the batch of the core encoded when the member was
+// added, or the child sent, and reserved and checked together on the state they leave (WriteExecutor.TryPrepareBatch); a failing member refuses the whole
 // batch with its place, and a batch the arena cannot hold is resolved and refused as a whole, as any write.
 // A group never splits it. The entities of a batch are one set (Entities.PublicationKeys). A batch waits for
 // the latest earlier write that has not completed and shares an entity with it, whatever that write is, and
@@ -230,7 +230,9 @@ namespace Moltaro.Lattice.Engine.Writes;
 // ReturnOwnOutcome), or at once when it is refused before its admission; why the child takes the reply
 // before the transaction, Delivery.RecordedReplies says ("The order that matters"). So once the barrier
 // has drained, every forwarded write admitted has its reply recorded, and nothing of one runs any more:
-// no task of it is awaited.
+// no task of it is awaited. A write batch a child forwarded is one such write: its members bring their roots,
+// slices of the request, and it is prepared, waits, is refused and is published as a batch of this master
+// (above); its reply says Changed when a member changed an entity.
 //
 // A fault. A failure of the persistence step or of a publication faults the database: reads are refused
 // from then on, a read that retries on the mark of the publication that failed gives up, and the waits
@@ -438,7 +440,27 @@ internal sealed class WriteCoordinator
     // where it came from instead of values (see the class, "Forwarded writes"). Its outcome is its reply,
     // with the refusals of SubmitAsync, and is recorded before the write leaves the barrier of the close;
     // nothing is returned, and the task of its admission is not looked at.
-    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded, LatticeRevision? expectedRevision, LatticeSession? session)
+    public void Forward(EntityTable table, WriteKindEnum kind, in EntityKey key, ForwardedOrigin forwarded, LatticeRevision? expectedRevision, LatticeSession? session) =>
+        SubmitForwarded(table, kind, key, members: null, keys: null, forwarded, expectedRevision, session);
+
+    // Submits a write batch a child forwarded, its members of entity types the engine stores, each with its
+    // root, and the set of their entities, which names none twice (Children.RequestReceiver): one write, as a
+    // batch of SubmitBatchAsync is (see the class, "A write batch"), whose outcome is its reply as for one
+    // forwarded write, with the refusals of SubmitBatchAsync.
+    public void Forward(BatchMember[] members, PublicationKeys keys, ForwardedOrigin forwarded, LatticeSession? session) =>
+        SubmitForwarded(table: null!, kind: default, key: default, members, keys, forwarded, expectedRevision: null, session);
+
+    // A forwarded write or batch enters the barrier of the close and is admitted, once the position of its
+    // session is published when it has one; a refusal before its admission is its reply at once.
+    private void SubmitForwarded(
+        EntityTable table,
+        WriteKindEnum kind,
+        in EntityKey key,
+        BatchMember[]? members,
+        PublicationKeys? keys,
+        ForwardedOrigin forwarded,
+        LatticeRevision? expectedRevision,
+        LatticeSession? session)
     {
         if (!TryEnter(session, CancellationToken.None, out var waited, out var refusal))
         {
@@ -449,12 +471,12 @@ internal sealed class WriteCoordinator
 
         if (!waited.IsCompletedSuccessfully)
         {
-            _ = ForwardAfterAsync(waited, table, kind, key, forwarded, expectedRevision, session);
+            _ = ForwardAfterAsync(waited, table, kind, key, members, keys, forwarded, expectedRevision, session);
 
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, members: null, keys: null, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(table, kind, key, values: null, members, keys, forwarded, expectedRevision, session, CancellationToken.None);
     }
 
     // Arms a fault point for the tests of the engine (EngineDatabase.ArmFault).
@@ -634,6 +656,8 @@ internal sealed class WriteCoordinator
         EntityTable table,
         WriteKindEnum kind,
         EntityKey key,
+        BatchMember[]? members,
+        PublicationKeys? keys,
         ForwardedOrigin forwarded,
         LatticeRevision? expectedRevision,
         LatticeSession? session)
@@ -650,7 +674,7 @@ internal sealed class WriteCoordinator
             return;
         }
 
-        _ = Admit(table, kind, key, values: null, members: null, keys: null, forwarded, expectedRevision, session, CancellationToken.None);
+        _ = Admit(table, kind, key, values: null, members, keys, forwarded, expectedRevision, session, CancellationToken.None);
     }
 
     // The call of a write inside the barrier of the close (see the class): one hold of the lock that
