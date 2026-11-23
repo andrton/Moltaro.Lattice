@@ -16,8 +16,16 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Ownership;
 //   text table a root refers to, each entry once. A block that no live root reaches, leaked, makes the
 //   counters larger than the walk; a block freed while a root still names it fails its header or the arena.
 // And the text table: it holds exactly the entries the roots refer to, each with as many references as Text
-// descriptors name it. The schemas of the audit declare no secondary index, whose nodes and standing reserve
-// are blocks no root owns.
+// descriptors name it.
+//
+// An entity type with a secondary index cannot be audited, and the schemas of the audit declare none. The
+// nodes of an index are blocks no root owns, its standing reserve stays prepared after every write that
+// touched it, and an entry of a key longer than 64 bytes holds one more reference to the text entry it shares
+// with its root, so the equation above and the references of the text table would not hold. The indexes keep
+// no counter that closes the gap: a tree counts none of its live nodes, the pool of an index does not give out
+// how many nodes it holds, and the references of index entries are counted nowhere apart from those of roots.
+// Auditing such a type needs a test member of the engine that walks the nodes of every index, counts them and
+// the Text descriptors of their entries, and reads the count of each pool.
 internal static class OwnershipAudit
 {
     public static void Expect(EngineDatabase database)
