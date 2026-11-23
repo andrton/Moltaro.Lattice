@@ -1,6 +1,7 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
@@ -59,6 +60,40 @@ public sealed class ForwardedBatchTests
         Assert.Null(reply.Refusal);
         Assert.True(reply.Changed);
         Assert.Equal(reply.Position, master.Position);
+        Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
+    }
+
+    // The head carries the minimum position of the batch, which the master orders the batch after, as for one
+    // write (MinimumPositionTests): the batch depends on the position after the next of the master; a delete of
+    // an absent key, which the master submits after the batch and does not order behind it, publishes the next
+    // one, and its reply tells that the master holds the batch, not executed; a direct write of the master then
+    // reaches the position, and the batch runs.
+    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    public async Task Batch_request_waits_for_the_position_of_its_head_and_runs_once_direct_writes_reach_it()
+    {
+        await using var master = await LoadedPeer.OpenMasterAsync();
+        var revision = LoadedPeer.RevisionOfCode(master);
+        using var child = await LoadedPeer.ConnectAsync(master);
+        var next = PositionSequence.Of(master.Position) + 1;
+        var afterTheNext = ForwardPayload.PositionOf(ForwardPayload.HistoryOf(master.Position), next + 1);
+
+        await child.SendRequestAsync(1, ForwardPayload.BatchRequest(
+            [
+                (ForwardPayload.Upsert, MarkedRoot.TypeId, ForwardPayload.KeyOf("code"), child.Root),
+                (ForwardPayload.Delete, MarkedRoot.TypeId, ForwardPayload.KeyOf("absent"), []),
+            ],
+            minimumPosition: afterTheNext));
+        await child.SendRequestAsync(2, ForwardPayload.Request(ForwardPayload.Delete, MarkedRoot.TypeId, ForwardPayload.KeyOf("absent"), []));
+
+        Assert.Equal(next, PositionSequence.Of((await child.ReceiveReplyAsync(2)).Position!.Value));
+        Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
+
+        await master.Set("Marked").InsertAsync(MarkedRoot.RecordOf(master.Set("Marked").EntityType, "reaches"));
+        var reply = await child.ReceiveReplyAsync(1);
+
+        Assert.Null(reply.Refusal);
+        Assert.True(reply.Changed);
+        Assert.True(PositionSequence.Of(reply.Position!.Value) > next + 1);
         Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
     }
 

@@ -16,7 +16,8 @@ namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 // - a batch that inserts, replaces and deletes is applied whole, at its one position, and every member has
 //   on the child the revision it has on the master;
 // - while its application is held before the position (HeldPublication), the child has acknowledged no
-//   sequence of the batch, and once it goes on it acknowledges the position of the batch;
+//   sequence of the batch, and once it goes on it acknowledges the position of the batch; so it is with a
+//   batch committed through that child, whose commit completes only once the child has applied all of it;
 // - an exchange of unique values, which the master checks on the state the batch leaves, is applied, and so
 //   is a transaction that exchanges them, or one whose delete frees a value another effect takes, in either
 //   order, which the child checks on the state it leaves; a transaction that would give a value of a unique
@@ -73,6 +74,31 @@ public sealed class ChildBatchTests
 
         await Eventually.HoldsAsync(() => AcknowledgedBy(relay).Contains(s), "The child did not acknowledge the position of the batch.");
         Assert.Equal(result.Position, child.Position);
+    }
+
+    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    public async Task Child_that_forwarded_a_batch_acknowledges_no_sequence_of_it_and_completes_no_commit_before_it_has_applied_all_of_it()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(BatchSchema.Schema);
+        await InsertBeforeAsync(master.Set<Item>());
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var s = PositionSequence.Of(master.Position) + 1;
+
+        using var held = HeldPublication.Arm(child, PublicationPointEnum.BeforePosition);
+        var commit = Members(child).CommitAsync().AsTask();
+
+        await held.ReachedAsync();
+
+        Assert.All(AcknowledgedBy(relay), sequence => Assert.True(sequence < s, $"The child acknowledged {sequence} while it applied the batch at {s}."));
+        Assert.False(commit.IsCompleted, "The commit through the child completed while the child applied the batch.");
+
+        held.Release();
+        var result = await commit.WaitAsync(Bound);
+
+        Assert.Equal(s, PositionSequence.Of(result.Position));
+        Assert.Equal(result.Position, child.Position);
+        await Eventually.HoldsAsync(() => AcknowledgedBy(relay).Contains(s), "The child did not acknowledge the position of the batch.");
     }
 
     [Fact]
