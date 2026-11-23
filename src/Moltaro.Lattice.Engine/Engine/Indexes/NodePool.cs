@@ -77,13 +77,10 @@ internal sealed class NodePool
     // credits (see the class), for as many levels as the tree can have while the changes reserved wait.
     private long[] _progress = [];
 
-    // The two arrays the base of the ledger keeps the progress in: the ledger names the one it counts from,
-    // and a move of the base writes into the other, so that a reservation that is not made puts the ledger
-    // back with its base as it was. Named by a flag, not held by reference, so that a move stores no
-    // reference.
-    private long[] _baseOne = [];
-
-    private long[] _baseTwo = [];
+    // The progress of each level of the tree at the base of the ledger, as many levels as _progress holds. A
+    // reservation moves the base only once nothing of it can fail, so that one that is not made leaves the
+    // base as it was (TryReserve).
+    private long[] _baseProgress = [];
 
     // The ledger (see the class); a value, so that a reservation that is not made puts it back as it was.
     private Ledger _ledger;
@@ -139,9 +136,11 @@ internal sealed class NodePool
         _removes += removes;
         _ledger.ChargedInserts += inserts;
         _ledger.ChargedRemoves += removes;
-        MoveBase(height);
 
-        var (nodes, places) = Targets(height, room);
+        // When the base moves, what the ledger leaves from there is the bounds of the changes waiting from
+        // the tree as it is; the move itself waits until nothing of the reservation can fail.
+        var moves = BaseMoves(height);
+        var (nodes, places) = Targets(height, room, moves ? BoundsAt(height, _inserts, _removes) : Left());
         var taken = 0;
 
         try
@@ -167,6 +166,12 @@ internal sealed class NodePool
                     {
                         _retired.Reserve((int)places - _places);
                         _places = (int)places;
+                    }
+
+                    // Nothing fails from here: the move allocates nothing.
+                    if (moves)
+                    {
+                        MoveBase(height);
                     }
 
                     AssertReserved(height, room);
@@ -386,32 +391,37 @@ internal sealed class NodePool
     // The standing reserve at the tree as it is now: the need of one change of key, an insert and a remove.
     private long StandingReserve(int height, int room) => Need(height, room, _layout.LeastSeparators, inserts: 1, removes: 1);
 
-    // The base of the ledger moves to the tree as it is, with the changes waiting charged and nothing taken or
-    // used, when nothing waits or when the bounds of the changes waiting, counted from the tree as it is, are
-    // no more than what the ledger leaves (see the class). With nothing published since the base the tree is
-    // the base and the changes charged are those waiting, so it stays: every publication takes a node or
-    // retires one.
-    private void MoveBase(int height)
+    // Whether the base of the ledger moves to the tree as it is (MoveBase): when nothing waits, or when the
+    // bounds of the changes waiting, counted from the tree as it is, are no more than what the ledger leaves
+    // (see the class). With nothing published since the base the tree is the base and the changes charged are
+    // those waiting, so it stays: every publication takes a node or retires one.
+    private bool BaseMoves(int height)
     {
         if (_ledger.Taken == 0 && _ledger.Used == 0)
         {
-            return;
+            return false;
         }
 
-        if (_inserts != 0 || _removes != 0)
+        if (_inserts == 0 && _removes == 0)
         {
-            var (nodes, places) = BoundsAt(height, _inserts, _removes);
-            var (nodesLeft, placesLeft) = Left();
-
-            if (nodes > nodesLeft || places > placesLeft)
-            {
-                return;
-            }
+            return true;
         }
 
-        var inSecond = !_ledger.InSecond;
+        var (nodes, places) = BoundsAt(height, _inserts, _removes);
+        var (nodesLeft, placesLeft) = Left();
+
+        return nodes <= nodesLeft && places <= placesLeft;
+    }
+
+    // The base of the ledger moves to the tree as it is: the progress of its levels is copied into the base,
+    // the changes waiting are charged, and nothing is taken or used since. Allocates nothing, and fails in
+    // nothing. Inlined, so that a publication, after which the base moves, makes no call for it beside the
+    // test of BaseMoves (JIT listing at full optimization).
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void MoveBase(int height)
+    {
         var from = Levels(_progress, height);
-        var to = Levels(inSecond ? _baseTwo : _baseOne, height);
+        var to = Levels(_baseProgress, height);
 
         // Both hold the levels of the height; each length is tested, so that the copy checks no bound.
         for (var level = 0; (uint)level < (uint)from.Length && (uint)level < (uint)to.Length; level++)
@@ -419,7 +429,7 @@ internal sealed class NodePool
             to[level] = from[level];
         }
 
-        _ledger = new Ledger { InSecond = inSecond, Height = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
+        _ledger = new Ledger { Height = height, ChargedInserts = _inserts, ChargedRemoves = _removes };
     }
 
     // What the bounds of the changes charged since the base leave, counted from the tree at the base, after
@@ -427,7 +437,7 @@ internal sealed class NodePool
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private (long Nodes, long Places) Left()
     {
-        var progress = Levels(_ledger.InSecond ? _baseTwo : _baseOne, _ledger.Height);
+        var progress = Levels(_baseProgress, _ledger.Height);
         var (nodes, places) = Bounds(progress, _leafCredit, _innerCredit, _ledger.ChargedInserts, _ledger.ChargedRemoves);
 
         return (nodes - _ledger.Taken, places - _ledger.Used);
@@ -455,23 +465,21 @@ internal sealed class NodePool
     }
 
     // What the pool holds at least for the changes waiting, nodes and places: the lesser of their need at the
-    // tree and what the ledger leaves (see the class).
-    private (long Nodes, long Places) Targets(int height, int room)
+    // tree and what the ledger leaves, given (see the class).
+    private (long Nodes, long Places) Targets(int height, int room, (long Nodes, long Places) left)
     {
         var need = Need(height, room, _layout.LeastSeparators, _inserts, _removes);
-        var (nodesLeft, placesLeft) = Left();
 
-        return (Math.Min(need, nodesLeft), Math.Min(need, placesLeft));
+        return (Math.Min(need, left.Nodes), Math.Min(need, left.Places));
     }
 
-    // Room for the progress of the levels given, in the array of the tree as it is and in those of the base,
-    // each with what it holds. Every array is allocated before any is assigned, so that an
+    // Room for the progress of the levels given, in the array of the tree as it is and in that of the base,
+    // each with what it holds. Both arrays are allocated before either is assigned, so that an
     // OutOfMemoryException of the managed heap leaves them as they were, of one length: the members that read
     // them check no bound (ProgressAt, Levels).
     private void GrowLevels(int levels)
     {
         var progress = new long[levels];
-        var baseOne = new long[levels];
 
         // A test of the engine may fail the last allocation (ArmLevelsFault).
         if (_levelsFault)
@@ -481,14 +489,12 @@ internal sealed class NodePool
             throw new OutOfMemoryException("The test failed the growth of the levels of the pool.");
         }
 
-        var baseTwo = new long[levels];
+        var baseProgress = new long[levels];
 
         _progress.CopyTo(progress, 0);
-        _baseOne.CopyTo(baseOne, 0);
-        _baseTwo.CopyTo(baseTwo, 0);
+        _baseProgress.CopyTo(baseProgress, 0);
         _progress = progress;
-        _baseOne = baseOne;
-        _baseTwo = baseTwo;
+        _baseProgress = baseProgress;
     }
 
     // Gives back what a reservation that is not made took: its nodes to the arena, in the reverse of their
@@ -510,9 +516,12 @@ internal sealed class NodePool
     // to the retired list. With nothing waiting the base moves to the tree as it is.
     private void Trim(int height, int room, bool keepsReserve)
     {
-        MoveBase(height);
+        if (BaseMoves(height))
+        {
+            MoveBase(height);
+        }
 
-        var (nodes, places) = Targets(height, room);
+        var (nodes, places) = Targets(height, room, Left());
         var kept = keepsReserve ? Math.Max(nodes, StandingReserve(height, room)) : nodes;
 
         while (_count > kept)
@@ -577,8 +586,8 @@ internal sealed class NodePool
     [Conditional("DEBUG")]
     private void AssertReserved(int height, int room)
     {
-        var (nodes, places) = Targets(height, room);
         var (nodesLeft, placesLeft) = Left();
+        var (nodes, places) = Targets(height, room, (nodesLeft, placesLeft));
         var most = Math.Max(nodes, StandingReserve(height, room));
 
         Debug.Assert(nodesLeft >= 0 && placesLeft >= 0, $"The publications of the index {_layout.Index.Name} took {_ledger.Taken} nodes and used {_ledger.Used} places since the base, beyond the bounds of what was charged.");
@@ -587,13 +596,11 @@ internal sealed class NodePool
         Debug.Assert(_places >= places, $"The index {_layout.Index.Name} holds {_places} places in the retired list for changes that can use {places}.");
     }
 
-    // The ledger: the tree at the base, its height and the array of the progress of its levels, the second or
-    // the first, the inserts and the removes reserved since then and not withdrawn, and the nodes taken and the
-    // places used since then.
+    // The ledger: the height of the tree at the base, whose levels have the progress _baseProgress holds, the
+    // inserts and the removes reserved since then and not withdrawn, and the nodes taken and the places used
+    // since then.
     private struct Ledger
     {
-        public bool InSecond;
-
         public int Height;
 
         public long ChargedInserts;
