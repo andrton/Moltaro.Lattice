@@ -47,6 +47,10 @@ jobs:
   # jobs do not show is a finding about the engine first and about the test second.
   arm64:
     runs-on: ubuntu-24.04-arm
+    # The lane of the ordering stress: x64 keeps stores in their order, so a defect of the order of
+    # stores of the engine shows only on hardware that orders them weakly.
+    env:
+      LATTICE_ORDERING_STRESS: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6

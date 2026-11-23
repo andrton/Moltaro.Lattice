@@ -1541,7 +1541,7 @@ normalization step before journal/replay or final publication.
 
 | Effect | A — accepted | B — not selected |
 | --- | --- | --- |
-| Ordinary reads | Existing read path and atomic publication: no member visible before all of the group is (amended on 22 and 23 November 2026, the owner's answers to Q57 of the open questions and on the Acceptance of S17) | Same visibility guarantees; intermediate batch states remain private |
+| Ordinary reads | Existing read path and atomic publication: no member visible in its new state before all of the group is (amended on 22 and 23 November 2026, the owner's answers to Q57 of the open questions and on the Acceptance of S17) | Same visibility guarantees; intermediate batch states remain private |
 | Write preparation | Check unique identities; prepare one root mutation per target | Interpret dependencies and validate intermediate states; final-effect coalescing may add work |
 | Memory | Bounded identity-validation metadata plus existing prepared mutations | Also account for staged state and intermediate payloads; the exact peak depends on implementation |
 | Implementation | Simpler revision checks, reservation planning and per-root publication plans | More command combinations, outcome rules and replay-equivalence checks |
