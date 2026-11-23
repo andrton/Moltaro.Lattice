@@ -10,17 +10,22 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Replication.Batches;
 
-// A child exposes a transaction of several effects whole while it applies it, as a master exposes a batch it
-// publishes (docs/design/arena-protocol.md, "The write batch extension"; decision on the document model,
-// "Atomic WriteBatch within one database"). The relay (FrameRelay) holds the six transactions of the single
-// writes the master makes for the members of the batch of BatchSchema, in their order, and passes in their
-// place one transaction at the sequence s of the first, whose Writes carry s, as a master writes the members
-// of a batch. The child's publication of it is held at a place between its steps (HeldPublication), and
-// readers on the child, each provably inside the engine before the publication goes on (the read switch):
+// A child shows no effect of a transaction of several effects in its new state before the position of the
+// transaction while it applies it, and every effect to a read that begins at or after that position, as a
+// master does for a batch it publishes (docs/design/arena-protocol.md, "The write batch extension"; decision
+// on the document model, "Atomic WriteBatch within one database"). The relay (FrameRelay) holds the six
+// transactions of the single writes the master makes for the members of the batch of BatchSchema, in their
+// order, and passes in their place one transaction at the sequence s of the first, whose Writes carry s, as a
+// master writes the members of a batch. The child's publication of it is held at a place between its steps
+// (HeldPublication), and readers on the child, each provably inside the engine before the publication goes
+// on (the read switch):
 // - a read by key of a member returns its state after the transaction at s or later, its state before it
 //   before s; a read of a member that waits returns once the publication goes on;
-// - a search of the new tag and a walk of the range of group 2 find no member before s and every member
-//   after it; a lazy walk of every group that returned entities before the transaction returns none twice;
+// - a search of the new tag and a walk of the range of group 2 find no member before s, and at s or later
+//   some of the members in their state after the transaction, in the order of the index, since a search
+//   that runs across the publication may return some members as they were before it and others as after;
+//   begun once the child has applied the transaction, they find every member; a lazy walk of every group
+//   that returned entities before the transaction returns none twice;
 // - an enumeration with a session returns each member in its state after the transaction once the session
 //   is at s or later;
 // - a read that waits for a publication that fails ends with Unavailable, and an asynchronous one ends with
@@ -40,7 +45,7 @@ public sealed class ChildPublicationTests
 
     [Theory]
     [MemberData(nameof(Places))]
-    public async Task Child_that_applies_a_transaction_held_at_a_place_shows_all_of_it_or_none_and_no_position_before_it(string place)
+    public async Task Child_that_applies_a_transaction_held_at_a_place_shows_no_member_in_its_new_state_before_its_position_and_every_member_once_a_read_begins_after(string place)
     {
         await using var nodes = await ForgedNodes.OpenAsync();
         var items = nodes.Child.Set<Item>();
@@ -72,13 +77,17 @@ public sealed class ChildPublicationTests
             Assert.Equal(PositionSequence.Of(answer.Position) >= nodes.S ? After(id) : Before(id), StateOf(answer.Entity));
         }
 
-        ExpectNoneOrAll(await newTag.WaitAsync(Bound), nodes.S);
-        ExpectNoneOrAll(await newGroup.WaitAsync(Bound), nodes.S);
+        ExpectNoMemberBeforeThePosition(await newTag.WaitAsync(Bound), nodes.S, InNewTag);
+        ExpectNoMemberBeforeThePosition(await newGroup.WaitAsync(Bound), nodes.S, InNewTag);
 
         foreach (var (item, sequence) in await enumeration.WaitAsync(Bound))
         {
             Assert.Equal(sequence >= nodes.S ? After(item.Id) : Before(item.Id), StateOf(item));
         }
+
+        // A search and a walk that begin once the child has applied the transaction.
+        Assert.Equal(InNewTag, (await items.Index("ByTag").FindAsync(IndexKey.Equal("new"), new LatticeFindOptions())).Items.Select(item => item.Id));
+        Assert.Equal(InNewTag, (await items.Index("ByGroup").FindAsync(IndexKey.All.Range(IndexBound.Inclusive(2L), IndexBound.Inclusive(2L)), new LatticeFindOptions())).Items.Select(item => item.Id));
     }
 
     [Fact]
@@ -187,23 +196,6 @@ public sealed class ChildPublicationTests
 
         Assert.Equal(returned.Count, returned.Distinct().Count());
         Assert.Contains(Other, returned);
-    }
-
-    // The answer of a search before s finds none of the members of the new tag or group, and at s or later
-    // every one, in the order of the index.
-    private static void ExpectNoneOrAll(LatticeFindResult<Item> answer, ulong s)
-    {
-        var found = answer.Items.Select(item => item.Id).ToArray();
-
-        if (PositionSequence.Of(answer.Position) < s)
-        {
-            Assert.Empty(found);
-        }
-        else
-        {
-            Assert.Equal(InNewTag, found);
-            Assert.All(answer.Items, item => Assert.Equal(After(item.Id), StateOf(item)));
-        }
     }
 
     // Starts the read on a thread of its own and returns once it has taken its first root inside the engine,

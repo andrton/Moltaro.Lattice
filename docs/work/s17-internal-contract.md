@@ -364,6 +364,16 @@ second walk after a take that waited, is gone in form C (below).
   each; 357, 395 and 371 bytes. `TryRead`: 16 calls each; 1,329, 1,343 and 1,344 bytes. `StepWithoutWalk`
   (7 calls, 407 bytes) and `TrySearch` (2 calls, 214 bytes) are unchanged. The allocation tests of a read
   and of a search pass with their assertions as they were.
+- **The tests restated on the owner's word**, in a commit of their own after form C, by the restatement list
+  of B1: `WholeOrNoneTests`, `ChildPublicationTests` and `MergedTransactionPrefixTests`, each renamed to
+  what it now states. A search that runs across the publication finds no member before s, and at s or
+  later some of the members in their order and in their state after it (`BatchSchema.ExpectNoMemberBeforeThePosition`),
+  in place of none or all; the same searches begun after the publication find every member. Before that
+  commit, form C fails them as expected: `WholeOrNoneTests` at `AfterNewEntries` ("[11, 12]") and at
+  `AfterFirstChange` ("[2, 11, 12]"), on the master and on a child; `ChildPublicationTests` at the same two
+  places; `MergedTransactionPrefixTests` in its three runs ("search: [1] at 1", a step that held a leaf from
+  before the entry of B was installed). `SearchStepAcrossAPublicationTests` and the probes of the list are
+  not on this branch.
 - **One publisher.** A child applies its transactions through the publisher of the instance
   (`DatabaseParts.Publisher`), which holds the switch of the tests for a master and a child alike.
 

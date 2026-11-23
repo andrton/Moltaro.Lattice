@@ -1,5 +1,6 @@
 using Moltaro.Lattice.Access;
 using Moltaro.Lattice.Schema;
+using Moltaro.Lattice.TestSupport.Positions;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches;
 
@@ -94,6 +95,44 @@ internal static class BatchSchema
     };
 
     public static (string Tag, long Group)? StateOf(Item? item) => item is null ? null : (item.Tag, item.Group);
+
+    // What a search that runs across the publication of the batch may answer, of the members it seeks: before
+    // the position s none of them, since no member is in its new state before it; at s or later some of them,
+    // in the order of the index and none twice, each in its state after the batch, since the search may have
+    // passed the others in their state before, as separate reads may combine states from before and after
+    // the publication (decision on the document model, "Atomic WriteBatch within one database").
+    public static void ExpectNoMemberBeforeThePosition(LatticeFindResult<Item> answer, ulong s, long[] members)
+    {
+        var found = answer.Items.Select(item => item.Id).ToArray();
+
+        if (PositionSequence.Of(answer.Position) < s)
+        {
+            Assert.Empty(found);
+
+            return;
+        }
+
+        Assert.True(IsInTheirOrder(found, members), $"[{string.Join(", ", found)}] is not a part of [{string.Join(", ", members)}] in its order.");
+        Assert.All(answer.Items, item => Assert.Equal(After(item.Id), StateOf(item)));
+    }
+
+    // Whether the items found are some of the members, in the order of the members and none twice.
+    private static bool IsInTheirOrder(long[] found, long[] members)
+    {
+        var next = 0;
+
+        foreach (var id in found)
+        {
+            next = Array.IndexOf(members, id, next) + 1;
+
+            if (next == 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     internal sealed class Item
     {

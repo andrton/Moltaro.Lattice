@@ -6,30 +6,33 @@ using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Engine.Batches.Visibility;
 
-// A write batch is exposed whole or not at all, by key, by a search and by an enumeration, on the master
-// that publishes it and on a child that applies it, and no answer carries its position before all of it is
-// visible (the brief of Epic 1, sprint S17, Acceptance and point 2; decision on the document model, "Atomic
-// WriteBatch within one database", as the owner's answer to Q57 has it). The publication of the batch of
-// BatchSchema is held at each place between its steps (HeldPublication): on the master the publication of
-// its commit, on a child the application of its transaction. While it is held, readers start, each on a
-// thread of its own and each provably inside the engine before the publication goes on (the read switch);
-// then the publication goes on, and every answer is held against s, the position of the batch:
+// No member of a write batch is visible in its new state before its position, by key, by a search and by an
+// enumeration, on the master that publishes it and on a child that applies it, and a read that begins at or
+// after the position sees every member (the brief of Epic 1, sprint S17, Acceptance and point 2, as the owner
+// read them; decision on the document model, "Atomic WriteBatch within one database", as the owner's answer
+// to Q57 has it). The publication of the batch of BatchSchema is held at each place between its steps
+// (HeldPublication): on the master the publication of its commit, on a child the application of its
+// transaction. While it is held, readers start, each on a thread of its own and each provably inside the
+// engine before the publication goes on (the read switch); then the publication goes on, and every answer is
+// held against s, the position of the batch:
 // - a read by key returns the state after the batch with a position at s or later, and the state before it
 //   with a position before s, an absent key included: an item the batch inserts is absent only before s,
 //   one it deletes only at s or later;
 // - a read of the first changed member that finds its new state is followed by a read of another member
 //   that finds its new state too;
-// - a search of the tag the batch gives, and a walk of the range of its group, find no item before s and
-//   every member after it, and a search for the first entity of that tag finds the first in the order of
-//   the index; a search of the tag of the deleted members that ends with nothing ends at s or later, and
-//   one that ends before s finds both;
+// - a search of the tag the batch gives, and a walk of the range of its group, find no member before s, and
+//   at s or later some of the members in their state after the batch, in the order of the index; a search
+//   for the first entity of that tag finds one of them at s or later; a search of the tag of the deleted
+//   members that ends with nothing ends at s or later, and one that ends before s finds both;
 // - an enumeration with a session returns each member in its state after the batch once the session is at
-//   s or later, and in its state before it while the session is before s.
+//   s or later, and in its state before it while the session is before s;
+// - once the batch is published, the same searches begun then find every member, the first of the tag the
+//   first in the order of the index.
 // A read of the item that is no member returns at once while the publication is held.
 //
-// A step of a search may combine what it found before the position with what it found after it only across
-// steps, as separate reads may (decision on the document model): the search for the deleted members states
-// only what a step cannot see.
+// A search that runs across the publication, in one step or in several, may return some members as they
+// were before it and others as after, as separate reads may (decision on the document model): it states only
+// that no member is in its new state before s.
 public sealed class WholeOrNoneTests
 {
     public static IEnumerable<TheoryDataRow<string, string>> Cases =>
@@ -45,7 +48,7 @@ public sealed class WholeOrNoneTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task Reader_during_the_publication_of_a_batch_sees_all_of_it_or_none_and_no_position_before_it_is_visible(string node, string point)
+    public async Task Reader_during_the_publication_of_a_batch_sees_no_member_in_its_new_state_before_its_position_and_every_member_once_it_begins_after(string node, string point)
     {
         await using var nodes = await BatchNodes.OpenAsync(node);
         var reader = nodes.Reader;
@@ -92,9 +95,22 @@ public sealed class WholeOrNoneTests
             Assert.Equal(After(1), StateOf(second.Entity));
         }
 
-        ExpectNoneOrAll(await newTag.WaitAsync(Bound), s, InNewTag);
-        ExpectNoneOrAll(await firstOfNewTag.WaitAsync(Bound), s, InNewTag[..1]);
-        ExpectNoneOrAll(await newGroup.WaitAsync(Bound), s, InNewTag);
+        ExpectNoMemberBeforeThePosition(await newTag.WaitAsync(Bound), s, InNewTag);
+        ExpectNoMemberBeforeThePosition(await newGroup.WaitAsync(Bound), s, InNewTag);
+
+        var firstFound = await firstOfNewTag.WaitAsync(Bound);
+
+        ExpectNoMemberBeforeThePosition(firstFound, s, InNewTag);
+
+        if (PositionSequence.Of(firstFound.Position) >= s)
+        {
+            Assert.Single(firstFound.Items);
+        }
+
+        // Searches that begin once the batch is published.
+        Assert.Equal(InNewTag, (await items.Index("ByTag").FindAsync(IndexKey.Equal("new"), new LatticeFindOptions())).Items.Select(item => item.Id));
+        Assert.Equal(InNewTag[..1], (await items.Index("ByTag").FindAsync(IndexKey.Equal("new"), new LatticeFindOptions { Limit = 1 })).Items.Select(item => item.Id));
+        Assert.Equal(InNewTag, (await items.Index("ByGroup").FindAsync(IndexKey.All.Range(IndexBound.Inclusive(2L), IndexBound.Inclusive(2L)), new LatticeFindOptions())).Items.Select(item => item.Id));
 
         var deleted = await doomed.WaitAsync(Bound);
 
@@ -111,23 +127,6 @@ public sealed class WholeOrNoneTests
         foreach (var (item, sequence) in await enumeration.WaitAsync(Bound))
         {
             Assert.Equal(sequence >= s ? After(item.Id) : Before(item.Id), StateOf(item));
-        }
-    }
-
-    // The answer of a search before s finds none of the members, and at s or later every one, in the order
-    // of the index.
-    private static void ExpectNoneOrAll(LatticeFindResult<Item> answer, ulong s, long[] members)
-    {
-        var found = answer.Items.Select(item => item.Id).ToArray();
-
-        if (PositionSequence.Of(answer.Position) < s)
-        {
-            Assert.Empty(found);
-        }
-        else
-        {
-            Assert.Equal(members, found);
-            Assert.All(answer.Items, item => Assert.Equal(After(item.Id), StateOf(item)));
         }
     }
 
