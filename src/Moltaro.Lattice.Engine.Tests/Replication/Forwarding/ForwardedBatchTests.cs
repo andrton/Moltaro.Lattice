@@ -16,9 +16,10 @@ namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 // count the members do not reach, a member whose root goes on past its length, and a member that is itself a
 // batch. A request in the shape is executed whole. On the way back:
 // - a refusal of a batch for a unique index carries the number of the failing member, in whose entity type
-//   the child resolves the index; a reply of UniqueConstraintViolation to a batch without a number, or with
-//   one beyond its members, is a reply that is not valid, so the child ends its connection, serves its reads
-//   Ready, and the batch ends in IndeterminateOutcome, since it was sent whole (MalformedReplyTests);
+//   the child resolves the index; a reply of UniqueConstraintViolation to a batch without a number, and a
+//   refusal of any error with a number beyond its members, is a reply that is not valid, so the child ends its
+//   connection, serves its reads Ready, and the batch ends in IndeterminateOutcome, since it was sent whole
+//   (MalformedReplyTests);
 // - a batch whose body is above the memory limit of the master is refused at its first frame with
 //   WriteRejected and Limit Memory, the master is as it was, and the connection goes on.
 // The hand-made child is a LoadedPeer of a master of MarkedRoot; the real children follow a master of
@@ -140,6 +141,30 @@ public sealed class ForwardedBatchTests
         var batch = child.CreateWriteBatch();
         batch.Insert(UniqueSchema.Of(2, "grace"));
         batch.Insert(UniqueSchema.Of(3, "ada"));
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(async () => await batch.CommitAsync());
+        await relay.ChildEndedAsync();
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+    }
+
+    // The relay gives the batch of two members, which the master executes, the refusal DuplicateKey for the
+    // member 2.
+    [Fact]
+    public async Task Reply_to_a_batch_whose_refusal_names_a_member_beyond_it_ends_the_connection_of_the_child()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+            frame.Kind == ForwardPayload.WriteReply
+                ? ForwardPayload.Frames(ForwardPayload.WriteReply, frame.CorrelationId, frame.StreamSequence, ForwardPayload.Refusal(
+                    LatticeErrorEnum.DuplicateKey, "Exists.", null, 2, null))
+                : [frame]);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+
+        var batch = child.CreateWriteBatch();
+        batch.Insert(UniqueSchema.Of(2, "grace"));
+        batch.Insert(UniqueSchema.Of(3, "alan"));
 
         var exception = await Assert.ThrowsAsync<LatticeException>(async () => await batch.CommitAsync());
         await relay.ChildEndedAsync();

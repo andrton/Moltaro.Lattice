@@ -110,9 +110,10 @@ internal sealed class PendingRequests
         }
 
         // Before the call leaves the table: a refusal that names a unique index its entity type does not
-        // declare is not valid, and so is one of a batch that names no member of it for the index
-        // (ForwardedCall.EntityTypeOf); the call then ends with the connection, as every call without a reply.
-        var answer = reply.IndexId is null ? reply : ForwardEncoding.NameIndex(reply, call.EntityTypeOf(reply.Refusal!.OperationIndex));
+        // declare is not valid, and so is one of a batch that names a member beyond it, or no member for its
+        // unique index (ForwardedCall.Resolve); the call then ends with the connection, as every call without a
+        // reply.
+        var answer = call.Resolve(reply);
 
         lock (_lock)
         {
