@@ -1049,8 +1049,9 @@ settles. They are approved with the plan, each by name.
   planner writes its types and members before its stage begins: S13–S17, S18–S25,
   S26–S32, S33–S36, S37–S39. The owner approves the contract of each stage before its
   first sprint, as the [development process](process.md#the-plan) says. For stage 5 he
-  approves it in parts (the owner, 23 November 2026): S18 and S19 together, which add no
-  type and no member; then S20; then S21 and S22; each part before its first sprint.
+  approves it in two parts (the owner, 23 November 2026): S18 and S19 together, which add
+  no type and no member, so that S18 does not wait; then S20, S21 and S22 together,
+  written and checked as one, before S20.
 - A feature is delivered for entity classes and for records by name in the same sprint.
 - From S12 on, a sprint that changes what is stored also delivers what a child needs:
   the transfer of the new structure in the initial load, its live application, and a
