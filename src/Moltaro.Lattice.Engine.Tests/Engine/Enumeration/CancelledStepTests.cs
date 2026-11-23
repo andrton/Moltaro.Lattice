@@ -107,7 +107,7 @@ public sealed class CancelledStepTests
         }
     }
 
-    [Fact(Skip = SkipReason.NestedValues)]
+    [Fact]
     public async Task Step_that_enters_a_round_with_its_token_cancelled_and_its_time_limit_passed_ends_in_OperationCanceledException()
     {
         var clock = new ScriptedClock();

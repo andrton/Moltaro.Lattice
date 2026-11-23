@@ -773,12 +773,13 @@ internal sealed partial class EngineDatabase : ILatticeDatabase, IWriteBatchExec
                 _options.SynchronizationTimeout,
                 Fault);
             var forwarder = child ? new Forwarder(clock, _options.SynchronizationTimeout) : null;
+            var reads = new ReadSettings(_options, _testInputs?.ReadTimestamps);
             var operations = new Dictionary<LatticeEntityType, SetOperations>();
             var recordSets = new Dictionary<LatticeEntityType, RecordSet>();
 
             foreach (var table in tables.InSchemaOrder)
             {
-                var forType = new SetOperations(table, coordinator, forwarder, clock, _options);
+                var forType = new SetOperations(table, coordinator, forwarder, clock, _options, reads);
 
                 operations.Add(table.EntityType, forType);
                 recordSets.Add(table.EntityType, new RecordSet(forType));

@@ -25,18 +25,17 @@ internal sealed class SetOperations
     // How long an operation waits for the position of its session when the session does not say.
     private readonly TimeSpan _synchronizationTimeout;
 
-    // The options of the database, whose read limits every enumeration and every search takes
-    // (Entities.ReadLimits).
-    private readonly LatticeDatabaseOptions _options;
+    // The read limits of the database, which every enumeration and every search takes (Entities.ReadLimits).
+    private readonly ReadSettings _reads;
 
-    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options)
+    public SetOperations(EntityTable table, WriteCoordinator writes, Forwarder? forwarder, PositionClock clock, LatticeDatabaseOptions options, ReadSettings reads)
     {
         Table = table;
         _writes = writes;
         _forwarder = forwarder;
         _clock = clock;
         _synchronizationTimeout = options.SynchronizationTimeout;
-        _options = options;
+        _reads = reads;
     }
 
     public EntityTable Table { get; }
@@ -88,15 +87,15 @@ internal sealed class SetOperations
         new SessionEnumeration<TCopy, TResult>(this, prototype, session, cancellationToken);
 
     // A new pass of an enumeration of the entity type, under the read limits of the options.
-    public EntityPass StartPass() => Table.StartPass(_options);
+    public EntityPass StartPass() => Table.StartPass(_reads);
 
     // A new search of a lazy Find through the index by the key, under the read limits of the options.
-    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_options, index, key);
+    public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key) => new(_reads, index, key);
 
     // A new search of FindAsync through the index by the key, in the direction given and past the matches
     // of its Offset, under the read limits of the options.
     public IndexSearch StartSearch(SecondaryIndex? index, in IndexKey key, bool reverse, int offset) =>
-        new(_options, index, key, reverse, offset);
+        new(_reads, index, key, reverse, offset);
 
     // Waits for the position the session depends on, before the first step of an enumeration.
     public ValueTask WaitAsync(LatticeSession session, CancellationToken cancellationToken) =>

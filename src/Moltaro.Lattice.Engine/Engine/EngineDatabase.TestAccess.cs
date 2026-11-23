@@ -27,11 +27,6 @@ internal sealed partial class EngineDatabase
         Check(options);
         ArgumentNullException.ThrowIfNull(inputs);
 
-        if (inputs.ReadTimestamps is not null)
-        {
-            throw new NotSupportedException("A read does not take its timestamps from a source of the tests yet.");
-        }
-
         return new EngineDatabase(options, inputs);
     }
 
