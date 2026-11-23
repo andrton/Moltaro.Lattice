@@ -198,10 +198,14 @@ var page = await bySectionAndName.FindAsync(
 ```
 
 **Unique indexes.** Several entities can have the same indexed values unless the index says
-otherwise:
+otherwise; an index over several fields compares them together, so the same login may
+belong to one account in each tenant:
 
 ```json
-{ "Id": 1, "Name": "ByEmail", "Fields": [5], "Unique": true }
+"Indexes": [
+  { "Id": 1, "Name": "ByEmail", "Fields": [5], "Unique": true },
+  { "Id": 2, "Name": "ByTenantAndLogin", "Fields": [6, 7], "Unique": true }
+]
 ```
 
 The master then refuses a write that would give a value a second owner, with
