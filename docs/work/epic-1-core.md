@@ -8555,9 +8555,11 @@ during catch-up is recorded and must be resolved by a delete before R.
   position is judged when the update is executed. Refused at the add with
   `ArgumentException`, the update left as it was, what the caller can know from the schema
   and the type of the value: a field or a path the schema does not have, a command the type
-  of the field does not take, a number that does not convert by the allowlist, the same
-  target, by its full path, assigned twice in one update, an owned value as the target, the
-  key. Commands of a collection may repeat and are executed in their order. Refused at the
+  of the field does not take, a value whose type the field does not take, a null where the
+  declaration allows none, a number that does not convert by the allowlist, a second
+  assignment of a scalar to the same target path in one update, an owned value as the
+  target, the key. Commands of a collection, the replacement of the whole collection
+  included, may repeat and are executed in their order. Refused at the
   commit, as `ValidationFailed`, what a write checks for a record today: text that is not
   well-formed, an integer its enum type does not declare, a value above its bound; this is
   the rule of a record, on purpose. `CommitAsync` executes the commands
@@ -8615,8 +8617,19 @@ value when its command is added. The outcome of each command is exposed by
 shape, a flag by the number of the command kept in the update, is the planner's. The tests
 of the sprint state the outcome of every command of an update of several, alone and in a
 batch, by class and by name. Refusals at the add are
-`ArgumentException`. `Admit` taking a third kind of input is the P4 of the review of S17
-joined here ([the refactoring backlog](refactoring.md), the architect's review after S17).
+`ArgumentException`. A second assignment of a scalar is refused as
+`mutation-commands.md`, "Repeated scalar targets in an explicit partial update", says: "One
+explicit partial mutation may contain at most one scalar assignment per target path", and
+"Ordered collection commands, including multiple List inserts/removes, retain their
+accepted execution semantics and are outside this duplicate-scalar rule". `Admit` taking a
+third kind of input is the P4 of the review of S17 joined here ([the refactoring
+backlog](refactoring.md), the architect's review after S17). The study of this sprint also
+takes: the reply to an update or to a batch forwarded through a child carries the outcome
+of each command, so that `CommandChanged` answers on a child as on the master, and the study
+names the bytes and whether the wire format changes; where `batch.Update` refuses a value
+that a write checks (at the add, as a member of a batch is `ValidationFailed` at its add, or
+at the commit); and that an update of another database given to `batch.Update` is
+`ArgumentException` at the call, as a member of another schema is.
 
 **Added by the planner on 21 November 2026.** Where this sprint compares or binds a value
 given by a caller, it uses `IndexValue` of `Access/Values`, the holder of a value without
@@ -8651,8 +8664,9 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
   What the members promise. A view is one written state of one entity, read in place and
   copied nowhere; it is valid only inside the viewer, and the compiler refuses to keep it,
   return it or capture it. The indexer by name looks the field up in the schema at each
-  use and takes one name, a name with a dot being `ArgumentException` (a path belongs to
-  `LatticeUpdate` alone in this stage); the indexer by `LatticeField` does not look it up,
+  use and takes one name, a name with a dot being `ArgumentException`: a path through owned
+  values is written with a dot in an update; the indexer of a view and `GetField` take one
+  name. The indexer by `LatticeField` does not look it up,
   and is the form for a field that is read often. It checks that the field is one of the
   type the view reads and refuses another with `ArgumentException`, so a field of another
   type never reads outside the value. `LatticeEntityType.GetField` takes one name as well. `LatticeValueView` is the same type for every field: what the field is, is known
@@ -8669,7 +8683,7 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
   viewer as it waits for any read. A viewer must be short and must not wait or call the
   database. A viewer that does not return holds back the freeing of all memory replaced
   since it began; a write refused for memory, and with it the writes behind it; the
-  applier of a child; the close; and every read once all protection slots are held by
+  applier of a child, once its memory is short; the close; and every read once all protection slots are held by
   viewers. Nothing is built against that, and it is the application's to avoid. An absent
   key is `false`, or `Found == false` with a position; `ViewAsync` waits for its session
   first and then runs the same code.
@@ -8751,8 +8765,13 @@ with that decision of the owner as its reason, and is entered with the code of t
 
 **Decided by the planner on 23 November 2026, with the contract.** Typed views cover
 scalars and owned values; an element of a List of owned values has no typed view in this
-sprint. The generator reads the schema file with the reader of schema JSON compiled into
-it as linked source, not a second implementation.
+sprint. How a generated view of a nested owned value gets the fields of its owned type, by
+paths in `FieldNames` or by another shape, is settled by the first step of the sprint. The
+generator must judge a class against a schema file by the rules the core judges it by,
+without a second implementation of them. Whether that is the core's reader of schema JSON
+and its binding rules compiled into the generator, or another form, is settled by the first
+step of the sprint, which shows it with a generator that runs; if it needs much of the core
+compiled for the compiler's host, the step reports that before more is built.
 
 #### S23 · Compaction and shrink
 
