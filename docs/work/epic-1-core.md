@@ -8540,7 +8540,8 @@ contract with the first step of implementation, for the planner to read.
 8. **The bound at depth, the rule of Q55, the time limit that tests can drive, and L4**,
    as the notes above say. The refusals name a place as the validation names one today,
    by the type that declares the field and the field.
-9. **Rules of the schema language**, checked when a schema is compiled: the fixed part of
+9. **Rules of the schema language**, checked when a database compiles its layouts at its
+   open, `InvalidSchema` with the entity type named: the fixed part of
    an entity, its owned values included, fits one block; the record of an element of a
    List fits one chunk; an entity type is refused as not stored yet only when it holds a
    Map or a Set at any depth.
@@ -8607,6 +8608,31 @@ correctness lanes on ARM64 with the breaker's probes of this sprint.
 
 If the internal contract shows the sprint is too large for one review, the coordinator
 proposes its parts to the planner with the first step.
+
+**Decided by the planner on 24 November 2026, on the internal contract of step 1**
+(799e03d is the last commit of step 1). The bound of a List is checked by the engine where
+a write is encoded outside the lock, by the encoder a batch's `Add` uses, so it comes
+before the conditions; the core names no number. A record of an element fits one chunk
+when its stride and 64 bytes for each descriptor it holds come to at most 65,504, a packed
+element when its stride does. A List whose elements hold descriptors is never inline in its
+holder; one kind serves it, one block or a directory by its count. A flattened structure
+lays its fixed fields and then its descriptors, each in the order of their paths, and its
+null bits in that order. `RootLayout.Version` stays 2: no schema that compiles today
+changes its bytes, and a node without these forms refuses such a schema as not stored
+before it could meet one; it is raised at the first change of the bytes of a schema that is
+stored today. One test of `EntityBytes` for a tree, an entity with an owned value and both
+forms of a List, its figure equal to the sum the audit reaches. The sprint is carried out
+in three parts on one branch, a pull request for each, each with its review and its
+breaker: (1) the stored form and the walk: `StructureLayout`, the flattening, both forms of
+a List, references, the rules of the schema language, the writer and the reader by name,
+the walk for the free, the publication, the retirement, the counts and `EntityBytes`, with
+`ReadSettings` and L4; (2) copies and the core: the binding of a record to a class for
+nested values, Q55, the bound at depth, the bound of a List, the validation of a text key of
+a reference; (3) children and paths: the wire and its check, the one placement routine,
+indexes over paths. The breaker's targets 1, 2, 4 and 6 belong to part 1, on ARM64 too in
+the start of the machine; target 2 is run again in part 2 for a read by a class and in part
+3 on a child; target 5 belongs to part 2, and 3 and 7 to part 3. The one start of the
+machine follows the review and the breaker of part 1 and carries what is owed from before.
 
 #### S19 · Maps and Sets
 

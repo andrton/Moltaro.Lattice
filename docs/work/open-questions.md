@@ -104,7 +104,7 @@ in the meantime.
 | --- | --- |
 | **Found** | 24 November 2026, the study of Epic 1, sprint S18 |
 | **Question** | An owned value is stored inside its holder, so the fixed part of an entity can outgrow one block through its owned types; and the record of an element of a List has to fit one chunk. Until now the contract stated a size rule only in a clause of `LatticeIndex`. May a schema be refused for either? |
-| **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a schema is compiled and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; a schema would need thousands of fixed fields to meet them |
+| **Answer** | Taken by the planner, 24 November 2026, for the owner to read: yes, both are rules of the schema language, the same in every process, checked when a database compiles its layouts at its open (`InvalidSchema`, the entity type named) and stated in the remarks of `LatticeEntityType` and `LatticeOwnedType`; every node compiles them by the same code, so a schema means the same on every node; a schema would need thousands of fixed fields to meet them |
 | **What the code does** | As the brief of S18 says |
 | **Where the rule lives** | The brief of S18 in the [document of Epic 1](epic-1-core.md); the remarks named above |
 
