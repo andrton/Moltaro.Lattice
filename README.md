@@ -214,7 +214,7 @@ waits for it. A batch is checked on the state it leaves, so it may exchange two 
 delete an entity and give its value to another.
 
 **Writing several entities together.** *Executed on a master; a batch committed through a
-child is not implemented yet, and its `CommitAsync` throws `NotSupportedException`.* One write is
+child is not implemented yet, and its `CommitAsync` fails with `NotSupportedException`.* One write is
 atomic for one entity. Writes that have to succeed or fail together are submitted as one
 write batch, which may address different entity types:
 
@@ -420,7 +420,7 @@ the first version.
 | `src/Moltaro.Lattice.slnx` | Product solution with libraries, tests, samples and the measurement program |
 | `src/Moltaro.Lattice` | The core library; its folders are its namespaces |
 | `src/Moltaro.Lattice.Tests` | Tests of the public contract: the schema, and scenario tests of reads, writes, master and child, which run on the engine |
-| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities by primary key in memory, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
+| `src/Moltaro.Lattice.Engine` | The engine; depends on the core library and on no package. It holds the native memory arena, the table of root entries, the layout that writes an entity of scalar fields into the arena, and a database that inserts, reads, replaces and deletes such entities in memory, by primary key and through their secondary indexes, and commits a write batch on a master, and the transport over which a child loads the whole database from its master, follows its changes and forwards its writes. It holds `LatticeDatabase`, the entry point that opens a database.  |
 | `src/Moltaro.Lattice.Engine.Tests` | Tests of the engine, including its internal mechanisms |
 | `src/Moltaro.Lattice.DependencyInjection` | Dependency injection support |
 | `src/Moltaro.Lattice.DependencyInjection.Tests` | Tests of the dependency injection support |
@@ -440,8 +440,7 @@ Inside the core library:
 | --- | --- |
 | (root) | The database interface, its options, state and errors, positions, revisions and sessions |
 | `Schema` | Schema model, JSON compilation, binary save and load |
-| `Access` | Sets, records and the binding of .NET classes to entity types |
-| `Storage` | What the contract hands to the database behind it: the kind of a write |
+| `Access` | Sets, records, write batches, the kind of a write and the binding of .NET classes to entity types |
 
 ## Building
 

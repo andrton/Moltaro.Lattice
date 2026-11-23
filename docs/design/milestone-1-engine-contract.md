@@ -120,7 +120,7 @@ List stores its count and an ordered chunk directory. Fixed-width elements are
 packed by schema stride; complex elements contain owned descriptors. Indexing uses
 chunk arithmetic/directory lookup; insert/remove may prepare and shift the affected
 suffix. Never reorder elements to improve storage. Temporary work remains subject
-to the root/batch byte budget.
+to the memory budget of the instance.
 
 Map/Set use packed entries and linear lookup up to 8 elements initially. Larger
 values add a power-of-two open-addressed bucket directory, linear probing, cached
@@ -197,13 +197,15 @@ not escapable Memory owners. Compiler/lifetime misuse tests and callback-excepti
 cleanup are mandatory. Unsafe caller code is outside the managed borrowing contract.
 
 Publication is one at a time under the lock of the writes and excludes no read. An
-explicit WriteBatch is published so that no operation observes it half published: a read
-by key reads one entity, the position of the batch is published after the last of its
-roots, and an operation that reads several entities in one step validates against the
-publication of batches: every entity of the batch is stored with the stamp of the batch
-before its position is published, and a read does not take a stamp above the position
-([write path](write-path.md#how-a-publication-is-made)). A child never exposes a prefix of a
-batch nor advances its applied position past a part of one.
+explicit WriteBatch is published so that no read takes one of its entities in its new state
+before its position, and a read that begins at that position sees all of it: every entity of
+the batch is stored with the stamp of the batch before its position is published, and a read
+does not take a stamp above the position, so a read that meets an entity of the batch first
+waits for the position ([write path](write-path.md#how-a-publication-is-made)). A read by key
+reads one entity and is exact. A search or an enumeration that runs across the publication
+is no snapshot: a step goes on after a take that waited, and it may return some entities of
+the batch as they were before and others as after, as separate reads may. A child never
+exposes a prefix of a batch nor advances its applied position past a part of one.
 All read, index, scan and compaction entry points participate. Publication
 only installs reserved values/nodes/descriptors and advances the applied position;
 it does no I/O, validation, pool growth or user callbacks. Unexpected failure marks
@@ -336,8 +338,10 @@ and prepares its write in place: it looks the key up, checks its conditions agai
 published state, encodes its values into prepared blocks and reserves everything its
 publication needs. No other write runs meanwhile, so nothing has to be reserved against
 another writer. A WriteBatch is prepared the same way, all of its entities in one hold,
-member by member in their order, and its changes are reserved and checked together on the
-state they leave.
+member by member in their order, each placed from the root it was encoded to when the
+application added it, and its changes are reserved and checked together on the state they
+leave; which member fails is judged in two phases
+([write path](write-path.md#a-write-batch)). A batch through a child is not built yet.
 
 The prepared write joins the open group. When no group is in the persistence step, the group
 is handed to it at once; when that step completes at once, as in MemoryOnly, the caller

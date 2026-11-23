@@ -271,7 +271,7 @@ while PostgreSQL is unavailable.</p>
       <p><strong>Other replicas are not part of the completion barrier.</strong> Related requests carry the returned position when they need that dependency.</p>
     </div>
   </div>
-  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes as a whole.</p>
+  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes at one position, and no read sees one of its entities changed before it.</p>
 </figure>
 
 <h3 id="a-writebatch-is-one-transaction">A WriteBatch is one transaction</h3>
@@ -282,7 +282,10 @@ its all-or-nothing boundary; children preserve that same boundary during replay.
 <p>It is a transaction of the database, not one the application works inside: a batch
 cannot read, and there is no interactive read/write transaction.</p>
 <p>Batch construction holds no locks. Readers continue during storage I/O; while the batch
-is published, only a read that meets one of its entities waits, until all of it is visible
+is published, only a read that meets one of its entities waits, until its position is
+published, and a read that begins at that position sees all of it. A search or an
+enumeration that runs across the publication is no snapshot: it may return some entities of
+the batch as they were before and others as after
 (<a href="write-path.md#a-write-batch">write path</a>). Internal grouping of
 independent writes for PostgreSQL efficiency does not make those calls a shared transaction.</p>
 <h3 id="the-saved-base-advances-in-the-background">The saved base advances in the background</h3>

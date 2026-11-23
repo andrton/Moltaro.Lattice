@@ -54,11 +54,10 @@ protection, releases it, then acquires the owner and revalidates the candidate.
 The experiment uses striped reader/writer gates for roots, one dictionary gate and
 one allocator gate. This deliberately bounds lock-object overhead; unrelated roots
 sharing a stripe can contend. Production packed root gates and dictionary sharding
-are not established by these measurements. A future batch takes the existing
-database publication barrier before root gates in canonical order; the experiment
-does not validate that multi-root integration.
-If a future batch uses striped gates, acquire each distinct physical stripe once
-in stripe order; sorting logical root identities alone does not order shared gates.
+are not established by these measurements, and the experiment does not validate a
+batch over several roots under these gates. The engine's batch takes no root gate and no
+publication barrier: it publishes its position after every one of its entities is
+stored ([Bounded WriteBatch extension](#bounded-writebatch-extension), below).
 
 The Arc extension implements index publication protection between root and dictionary
 protection. Candidate lookup retains root lifetimes under the catalog/index gate,
@@ -176,8 +175,11 @@ of the optimistic read of its `AtomicCell` (`atomic_cell.rs`), at commit
   protection, so it tries again: at once after a failed validation, and while it finds the
   mark or a stamp above the position after a back-off by `SpinWait`, which spins, then gives
   up the processor, as the source's `Backoff.snooze` does for a writer that finds the lock
-  held. The source has no position: the stamp above it is this engine's, so that a reader
-  sees all of a publication of several entities or none of it.
+  held. The source has no position: the stamp above it is this engine's, so that no read
+  takes an entity of a publication of several entities in its new state before its
+  position, and a read that begins at that position sees all of it; a search or an
+  enumeration that runs across the publication may still return some of its entities as
+  they were before it and others as after.
 - The source has a write that releases the lock without a new stamp (abort). A write here
   stops between its stores only when its publication fails, which allocates nothing and does
   no I/O, so only a fault injected by a test or a defect fails it; that faults the database,

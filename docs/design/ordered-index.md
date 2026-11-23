@@ -290,9 +290,9 @@ each by its own stores, in this order: the new entries are inserted, the root is
 published, the old entries are removed or rewritten. Between those stores a reader may
 find the new entry before the root has the new key, or the old entry after the root has
 lost the old key; the check of every entry against its root covers both. A publication
-of several changes, as a child applies a transaction of several effects, inserts the new
-entries of all of them first, then stores every entity, then publishes its position, and
-removes the old entries after it ([the write path](write-path.md#how-a-publication-is-made)).
+of several changes, as a master publishes a write batch and a child a transaction of
+several effects, inserts the new entries of all of them first, then stores every entity,
+then publishes its position, and removes the old entries after it ([the write path](write-path.md#how-a-publication-is-made)).
 
 ### The owner of a value of a unique index
 
@@ -313,15 +313,18 @@ is built from the values of the write, since a write forwarded by a child brings
 root. The writes prepared and not published, which the tree does not show, are the write
 coordinator's to know ([the write path](write-path.md#two-writes-to-one-entity)).
 
-The changes of one publication, as a transaction a child receives, are checked together,
-on the state they all leave (`ChangePublisher.TryReserve`), after every one of them is
-decided. The entity types are taken in the order of their first change and the unique
-indexes of each in the order of their declaration. In an index, every value a change sets
-is looked up as above, and an owner that a change of the same publication frees, by a
-delete or by a move of its own key, is no conflict; then the values the changes set are
-sorted by the order of the index, of equal values the earlier change first, so that two
-changes that claim one value lie side by side and the later one conflicts. The conflict
-found is that of the first index that has one, and in it the change that comes first. So
+The changes of one publication, as a write batch on a master or a transaction a child
+receives, are checked together, on the state they all leave (`ChangePublisher.TryReserve`),
+after every one of them is decided. The entity types are taken in the order of their first
+change and the unique indexes of each in the order of their declaration, and every unique
+index is checked. In an index, every value a change sets is looked up as above, and an
+owner that a change of the same publication frees, by a delete or by a move of its own key,
+is no conflict; then the values the changes set are sorted by the order of the index, of
+equal values the earlier change first, so that two changes that claim one value lie side by
+side and the later one conflicts. The conflict reported is that of the change that comes
+first among the changes, in whatever entity type and index, and of the indexes in which
+that change conflicts the one declared first in its entity type
+([Q58](../work/open-questions.md#q58-which-member-of-a-batch-is-the-failing-one-when-two-of-them-claim-one-unique-value)). So
 one publication may exchange the values of two entities, or free a value and give it to
 another entity, which no order of single writes could apply one at a time. One change
 makes one descent for each index in which it sets a value, as before.

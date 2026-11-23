@@ -26,5 +26,5 @@
       <p><strong>Other replicas are not part of the completion barrier.</strong> Related requests carry the returned position when they need that dependency.</p>
     </div>
   </div>
-  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes as a whole.</p>
+  <p class="diagram-foot">Conceptual ordering, not timing. Storage I/O holds no root/index gate; a batch publishes at one position, and no read sees one of its entities changed before it.</p>
 </figure>

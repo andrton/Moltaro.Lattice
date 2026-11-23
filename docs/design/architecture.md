@@ -157,7 +157,10 @@ It is a transaction of the database, not one the application works inside: a bat
 cannot read, and there is no interactive read/write transaction.
 
 Batch construction holds no locks. Readers continue during storage I/O; while the batch
-is published, only a read that meets one of its entities waits, until all of it is visible
+is published, only a read that meets one of its entities waits, until its position is
+published, and a read that begins at that position sees all of it. A search or an
+enumeration that runs across the publication is no snapshot: it may return some entities of
+the batch as they were before and others as after
 ([write path](write-path.md#a-write-batch)). Internal grouping of
 independent writes for PostgreSQL efficiency does not make those calls a shared transaction.
 
