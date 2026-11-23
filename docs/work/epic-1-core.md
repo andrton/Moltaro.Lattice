@@ -8550,18 +8550,26 @@ during catch-up is recorded and must be resolved by a delete before R.
   search key (Q55), and for a List, a Map or a Set it replaces the whole collection; an
   owned value as a whole is not assigned. A value is copied when its command is added. A
   position is judged when the update is executed. Refused at the add with
-  `ArgumentException`, the update left as it was: a field or a path the schema does not
-  have, a command the type of the field does not take, a value that does not bind, a scalar
-  assigned twice, an owned value as the target, the key. `CommitAsync` executes the commands
+  `ArgumentException`, the update left as it was, what the caller can know from the schema
+  and the type of the value: a field or a path the schema does not have, a command the type
+  of the field does not take, a number that does not convert by the allowlist, the same
+  target, by its full path, assigned twice in one update, an owned value as the target, the
+  key. Commands of a collection may repeat and are executed in their order. Refused at the
+  commit, as `ValidationFailed`, what a write checks for a record today: text that is not
+  well-formed, an integer its enum type does not declare, a value above its bound; this is
+  the rule of a record, on purpose. `CommitAsync` executes the commands
   in their order against the state it finds and publishes them together with their index
   changes, or nothing; fields not named keep their values. `Changed` is false only when
   every command had nothing to do (a Map key or a Set member removed that was absent, a Set
   member added that was present); such an update keeps the revision and has a position of
-  its own. It reports `NotFound` (no such entity), `RevisionConflict`,
+  its own. It reports `NotFound` (no such entity), `RevisionConflict` (another revision, or
+  no entity with an expected revision, as `ReplaceAsync` with an expected revision reports
+  it today),
   `UpdateTargetMissing` (an owned value on the path is absent, the collection is null, a
   position lies outside the List), `UniqueConstraintViolation`, and what every write
-  reports. An update committed twice, or added to a batch after it was committed, is the
-  caller's mistake, thrown at the call, as for a batch. By a class and by name the members
+  reports. An update is submitted once, by `CommitAsync` or by `batch.Update`; after that a
+  command or a second submission is the caller's mistake, `InvalidOperationException` at the
+  call; an update without a command is refused as an empty batch is. By a class and by name the members
   are the same; by a class a value has the form of the bound class.
   The sample `PartialUpdateSample` and the tests of the contract stage use a string key.
 - **To read.** [Q13: field assignments, collection mutations, outcomes, target
@@ -8617,7 +8625,8 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
   indexer by position, `foreach`); `LatticeMapView` (`Count`,
   `TryGetValue<TKey>(TKey key, out LatticeValueView value)`, `foreach` over
   `LatticeMapEntryView` with `Key`, `Value` and `Deconstruct`); `LatticeSetView` (`Count`,
-  `Contains<TMember>(TMember member)`, `foreach`).
+  `Contains<TMember>(TMember member)`, `foreach`); a key of a Map lookup and a member of a
+  Set lookup bind by the allowlist, as a search key does.
   `LatticeViewFunc<TView, TResult>` and `LatticeViewFunc<TView, TState, TResult>`, delegates
   over a view (`where TView : allows ref struct`). `LatticeViewResult<TResult>` (`Found`,
   `Result`, `Position`).
@@ -8628,20 +8637,26 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
   What the members promise. A view is one written state of one entity, read in place and
   copied nowhere; it is valid only inside the viewer, and the compiler refuses to keep it,
   return it or capture it. The indexer by name looks the field up in the schema at each
-  use; the indexer by `LatticeField` does not, and is the form for a path that is read
-  often. `LatticeValueView` is the same type for every field: what the field is, is known
+  use and takes one name, a name with a dot being `ArgumentException` (a path belongs to
+  `LatticeUpdate` alone in this stage); the indexer by `LatticeField` does not look it up,
+  and is the form for a field that is read often. It checks that the field is one of the
+  type the view reads and refuses another with `ArgumentException`, so a field of another
+  type never reads outside the value. `LatticeEntityType.GetField` takes one name as well. `LatticeValueView` is the same type for every field: what the field is, is known
   from the schema and checked when the value is read, so `List` on a field that is not a
   List, or `Get<TValue>` with a type that is not the field's, compiles and fails at run
   time (`InvalidOperationException`, `InvalidCastException`), as a wrong cast of
   `record[name]` does today. `Get<TValue>` reads a fixed-width scalar, the integer of an
-  Enum or the key of a Reference and allocates nothing. A String and a Binary are the
+  Enum or the key of a Reference and allocates nothing for a fixed-width value; a Reference
+  whose key is text is read as a String value is. A String and a Binary are the
   stored bytes, in the encoding of the schema, in one or more parts; `GetString` makes the
   copy. A write of the same entity does not wait for a view: it is published at once, a
   read by key then returns the new state, and the view goes on reading the state it began
-  with, whole, until the viewer returns. A viewer must be short and must not wait or call
-  the database: while it runs, memory that writes replaced is not freed, so a viewer that
-  does not return holds back writes once memory is short and holds back the close of the
-  database; nothing is built against that, and it is the application's to avoid. An absent
+  with, whole, until the viewer returns; a write that is refused for memory waits for a
+  viewer as it waits for any read. A viewer must be short and must not wait or call the
+  database. A viewer that does not return holds back the freeing of all memory replaced
+  since it began; a write refused for memory, and with it the writes behind it; the
+  applier of a child; the close; and every read once all protection slots are held by
+  viewers. Nothing is built against that, and it is the application's to avoid. An absent
   key is `false`, or `Found == false` with a position; `ViewAsync` waits for its session
   first and then runs the same code.
   The sample `ViewSample` and the tests use a string key and show the indexer by name
@@ -8664,11 +8679,17 @@ a box that the keys of an index use, and its `Bind`; it does not write a second 
 **Decided by the planner on 23 November 2026, with the contract.** The handle of a field
 is `LatticeField`; no new type. A value in chunks is read by parts, and no single span is
 promised. A call into the database from inside a viewer is not refused by the engine, since
-refusing it would need a guard on every public call. The stay of a view is an ordinary
-read's, so `ReadTimeLimit` and the protection slots are those of reads, and no option is
-added. Design C of the study, the pin of one entity, is not built: the owner, 23 November
-2026, "Не делать ничего. Ну, зависло, все зависло, все упадет. Это на откуп
-разработчика."; it can be added later without a change of the contract.
+refusing it would need a guard on every public call. A view, like a read by key, is under
+no read limit; it holds one protection slot for as long as the viewer runs, and no option
+is added. Design C of the study, the pin of one entity, is not built: the owner, 23
+November 2026, "Не делать ничего. Ну, зависло, все зависло, все упадет. Это на откуп
+разработчика." (do nothing; if it hangs, everything hangs and falls over; that is the
+developer's to handle); it can be added later without a change of the contract. The
+sprint amends X6 of [the exceptions register](exceptions.md) and the comments of
+`ReadEpochs` that rest on "no code of the application runs inside the protection of a
+read": four waits become as long as a viewer runs (a free protection slot, a write refused
+for memory, the applier of a child, the close). The amendment is approved by the planner,
+with that decision of the owner as its reason, and is entered with the code of the sprint.
 
 #### S22 · Typed protected views
 
@@ -8715,7 +8736,8 @@ added. Design C of the study, the pin of one entity, is not built: the owner, 23
 
 **Decided by the planner on 23 November 2026, with the contract.** Typed views cover
 scalars and owned values; an element of a List of owned values has no typed view in this
-sprint.
+sprint. The generator reads the schema file with the reader of schema JSON compiled into
+it as linked source, not a second implementation.
 
 #### S23 · Compaction and shrink
 
