@@ -5,6 +5,4 @@ namespace Moltaro.Lattice.TestSupport.Skips;
 // of the sprint that implements a feature removes its skips and its constant.
 internal static class SkipReason
 {
-    // A write batch committed through a child, which forwards it to its master.
-    public const string BatchThroughAChild = "Executing a write batch through a child is not implemented yet.";
 }

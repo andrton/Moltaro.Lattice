@@ -230,8 +230,8 @@ are exempt. A write of a value that another write, prepared and not published ye
 or gives up waits for that write and is decided again. A child checks its unique indexes
 once, at the position it becomes ready at, and after that every transaction it receives,
 on the state the transaction leaves. A
-batch may swap unique values or delete and reclaim one atomically. A batch is executed on a
-master; a batch through a child is not built yet.</p>
+batch may swap unique values or delete and reclaim one atomically. A batch is executed by the
+master, also one a child forwards to it as one request.</p>
 <p><a id="writes-and-persistence"></a></p>
 <h2 id="writes-and-durability">Writes and durability</h2>
 <p>Applications edit their own copies, then submit changes. Save sends the whole entity

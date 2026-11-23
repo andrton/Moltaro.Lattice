@@ -1,23 +1,27 @@
 using Moltaro.Lattice.Engine.Tests.Engine;
 using Moltaro.Lattice.Engine.Tests.Engine.Replication;
+using Moltaro.Lattice.Engine.Writes;
+using Moltaro.Lattice.Replication;
 using Moltaro.Lattice.Storage;
+using Moltaro.Lattice.TestSupport.Positions;
 using static Moltaro.Lattice.TestSupport.Concurrency.TestWait;
 
 namespace Moltaro.Lattice.Engine.Tests.Replication.Forwarding;
 
-// A write batch travels from a child to its master as one request (the brief of Epic 1, sprint S17, point 7;
-// the shape is ForwardPayload.BatchRequest): a head with the minimum position and the count of the members,
-// then each member as its kind, its type, its expected revision, its key and its root in the load format,
-// delimited by its length. The master checks every member and the batch as a whole before anything of it is
-// used, and submits it as one write, all or nothing; a request that is not valid is a defect of the peer,
-// and the master executes nothing of it and ends the connection without a reply, as for a single write
-// (MalformedRequestTests): a member that names an entity a member before it names, a count of no member, a
+// A write batch travels from a child to its master as one request (docs/design/milestone-1-engine-contract.md,
+// "Replication transport and initial loading"; the shape is ForwardPayload.BatchRequest): a head with the
+// minimum position and the count of the members, then each member as its kind, its type, its expected
+// revision, its key and its root in the load format, delimited by its length. The master checks every
+// member and the batch as a whole before anything of it is used, and submits it as one write, all or
+// nothing; a request that is not valid is a defect of the peer, and the master executes nothing of it and
+// ends the connection without a reply, as for a single write (MalformedRequestTests): a member that names an entity a member before it names, a count of no member, a
 // count the members do not reach, a member whose root goes on past its length, and a member that is itself a
 // batch. A request in the shape is executed whole. On the way back:
 // - a refusal of a batch for a unique index carries the number of the failing member, in whose entity type
-//   the child resolves the index; a reply of UniqueConstraintViolation to a batch without a number, or with
-//   one beyond its members, is a reply that is not valid, so the child ends its connection, serves its reads
-//   Ready, and the batch ends in IndeterminateOutcome, since it was sent whole (MalformedReplyTests);
+//   the child resolves the index; a reply of UniqueConstraintViolation to a batch without a number, and a
+//   refusal of any error with a number beyond its members, is a reply that is not valid, so the child ends its
+//   connection, serves its reads Ready, and the batch ends in IndeterminateOutcome, since it was sent whole
+//   (MalformedReplyTests);
 // - a batch whose body is above the memory limit of the master is refused at its first frame with
 //   WriteRejected and Limit Memory, the master is as it was, and the connection goes on.
 // The hand-made child is a LoadedPeer of a master of MarkedRoot; the real children follow a master of
@@ -41,7 +45,7 @@ public sealed class ForwardedBatchTests
         new("a number beyond the members"),
     ];
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_request_in_its_shape_is_executed_whole_with_one_reply()
     {
         await using var master = await LoadedPeer.OpenMasterAsync();
@@ -62,7 +66,41 @@ public sealed class ForwardedBatchTests
         Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.BatchThroughAChild)]
+    // The head carries the minimum position of the batch, which the master orders the batch after, as for one
+    // write (MinimumPositionTests): the batch depends on the position after the next of the master; a delete of
+    // an absent key, which the master submits after the batch and does not order behind it, publishes the next
+    // one, and its reply tells that the master holds the batch, not executed; a direct write of the master then
+    // reaches the position, and the batch runs.
+    [Fact]
+    public async Task Batch_request_waits_for_the_position_of_its_head_and_runs_once_direct_writes_reach_it()
+    {
+        await using var master = await LoadedPeer.OpenMasterAsync();
+        var revision = LoadedPeer.RevisionOfCode(master);
+        using var child = await LoadedPeer.ConnectAsync(master);
+        var next = PositionSequence.Of(master.Position) + 1;
+        var afterTheNext = ForwardPayload.PositionOf(ForwardPayload.HistoryOf(master.Position), next + 1);
+
+        await child.SendRequestAsync(1, ForwardPayload.BatchRequest(
+            [
+                (ForwardPayload.Upsert, MarkedRoot.TypeId, ForwardPayload.KeyOf("code"), child.Root),
+                (ForwardPayload.Delete, MarkedRoot.TypeId, ForwardPayload.KeyOf("absent"), []),
+            ],
+            minimumPosition: afterTheNext));
+        await child.SendRequestAsync(2, ForwardPayload.Request(ForwardPayload.Delete, MarkedRoot.TypeId, ForwardPayload.KeyOf("absent"), []));
+
+        Assert.Equal(next, PositionSequence.Of((await child.ReceiveReplyAsync(2)).Position!.Value));
+        Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
+
+        await master.Set("Marked").InsertAsync(MarkedRoot.RecordOf(master.Set("Marked").EntityType, "reaches"));
+        var reply = await child.ReceiveReplyAsync(1);
+
+        Assert.Null(reply.Refusal);
+        Assert.True(reply.Changed);
+        Assert.True(PositionSequence.Of(reply.Position!.Value) > next + 1);
+        Assert.NotEqual(revision, LoadedPeer.RevisionOfCode(master));
+    }
+
+    [Theory]
     [MemberData(nameof(Damages))]
     public async Task Batch_request_that_is_not_valid_ends_the_connection_and_nothing_of_it_is_executed(string damage)
     {
@@ -89,7 +127,7 @@ public sealed class ForwardedBatchTests
         Assert.Equal(revision, LoadedPeer.RevisionOfCode(master));
     }
 
-    [Theory(Skip = SkipReason.BatchThroughAChild)]
+    [Theory]
     [MemberData(nameof(NumbersOfAUniqueRefusal))]
     public async Task Reply_to_a_batch_refused_for_a_unique_index_without_a_number_of_its_members_ends_the_connection_of_the_child(string number)
     {
@@ -113,8 +151,62 @@ public sealed class ForwardedBatchTests
         Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
     }
 
+    // The relay gives the batch of two members, which the master executes, the refusal DuplicateKey for the
+    // member 2.
+    [Fact]
+    public async Task Reply_to_a_batch_whose_refusal_names_a_member_beyond_it_ends_the_connection_of_the_child()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);
+        await using var relay = FrameRelay.Start(master.ListenUri!, frame =>
+            frame.Kind == ForwardPayload.WriteReply
+                ? ForwardPayload.Frames(ForwardPayload.WriteReply, frame.CorrelationId, frame.StreamSequence, ForwardPayload.Refusal(
+                    LatticeErrorEnum.DuplicateKey, "Exists.", null, 2, null))
+                : [frame]);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+
+        var batch = child.CreateWriteBatch();
+        batch.Insert(UniqueSchema.Of(2, "grace"));
+        batch.Insert(UniqueSchema.Of(3, "alan"));
+
+        var exception = await Assert.ThrowsAsync<LatticeException>(async () => await batch.CommitAsync());
+        await relay.ChildEndedAsync();
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, exception.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Ready, child.State);
+    }
+
+    // The master faults after it has taken the batch and before it has replied: the publication of the batch
+    // fails at its fault point (EngineDatabase.ArmFault), after the stores of its members and before its
+    // position. A forwarded batch then ends as a forwarded write does whose master faults while it publishes it
+    // (MasterFaultTests), in IndeterminateOutcome, and the master is Faulted; its transaction was never
+    // appended, so no member is on the child, which acknowledges no sequence of it.
+    [Fact]
+    public async Task Batch_through_a_child_whose_publication_faults_on_the_master_ends_in_IndeterminateOutcome_and_nothing_of_it_reaches_the_child()
+    {
+        await using var master = await ReplicationNodes.OpenMasterAsync(UniqueSchema.Schema);
+        await using var relay = FrameRelay.Start(master.ListenUri!);
+        await using var child = await ReplicationNodes.OpenChildAsync(relay.Address);
+        var s = PositionSequence.Of(master.Position) + 1;
+
+        master.ArmFault(EngineFaultPointEnum.DuringPublication);
+
+        var batch = child.CreateWriteBatch();
+        batch.Insert(UniqueSchema.Of(2, "grace"));
+        batch.Insert(UniqueSchema.Of(3, "alan"));
+
+        var faulted = await Assert.ThrowsAsync<LatticeException>(async () => await batch.CommitAsync().AsTask().WaitAsync(Bound));
+
+        Assert.Equal(LatticeErrorEnum.IndeterminateOutcome, faulted.Error);
+        Assert.Equal(LatticeDatabaseStateEnum.Faulted, master.State);
+        Assert.Null(child.Set<UniqueSchema.Account>().Get(2L));
+        Assert.Null(child.Set<UniqueSchema.Account>().Get(3L));
+        Assert.All(
+            relay.FromChild.Where(frame => frame.Kind == FrameKindEnum.Applied).Select(TransactionPayload.AppliedOf),
+            sequence => Assert.True(sequence < s, $"The child acknowledged {sequence}, and the batch was to be published at {s}."));
+    }
+
     // Three accounts of 4 MiB each, above the memory limit of a master of two segments of 4 MiB.
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_whose_body_is_above_the_memory_limit_of_the_master_is_refused_at_its_first_frame_and_the_connection_goes_on()
     {
         var arena = new ArenaOptions { MemoryLimit = 2L * new ArenaOptions().SegmentSize };

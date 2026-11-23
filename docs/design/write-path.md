@@ -7,8 +7,8 @@ an animated version of this page is [write-path.html](write-path.html). How read
 protected while writes run is explained in [epoch-protection.md](epoch-protection.md).
 
 **Status.** Decided by the owner on 17 November 2026 and built in Epic 1, sprint S09,
-part 2; the write batch on a master in sprint S17, part 2. A batch through a child is not
-built yet. Persistence in PostgreSQL is not built yet; where this page speaks of a slow
+part 2; the write batch on a master in sprint S17, part 2, and the batch a child forwards in
+part 3. Persistence in PostgreSQL is not built yet; where this page speaks of a slow
 persistence step, it describes what the path is prepared for.
 
 ## What a write has to guarantee

@@ -4,7 +4,7 @@ namespace Moltaro.Lattice.Tests.ReadsAndWrites.Batches;
 
 // A write batch: several writes, possibly of different entity types, executed together at
 // one position or not at all. A batch is built and every operation is checked when it is
-// added. A batch through a child is not executed yet: its test is written and skipped.
+// added.
 public sealed class WriteBatchTests
 {
     [Fact]
@@ -270,7 +270,7 @@ public sealed class WriteBatchTests
         Assert.NotNull(database.Set<User>().Get(1));
     }
 
-    [Fact(Skip = SkipReason.BatchThroughAChild)]
+    [Fact]
     public async Task Batch_through_a_child_is_on_that_child_when_it_completes()
     {
         await using var master = await TestData.OpenMasterAsync(MasterAndChild.Loopback);

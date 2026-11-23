@@ -69,7 +69,8 @@ and UTF-16, a String stored Plain or as Dictionary: read, enumerate, insert,
 replace, upsert, delete, expected revisions. Search through a declared secondary index
 by its full key, by its leading fields and with a range, in either direction and in pages
 with Offset and Limit, within the read limits, by class and by name, on a master and on a
-child (S15, part 1). Positions and sessions; a write through a
+child (S15, part 1). A write batch across entity types, committed on a master or through a
+child (S17). Positions and sessions; a write through a
 child completes when that child has applied it; waiting for a position with a timeout.
 
 **How the engine does it.** Since S12 `LatticeDatabase` lives in the engine assembly and
@@ -149,14 +150,17 @@ index gives a value one owner: the master refuses a write that would give it a s
 with `UniqueConstraintViolation` and the name of the index, and a write whose value another
 prepared write takes or frees waits for that write; a key with a null part is exempt; a
 child checks its unique indexes at the position it becomes ready at and stops on a
-violation it would have to apply.
+violation it would have to apply. From S17 a write batch is one write at one position: its
+changes are reserved and checked together on the state they leave, its members are stored
+before the position is published, so no read sees a member in its new state before every
+member is visible, and a child applies it through the same publisher and acknowledges only
+its position; a batch committed through a child reaches the master as one request.
 
 **In the contract, not implemented.** Entry points refuse with `NotSupportedException`;
 tests are written and skipped; samples are written.
 
 | Feature | Contract | Tests waiting | Sprint |
 | --- | --- | --- | --- |
-| Atomic write batch across entity types | `ILatticeWriteBatch` | `WriteBatchTests` | S17 |
 | Durable mode | `LatticePersistenceModeEnum.Durable`, the default | None; one test asserts the refusal | S27–S32 |
 | Storing owned values, Lists, Maps, Sets and references, and reading them into a class | The declarations of S03; the schema compiles, records and classes hold the values, a write of such an entity type is validated and then refused | `ValueWriteTests` and `ValidationBeforeRefusalTests` assert the refusal | S18, S19 |
 
@@ -332,6 +336,9 @@ which grew from four planned hours to more than seven by additions:
   note and tells him at once when a queue has ended.
 - The output of every repeat of the test suite is kept, so that a failure is never
   without a name.
+- A comparison across trees is judged only when the trees rotate (the planner, 23 November
+  2026, at the close of S17): a fall of S16 measured with its trees adjacent in one order
+  did not reproduce once they rotated (K1 of the [refactoring backlog](refactoring.md)).
 
 ### Measured results
 
@@ -426,6 +433,9 @@ documentation before this document is removed.
 | S16 | Unique indexes, unique-writes, three rounds of the head and its gauge: a refused insert, the price of the check, the replace that keeps every key, the load of a child | an insert refused for a held value 143 k a second, a `DuplicateKey` refusal 104 k, an accepted insert and delete 650 k; one Int64 index unique against not 0.89 for an insert and a delete, 0.84 for a replace that moves the key, about one descent of the tree; the fixture's users with their unique index 1.00 with one caller and 0.97 with 16 on a replace that keeps every key; the load of a child 572 ms with the walk against 566 ms | rented-arm64-1 | 22 November 2026 |
 | S16 | F6, G2 and the record of a write: index-writes and write-callers against 57be01b, five builds rotating | with 1, 3 and 6 indexes 1.02 to 1.13, the gauge 0.95 to 1.02; a type without an index 0.996 to 1.013; the upkeep of one index 1.08 to 1.18 times the bare tree (57be01b 1.20 to 1.30); the fixture's users, a replace 1.02 to 1.06, an insert and a delete with one caller 0.984, the gauge 0.990, every run of the head below the runs before, its cause not found | rented-arm64-1 | 22 November 2026 |
 | S16 | Reads by key and the exact search against 57be01b | reads by key at 1 and 8 readers 0.96 to 1.08, the gauge 0.97 to 1.06; the exact search on one thread 0.96 to 0.99, the gauge 0.96 to 1.01; Int64 737 k, text of 8 bytes 443 k (target 450 k, missed as before), of 100 bytes 269 k | rented-arm64-1 | 22 November 2026 |
+| S17 | How long ordinary reads are held by the publication of a batch of 1, 32, 1,000 and 10,000 entities, readers of its members on the master, the start of part 2 | none over 100 µs for 1 and 32; up to the commit for 1,000 (1.8 ms, the longest read 2.1 to 2.6 ms); for 10,000 at most 2.1 to 3.2 ms against a commit of 17.7 ms; readers of other entities are not held | rented-arm64-1 | 23 November 2026 |
+| S17 | The pool of a waiting batch against what its publication takes, batch-writes, the bound by levels, batches of 1, 32, 1,000 and 10,000; the check on the final state | random keys 4.67, 1.07, 1.28, 1.05; ascending keys 14.00, 3.06, 3.06, 1.38; the fixture's users 6.57, 3.69, 2.85, 1.85, 58.7 MiB at 10,000 where the linear bound of part 1 held 341.8 MiB; the check 1.75 to 1.80 µs a member for one unique index, 5.2 to 5.45 µs for three | rented-arm64-1 | 23 November 2026 |
+| S17 | Writes at the close, unique-writes, index-writes, write-callers and following-children, nine trees rotating, against b9a9074 (`main` before S17) and the gauge of f6d9cf3 | the sum of S17, the head (cb70b9f) against b9a9074, on index-writes 0.910 to 0.981 on 8 of 24 lines and on unique-writes 0.933 to 0.958 on 5 of 17 with one gain of 1.082 (K2); to the write path (f6d9cf3) 0.916 to 0.954 on 7 index-writes lines; the write path no fall and no gain on index-writes; following-children 0.953 to 1.014, none called; the users inserted and deleted by name, one caller, the head 0.990 of 57be01b, none called (K1 closed); at the head single writes 652 to 696 k a second and the upkeep of one index 1,396 ns, against 1,298 at b9a9074 | rented-arm64-1 | 23 November 2026 |
 
 The figures of S14 come from the scenarios `index-build`, `index-writes`, `index-search`
 and `index-read-by-key`, run on the engine at 11adfeb, before the last fixes of the
@@ -1282,7 +1292,7 @@ Why this order:
 | S16R | Refactoring after S16 | Full | Done on 22 November 2026 ([refactoring backlog](refactoring.md), its order) |
 | S17, part 1 | The reservation of a publication and a child's transaction checked on the state it leaves | Full, critical | Done on 22 November 2026 |
 | S17, part 2 | A batch exposed whole, its commit on a master, unique values on the final state, the waits | Full, critical | Done on 23 November 2026 |
-| S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Not started |
+| S17, part 3 | A child applies a batch; a batch through a child | Full, critical | Done on 23 November 2026 |
 | S18 | Owned values, Lists and references | Full | Not started |
 | S19 | Maps and Sets | Full | Not started |
 | S20 | Partial updates | Full | Not started |
@@ -7898,8 +7908,6 @@ contract with its first step of implementation, for the planner to read.
    refused as a protocol failure; a body above the limit refused with the database as it
    was; a peer of wire format 4 refused.
 
-### Stage 5. The full type model and access
-
 **Changed by the owner on 22 November 2026, in the coordinator's session** ("ок. по обеим
 пунктам": ok, to both points), one assertion of the Acceptance above. A batch in which no
 operation has anything to do takes a position of its own, as a single write that changes
@@ -7922,8 +7930,8 @@ guarantees; the record of part 2 lists them, each with its old and its new asser
 stricter reading was measured as rule B before the decision, and its figures are in the record.
 
 **The record of S17, part 1** (closed on 22 November 2026). The sprint is parted in three
-by the planner after its internal contract (`docs/work/s17-internal-contract.md`, removed
-at the close of the last part): part 1 is point 1 of the brief with the reservation of
+by the planner after its internal contract (a working document, removed at the close of
+part 3; what it decided is listed in the record of part 3): part 1 is point 1 of the brief with the reservation of
 point 5 and the check of a child's transaction on the state it leaves; part 2 is points 2
 to 4 with the revision of a member; part 3 is points 6 and 7. Each part is reviewed,
 broken and merged on its own; the Acceptance is not reworded, and part 1 closes no
@@ -8139,13 +8147,22 @@ where the inlined `MoveBase` was. The changes of the reservation stay a span: pa
 first and their count instead saved a store only under the calling convention of Windows x64,
 and it made `PrimaryKeys.HashOf` a call in front of its `Mix`. `TryPrepareTwice` keeps the decision on a taken value out of
 line: 548 bytes where it had 882, and 14 branches fewer, in a method every write runs on x64.
-The listings of ARM64, cross-built by NativeAOT (ilc) for linux-arm64 against a win-x64 CoreLib,
-are not evidence of what an ARM64 process runs: by them an insert makes 37 + 2n calls where
-it made 45 + 3n, four of them at both points calls of `Lzcnt` that the win-x64 CoreLib puts
-into `NodePool.MostLevels`, and a publication no longer calls the switch of the tests at four
-places.
-Listings taken on the ARM64 machine will replace them as evidence. The figure of the change
-is owed to the start of the machine.
+On the rented ARM64 machine the CoreCLR JIT's own listings, the engine of each driver checked
+against its build's by `cmp`, give the same counts as x64, call for call: 34 + 3n at 0ab2dcc,
+and 25 + 2n at f6d9cf3 and at the head of part 3. The counts of the listings cross-built by
+NativeAOT (ilc) for linux-arm64 against a win-x64 CoreLib, 45 + 3n and 37 + 2n, were the
+cross-compiler's: on the machine `Record`, `AfterPublication`, `HashOf`, `MostLevels` (an
+instruction there, not a call of `Lzcnt`) and `LoadRoot` are inlined at all three points, and
+the switch of the publication was never a call on the path, at 0ab2dcc either. The sentence
+that a publication no longer calls the switch on ARM64 is withdrawn. The figure of the change
+is in the record of the start before the close of S17: it removed calls and bought nothing
+this method can see. In stage L of that start the indexed driver ended twice with SIGSEGV
+after its listing was complete; the core shows the main thread past `Main`, in the exit of
+the process, and a thread of the JIT writing its disassembly through a `FILE` already closed.
+It reproduced once in 48 runs. With the dump of the runtime enabled none failed: 51 runs whose
+output is kept (24 with the crash report on, 27 of the diagnostic driver in Release) and 4 in
+Debug, and 270 more whose only kept output is the count of a loop. It is a fault of the
+disassembly at exit, not of the engine.
 
 - Coordinated by the seventh coordinator of the epic, with one implementer and one narrow
   reviewer, no breaker, as a refactoring is. No behavior and no assertion changed; every suite
@@ -8160,6 +8177,185 @@ is owed to the start of the machine.
 - The listings of every point were taken again with the engine of each driver checked against
   its build, since the earlier drivers could have resolved another build's engine; every
   count was the same, and two causes were withdrawn (above).
+
+**The record of S17, part 3** (closed on 23 November 2026). Points 6 and 7 of the brief: a
+child applies a batch, and a batch travels through a child. It was coordinated by the seventh
+coordinator of the epic. With it S17 is closed whole.
+
+- *What it closes of the Acceptance:* the batch through a child, for a class and by name, with
+  each refusal of `WriteBatchTests` and its number, and "a child never acknowledges a part" for
+  a batch it forwarded as for one it applies. The tests skipped with `BatchThroughAChild` came
+  alive, and the reason went with its last use; the sample of a master and its child commits a
+  batch through the child.
+- *Step 1:* the tests written before any implementation end at 5b1d697; the internal contract
+  of the part is f732976 and 53e4574.
+- *Built:* a child names each key of a transaction once by a set (`PublicationKeys`), in place
+  of the scans of the changes it prepared and the keys it skipped. The master reads a batch
+  request member by member as it reads one write, refuses a repeated identity, and refuses a
+  count above what the rest of the body can hold before it allocates the members; then it
+  submits one write. The reply has the bytes of today's; a refusal for a unique index names the
+  member, and the index is resolved in the entity type of that member; a child refuses a reply
+  of a batch that names no member or one beyond it.
+- *The planner's answers on its contract* (23 November 2026):
+  - The wire format stays 5: it adds to 4 the number of a member and the batch a child
+    forwards.
+  - The cost sentences of a forwarded batch go only in `milestone-1-engine-contract.md`, the
+    paragraph "A child forwards a write as a request".
+  - Neither the child's set of keys nor its list of prepared changes keeps the room of its
+    largest transaction: above `KeptRoom` = 1,024 entries they are let go, below it they are
+    reused. This closes the item carried from the fixes after S13 ("both lists keep the
+    capacity of the largest transaction").
+  - The child's stream buffer keeps B bytes after a batch of B bytes, for the life of the
+    connection: V1 of [the refactoring backlog](refactoring.md), place S33. Measured on the
+    workstation, the buffer left after a batch of 1,000, 10,000 and 100,000 users (a request of
+    172,006, 1,720,006 and 17,200,006 bytes): 196,608, 1,638,400 and 15,925,248 bytes.
+  - The child holds its encoded request until the reply: a peak of 2B while it encodes, then B.
+  - `Child.Forwarding` uses `Writes.BatchMember`: one record serves a batch of the master, a
+    forwarded batch and a child's request.
+  - One add to a hash set for each effect a child applies.
+  - No new timed line: the bytes come from a probe.
+- *The memory of a forwarded batch,* by a probe on the workstation: the whole process holds
+  1.10, 9.80 and 96.9 MB while the master holds the publication, for 1,000, 10,000 and 100,000
+  users; that is about 3B and about 450 bytes a member on the master. About 23 MB of it at
+  100,000 is the room of the retired list, given back after the drain. The commit through a
+  child of 100,000 users ended in Debug in `SynchronizationTimeout`, committed, beyond the
+  default of 10 seconds; it took 1.8 s in Release.
+- *Review:* three rounds.
+  - Round 1, at 468fffd: no P1. 2 P2: Q58 in two phases through a child, and a batch of no-ops
+    through a child, had no test; both were added. 2 P3: the cost sentence understated the
+    master's memory, and comments cited the brief and the internal contract. 5 P4, of which
+    taken: a test of the guard of the count (a body of 21 bytes that announced 1,000,000
+    members allocated 181.8 MB without the guard, 73 KB with it, as measured; the test in the
+    repository sends one of 20 bytes), and a member number beyond
+    the batch refused for any error. Recorded only: about 90 ns more a transaction for clearing
+    the kept set after a large one, owed with `following-children`. Not taken: the arguments
+    of `Admit` shared by a single write and a batch, since a separate path would duplicate
+    about 90 lines or add a struct of inputs to every single write.
+  - Round 2: every finding closed, and the merge of `main` (f6d9cf3) sound. New in scope, from
+    part 1: `ChangePublisher._claims` and `_freed` kept the scratch of the largest batch for
+    the life of a node (512 KiB after 20,000 users); fixed by the same rule of `KeptRoom`, test
+    first (92209eb, 893bd0c). And 2 P4.
+  - The planner added a test of a master that faults during a forwarded batch (51dd869): the
+    child gets `IndeterminateOutcome`, and nothing of the batch is visible or acknowledged on
+    the child.
+  - Round 3: no P1, P2 or P3, and 2 P4 left: the comment's "two loads and a test" has no
+    listing, and the test of the fault does not check that a later write is `Unavailable`.
+  - The hardest part to follow, by the reviewer: the forwarded admission, `SubmitForwarded` →
+    `ForwardAfterAsync` → `Admit`, which serves both kinds.
+- *The breaker:* 99 probes, about 115 full runs in Debug and in Release, and no guarantee
+  broke. One probe failed once in 69 runs: a forwarded batch of 10,000 behind 31 waiting writes
+  ended in `SynchronizationTimeout` under the default of 10 seconds, while the parallel soak
+  took 19.5 s where it takes 0.9 to 7 s; alone it passed 10 of 10 in about 1 s. It is taken as
+  the shared load with the default; the longer bound of the probe is an option of the probe, not
+  a change of the engine, and its output is kept. Not reached: nothing left after the planner's
+  test. Outside part 3: the master's text table keeps the managed capacity a preparation grew
+  it to (416 to 10,624 bytes after 200 new texts), V2 of [the refactoring
+  backlog](refactoring.md), place S23.
+- *Two timing tests outside the part,*
+  `ReadTimeInsideTheEngineTests.Time_limit_is_the_sum_of_the_steps_of_a_pass_and_fails_it_though_no_step_reaches_it`
+  and
+  `CancelledStepTests.Step_that_enters_a_round_with_its_token_cancelled_and_its_time_limit_passed_ends_in_OperationCanceledException`,
+  failed in a full Debug suite on a workstation about 80 % busy with other work, and passed
+  alone 3 of 3. Their outputs are kept; the cause is not proven; they did not fail on the ARM64
+  machine. They go to the architect's review after S17.
+- *Every suite at the head:* 3,215 tests, 3,086 passing, 129 skipped, in Debug and in Release;
+  8 skipped fewer than at f6d9cf3, the tests skipped with `BatchThroughAChild`.
+- *The effort trial* (the [development process](process.md), "Models and effort by role"):
+  - Part 3, critical, its implementer, its reviewer and its breaker at Opus 5.5 xhigh: three
+    rounds of review, with 2 P2 and 2 P3 in the first, a finding of part 1 brought into scope
+    in the second, and nothing above P4 in the third; its breaker broke no guarantee.
+  - The write path after S17, a refactoring, its implementer and its narrow reviewer at Opus
+    5.5 high: three rounds of review, with 3 P3 in the first, 2 P3 in the second and nothing
+    above P4 in the third.
+
+- *What the internal contract of S17 decided,* the working document of the sprint, removed at
+  the close of this part, beyond the records above:
+  1. The revision of a member: the number of the member in its batch, from 1 for a batch of two
+     or more and 0 for a single write and a batch of one, kept in the reserved word of the root
+     entry and folded into the revision, the same on every node (the planner, 22 November 2026;
+     the record of part 2, B2).
+  2. A batch in which no member changes anything takes a position of its own (the owner,
+     "Changed by the owner on 22 November 2026" above).
+  3. The two tests of the contract stage that asserted `NotSupportedException` for the commit of
+     a batch went with the commit that made a batch execute, and "every test of
+     `WriteBatchTests`" in the Acceptance reads as every other test.
+  4. A step of a search whose take waited for a position goes on and is not walked again (the
+     owner's form C, "Changed by the owner on 23 November 2026" above; the record of part 2,
+     B1).
+  5. A search or an enumeration of several steps that runs across a publication may return some
+     members as they were before it and others as after; none is in its new state before the
+     position, and a read that begins at or after it sees every member (the same).
+  6. The barrier that `mutation-commands.md` and `unique-indexes.md` named was corrected out of
+     both with the read side of part 2, as `document-model.md` was for Q57.
+  7. A read that waits for a position ends when the position is published, when the instance
+     faults or when its token is cancelled (`arena-protocol.md`, the write batch extension).
+  8. A member is encoded at its `Add`: the core's `WriteBatch` takes the engine's encoder and
+     holds the encoded members, and the master prepares a batch by the path of a forwarded
+     write, so the encoding runs outside the lock of the writes, at the cost of a managed copy
+     of every root until the outcome of the batch (the record of part 2, B2).
+  9. Decided by the planner: the standing reserve keeps its definition, the ledger governs
+     only the writes that wait, a withdrawal gives back the reserve as well, as
+     `ordered-index.md` says, and `UncountableNeedTests` keeps its boundary from `Need` (the
+     record of part 1, the three tests changed).
+  10. The bound of the places retired is p(2h + 3) + q(h + 2 + log2 p), the sketch of the study
+      not holding (the planner; the record of part 1).
+
+  The parts were proposed there and taken: point 1 with the reservation of point 5 and the
+  check of a child's transaction on the state it leaves; points 2 to 4 with the revision of a
+  member, which the coordinator split into the read side and the commit on a master; points 6
+  and 7 (the records of parts 1 and 2). Two traces of the same document found that no read runs
+  on a child before it is Ready, though its roots carry stamps above its position through the
+  load (`StampsAboveThePositionTests`), and that what the master copies for a loading child
+  during a publication leaves the child, at Ready, with all of a batch or none of it
+  (`CaptureDuringABatchTests`).
+
+**The record of the start of the machine before the close of S17** (23 November 2026, a
+rented ARM64 machine, 16 cores). It ran from 14:58 to 17:05 UTC: 108 timed runs, each with
+exit 0, on nine trees, rotated by one every round: base b9a9074 (`main` before S17), p1
+ed81c76, p2 3e24ce4, bnd 0ab2dcc (the tighter bound), wp f6d9cf3 (the write path), p3 cb70b9f
+(the head of part 3), a gauge (a second build of f6d9cf3), and k0 57be01b and k16 5d27900, the
+two ends of S16. A fall or a gain is called where three rounds agree against the gauge. The
+planner decided on it as follows.
+
+- *The falls,* ratios of medians:
+
+  | Comparison | Lines | Ratio | State |
+  | --- | --- | --- | --- |
+  | Part 1, p1 against base | `unique-writes`, 7 of 17 lines; `index-writes`, 5 of 24 | 0.933 to 0.972; 0.958 to 0.974 | In K2 of [the refactoring backlog](refactoring.md) |
+  | Part 2, p2 against p1 | `index-writes`, 1 of 24: no index, one caller that replaces changing every key | 0.965 | Not at the head: p3 against base 1.001 |
+  | The bound by levels, bnd against p2 | `index-writes`, 4 lines with 3 and 6 indexes | 0.945 to 0.978 | What it bought: a waiting batch of 10,000 holds 58.7 MiB where it held 341.8 MiB; the largest batch accepted under 1 GiB, cited from the probe on the workstation, 202,109 against 292,326 that fit. In K2 |
+  | The sum of S17, p3 against base | `index-writes`, 8 of 24 lines; `unique-writes`, 5 of 17, and one gain | 0.910 to 0.981; 0.933 to 0.958, the gain 1.082 (an insert refused as `DuplicateKey`) | In K2 |
+  | To the write path, wp against base | `index-writes`, 7 of 24 lines; `unique-writes`, 2 of 17, and one gain | 0.916 to 0.954; 0.937 and 0.966, the gain 1.099 | In K2 |
+  | The write path, wp against bnd | `index-writes`, none; `unique-writes`, 2 gains | 0.978 to 1.067; 1.019 and 1.025 | It removed calls and bought nothing this method can see |
+  | Part 3, p3 against wp | `unique-writes`, one line: three indexes, none unique, a replace that keeps every key | 0.953 [0.980 0.930 0.962], the gauge 0.996 to 1.004 | Not explained by its listing: on that path the code of part 3 is smaller but for the guarded test of the scratch in `PublishPositionAndAfter` (two loads and a compare), `ClassSet<T>.Save` 392 bytes where it was 531, by the x64 listing of a driver of that line; the spread of its three rounds is wide, and no cause is claimed. It joins K2 and is run again in the next start, with the machine's listings of `ClassSet<T>.Save` and `PublishPositionAndAfter` at f6d9cf3 and at the head |
+  | Part 3, p3 against wp | `index-writes`, one gain: 3 indexes, one caller that replaces changing every key | 1.021 | A gain, no fall |
+  | Part 3, p3 against wp | `following-children`, 20 lines | 0.953 to 1.014 | None called |
+
+- *Gates and targets met at the head,* p3 (cb70b9f): G3 and G6 stay far off, single writes
+  about 652 to 696 k a second, replacing with one caller (wp 657 to 680 k); the upkeep of one
+  index, a replace that changes the key of one index less the same replace without an index,
+  takes 1,396 ns (wp 1,404, base 1,298), about 1.16 to 1.27 times the bare tree by the ratio
+  of S16, under the bound of 1.5; a replace that keeps every key runs, against the type without
+  an index, at 0.946, 0.975 and 0.928 with 1, 3 and 6 indexes (wp 0.923, 0.959 and 0.910; base
+  0.919, 0.945 and 0.899).
+- *The pool,* `batch-writes`: what the pool holds while a batch waits, against what its
+  publication takes, for batches of 1, 32, 1,000 and 10,000: random keys 4.67, 1.07, 1.28 and
+  1.05; ascending keys 14.00, 3.06, 3.06 and 1.38; the fixture's users, three indexes together,
+  6.57, 3.69, 2.85 and 1.85 (58.7 MiB at 10,000). The check on the final state costs a member
+  1.75 to 1.80 µs for one unique index and 5.2 to 5.45 µs for three.
+- *K1 is closed,* by its own rule. This start, with the trees rotated, the fixture's users
+  inserted and deleted by name with one caller: k16 against k0 0.988, base 0.992, wp 0.994 and
+  p3 0.990, the gauge 0.980 to 1.021, none called. The start of part 2 had 0.962, with the
+  trees adjacent in one order; that figure did not reproduce. The steps of S16 were not
+  separated, because the listings count them and K1 closes on the head against 57be01b.
+- *Part 2's growing insert stays owed:* no series of this plan grew the primary index, since
+  the line is in `read-by-key-threads`. It becomes the second line of K2, and the next start
+  carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated.
+- *Correctness on ARM64 at cb70b9f:* the ordering lane 20 of 20, the soak of form C 5 of 5
+  (12.85 M observations), the revisions 10 of 10, the probes of the breaker of part 3 5 of 5,
+  and the whole suite once (3,215 tests, none failed).
+
+### Stage 5. The full type model and access
 
 #### S18 · Owned values, Lists and references
 
