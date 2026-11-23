@@ -79,15 +79,6 @@ in the meantime.
 | **Until answered** | Writes are prepared one at a time under the lock of the writes. The owner chose on 17 November 2026, through the planner's session, not to build the parallel form now |
 | **Decides** | The owner, on the planner's proposal, with the figures of S27 and with the measurement of S09, part 2 of what an entity of 32 MiB costs other writers. Measured on 17 November 2026: one write of 32 MiB holds the lock of the writes 2.6 to 2.7 ms (p99 5 to 7 ms); small writes of another caller beside a caller that writes such entities one after another fall to 1,500 to 4,300 a second with waits of up to 112 ms, against 0.57 to 0.91 million a second on S08 and 1.24 to 1.44 million on S09, which encoded outside its lock. The ordinary profile has no such entities. The figures and what was tried are in the [document of Epic 1](epic-1-core.md), "Measured results" |
 
-### Q53. A fresh insert found by a search before a read by key finds it
-
-| | |
-| --- | --- |
-| **Found** | 21 November 2026, the breaker of Epic 1, sprint S15, part 1, by reading, not probed |
-| **Question** | `ChangePublisher.InstallNew` installs the secondary entries of a new entity first, and `Install` stores its stamp and marks it live before the entry of the primary index. For a few instructions a search can return a fresh insert at the position of its write while a read by key of it still finds nothing, at the position before. Each answer is true at its own position, and a read in a session waits on the clock and finds it. Is this acceptable, or must a new entity become visible to every kind of read at once? |
-| **Until answered** | Each answer is true at the position it reports; nothing is changed |
-| **Decides** | The planner, with S17, whose means of exposing a batch whole most likely closes it |
-
 ### Q54. What the binding of an index value does where the documents do not say
 
 | | |
@@ -98,36 +89,6 @@ in the meantime.
 | **What the code does** | As the brief of S15, part 2 says, and a null given as a reference type other than `string` and `object` is refused for every part (`IndexValue.Of`, the remarks of `IndexKey`) |
 | **Where the rule lives** | The brief of S15, part 2 in the [document of Epic 1](epic-1-core.md) |
 
-### Q55. Should a value written by name be bound as a part of a search key is?
-
-| | |
-| --- | --- |
-| **Found** | 21 November 2026, the architect's review after Epic 1, sprint S15, part 2 |
-| **Question** | A search binds a value by the allowlist of Q07.3.6: an integer of another width, any integer for a Decimal, an integer a Float32 or a Float64 holds exactly, a Float32 for a Float64 and a Float64 that converts back to itself. A value written by name is accepted only in the type of the field, or as an integer of another width that fits. So `record["Price"] = 5` is refused for a Decimal field, where `IndexKey.Equal(5)` finds the entity. Is the difference meant? |
-| **Answer** | Decided by the owner, 21 November 2026, in the planner's session: one rule. A value given by itself in a write by name, the value of a field of a record or of an owned value, is bound by the allowlist of Q07.3.6, as a part of a search key is; the elements, keys and values of a collection stay as declared, and a primary key keeps its own rule, since a key is an integer, a String or a Guid. Not built yet: it is a task of S18, which works on the values written by name |
-| **What the code does** | The narrower rule, as the remarks of `LatticeRecord` state it (`FieldValues.Normalize`) |
-| **Where the rule lives** | The remarks of the indexer of `LatticeRecord`; `docs/decisions/queries.md`, Q07.3.6, for a search |
-
-### Q56. Where the decision on unique indexes and the engine no longer say the same
-
-| | |
-| --- | --- |
-| **Found** | 22 November 2026, the study of Epic 1, sprint S16 |
-| **Question** | Two sentences of `docs/decisions/unique-indexes.md`. (1) Step 4 says "Remove old keys before installing final entries". Since S14 the engine installs the new entries before the root is stored and removes the old ones after the position; a reader sees no duplicate, because an entry is checked against its root, but inside the publication of a batch a unique tree may hold two entries of one key for a moment. (2) The record names `OrderedMultiMap` of a package; the engine has its own `OrderedTree`. Is the guarantee "readers cannot observe an intermediate duplicate" what the record means to keep, with the order of the two steps free? |
-| **Answer** | Decided by the owner, 22 November 2026, in the planner's session: yes. The guarantee is the reader's, that no reader observes an intermediate duplicate; the order in which old keys are removed and final entries installed is not part of it. The two sentences of the decision record are corrected to say so; the engine does not change. The study of S17 takes the guarantee as it stands for the publication of a batch |
-| **What the code does** | New entries before the store of the root, old ones after the position (`ChangePublisher`), since S14 |
-| **Where the rule lives** | `docs/decisions/unique-indexes.md`, "Master validation and publication"; `docs/design/write-path.md` |
-
-### Q57. Is the barrier of the decision on the write batch a guarantee or a means?
-
-| | |
-| --- | --- |
-| **Found** | 22 November 2026, the study of Epic 1, sprint S17 |
-| **Question** | `docs/decisions/document-model.md` says a batch is published "behind an exclusive database barrier", that every protected access cooperates with it and that "existing protected users drain before batch publication", and leaves the gate to engineering. The study proposes no barrier: every member is stored with its final stamp, the position is published last, and a read that meets a stamp above the position waits as it waits at the mark. A reader then sees all of a batch or none, a read of an entity that is not a member is never held, and nothing drains. Is the guarantee "all or none, and no position before all is visible", with the barrier as one way to keep it? |
-| **Answer** | Decided by the owner, 22 November 2026, in the planner's session: yes. The guarantee is that a reader sees all of a batch or none of it and that no answer carries its position before all of it is visible; the barrier was a means. The engine keeps the guarantee with the protection of reads and the stamps it has, by publishing the position last; no read of an entity that is not a member is held, and nothing drains. The sentences of the decision record are corrected to say so |
-| **What the code does** | Nothing yet: committing a batch is refused until S17 |
-| **Where the rule lives** | `docs/decisions/document-model.md`, "Atomic WriteBatch within one database"; `docs/design/arena-protocol.md`, the write batch extension |
-
 ### Q58. Which member of a batch is the failing one when two of them claim one unique value
 
 | | |
@@ -137,16 +98,6 @@ in the meantime.
 | **Answer** | Taken by the planner, 22 and 23 November 2026, for the owner to read at the close of the sprint. A batch is judged in two phases. First each member against the state before the batch, in the batch's order: the first member that fails a condition of its own, a revision, a key that must be absent or present, is reported. Only when every member passes is the state the batch leaves judged for unique values, since that state does not exist before: the member with the lowest number among those that violate is reported, so of two members that claim one value the later, since the earlier alone would be accepted, and against a published owner that no member frees the member that claims; for one member that violates several indexes, the index declared first in its entity type. A refusal for memory is of the batch as a whole and names no member |
 | **What the code does** | As the brief of S17 says |
 | **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md) |
-
-### Q59. Reading several entities linked by references as one consistent set
-
-| | |
-| --- | --- |
-| **Found** | 22 November 2026, the owner, in the planner's session |
-| **Question** | A read is coherent for one entity, and several reads are not a snapshot (principle 3). An application that reads a set of entities linked by references, not owned values, can therefore combine states of different positions, and with ranges it also meets phantoms. The case is rare. How does an application read such a set while nothing writes to it? |
-| **Answer** | Decided by the owner, 22 November 2026: the engine does not grow a snapshot of several reads or a transaction of an application; that would cost reads or memory in its core. The application solves the case itself, and the database gives it a synchronization object for it: advisory locks, as in PostgreSQL, exclusive and shared, arbitrated by the master and asked for from any node (the sprint after S34 in the document of Epic 1). Two ways exist without it: what must be read as a whole is one entity with owned values; or a root entity whose revision every writer of the set changes in the same write batch, which a reader reads before and after the set and reads again when it changed (possible from S17 on, the read stays local) |
-| **What the code does** | Nothing for it; each read is coherent by itself |
-| **Where the rule lives** | `AGENTS.md`, principle 3; `docs/decisions/document-model.md`, where it defers locks held by an application beyond v1 and says an advisory lock alone does not freeze a graph, which the decision record of the new sprint amends |
 
 ## Answered
 
@@ -574,3 +525,57 @@ in the meantime.
 | **Question** | The members of `ILatticeSet` take a primary key as `object`, so a read by name of an integer or a Guid key allocates a box on every call: 2,400,000 bytes for 100,000 reads of absent Int64 keys, against 0 through a class. The brief of S06 had left the box out of the measured read as the caller's allocation. Is that the contract? |
 | **Answer** | The planner, 17 November 2026, on the rules of `AGENTS.md`, reported to the owner: no. A signature that forces boxing per call on a read path is a defect of the contract, and access by name is not a second-class path. Every member by name that takes a primary key gets a form that takes it without a box; the shape — a generic key parameter, or overloads for the key families — is chosen by a figure in the contract step |
 | **Where the rule lives** | The brief of S09, part 2 in the [document of Epic 1](epic-1-core.md), which carries the change; the sentence of the brief of S06 is corrected |
+
+### Q53. A fresh insert found by a search before a read by key finds it
+
+| | |
+| --- | --- |
+| **Found** | 21 November 2026, the breaker of Epic 1, sprint S15, part 1, by reading, not probed |
+| **Question** | `ChangePublisher.InstallNew` installs the secondary entries of a new entity first, and `Install` stores its stamp and marks it live before the entry of the primary index. For a few instructions a search can return a fresh insert at the position of its write while a read by key of it still finds nothing, at the position before. Each answer is true at its own position, and a read in a session waits on the clock and finds it. Is this acceptable, or must a new entity become visible to every kind of read at once? |
+| **Answer** | Answered by the planner, 23 November 2026: closed by S17, part 2, point 2. The publication stores every member, an insert included, with its final stamp and publishes the position last, and a read does not accept a stamp above the position; so a search and a read by key see a fresh insert from the same position, and neither sees it before. The breaker of S17, part 2 held it on a master with single writes, and the tests of point 2 hold it on a child |
+| **What the code does** | As the brief of S17, point 2 says (`ChangePublisher`, `EntityTable`), since S17, part 2 |
+| **Where the rule lives** | The brief of S17 in the [document of Epic 1](epic-1-core.md); `docs/decisions/document-model.md`, "Atomic WriteBatch within one database" |
+
+
+### Q55. Should a value written by name be bound as a part of a search key is?
+
+| | |
+| --- | --- |
+| **Found** | 21 November 2026, the architect's review after Epic 1, sprint S15, part 2 |
+| **Question** | A search binds a value by the allowlist of Q07.3.6: an integer of another width, any integer for a Decimal, an integer a Float32 or a Float64 holds exactly, a Float32 for a Float64 and a Float64 that converts back to itself. A value written by name is accepted only in the type of the field, or as an integer of another width that fits. So `record["Price"] = 5` is refused for a Decimal field, where `IndexKey.Equal(5)` finds the entity. Is the difference meant? |
+| **Answer** | Decided by the owner, 21 November 2026, in the planner's session: one rule. A value given by itself in a write by name, the value of a field of a record or of an owned value, is bound by the allowlist of Q07.3.6, as a part of a search key is; the elements, keys and values of a collection stay as declared, and a primary key keeps its own rule, since a key is an integer, a String or a Guid. Not built yet: it is a task of S18, which works on the values written by name |
+| **What the code does** | The narrower rule, as the remarks of `LatticeRecord` state it (`FieldValues.Normalize`) |
+| **Where the rule lives** | The remarks of the indexer of `LatticeRecord`; `docs/decisions/queries.md`, Q07.3.6, for a search |
+
+
+### Q56. Where the decision on unique indexes and the engine no longer say the same
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the study of Epic 1, sprint S16 |
+| **Question** | Two sentences of `docs/decisions/unique-indexes.md`. (1) Step 4 says "Remove old keys before installing final entries". Since S14 the engine installs the new entries before the root is stored and removes the old ones after the position; a reader sees no duplicate, because an entry is checked against its root, but inside the publication of a batch a unique tree may hold two entries of one key for a moment. (2) The record names `OrderedMultiMap` of a package; the engine has its own `OrderedTree`. Is the guarantee "readers cannot observe an intermediate duplicate" what the record means to keep, with the order of the two steps free? |
+| **Answer** | Decided by the owner, 22 November 2026, in the planner's session: yes. The guarantee is the reader's, that no reader observes an intermediate duplicate; the order in which old keys are removed and final entries installed is not part of it. The two sentences of the decision record are corrected to say so; the engine does not change. The study of S17 takes the guarantee as it stands for the publication of a batch |
+| **What the code does** | New entries before the store of the root, old ones after the position (`ChangePublisher`), since S14 |
+| **Where the rule lives** | `docs/decisions/unique-indexes.md`, "Master validation and publication"; `docs/design/write-path.md` |
+
+
+### Q57. Is the barrier of the decision on the write batch a guarantee or a means?
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the study of Epic 1, sprint S17 |
+| **Question** | `docs/decisions/document-model.md` says a batch is published "behind an exclusive database barrier", that every protected access cooperates with it and that "existing protected users drain before batch publication", and leaves the gate to engineering. The study proposes no barrier: every member is stored with its final stamp, the position is published last, and a read that meets a stamp above the position waits as it waits at the mark. A reader then sees all of a batch or none, a read of an entity that is not a member is never held, and nothing drains. Is the guarantee "all or none, and no position before all is visible", with the barrier as one way to keep it? |
+| **Answer** | Decided by the owner, 22 November 2026, in the planner's session: yes. The guarantee is that a reader sees all of a batch or none of it and that no answer carries its position before all of it is visible; the barrier was a means. The engine keeps the guarantee with the protection of reads and the stamps it has, by publishing the position last; no read of an entity that is not a member is held, and nothing drains. The sentences of the decision record are corrected to say so |
+| **What the code does** | Since S17, part 2: every member is stored with its final stamp and the position is published last; a read that meets a stamp above the position waits (`ChangePublisher`, `EntityTable`) |
+| **Where the rule lives** | `docs/decisions/document-model.md`, "Atomic WriteBatch within one database"; `docs/design/arena-protocol.md`, the write batch extension |
+
+
+### Q59. Reading several entities linked by references as one consistent set
+
+| | |
+| --- | --- |
+| **Found** | 22 November 2026, the owner, in the planner's session |
+| **Question** | A read is coherent for one entity, and several reads are not a snapshot (principle 3). An application that reads a set of entities linked by references, not owned values, can therefore combine states of different positions, and with ranges it also meets phantoms. The case is rare. How does an application read such a set while nothing writes to it? |
+| **Answer** | Decided by the owner, 22 November 2026: the engine does not grow a snapshot of several reads or a transaction of an application; that would cost reads or memory in its core. The application solves the case itself, and the database gives it a synchronization object for it: advisory locks, as in PostgreSQL, exclusive and shared, arbitrated by the master and asked for from any node (the sprint after S34 in the document of Epic 1). Two ways exist without it: what must be read as a whole is one entity with owned values; or a root entity whose revision every writer of the set changes in the same write batch, which a reader reads before and after the set and reads again when it changed (possible from S17 on, the read stays local) |
+| **What the code does** | Nothing for it; each read is coherent by itself |
+| **Where the rule lives** | `AGENTS.md`, principle 3; `docs/decisions/document-model.md`, where it defers locks held by an application beyond v1 and says an advisory lock alone does not freeze a graph, which the decision record of the new sprint amends |
