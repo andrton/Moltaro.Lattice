@@ -1048,7 +1048,9 @@ settles. They are approved with the plan, each by name.
   them into code as written. A later brief says what its contract must be able to do, and the
   planner writes its types and members before its stage begins: S13–S17, S18–S25,
   S26–S32, S33–S36, S37–S39. The owner approves the contract of each stage before its
-  first sprint, as the [development process](process.md#the-plan) says.
+  first sprint, as the [development process](process.md#the-plan) says. For stage 5 he
+  approves it in parts (the owner, 23 November 2026): S18 and S19 together, which add no
+  type and no member; then S20; then S21 and S22; each part before its first sprint.
 - A feature is delivered for entity classes and for records by name in the same sprint.
 - From S12 on, a sprint that changes what is stored also delivers what a child needs:
   the transfer of the new structure in the initial load, its live application, and a
@@ -8372,8 +8374,16 @@ child stores received bytes through its own allocation.
 
 - **Goal.** An entity with nested owned values, ordered Lists and references is stored,
   copied out, replaced and followed by children.
-- **Contract.** The declarations of S03 take effect for owned types, `List` and
-  `Reference`.
+- **Contract.** Exists whole since S03, and this sprint adds no type and no member:
+  `LatticeFieldTypeEnum.Owned`, `List` and `Reference`, `LatticeValueDeclaration`,
+  `LatticeOwnedType`, `LatticeIndexPart.Path`, `LatticeOwnedValue`, the indexer of
+  `LatticeRecord` and the binding of `Set<TEntity>()`. The sprint makes it take effect and
+  corrects what its documentation says: "Not implemented yet" leaves `LatticeOwnedValue`,
+  `LatticeOwnedType`, `LatticeIndex`, `LatticeIndexPart` and the members `Owned`, `List`
+  and `Reference` of `LatticeFieldTypeEnum`; the remarks of the indexers of `LatticeRecord`
+  and of `LatticeOwnedValue` state the one rule of Q55 and point to `IndexKey`; and the
+  remarks that bound the size of a String or a Binary value say that the bound holds for
+  each such value at every depth, not only for a field of the entity.
 - **To read.** [Collections and strings](../design/milestone-1-engine-contract.md#collections-and-strings);
   [large payloads](../decisions/physical-storage.md); [Q02, Q02.1, Q02.2](../decisions/document-model.md);
   [collection input contract](../decisions/schema-and-types.md).
@@ -8427,6 +8437,15 @@ of attempts. Shown: the listing of `EntityTable.Step` with no call added for a r
 without a time limit, the 56 pinned bytes of a search, and `ReadLimits` at 24 bytes. If
 `Step` was not changed by S17, L4 of `refactoring.md` is done in the same commit.
 
+**Decided by the planner on 23 November 2026, for the contract of this sprint.** "By the
+same code" of the note on Q55 means the allowlist of numbers: a record and an owned value
+take a number as `IndexValue` converts it (`Pairs`, `TryConvert`), not a second list. The
+two other checks of `IndexValue.Bind`, text that is not well-formed and an integer its
+enum type does not declare, stay checks of the write and are reported as they are today,
+so no assertion that exists changes. The bound of a String or a Binary value is the same
+number at every position, and a value above it is refused as the write is refused today,
+with the field of the entity named.
+
 #### S19 · Maps and Sets
 
 **Carried from S10:** what travels to a child holds no address and no block number; the
@@ -8436,7 +8455,18 @@ child stores received bytes through its own allocation.
 
 - **Goal.** Maps and Sets are stored compactly when small and hashed when large, with
   the accepted input rules, on every node.
-- **Contract.** The declarations of S03 take effect for `Map` and `Set`.
+- **Contract.** Exists whole since S03, and this sprint adds no type and no member:
+  `LatticeFieldTypeEnum.Map` and `Set`, `LatticeValueDeclaration.Key`, `Value` and
+  `Element`, and the input rules in the remarks of `ValueType` and of
+  `ILatticeSet<TEntity>`. After this sprint no entity type is refused for a feature of its
+  schema, so the sentences that say so leave: the last "Not implemented yet" paragraphs of
+  `LatticeFieldTypeEnum`, the "refused until a feature of its schema is implemented"
+  sentences of `ILatticeSet<TEntity>`, of `ILatticeIndex.Find` and `FindAsync` and of
+  `ILatticeWriteBatch.CommitAsync` with its `NotSupportedException` clause, and the lines
+  of the README that repeat them. The remarks say for a class what they say for a record:
+  of members of a Set that the comparison of the schema holds equal, the first in the
+  order the collection gives them is kept, whatever comparer the caller's own collection
+  has.
 - **To read.** [Collections and strings](../design/milestone-1-engine-contract.md#collections-and-strings);
   [Map and Set lookup layout](../decisions/physical-storage.md);
   [Q03.3, collection input contract](../decisions/schema-and-types.md);
