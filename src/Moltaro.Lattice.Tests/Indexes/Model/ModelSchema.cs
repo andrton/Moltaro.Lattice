@@ -7,8 +7,9 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // - for composite keys, Composite: the entity types Payment, Reading and Visit, each bound to its class,
 //   with an index ByKey over its fields in the order the class states;
 // - for the parts the engine cannot store yet, References and OwnedPath (UnstoredPartSearchModelTests).
-// The first two declare the enum types of the model tests, whose members are values of both signs and at the ends
-// of the underlying type, and one member each that no test stores (ScalarTypes):
+// The schema of one scalar type declares the enum types of the model tests, whose members are values of
+// both signs and at the ends of the underlying type, and one member each that no test stores
+// (ScalarTypes):
 // - Grade over Int16, Span over Int64, Wide over UInt64;
 // - Rights, a Flags type over Int32 whose bits include the sign bit.
 internal static class ModelSchema
@@ -127,7 +128,6 @@ internal static class ModelSchema
     public static LatticeSchema Composite(string encoding) => LatticeSchema.Compile($$"""
         {
           "StringEncoding": "{{encoding}}",
-          {{Enums}},
           "EntityTypes": [
             {
               "Id": 1, "Name": "Payment", "ClrType": "{{typeof(Payment).FullName}}",
@@ -138,7 +138,7 @@ internal static class ModelSchema
                 { "Id": 4, "Name": "Payee", "Type": "String", "Comparison": "OrdinalIgnoreCase" }
               ],
               "PrimaryKey": [1],
-              "Indexes": [ { "Id": 1, "Name": "ByKey", "Fields": [2, 3, 4] } ]
+              "Indexes": [ { "Id": 1, "Name": "ByKey", "Fields": [2, 4, 3] } ]
             },
             {
               "Id": 2, "Name": "Reading", "ClrType": "{{typeof(Reading).FullName}}",

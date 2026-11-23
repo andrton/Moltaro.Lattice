@@ -14,8 +14,16 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // A failure names the cell, which says the type and its seed, the node, the search and the form.
 internal static class ModelRun
 {
-    // The pages of each page search: at the start, inside the matches, at their end and beyond it.
-    private static readonly (int Offset, int? Limit)[] PageCuts = [(0, 1), (0, 10), (5, 10), (-3, 10), (-3, 3), (-1, 1), (0, null), (3, null)];
+    // The seed of the generators of every model test, printed with each failure.
+    public const int Seed = 20_261_123;
+
+    // The pages of each page search: at the start, inside the matches, at their end and beyond it. An
+    // Offset counted from the end is the count of the matches and the Offset given.
+    private static readonly (int Offset, bool FromEnd, int? Limit)[] PageCuts =
+    [
+        (0, false, 1), (0, false, 10), (5, false, 10), (0, false, null), (3, false, null),
+        (-3, true, 10), (-3, true, 3), (-1, true, 1), (0, true, 1), (5, true, null),
+    ];
 
     public static async Task RunAsync<TEntity>(string cell, LatticeSchema schema, ModelTable<TEntity> table, IReadOnlyList<ModelEntry> given, IReadOnlyList<ModelSearch> searches, IReadOnlyList<ModelSearch> pages)
         where TEntity : class
@@ -130,10 +138,9 @@ internal static class ModelRun
         var key = table.KeyOf(search);
         var all = table.Model.Answer(stored, search);
 
-        foreach (var (cutOffset, limit) in PageCuts)
+        foreach (var (cutOffset, fromEnd, limit) in PageCuts)
         {
-            // A negative offset counts back from the end of the matches.
-            var offset = cutOffset < 0 ? Math.Max(0, all.Count + cutOffset) : cutOffset;
+            var offset = Math.Max(0, fromEnd ? all.Count + cutOffset : cutOffset);
             var options = new LatticeFindOptions { Reverse = search.Reverse, Offset = offset, Limit = limit };
             var page = $"{name} after {offset} with a limit of {limit?.ToString() ?? "none"}";
             var hasMore = limit is { } most && offset + most < all.Count;

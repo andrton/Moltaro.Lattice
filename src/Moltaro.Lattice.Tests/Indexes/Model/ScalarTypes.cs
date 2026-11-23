@@ -42,7 +42,6 @@ internal static class ScalarTypes
         Declaration = "\"Type\": \"UInt8\"",
         Edges = [byte.MinValue, (byte)1, (byte)0x7f, (byte)0x80, (byte)0xfe, byte.MaxValue],
         Between = [(byte)50, (byte)200],
-        Least = byte.MinValue,
         Greatest = byte.MaxValue,
         Random = random => (byte)random.Next(byte.MaxValue + 1),
         Run = ScalarRun.Of<byte>(),
@@ -66,7 +65,6 @@ internal static class ScalarTypes
         Declaration = "\"Type\": \"UInt16\"",
         Edges = [ushort.MinValue, (ushort)1, (ushort)0xff, (ushort)0x100, (ushort)0x7fff, (ushort)0x8000, (ushort)0xfffe, ushort.MaxValue],
         Between = [(ushort)12_345, (ushort)54_321],
-        Least = ushort.MinValue,
         Greatest = ushort.MaxValue,
         Random = random => (ushort)random.Next(ushort.MaxValue + 1),
         Run = ScalarRun.Of<ushort>(),
@@ -90,7 +88,6 @@ internal static class ScalarTypes
         Declaration = "\"Type\": \"UInt32\"",
         Edges = [uint.MinValue, 1u, 0xffu, 0x7fff_ffffu, 0x8000_0000u, 0xffff_fffeu, uint.MaxValue],
         Between = [123_456_789u, 3_456_789_012u],
-        Least = uint.MinValue,
         Greatest = uint.MaxValue,
         Random = random => (uint)random.NextInt64((long)uint.MaxValue + 1),
         Run = ScalarRun.Of<uint>(),
@@ -114,7 +111,6 @@ internal static class ScalarTypes
         Declaration = "\"Type\": \"UInt64\"",
         Edges = [ulong.MinValue, 1ul, (ulong)long.MaxValue, (ulong)long.MaxValue + 1, ulong.MaxValue - 1, ulong.MaxValue],
         Between = [1_234_567_890_123ul, 12_345_678_901_234_567_890ul],
-        Least = ulong.MinValue,
         Greatest = ulong.MaxValue,
         Random = random => (ulong)random.NextInt64(long.MinValue, long.MaxValue),
         Run = ScalarRun.Of<ulong>(),
@@ -130,7 +126,6 @@ internal static class ScalarTypes
             -float.Epsilon, -0f, 0f, float.Epsilon, 1f, 16_777_216f, float.MaxValue, float.PositiveInfinity,
         ],
         Between = [-12_345.5f, 0.25f, 12_345.5f],
-        Least = float.NaN,
         Greatest = float.PositiveInfinity,
         Random = random => random.Next(2) == 0 ? BitConverter.Int32BitsToSingle(random.Next() ^ (random.Next(2) << 31)) : (float)Math.Round((random.NextDouble() - 0.5) * 2_000, 2),
         Run = ScalarRun.Of<float>(),
@@ -146,7 +141,6 @@ internal static class ScalarTypes
             -double.Epsilon, -0d, 0d, double.Epsilon, 1d, 9_007_199_254_740_992d, double.MaxValue, double.PositiveInfinity,
         ],
         Between = [-12_345.5, 0.25, 12_345.5],
-        Least = double.NaN,
         Greatest = double.PositiveInfinity,
         Random = random => random.Next(2) == 0 ? BitConverter.Int64BitsToDouble(random.NextInt64(long.MinValue, long.MaxValue)) : Math.Round((random.NextDouble() - 0.5) * 2_000, 2),
         Run = ScalarRun.Of<double>(),
@@ -183,7 +177,6 @@ internal static class ScalarTypes
             System.Guid.AllBitsSet,
         ],
         Between = [System.Guid.Parse("12345678-9abc-def0-7fff-ffffffffffff"), System.Guid.Parse("3fffffff-0000-0000-0000-000000000000")],
-        Least = System.Guid.Empty,
         Greatest = System.Guid.AllBitsSet,
         Random = random =>
         {
@@ -206,7 +199,6 @@ internal static class ScalarTypes
             new DateTimeOffset(2026, 11, 23, 9, 0, 0, System.TimeSpan.Zero).AddTicks(1), System.DateTimeOffset.MaxValue.AddTicks(-1), System.DateTimeOffset.MaxValue,
         ],
         Between = [new DateTimeOffset(2000, 1, 1, 0, 0, 0, System.TimeSpan.FromHours(-5)), new DateTimeOffset(2100, 6, 15, 12, 0, 0, System.TimeSpan.Zero)],
-        Least = System.DateTimeOffset.MinValue,
         Greatest = System.DateTimeOffset.MaxValue,
         Random = random =>
         {
@@ -227,7 +219,6 @@ internal static class ScalarTypes
             new DateOnly(2000, 2, 29), new DateOnly(2026, 11, 23), System.DateOnly.MaxValue.AddDays(-1), System.DateOnly.MaxValue,
         ],
         Between = [new DateOnly(1234, 5, 6), new DateOnly(5678, 9, 10)],
-        Least = System.DateOnly.MinValue,
         Greatest = System.DateOnly.MaxValue,
         Random = random => System.DateOnly.FromDayNumber(random.Next(System.DateOnly.MaxValue.DayNumber + 1)),
         Run = ScalarRun.Of<DateOnly>(),
@@ -243,7 +234,6 @@ internal static class ScalarTypes
             new TimeOnly(23, 59, 59), System.TimeOnly.MaxValue,
         ],
         Between = [new TimeOnly(3, 33, 33, 333), new TimeOnly(18, 18, 18, 818)],
-        Least = System.TimeOnly.MinValue,
         Greatest = System.TimeOnly.MaxValue,
         Random = random => new TimeOnly(random.NextInt64(System.TimeOnly.MaxValue.Ticks + 1)),
         Run = ScalarRun.Of<TimeOnly>(),
@@ -299,7 +289,6 @@ internal static class ScalarTypes
         Declaration = "\"Type\": \"Enum\", \"Enum\": \"Wide\"",
         Edges = WideMembers,
         Between = [7ul],
-        Least = ulong.MinValue,
         Greatest = ulong.MaxValue,
         Random = random => WideMembers[random.Next(WideMembers.Length)],
         Run = ScalarRun.Of<ulong>(),
@@ -326,7 +315,6 @@ internal static class ScalarTypes
         Order = IndexModel.Ordinal,
         Edges = TextEdges,
         Between = TextBetween,
-        Least = "",
         Random = RandomText,
         Run = ScalarRun.OfText(),
     };
@@ -338,7 +326,6 @@ internal static class ScalarTypes
         Order = IndexModel.WithoutCase,
         Edges = TextEdges,
         Between = TextBetween,
-        Least = "",
         Random = RandomText,
         Run = ScalarRun.OfText(),
     };
@@ -358,8 +345,8 @@ internal static class ScalarTypes
     private static int[] RightsBits => [1, 2, 4, 0x4000_0000, int.MinValue];
 
     // The characters of random texts: letters in both cases, letters whose case mapping leaves ASCII or the
-    // basic plane, a character on each side of the surrogates and two beyond U+FFFF. No m, M or x, so that the
-    // texts never stored (TextBetween) are not drawn.
+    // basic plane, a character on each side of the surrogates and two beyond U+FFFF. No m, M or x, so that
+    // the texts never stored (TextBetween) are not drawn.
     private static readonly string[] Alphabet = ["a", "A", "b", "B", "z", "Z", "s", "S", "ſ", "i", "I", "ı", "İ", "é", "É", "ß", "ẞ", "～", "\uE000", "\uFFFD", "\U0001F600", "\U00010428", "\U00010400", "0", " "];
 
     private static object[] TextBetween => ["m", "Mm", "xx", "\uFFFF\uFFFF"];

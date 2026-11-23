@@ -1,12 +1,12 @@
 namespace Moltaro.Lattice.Tests.Indexes.Model;
 
 // A search of a composite index of parts of mixed widths agrees with the model of the order, in a UTF-8 and
-// in a UTF-16 database (docs/design/ordered-index.md, "Entries and their order" and "How a range is
-// walked"): by every count of leading parts, from none to all, each a key the entities have or one none
-// has, and by a range on the part after equal leading parts, with bounds on stored values, between them and
-// beyond both ends; in both directions and in pages, through the class and by name, on a master and on a
-// child. The keys are (Guid, Decimal?, String without case), (DateOnly, Float64?, Int16) and the four
-// parts (Boolean?, UInt32, DateTimeOffset?, String?) (CompositeKeys); each cell stores 400 entities.
+// in a UTF-16 database (docs/design/ordered-index.md, "Entries and their order" and "How a range is walked"):
+// by every count of leading parts, from none to all, each a key the entities have or one none has, and by a
+// range on the part after equal leading parts, with bounds on stored values, between them and beyond both
+// ends; in both directions and in pages, through the class and by name, on a master and on a child. The keys
+// are (Guid, String without case, Decimal?), a fixed part after a text part, (DateOnly, Float64?, Int16) and
+// the four parts (Boolean?, UInt32, DateTimeOffset?, String?) (CompositeKeys); each cell stores 400 entities.
 public sealed class CompositeSearchModelTests
 {
     public static IEnumerable<TheoryDataRow<string, string>> Cells =>

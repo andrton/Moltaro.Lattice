@@ -4,11 +4,11 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // each string encoding, the field nullable and not (docs/design/ordered-index.md, "Entries and their order"
 // and "Text keys"; the decision on strings, Q46): Ordinal by UTF-16 code units, without case by the code
 // units of the simple uppercase mapping, the same in a UTF-8 and in a UTF-16 database. A cell stores 400
-// entities over at least five leaves: the empty text, case pairs inside and outside ASCII and the basic
-// plane, characters on both sides of the surrogates, whose UTF-8 bytes sort the other way round from their
-// code units, texts at 64 and 65 bytes in both encodings, where an entry stops holding a copy, at 256 and
-// 257 code units, the piece of a decoded comparison, beyond 4 KiB, where a text lies in chunks, and beyond
-// one chunk; and random short texts of those characters (ScalarTypes). It searches as every cell does
+// entities over at least five leaves: the empty text, nullable or not, case pairs inside and outside ASCII
+// and the basic plane, characters on both sides of the surrogates, whose UTF-8 bytes sort the other way round
+// from their code units, texts at 64 and 65 bytes in both encodings, where an entry stops holding a copy, at
+// 256 and 257 code units, the piece of a decoded comparison, beyond 4 KiB, where a text lies in chunks, and
+// beyond one chunk; and random short texts of those characters (ScalarTypes). It searches as every cell does
 // (IntegerSearchModelTests).
 public sealed class TextSearchModelTests
 {

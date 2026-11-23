@@ -1,7 +1,7 @@
 namespace Moltaro.Lattice.Tests.Indexes.Model;
 
 // A composite key of the model tests (CompositeKeys) and how a cell of it runs: Count entities, each part
-// drawn by a generator of the seed ScalarRun.Seed from the few values it takes, a null among them where the
+// drawn by a generator of the seed ModelRun.Seed from the few values it takes, a null among them where the
 // part can be null, so that every count of leading parts has runs of entities and a null stands in every
 // position the index allows. The searches are every count of leading parts, each with at most MostKeys of
 // the distinct keys spread over the order and with keys no entity has, and ranges on the part after them
@@ -24,7 +24,7 @@ internal sealed class CompositeKey<TEntity>
 
     public Task RunAsync(string encoding)
     {
-        var random = new Random(ScalarRun.Seed);
+        var random = new Random(ModelRun.Seed);
         var given = new List<ModelEntry>();
 
         for (var id = 1L; id <= Count; id++)
@@ -33,7 +33,7 @@ internal sealed class CompositeKey<TEntity>
         }
 
         return ModelRun.RunAsync(
-            $"{Table.EntityType}({string.Join(", ", Table.Fields)}) in {encoding}, {Count} entities of seed {ScalarRun.Seed}",
+            $"{Table.EntityType}({string.Join(", ", Table.Fields)}) in {encoding}, {Count} entities of seed {ModelRun.Seed}",
             ModelSchema.Composite(encoding),
             Table,
             given,

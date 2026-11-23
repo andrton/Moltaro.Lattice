@@ -6,8 +6,11 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 //   type a record holds for the field;
 // - values that no cell stores, between the stored ones, which a search finds nothing for and a range
 //   takes as a bound between them; the generator never draws them;
-// - the least and the greatest value of the type, where it has them: a nullable cell stores neither, so
-//   that they are bounds beyond both ends of what it stores, and a cell that is never null stores both;
+// - the greatest value of the type, and the least where it is neither the value of zero bytes nor NaN: a
+//   nullable cell stores neither, so that they are bounds beyond the ends of what it stores, and a cell
+//   that is never null stores both. Every cell stores the value of zero bytes and NaN in its forms: a null
+//   keeps the zero bytes of its width, and NaN orders first, so an order that took either for a null is
+//   seen beside the nulls of a nullable cell;
 // - how a cell of it runs, with the .NET type of its field (ScalarRun.Of).
 internal sealed record ScalarType
 {

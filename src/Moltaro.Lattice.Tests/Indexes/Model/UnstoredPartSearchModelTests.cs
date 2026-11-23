@@ -62,18 +62,18 @@ public sealed class UnstoredPartSearchModelTests
             FromEntity = resident => new ModelEntry(resident.Id, [resident.Home?.City]),
             Equal = values => values.Count == 0 ? IndexKey.All : IndexKey.Equal((string?)values[0]),
         };
-        var random = new Random(ScalarRun.Seed);
+        var random = new Random(ModelRun.Seed);
         string?[] cities = [null, "", "Bergen", "bergen", "Oslo", "Tromsø", "Ålesund", "\U0001F600", new string('x', 300)];
         var given = Enumerable.Range(1, Count).Select(id => new ModelEntry(id, [cities[random.Next(cities.Length)]])).ToList();
 
         return RunAsync(table, ModelSchema.OwnedPath, given, [["Molde", "\U0000FFFF"]]);
     }
 
-    // The entities of a reference: the key of another entity or, for a few, a key at the ends of an Int64,
-    // which no entity has; about one in eight without a reference when it is nullable.
+    // The entities of a reference: the key of another entity or, for a few, a key no entity has, the least
+    // and the greatest Int64 or -1; about one in eight without a reference when it is nullable.
     private static List<ModelEntry> References(bool nullable)
     {
-        var random = new Random(ScalarRun.Seed);
+        var random = new Random(ModelRun.Seed);
 
         object? Reference()
         {
@@ -95,7 +95,7 @@ public sealed class UnstoredPartSearchModelTests
     private static Task RunAsync<TEntity>(ModelTable<TEntity> table, LatticeSchema schema, List<ModelEntry> given, IReadOnlyList<IReadOnlyList<object>> neverStored)
         where TEntity : class =>
         ModelRun.RunAsync(
-            $"{table.EntityType}.{table.Fields[0]}, {Count} entities of seed {ScalarRun.Seed}",
+            $"{table.EntityType}.{table.Fields[0]}, {Count} entities of seed {ModelRun.Seed}",
             schema,
             table,
             given,

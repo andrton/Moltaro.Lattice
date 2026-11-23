@@ -6,8 +6,8 @@ namespace Moltaro.Lattice.Tests.Indexes.ValueBinding;
 // that fill it. Every search runs through the class and by name; in the order of the index by Find and by
 // FindAsync, in reverse by FindAsync, which takes the direction in its options. Each answer is held
 // against the model of the order (IndexModel), of one part ordered by the comparison a test gives or by
-// value, and each entity returned against the value it was stored with, bit for bit; a refusal is the ArgumentException of a key the index cannot serve,
-// by Find and by FindAsync, before anything is searched.
+// value, and each entity returned against the value it was stored with, bit for bit; a refusal is the
+// ArgumentException of a key the index cannot serve, by Find and by FindAsync, before anything is searched.
 internal static class BindingSearch
 {
     private static readonly LatticeFindOptions Forward = new();

@@ -5,5 +5,5 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 internal sealed record ScalarCell(ScalarType Type, bool Nullable, string Encoding = "Utf8")
 {
     public override string ToString() =>
-        $"{Type.Name} {(Nullable ? "nullable" : "not nullable")} in {Encoding}, {ScalarRun.Count} entities of seed {ScalarRun.Seed}";
+        $"{Type.Name} {(Nullable ? "nullable" : "not nullable")} in {Encoding}, {ScalarRun.Count} entities of seed {ModelRun.Seed}";
 }

@@ -4,9 +4,10 @@ namespace Moltaro.Lattice.Tests.Indexes.Model;
 // nullable and not (docs/decisions/queries.md, "Floating-point special values": NaN values are one key and
 // come first, then the negative infinity, the finite values and the positive infinity; the two zeros are one
 // key, and each entity keeps the bits it was stored with). A cell stores 400 entities over at least five
-// leaves: NaN in three forms of bits, both infinities, both zeros, the smallest subnormals and the ends of
-// the finite values among them, and random bits, which hold NaN payloads of their own (ScalarTypes); it
-// searches as every cell does (IntegerSearchModelTests).
+// leaves: NaN in three forms of bits, the negative infinity, both zeros, the smallest subnormals and the
+// ends of the finite values among them, and random bits, which hold NaN payloads of their own; the
+// positive infinity where the field is never null, and where it is nullable as a bound beyond what is
+// stored (ScalarTypes). It searches as every cell does (IntegerSearchModelTests).
 public sealed class FloatingPointSearchModelTests
 {
     public static IEnumerable<TheoryDataRow<string, bool>> Cells =>

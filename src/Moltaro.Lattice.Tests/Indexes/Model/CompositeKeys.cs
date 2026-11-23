@@ -1,8 +1,9 @@
 namespace Moltaro.Lattice.Tests.Indexes.Model;
 
 // The composite keys of the model tests, of parts of mixed widths (ModelSchema.Composite):
-// - Payment (Guid, Decimal?, String without case): the Guids differ in their later fields as well, the
-//   Decimals include two scales of one key, the texts case pairs and a long text in two spellings;
+// - Payment (Guid, String without case, Decimal?), a fixed part after a text part: the Guids differ in
+//   their later fields as well, the texts are case pairs and a long text in two spellings, and the
+//   Decimals include two scales of one key;
 // - Reading (DateOnly, Float64?, Int16): NaN in two forms of bits, both zeros, both infinities, and
 //   numbers of both signs;
 // - Visit (Boolean?, UInt32, DateTimeOffset?, String?), four parts: the high bit of a UInt32, one instant
@@ -17,16 +18,16 @@ internal static class CompositeKeys
         {
             EntityType = "Payment",
             Index = "ByKey",
-            Fields = ["Code", "Amount", "Payee"],
-            Model = new IndexModel(IndexModel.ByValue, IndexModel.ByValue, IndexModel.WithoutCase),
-            ToEntity = entry => new Payment { Id = entry.Id, Code = (Guid)entry.Key[0]!, Amount = (decimal?)entry.Key[1], Payee = (string)entry.Key[2]! },
-            FromEntity = payment => new ModelEntry(payment.Id, [payment.Code, payment.Amount, payment.Payee]),
+            Fields = ["Code", "Payee", "Amount"],
+            Model = new IndexModel(IndexModel.ByValue, IndexModel.WithoutCase, IndexModel.ByValue),
+            ToEntity = entry => new Payment { Id = entry.Id, Code = (Guid)entry.Key[0]!, Payee = (string)entry.Key[1]!, Amount = (decimal?)entry.Key[2] },
+            FromEntity = payment => new ModelEntry(payment.Id, [payment.Code, payment.Payee, payment.Amount]),
             Equal = values => values.Count switch
             {
                 0 => IndexKey.All,
                 1 => IndexKey.Equal((Guid)values[0]!),
-                2 => IndexKey.Equal((Guid)values[0]!, (decimal?)values[1]),
-                _ => IndexKey.Equal((Guid)values[0]!, (decimal?)values[1], (string)values[2]!),
+                2 => IndexKey.Equal((Guid)values[0]!, (string)values[1]!),
+                _ => IndexKey.Equal((Guid)values[0]!, (string)values[1]!, (decimal?)values[2]),
             },
         },
         Values =
@@ -35,14 +36,14 @@ internal static class CompositeKeys
                 Guid.Empty, Guid.Parse("00000000-0000-0000-0000-000000000001"), Guid.Parse("12345678-9abc-def0-0000-000000000000"),
                 Guid.Parse("12345678-9abc-def0-8000-000000000000"), Guid.Parse("12345678-9abc-def0-ffff-ffffffffffff"), Guid.AllBitsSet,
             ],
-            [null, -1.5m, 0m, 0.00m, 1m, 1.000m, 12_345.6789m],
             ["", "anna", "ANNA", "Anna", "bob", "BOB", "é", "É", "ß", "ẞ", new string('x', 70) + "1", new string('X', 70) + "1"],
+            [null, -1.5m, 0m, 0.00m, 1m, 1.000m, 12_345.6789m],
         ],
         NeverStored =
         [
             [Guid.Parse("12345678-9abc-def0-7fff-ffffffffffff")],
-            [decimal.MinValue, 0.5m, decimal.MaxValue],
             ["m", "\U0000FFFF"],
+            [decimal.MinValue, 0.5m, decimal.MaxValue],
         ],
     };
 

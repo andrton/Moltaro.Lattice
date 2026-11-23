@@ -123,7 +123,7 @@ internal sealed class IndexModel
             expected.Count == actual.Count,
             () => $"{search} returned {actual.Count} entities, not the {expected.Count} of the model; the first place it leaves the model is {Math.Min(expected.Count, actual.Count)}.{Environment.NewLine}{Listing(actual)}");
 
-        Assert.Equal(expected.Select(entry => entry.Id).Order(), actual.Select(entry => entry.Id).Order());
+        ExpectIds(search, expected, actual);
     }
 
     // That a page of the answer, after Offset of its matches and at most Limit of them, is the one of the
@@ -157,7 +157,7 @@ internal sealed class IndexModel
 
         if (!cutsRun)
         {
-            Assert.Equal(expected.Select(entry => entry.Id).Order(), actual.Select(entry => entry.Id).Order());
+            ExpectIds($"{search} after {offset}", expected, actual);
         }
     }
 
@@ -186,6 +186,22 @@ internal sealed class IndexModel
         {
             Assert.Fail(failure());
         }
+    }
+
+    // That the answer holds the ids of the model, as a set, since entities of one key come in no order.
+    private static void ExpectIds(string search, IReadOnlyList<ModelEntry> expected, IReadOnlyList<ModelEntry> actual)
+    {
+        var expectedIds = expected.Select(entry => entry.Id).Order().ToList();
+        var actualIds = actual.Select(entry => entry.Id).Order().ToList();
+
+        Check(expectedIds.SequenceEqual(actualIds), () =>
+        {
+            var place = Enumerable.Range(0, Math.Min(expectedIds.Count, actualIds.Count)).FirstOrDefault(at => expectedIds[at] != actualIds[at], Math.Min(expectedIds.Count, actualIds.Count));
+            var found = place < actualIds.Count ? $"the id {actualIds[place]}" : "no more ids";
+            var model = place < expectedIds.Count ? $"the id {expectedIds[place]}" : "no more ids";
+
+            return $"{search} returned the ids of other entities than the model: in ascending order, at {place}, {found} where the model has {model}.{Environment.NewLine}{Listing(actual)}";
+        });
     }
 
     private bool InRange(int part, object? value, RangeEnd? from, RangeEnd? to)
