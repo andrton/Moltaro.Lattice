@@ -8532,7 +8532,8 @@ during catch-up is recorded and must be resolved by a delete before R.
   `ListRemove(string field, int position)`;
   `MapSet<TKey, TValue>(string field, TKey key, TValue value)`,
   `MapRemove<TKey>(string field, TKey key)`; `SetAdd<TMember>(string field, TMember member)`,
-  `SetRemove<TMember>(string field, TMember member)`; and `CommitAsync` in the four forms a
+  `SetRemove<TMember>(string field, TMember member)`; `bool CommandChanged(int command)`;
+  and `CommitAsync` in the four forms a
   write of a set has (the token; a session; an expected revision; both), each returning
   `ValueTask<LatticeWriteResult>`.
   `ILatticeSet` and `ILatticeSet<TEntity>`: `LatticeUpdate CreateUpdate<TKey>(TKey key) where
@@ -8548,7 +8549,9 @@ during catch-up is recorded and must be resolved by a delete before R.
   dot (`"Home.City"`); it never passes through a collection and is never the key. `Assign`
   sets a scalar, a Binary, an Enum or a Reference, the value bound by the allowlist of a
   search key (Q55), and for a List, a Map or a Set it replaces the whole collection; an
-  owned value as a whole is not assigned. A value is copied when its command is added. A
+  owned value as a whole is not assigned. A value is taken as it is when its command is
+  added, as a member of a write batch is; what the caller does with it afterwards changes
+  nothing. A
   position is judged when the update is executed. Refused at the add with
   `ArgumentException`, the update left as it was, what the caller can know from the schema
   and the type of the value: a field or a path the schema does not have, a command the type
@@ -8559,9 +8562,16 @@ during catch-up is recorded and must be resolved by a delete before R.
   well-formed, an integer its enum type does not declare, a value above its bound; this is
   the rule of a record, on purpose. `CommitAsync` executes the commands
   in their order against the state it finds and publishes them together with their index
-  changes, or nothing; fields not named keep their values. `Changed` is false only when
-  every command had nothing to do (a Map key or a Set member removed that was absent, a Set
-  member added that was present); such an update keeps the revision and has a position of
+  changes, or nothing; fields not named keep their values. `CommandChanged` says whether the
+  command at that place, in the order the commands were added and counted from 0, changed
+  the entity; it is valid once the update has completed, alone or in a batch, and before
+  that, or for a number that is not a command of the update, it is the caller's mistake
+  (`InvalidOperationException`, `ArgumentOutOfRangeException`); it allocates nothing beyond
+  what the update holds. A Set member added that was present, and a Map key or a Set member
+  removed that was absent, did not change the entity; every other command that was
+  executed did. `MapSet` always counts as a change: the value it replaces is not compared
+  with the new one. `LatticeWriteResult.Changed` of the update is whether any command
+  changed the entity; when none did, the update keeps the revision and has a position of
   its own. It reports `NotFound` (no such entity), `RevisionConflict` (another revision, or
   no entity with an expected revision, as `ReplaceAsync` with an expected revision reports
   it today),
@@ -8600,7 +8610,11 @@ during catch-up is recorded and must be resolved by a delete before R.
   rename: all excluded by decision.
 
 **Decided by the planner on 23 November 2026, with the contract.** An update copies each
-value when its command is added. One `Changed` for the whole update. Refusals at the add are
+value when its command is added. The outcome of each command is exposed by
+`CommandChanged`, as `mutation-commands.md`, "Collection operation outcomes", requires; the
+shape, a flag by the number of the command kept in the update, is the planner's. The tests
+of the sprint state the outcome of every command of an update of several, alone and in a
+batch, by class and by name. Refusals at the add are
 `ArgumentException`. `Admit` taking a third kind of input is the P4 of the review of S17
 joined here ([the refactoring backlog](refactoring.md), the architect's review after S17).
 

@@ -98,6 +98,16 @@ in the meantime.
 | **Until answered** | Open, for the study of S19. The planner's recommendation: one that agrees with the comparison of the schema where .NET has it (text, with or without case), so that a lookup in what was read finds what a lookup in the database finds; and the remarks say so. What the code does today is named by the study |
 | **Decides** | The planner, in the study of S19, before its contract step |
 
+### Q61. Does "stable write inputs" allow a batch and an update to take their input when it is added?
+
+| | |
+| --- | --- |
+| **Found** | 23 November 2026, the document review of the contract of stage 5, part 2 |
+| **Question** | `docs/decisions/mutation-commands.md`, "Stable write inputs until completion", tells a caller to keep the input of an asynchronous write unchanged until it completes and says the public contract "does not expose early release in v1". A write batch takes each member as it is when it is added (`WriteBatchTests.Batch_saves_the_entity_as_it_was_when_added`, since the contract stage), and an update of S20 takes each value the same way. Is that a release the record did not want to promise? |
+| **Answer** | Taken by the planner, 23 November 2026, for the owner to read: no. The record speaks of the input of an asynchronous write between its start and its completion; adding to a batch or to an update is synchronous and starts no write, and what was added is the batch's own from then on. A write of a set, `SaveAsync` and the others, keeps the rule of the record |
+| **What the code does** | A member of a batch is encoded when it is added (S17) |
+| **Where the rule lives** | The remarks of `ILatticeWriteBatch`; the brief of S20 in the document of Epic 1 |
+
 ## Answered
 
 ### Q1. A .NET enum that does not agree with the enum type of the schema
