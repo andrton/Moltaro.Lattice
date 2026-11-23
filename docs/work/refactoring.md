@@ -92,6 +92,13 @@ Gone through by the planner and the coordinator on 18 November 2026.
      in three parts, with the tighter bound of the reservation and the write path after it;
      the start of the machine before its close closed K1 and found K2, which goes to the
      architect's review after S17.
+  6a. **S17R,** set by the planner on 23 November 2026 after the architect's review after
+     S17: W1 with the plain form of `NodePool.LeftAfterMove`; W3; W2; W4; and last W5, the
+     commit of comments and documents. One entry a commit; one narrow reviewer, no breaker,
+     no start of the machine of its own. Each entry on a measured path is checked by the JIT
+     listings of the callers it names, on the workstation; its figures are owed to the start
+     of S18, on `index-writes` with 3 and 6 indexes, `unique-writes` lines 1 to 3 and
+     `following-children`.
   7. **S23,** with F8 and V2.
   8. **S24,** with the memory limit of F10.
 - Comments never ride in a commit that moves code.
@@ -187,7 +194,7 @@ through by the planner and the coordinator on the same day.
 | D2 | `Engine/Loading/ReceivedChanges.cs` (`Place` with `PlaceUnderTheLock`, `Apply`, the field of the coordinator); `WriteExecutor.ReadsToWaitFor` | One rule, "refused for memory: drain, retry", in two shapes; a pass-through that survived U8, with a flag that repeats what `RetiredMemory.ReadsToWaitFor` already says; the whole coordinator taken for one test switch | `Place` takes the shape of `Apply` over a `TryPlace`; both callers ask the retired memory; the switch moves to `ReadEpochs`, beside the hold of a read it already carries for tests | done (55b48a7), except where the switch lives: not in `ReadEpochs` but in `RetiredMemory` (4b784ef), because in `ReadEpochs` it kept a reference that hollowed the weak-reference probe of "a closed database retains nothing" |
 | D3 | `Replication/Load/BlockImport.cs` (`Check`), and the schema passed through `WriteExecutor`, `ReceivedChanges` and `ForwardedWrites` for it | A check that the layout is one of the schema: a lookup by name for every received root, an exception no test asserts | Remove the check and its field — on one condition, which the reviewer of part 2 shows by reading: the layout that reaches the check is always taken from the node's own schema and never selected by received bytes. If a received byte can select it, the check is part of what a node checks of a peer: it stays, gets a test, and the decision on trust between nodes names it | done (5a88dd4); the reviewer showed the condition by reading: the layout that reaches the check is always taken from the node's own schema, never selected by received bytes |
 | D4 | `Engine/Writes/WriteExecutor.cs`, `Engine/Loading/ReceivedChanges.cs`, `Engine/Protection/RetiredMemory.cs` (`AfterWrite`) | Whether a publication retired nothing is worked out by the callers from the kind of each write, for a write on a master and for a transaction on a child, although the retired memory sees every addition itself; S14 changes which kinds retire | `RetiredMemory` notes whether anything was retired since the previous publication; `AfterWrite` takes no argument. The unit is the publication of one position, on a master and on a child. Shown unchanged: the moves of the epoch for each 10,000 writes recorded with the fixes after S13 | done (42b6317) |
-| D5 | `Engine/Delivery/TransactionEncoder.cs`; `Replication/Transactions/TransactionFormat.cs` | The envelopes of the effects of a transaction are written by hand in one folder and read in another, and each writer welds the header of the transaction to its one effect | `TransactionFormat` writes the three envelopes beside the code that reads them; the bytes are identical | joined (S17), which splits those methods |
+| D5 | `Engine/Delivery/TransactionEncoder.cs`; `Replication/Transactions/TransactionFormat.cs` | The envelopes of the effects of a transaction are written by hand in one folder and read in another, and each writer welds the header of the transaction to its one effect | `TransactionFormat` writes the three envelopes beside the code that reads them; the bytes are identical | joined (S17), which split the header from its effect; the rest taken (S17R) as W4 of the architect's review after S17 |
 | D6 | `Engine/Loading/RootPlacement.cs` (a repeated test for a layout); comments in `WriteCoordinator`, `EngineDatabase`, `ReceivedChanges` and the head of `Follower` that still send the reader to `Follower` for what `ReceivedChanges` does since A1; citations of briefs left in `Engine/Writes` (`PreparedWrite`, `CommitGroup`, `ICommitStorage`, `ForwardedOrigin`, `MemoryOnlyStorage`, `EngineFaultPointEnum`) | Small leftovers | Corrected as the files are touched; the implementer of S14 is told | done (S14R, part 2): the citations of briefs in `Engine/Writes` and in the persistence types removed; no comment sends the reader to `Follower` for what `ReceivedChanges` does, and `RootPlacement` tests a layout once |
 
 **The order before the implementation of S14,** which its study and its contract step do
@@ -427,7 +434,84 @@ a child that would refuse a valid swap.
 
 | # | Place | What is wrong | The simpler form | What it must keep | Status |
 | --- | --- | --- | --- | --- | --- |
-| K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | open; for the architect's review after S17 |
+| K2 | The write path of a type with several indexes after S17: `Engine/Entities/ChangePublisher.cs` (`TryReserve`, `TryReserveWithIndexes`, `TopUpIndexes`), `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `LeftAfterMove`, `Trim`), `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `AfterPublication`) | S17 costs a write that reserves in a secondary index. By listing, an insert into one Int64 index makes 25 + 2n calls at the head where it made 21 + n at b9a9074, n being the nodes refilled, the same on x64 and on ARM64 call for call. By ratio, the head against b9a9074 on `index-writes` down to 0.910; the ratios of part 1, of the bound by levels with what it bought, and of the write path, which bought nothing this method can see, are in the table of falls of the record of the start of the machine before the close of S17 in `epic-1-core.md`. The second line: part 2's insert that grows the primary index, 2 to 4 % by the start of part 2, owed, since no series of the last start grew the primary index; the next start carries `read-by-key-threads` for ed81c76, 3e24ce4 and the head, the trees rotated. The third line: part 3's `unique-writes` line, 0.953 against f6d9cf3, not explained by its listing, run again in the next start with the machine's listings (the same record) | Not known. The question to the architect's review after S17: what of the cost per index and per reservation can go without giving up the bound by levels or the check on the final state | The bound by levels: a batch whose take fits is not refused for its bound, and a refused or withdrawn reservation gives back exactly what it took; the check of unique values on the state a publication leaves; every guarantee of S17; no added load on a read | open. Gone through with the architect's review after S17, below: (a) is W1, taken (S17R); (b) and (c) one variant build and (d) a second, in the start of S18; (e) and (f) recorded and not run; the second and third lines as that section says |
+
+## Architect's review after S17, 23 November 2026
+
+Read at `main` 6b968b3, nothing run. S17 landed in the right folders and the direction of
+dependencies holds: `Entities` and `Indexes` use nothing of `Writes` or `Child`, and each
+new type has one job (`NodePool`, `PublicationKeys`, `UniqueClaims`, `BatchMember`). The
+debt is small: what the pool is handed at every call, the give-back of changes that were
+never reserved, and D5, which S17 was to finish and did not. Gone through by the planner
+and the coordinator on the same day. Found sound and left: the ledger as a value that
+`Undo` restores; `Bounds` pure and static; the three steps of `TryReserveWithIndexes`;
+the publication in two calls with its order of stores; `TryPrepare` and `TryPrepareBatch`
+of the coordinator, alike on purpose so that the single path stays inlined; `Forwarder`
+and `RequestReceiver`, each sharing what the two kinds share; `RootValues.Export` beside
+`Forwarder.Request`; the two test hooks on a publication; the test folders of S17. Not
+examined: `docs/design` beyond the sections it needed, the samples, the scenarios of
+batches, most new tests beyond their heads. `WriteCoordinator` (2,031 lines) takes S20,
+S24 and S26 before U1 (S27); that changes no order.
+
+| # | Place | What is wrong | The simpler form | What must be shown unchanged | Status |
+| --- | --- | --- | --- | --- | --- |
+| W1 | `Engine/Indexes/NodePool.cs` (`TryReserve`, `TopUp`, `Release`, `GiveBackReserve`, `AfterPublication`, `StandingReserve`, `LeftAfterMove`, `MoveBase`, `Targets`, `Trim`, `AssertReserved`); `Engine/Indexes/OrderedTree.cs` (`TryReserve`, `TopUp`, `Release`, `GiveBackReserve`, `GrowPath`, `Room`, `AfterPublication`) | Twelve members of the pool take the height and the room of the root, and the tree reads its root node three times a write to supply them, though both change only in a publication. In `LeftAfterMove` the local `moves` first means that something was published since the base and then that the base moves | The tree tells the pool both once, in `AfterPublication`; the pool keeps them and the standing reserve counted from them; the signatures lose the two arguments, four members of the tree stop calling `Room`, and `TryReserve` tests the length of the path before it calls `GrowPath`. `LeftAfterMove` in its plain form, one meaning for `moves`, the same result in every case | The pool holds the lesser bound and no more than the larger of it and the reserve; a refused or withdrawn reservation gives back what it took: `Reservation`, `Refusals` and `Batches/Memory` of the engine tests and the Debug assertion of the pool. By the listing of the head on the machine it removes six of the 25 calls of an insert into one Int64 index. The listings of `TryReserveWithIndexes`, `TopUpIndexes`, `OrderedTree.Insert` and `Remove`, `NodePool.TryReserve` and `Trim`; the figure owed to the start of S18 | taken (S17R) |
+| W2 | `Engine/Writes/WriteExecutor.cs` (`GiveBack`); `Engine/Child/Loading/ReceivedChanges.cs` (`GiveBack`, `TryPlace`, `TryApply`, `TryPrepareWrite`, `TryPrepareDelete`); `Engine/Entities/ChangePublisher.cs` (`Release`) | The give-back of changes never reserved (free the placed root, release the root entry of an insert, in reverse) is written in the executor and in the child; on the child four try/catch blocks call it inside the preparation and `TryApply` calls it again around them | One `ChangePublisher.GiveBack` beside `Release`; `TryApply` and `TryPlace` give back once, in one catch and on a false; the preparations lose three of their four try/catch blocks, the fourth keeping only the root entry not yet in the list | A transaction is applied whole or not at all; a refused batch or transaction leaves every counter as it was: `MalformedTransactionTests`, `KeyNamedOnceTests`, `Replication/Batches`, `RefusedBatchTests`, the refusals of a load, the tally tests. The listing of `TryApply`; `following-children` owed to the start of S18 | taken (S17R) |
+| W3 | `Engine/Entities/ChangePublisher.cs` (`FindTaken`, `FindTakenChecked`, the `FindTaken` of one index) | Three methods named for one check; `FindTakenChecked` holds two algorithms, the descents of one change and the loop over the unique indexes of several, and the rule of which conflict is reported is explained at the gate, not where it is implemented | The gate chooses; one method for one change, one for several, and the check of one index with a name of its own; the comment of the rule moves to the method for several. The local `found`, the 16 bytes the frame of the single path grew in S17, leaves that path | `unique-writes` lines 1 to 3; a change that can set no unique value makes no call for the check. The listing of `TryReserveWithIndexes`; the figure owed to the start of S18 | taken (S17R) |
+| W4 | `Engine/Delivery/TransactionEncoder.cs`; `Replication/Transactions/TransactionFormat.cs` (its head, `ReadEffect`) | D5 half done: the three envelopes of an effect are still written by hand in `Delivery` and read in `Replication/Transactions`, and the head of the format does not name the member a root carries since wire format 5 | Three small writers in `TransactionFormat` beside `ReadEffect`; the encoder keeps only where the bytes go | The bytes identical, wire format 5: `Replication/Transactions` of the engine tests and the following tests. The listings of `WriteRoot` and `WriteDelete`; `following-children` owed to the start of S18 | taken (S17R) |
+| W5 | Comments and documents | Comments that cite a sprint, a brief, a working document or an open question in files S17 added or touched (`ChangePublisher.cs`, `RecordValues.cs`, `RootTable.cs`, `OrderedTree.cs`, about fifteen heads of tests of batches and `ReadsBesideBatchesScenario`); the head of `FailedLevelGrowthTests`, hard to read; the comment of `KeptRoom`, "two loads and a test", which no listing backs; the example of a composite index in `README.md`, whose field ids the schema shown does not declare; the members of `ILatticeWriteBatch` that add an operation, which do not name the `InvalidOperationException` of a batch already submitted; `Program.cs` of the samples, which still marks `WriteBatchSample` and `UniqueIndexSample` as planned; the rule of which member a refused batch names (Q58), which an application sees and which lives in no decision record and in no remark of the contract | The rule and its reason in their own words; the head of `FailedLevelGrowthTests` in three sentences (what holds, why the two arrays stay of one length, what only a Debug build catches); the comment of `KeptRoom` says what is tested, without a count; the README names the fields; one line on each adding member; the two samples not marked planned if they run to the end; the rule of Q58 in two sentences in the remarks of `ILatticeWriteBatch.CommitAsync` and of `LatticeException.OperationIndex`, and in one sentence of `docs/decisions/mutation-commands.md` with the owner's reading | Comments and documents only | taken (S17R), last |
+
+The P4s of the reviews of S17, gone through with it:
+
+- The arguments of `Admit`, shared by a single write and a batch, and the forwarded
+  admission that serves both kinds: joined (S20), where a partial update brings a third
+  kind of input and the inputs of a write become one value passed by reference, with the
+  figure of a single write.
+- `WriteCoordinator._group` keeps the records of the last group until the next forms:
+  joined (S28), where with a durable step every write waits and the group is cleared when
+  its outcomes are decided, with a probe.
+- The claims of a unique index gathered and sorted in `ChangePublisher` and again in
+  `UniqueClaims`: joined (S28), beside the cost of the first question already carried there.
+- `HeldPersistence` written twice, in the engine tests and in the measurement program:
+  joined (S27), the first sprint that changes `IPersistence`.
+- The test of a master that faults during a forwarded batch does not check that a later
+  write is `Unavailable`: refused, since it follows from the master being faulted, which
+  the test asserts, and `MasterFaultTests` states it for a write after the fault.
+- About 90 ns a transaction for clearing the kept set of a child after a large one:
+  refused as refactoring; `HashSet.Clear` clears the whole bucket array,
+  `following-children` shows nothing, and the form that removes it adds state for a figure
+  nobody measured. If it is measured, its place is S33 with V1.
+
+K2, gone through with it. Of the 25 calls of an insert into one Int64 index at the head:
+(a) W1 removes six. (b) `ChangeAt` split, the decision taken again for an index at place 63
+or above in a method of its own and the three tests of the masks inlined into `CountsOf`,
+`InstallNew`, `RemoveOld` and `SetsValue`: two calls fewer for an insert, one more in the
+publication, and one fewer an index for a replace that keeps every key, which made no call
+of `ChangeAt` before S17. (c) `NodePool.Targets` gives nothing without counting the need
+when nothing waits. (d) The arithmetic of the pool, about thirteen integer divisions an
+insert into one index by reading: `Bounds` can compare before it divides, `Need` has no
+growth while the inserts fit the room, and a node far from full has no progress; each
+exact, each a branch added for speed. (e) An allocation that returns the payload of the
+node it gives, n calls fewer, which touches the address validation of `Arena.Payload`.
+(f) For a batch, `CountsOf` walks every change once for each index in the reservation and
+again in the top-up, and `TablesOf` is scanned three times. Since the write path removed
+9 + n calls and the machine saw nothing, (b) and (c) are one variant build in the start of
+S18, and (d) a second on `index-writes` with 3 and 6 indexes; (e) and (f) are recorded and
+not run. A single write that goes round the ledger is not proposed: it would be a second
+rule of reservation and would change what is taken at the memory limit. The second line of
+K2, part 2's insert that grows the primary index: no cause in the code; it is run with the
+trees rotated first, and a sample profile of the writer at ed81c76 and 3e24ce4 is taken
+only if the fall stands. The third line, part 3's `unique-writes` line: the 139 bytes gone
+from `ClassSet<T>.Save` are the stub of `Forwarder.WriteAsync`, on the branch of a child,
+which a master does not take; on the machine every body on the path of that line is listed
+at f6d9cf3 and at the head and compared for identity, then the line runs under `perf stat`
+for both, and equal instructions with different cycles is placement and leaves K2.
+
+The two timing tests that failed on a loaded workstation, `ReadTimeInsideTheEngineTests`
+and `CancelledStepTests`, ran past the one-minute bound of the tests, after which a held
+read leaves its slot; neither failure was the engine's. Both are made deterministic by the
+replaceable source of the timestamp in S18, as its brief says; that is not refactoring,
+since it needs a source the engine does not have.
 
 ## Architect's review after S13, 18 November 2026
 
